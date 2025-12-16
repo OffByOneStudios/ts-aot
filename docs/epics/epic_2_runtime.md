@@ -48,9 +48,9 @@ Define the main entry point that initializes the runtime environment.
 - [x] Ensure it prints correctly to stdout.
 
 ### Task 2.5: Entry Point
-- [ ] Update `src/runtime/include/TsRuntime.h` (create if missing) to expose public API.
-- [ ] Implement `int ts_main(int argc, char** argv, void (*user_main)())` in `src/runtime/src/Core.cpp`.
-- [ ] Ensure `ts_main` initializes GC, runs user code, then runs the event loop.
+- [x] Update `src/runtime/include/TsRuntime.h` (create if missing) to expose public API.
+- [x] Implement `int ts_main(int argc, char** argv, void (*user_main)())` in `src/runtime/src/Core.cpp`.
+- [x] Ensure `ts_main` initializes GC, runs user code, then runs the event loop.
 
 ### Task 2.6: Unit Tests
 - [x] Create `tests/unit/RuntimeTests.cpp`.

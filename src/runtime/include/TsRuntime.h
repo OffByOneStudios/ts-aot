@@ -16,4 +16,7 @@ void ts_loop_run();
 // --- Console ---
 void ts_console_log(TsString* str);
 
+// --- Entry Point ---
+int ts_main(int argc, char** argv, void (*user_main)());
+
 }
