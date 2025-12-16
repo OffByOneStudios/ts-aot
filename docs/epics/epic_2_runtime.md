@@ -44,8 +44,8 @@ Define the main entry point that initializes the runtime environment.
 - [x] Implement `TsString` using ICU (or simple wrapper initially) for UTF-16 support.
 
 ### Task 2.4: Console & IO
-- [ ] Implement `void ts_console_log(TsString* str)` in `src/runtime/src/Primitives.cpp`.
-- [ ] Ensure it prints correctly to stdout.
+- [x] Implement `void ts_console_log(TsString* str)` in `src/runtime/src/Primitives.cpp`.
+- [x] Ensure it prints correctly to stdout.
 
 ### Task 2.5: Entry Point
 - [ ] Update `src/runtime/include/TsRuntime.h` (create if missing) to expose public API.

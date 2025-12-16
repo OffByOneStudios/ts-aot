@@ -1,4 +1,7 @@
 #pragma once
+#include <cstddef>
+
+class TsString;
 
 extern "C" {
 
@@ -9,5 +12,8 @@ void ts_gc_init();
 // --- Event Loop ---
 void ts_loop_init();
 void ts_loop_run();
+
+// --- Console ---
+void ts_console_log(TsString* str);
 
 }
