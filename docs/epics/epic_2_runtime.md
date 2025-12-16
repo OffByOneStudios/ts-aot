@@ -33,9 +33,9 @@ Define the main entry point that initializes the runtime environment.
 - [x] Verify GC linking in `CMakeLists.txt`.
 
 ### Task 2.2: Event Loop Integration
-- [ ] Create `src/runtime/src/EventLoop.cpp`.
-- [ ] Implement `void ts_loop_init()` to initialize the default libuv loop.
-- [ ] Implement `void ts_loop_run()` to run the loop.
+- [x] Create `src/runtime/src/EventLoop.cpp`.
+- [x] Implement `void ts_loop_init()` to initialize the default libuv loop.
+- [x] Implement `void ts_loop_run()` to run the loop.
 
 ### Task 2.3: Type System & Primitives
 - [ ] Create `src/runtime/include/TsObject.h`.

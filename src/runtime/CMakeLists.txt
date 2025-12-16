@@ -5,6 +5,7 @@ find_package(ICU COMPONENTS uc REQUIRED)
 add_library(tsruntime STATIC
     src/Core.cpp
     src/Memory.cpp
+    src/EventLoop.cpp
     # Add other source files here as they are created
 )
 
