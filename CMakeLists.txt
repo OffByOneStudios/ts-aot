@@ -13,4 +13,4 @@ endif()
 # Add subdirectories
 add_subdirectory(src/runtime)
 add_subdirectory(src/compiler)
-# add_subdirectory(tests) # Uncomment when tests are ready
+add_subdirectory(tests)

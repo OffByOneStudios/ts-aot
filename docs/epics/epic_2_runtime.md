@@ -27,10 +27,10 @@ Define the main entry point that initializes the runtime environment.
 ## Action Items
 
 ### Task 2.1: Memory Management
-- [ ] Create `src/runtime/include/GC.h` to wrap `gc.h`.
-- [ ] Create `src/runtime/src/Memory.cpp`.
-- [ ] Implement `void* ts_alloc(size_t size)` that calls `GC_MALLOC`.
-- [ ] Verify GC linking in `CMakeLists.txt`.
+- [x] Create `src/runtime/include/GC.h` to wrap `gc.h`.
+- [x] Create `src/runtime/src/Memory.cpp`.
+- [x] Implement `void* ts_alloc(size_t size)` that calls `GC_MALLOC`.
+- [x] Verify GC linking in `CMakeLists.txt`.
 
 ### Task 2.2: Event Loop Integration
 - [ ] Create `src/runtime/src/EventLoop.cpp`.
@@ -53,5 +53,5 @@ Define the main entry point that initializes the runtime environment.
 - [ ] Ensure `ts_main` initializes GC, runs user code, then runs the event loop.
 
 ### Task 2.6: Unit Tests
-- [ ] Create `tests/unit/RuntimeTests.cpp`.
-- [ ] Add Catch2 tests for `ts_alloc` (basic check), `TsString`, and `TaggedValue` size/layout.
+- [x] Create `tests/unit/RuntimeTests.cpp`.
+- [x] Add Catch2 tests for `ts_alloc` (basic check), `TsString`, and `TaggedValue` size/layout.
