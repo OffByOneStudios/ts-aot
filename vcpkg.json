@@ -1,0 +1,14 @@
+{
+  "name": "ts-aot",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "llvm",
+    "nlohmann-json",
+    "fmt",
+    "cxxopts",
+    "libuv",
+    "bdwgc",
+    "icu",
+    "catch2"
+  ]
+}

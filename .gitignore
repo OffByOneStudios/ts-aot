@@ -1,0 +1,38 @@
+# Build directories
+build/
+out/
+
+# vcpkg
+vcpkg_installed/
+vcpkg/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CMakeUserPresets.json
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exe
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# OS generated
+.DS_Store
+Thumbs.db

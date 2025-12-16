@@ -1,0 +1,18 @@
+find_package(libuv CONFIG REQUIRED)
+find_package(BDWgc CONFIG REQUIRED)
+find_package(ICU COMPONENTS uc REQUIRED)
+
+add_library(tsruntime STATIC
+    src/Core.cpp
+    # Add other source files here as they are created
+)
+
+target_include_directories(tsruntime PUBLIC include)
+
+target_link_libraries(tsruntime PUBLIC
+    $<IF:$<TARGET_EXISTS:libuv::uv_a>,libuv::uv_a,libuv::uv>
+    BDWgc::gc
+    ICU::uc
+)
+
+target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT)
