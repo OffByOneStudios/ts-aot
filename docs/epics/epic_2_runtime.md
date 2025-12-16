@@ -38,10 +38,10 @@ Define the main entry point that initializes the runtime environment.
 - [x] Implement `void ts_loop_run()` to run the loop.
 
 ### Task 2.3: Type System & Primitives
-- [ ] Create `src/runtime/include/TsObject.h`.
-- [ ] Define `TaggedValue` struct and `ValueType` enum (as per scaffold).
-- [ ] Create `src/runtime/include/TsString.h` and `src/runtime/src/TsString.cpp`.
-- [ ] Implement `TsString` using ICU (or simple wrapper initially) for UTF-16 support.
+- [x] Create `src/runtime/include/TsObject.h`.
+- [x] Define `TaggedValue` struct and `ValueType` enum (as per scaffold).
+- [x] Create `src/runtime/include/TsString.h` and `src/runtime/src/TsString.cpp`.
+- [x] Implement `TsString` using ICU (or simple wrapper initially) for UTF-16 support.
 
 ### Task 2.4: Console & IO
 - [ ] Implement `void ts_console_log(TsString* str)` in `src/runtime/src/Primitives.cpp`.

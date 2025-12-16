@@ -1,7 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "GC.h"
 #include "TsRuntime.h"
+#include "TsObject.h"
+#include "TsString.h"
 #include <uv.h>
+#include <cstring>
 
 TEST_CASE("Memory Management", "[runtime][gc]") {
     ts_gc_init();
@@ -14,6 +17,28 @@ TEST_CASE("Memory Management", "[runtime][gc]") {
         int* int_ptr = static_cast<int*>(ptr);
         *int_ptr = 42;
         REQUIRE(*int_ptr == 42);
+    }
+}
+
+TEST_CASE("Type System", "[runtime][types]") {
+    SECTION("TaggedValue Size") {
+        // TaggedValue should be reasonably small (type + union)
+        // 1 byte type + 8 byte union + padding = 16 bytes usually
+        REQUIRE(sizeof(TaggedValue) <= 16);
+    }
+
+    SECTION("TsString Creation") {
+        TsString* str = TsString::Create("Hello World");
+        REQUIRE(str != nullptr);
+        
+        const char* utf8 = str->ToUtf8();
+        REQUIRE(std::strcmp(utf8, "Hello World") == 0);
+    }
+    
+    SECTION("TsString UTF-8 Conversion") {
+        // Test with some non-ASCII chars if possible, but keep it simple for now
+        TsString* str = TsString::Create("Test");
+        REQUIRE(std::strcmp(str->ToUtf8(), "Test") == 0);
     }
 }
 
