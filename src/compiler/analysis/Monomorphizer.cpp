@@ -107,21 +107,31 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
                     Specialization spec;
                     spec.originalName = method->name;
-                    spec.specializedName = cls->name + "_" + method->name;
                     spec.node = method;
                     spec.classType = ct;
-                    
-                    // Construct argTypes: [ClassType, explicitParams...]
-                    spec.argTypes.push_back(ct);
-                    
-                    if (ct->methods.count(method->name)) {
-                        auto methodType = ct->methods[method->name];
-                        spec.argTypes.insert(spec.argTypes.end(), 
-                            methodType->paramTypes.begin(), methodType->paramTypes.end());
-                        spec.returnType = methodType->returnType;
+
+                    if (method->isStatic) {
+                        spec.specializedName = cls->name + "_static_" + method->name;
+                        if (ct->staticMethods.count(method->name)) {
+                            auto methodType = ct->staticMethods[method->name];
+                            spec.argTypes = methodType->paramTypes;
+                            spec.returnType = methodType->returnType;
+                        } else {
+                            spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                        }
                     } else {
-                        // Should not happen if Analyzer did its job
-                        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                        spec.specializedName = cls->name + "_" + method->name;
+                        // Construct argTypes: [ClassType, explicitParams...]
+                        spec.argTypes.push_back(ct);
+                        
+                        if (ct->methods.count(method->name)) {
+                            auto methodType = ct->methods[method->name];
+                            spec.argTypes.insert(spec.argTypes.end(), 
+                                methodType->paramTypes.begin(), methodType->paramTypes.end());
+                            spec.returnType = methodType->returnType;
+                        } else {
+                            spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                        }
                     }
 
                     specializations.push_back(spec);

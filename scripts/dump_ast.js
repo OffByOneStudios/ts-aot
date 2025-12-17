@@ -30,6 +30,14 @@ function getAccessModifier(node) {
     return "public";
 }
 
+function isStatic(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.StaticKeyword) return true;
+    }
+    return false;
+}
+
 function visit(node) {
     switch (node.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
@@ -85,7 +93,8 @@ function visit(node) {
                 name: node.name.text,
                 type: node.type ? node.type.getText(currentSourceFile) : "any",
                 initializer: node.initializer ? visit(node.initializer) : null,
-                access: getAccessModifier(node)
+                access: getAccessModifier(node),
+                isStatic: isStatic(node)
             };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:
@@ -99,7 +108,8 @@ function visit(node) {
                 })),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 body: node.body ? visitBlock(node.body) : [],
-                access: getAccessModifier(node)
+                access: getAccessModifier(node),
+                isStatic: isStatic(node)
             };
         case ts.SyntaxKind.Constructor:
              return {
