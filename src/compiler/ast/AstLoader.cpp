@@ -109,6 +109,19 @@ StmtPtr parseStatement(const json& j) {
         node->condition = parseExpression(j["condition"]);
         node->body = parseStatement(j["statement"]);
         return node;
+    } else if (kind == "ForStatement") {
+        auto node = std::make_unique<ForStatement>();
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseStatement(j["initializer"]);
+        }
+        if (j.contains("condition") && !j["condition"].is_null()) {
+            node->condition = parseExpression(j["condition"]);
+        }
+        if (j.contains("incrementor") && !j["incrementor"].is_null()) {
+            node->incrementor = parseExpression(j["incrementor"]);
+        }
+        node->body = parseStatement(j["body"]);
+        return node;
     }
 
     throw std::runtime_error("Unknown statement kind: " + kind);

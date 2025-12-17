@@ -106,6 +106,30 @@ function visit(node) {
                 condition: visit(node.expression),
                 statement: visit(node.statement)
             };
+        case ts.SyntaxKind.ForStatement:
+            let init = null;
+            if (node.initializer) {
+                if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
+                    const decl = node.initializer.declarations[0];
+                    init = {
+                        kind: "VariableDeclaration",
+                        name: decl.name.text,
+                        initializer: decl.initializer ? visit(decl.initializer) : null
+                    };
+                } else {
+                    init = {
+                        kind: "ExpressionStatement",
+                        expression: visit(node.initializer)
+                    };
+                }
+            }
+            return {
+                kind: "ForStatement",
+                initializer: init,
+                condition: node.condition ? visit(node.condition) : null,
+                incrementor: node.incrementor ? visit(node.incrementor) : null,
+                body: visit(node.statement)
+            };
         case ts.SyntaxKind.Block:
             return {
                 kind: "BlockStatement",
