@@ -40,6 +40,7 @@ private:
     void visitCallExpression(ast::CallExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
+    void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
