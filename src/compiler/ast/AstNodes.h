@@ -142,6 +142,7 @@ struct MethodDefinition : Node {
     std::vector<StmtPtr> body;
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isStatic = false;
+    bool isAbstract = false;
     std::string getKind() const override { return "MethodDefinition"; }
 };
 
@@ -150,6 +151,7 @@ struct ClassDeclaration : Statement {
     std::string baseClass;
     std::vector<std::string> implementsInterfaces;
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
+    bool isAbstract = false;
     std::string getKind() const override { return "ClassDeclaration"; }
 };
 

@@ -161,6 +161,9 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("isStatic")) {
             node->isStatic = j["isStatic"];
         }
+        if (j.contains("isAbstract")) {
+            node->isAbstract = j["isAbstract"];
+        }
         for (const auto& p : j["parameters"]) {
             auto param = std::make_unique<Parameter>();
             param->name = p["name"];
@@ -191,6 +194,9 @@ StmtPtr parseStatement(const json& j) {
         }
         for (const auto& member : j["members"]) {
             node->members.push_back(parseClassMember(member));
+        }
+        if (j.contains("isAbstract")) {
+            node->isAbstract = j["isAbstract"];
         }
         return node;
     } else if (kind == "InterfaceDeclaration") {

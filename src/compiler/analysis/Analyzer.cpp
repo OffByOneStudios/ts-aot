@@ -254,6 +254,10 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         if (sym && sym->type->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
             if (funcType->returnType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(funcType->returnType);
+                if (classType->isAbstract) {
+                    reportError(fmt::format("Cannot create an instance of an abstract class '{}'", classType->name));
+                }
                 lastType = funcType->returnType;
                 // TODO: Validate arguments against funcType->paramTypes
                 return;
@@ -603,6 +607,7 @@ void Analyzer::visitSuperExpression(SuperExpression* node) {
 
 void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
+    classType->isAbstract = node->isAbstract;
     
     // 1. Resolve base class
     if (!node->baseClass.empty()) {
@@ -611,6 +616,8 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
             reportError(fmt::format("Base class {} not found or not a class", node->baseClass));
         } else {
             classType->baseClass = std::static_pointer_cast<ClassType>(base);
+            // Inherit abstract methods
+            classType->abstractMethods = classType->baseClass->abstractMethods;
         }
     }
 
@@ -618,7 +625,7 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     symbols.defineType(node->name, classType);
 
     // 2.5 Resolve implemented interfaces
-            for (const auto& interfaceName : node->implementsInterfaces) {
+    for (const auto& interfaceName : node->implementsInterfaces) {
         auto interfaceType = symbols.lookupType(interfaceName);
         if (!interfaceType || interfaceType->kind != TypeKind::Interface) {
             reportError(fmt::format("Interface {} not found or not an interface", interfaceName));
@@ -639,6 +646,16 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
                 classType->fieldAccess[prop->name] = prop->access;
             }
         } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
+            if (method->isAbstract) {
+                if (!node->isAbstract) {
+                    reportError(fmt::format("Abstract method '{}' can only be declared in an abstract class.", method->name));
+                }
+                classType->abstractMethods.insert(method->name);
+            } else {
+                // If it's a concrete implementation, remove it from the set of abstract methods
+                classType->abstractMethods.erase(method->name);
+            }
+
             auto methodType = std::make_shared<FunctionType>();
             if (!method->returnType.empty()) {
                 methodType->returnType = parseType(method->returnType, symbols);
@@ -660,6 +677,15 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
                 classType->methodAccess[method->name] = method->access;
             }
         }
+    }
+
+    // Check if all abstract methods are implemented if this is a concrete class
+    if (!classType->isAbstract && !classType->abstractMethods.empty()) {
+        std::string missing = "";
+        for (const auto& m : classType->abstractMethods) {
+            missing += (missing.empty() ? "" : ", ") + m;
+        }
+        reportError(fmt::format("Class '{}' is not abstract and does not implement abstract methods: {}", node->name, missing));
     }
 
     // 4. Register constructor (if any) or default constructor
@@ -722,6 +748,13 @@ void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType
 }
 
 void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<ClassType> classType) {
+    if (node->isAbstract) {
+        if (!node->body.empty()) {
+            reportError(fmt::format("Abstract method '{}' cannot have an implementation.", node->name));
+        }
+        return;
+    }
+
     symbols.enterScope();
     
     // Define 'this' (only for instance methods)
