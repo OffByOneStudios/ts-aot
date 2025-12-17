@@ -17,6 +17,7 @@ public:
     IRGenerator();
 
     void generate(const std::vector<Specialization>& specializations);
+    void emitObjectCode(const std::string& filename);
     void dumpIR();
 
 private:

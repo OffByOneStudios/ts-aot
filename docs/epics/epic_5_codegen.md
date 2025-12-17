@@ -41,10 +41,10 @@ Configure the LLVM TargetMachine and emit the generated module as a native objec
 - [x] Generate function calls.
 
 ### Task 5.4: Runtime Integration
-- [ ] Declare external runtime functions (`ts_console_log`, `ts_alloc`) in the LLVM module.
-- [ ] Generate calls to these runtime functions for specific AST nodes (e.g., `console.log`).
+- [x] Declare external runtime functions (`ts_console_log`, `ts_alloc`) in the LLVM module.
+- [x] Generate calls to these runtime functions for specific AST nodes (e.g., `console.log`).
 
 ### Task 5.5: Object Emission
-- [ ] Initialize LLVM targets (`InitializeAllTargetInfos`, etc.).
-- [ ] Configure `TargetMachine`.
-- [ ] Write the module to an object file.
+- [x] Initialize LLVM targets (`InitializeAllTargetInfos`, etc.).
+- [x] Configure `TargetMachine`.
+- [x] Write the module to an object file.
