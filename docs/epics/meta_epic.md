@@ -37,6 +37,7 @@ This document outlines the high-level epics required to deliver the `ts-aot` pro
 - **Object Emission:** Write `.o` files using `llvm::TargetMachine`.
 
 ## Epic 6: Testing & Integration
+**Status:** Completed
 **Goal:** Ensure correctness through unit and integration tests.
 - **Unit Tests:** Set up `Catch2` for C++ runtime components.
 - **Integration Tests:** Create a suite of `.ts` files to compile and execute, verifying output against `ts-node` or `node`.
