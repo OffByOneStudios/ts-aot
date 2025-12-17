@@ -38,6 +38,8 @@ private:
     void visitStringLiteral(ast::StringLiteral* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
+    void visitIfStatement(ast::IfStatement* node);
+    void visitBlockStatement(ast::BlockStatement* node);
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;

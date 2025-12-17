@@ -55,6 +55,12 @@ void Monomorphizer::monomorphize(ast::Program* program, const std::map<std::stri
             Analyzer analyzer;
             spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
             
+            // Force main to return Void if it was inferred as Any (default from parser)
+            // This ensures we generate a ret void instruction.
+            if (spec.returnType->kind == TypeKind::Any) {
+                spec.returnType = std::make_shared<Type>(TypeKind::Void);
+            }
+            
             specializations.push_back(spec);
         }
     }

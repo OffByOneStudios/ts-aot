@@ -35,6 +35,6 @@ Populate the `tests/integration` directory with various TypeScript scenarios.
 - [x] Implement the pipeline: `dump_ast` -> `ts-aot` -> `link` -> `run` -> `verify`.
 
 ### Task 6.4: Test Cases
-- [ ] Create `tests/integration/math.ts`.
+- [x] Create `tests/integration/math.ts`.
 - [ ] Create `tests/integration/strings.ts`.
 - [ ] Create `tests/integration/recursion.ts`.

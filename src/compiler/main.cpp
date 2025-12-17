@@ -6,6 +6,10 @@
 #include "codegen/IRGenerator.h"
 #include <iostream>
 
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
+
 void printAst(const ast::Node* node, int indent = 0) {
     std::string padding(indent * 2, ' ');
     fmt::print("{}{}\n", padding, node->getKind());
@@ -31,6 +35,13 @@ void printAst(const ast::Node* node, int indent = 0) {
 }
 
 int main(int argc, char** argv) {
+#ifdef _MSC_VER
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
+
     cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
     options.add_options()
         ("o,output", "Output file", cxxopts::value<std::string>())

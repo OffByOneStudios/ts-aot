@@ -119,12 +119,29 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
+    else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
+    else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
 }
 
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
     if (node->expression) {
         visit(node->expression.get());
-        builder->CreateRet(lastValue);
+        
+        if (lastValue) {
+            llvm::Function* func = builder->GetInsertBlock()->getParent();
+            llvm::Type* retType = func->getReturnType();
+            
+            if (lastValue->getType() != retType) {
+                if (retType->isDoubleTy() && lastValue->getType()->isIntegerTy(64)) {
+                    lastValue = builder->CreateSIToFP(lastValue, retType, "casttmp");
+                } else if (retType->isIntegerTy(64) && lastValue->getType()->isDoubleTy()) {
+                    lastValue = builder->CreateFPToSI(lastValue, retType, "casttmp");
+                }
+            }
+            builder->CreateRet(lastValue);
+        } else {
+             // Error?
+        }
     } else {
         builder->CreateRetVoid();
     }
@@ -133,22 +150,61 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
 void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     visit(node->left.get());
     llvm::Value* left = lastValue;
+
     visit(node->right.get());
     llvm::Value* right = lastValue;
 
     if (!left || !right) return;
 
-    bool isDouble = left->getType()->isDoubleTy() || right->getType()->isDoubleTy();
+    bool leftIsDouble = left->getType()->isDoubleTy();
+    bool rightIsDouble = right->getType()->isDoubleTy();
+    bool isDouble = leftIsDouble || rightIsDouble;
+    bool isString = left->getType()->isPointerTy() && right->getType()->isPointerTy();
+
+    if (isDouble && !isString) {
+        if (!leftIsDouble) left = builder->CreateSIToFP(left, llvm::Type::getDoubleTy(*context), "casttmp");
+        if (!rightIsDouble) right = builder->CreateSIToFP(right, llvm::Type::getDoubleTy(*context), "casttmp");
+    }
+    // ...
 
     if (node->op == "+") {
-        if (isDouble) lastValue = builder->CreateFAdd(left, right, "addtmp");
-        else lastValue = builder->CreateAdd(left, right, "addtmp");
+        if (isString) {
+             llvm::Function* concatFn = module->getFunction("ts_string_concat");
+             if (!concatFn) {
+                 std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
+                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
+                 concatFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_concat", module.get());
+             }
+             lastValue = builder->CreateCall(concatFn, { left, right });
+        } else if (isDouble) {
+            lastValue = builder->CreateFAdd(left, right, "addtmp");
+        } else {
+            lastValue = builder->CreateAdd(left, right, "addtmp");
+        }
     } else if (node->op == "-") {
         if (isDouble) lastValue = builder->CreateFSub(left, right, "subtmp");
         else lastValue = builder->CreateSub(left, right, "subtmp");
     } else if (node->op == "*") {
         if (isDouble) lastValue = builder->CreateFMul(left, right, "multmp");
         else lastValue = builder->CreateMul(left, right, "multmp");
+    } else if (node->op == "<") {
+        if (isDouble) lastValue = builder->CreateFCmpOLT(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpSLT(left, right, "cmptmp");
+    } else if (node->op == "<=") {
+        if (isDouble) lastValue = builder->CreateFCmpOLE(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpSLE(left, right, "cmptmp");
+    } else if (node->op == ">") {
+        if (isDouble) lastValue = builder->CreateFCmpOGT(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpSGT(left, right, "cmptmp");
+    } else if (node->op == ">=") {
+        if (isDouble) lastValue = builder->CreateFCmpOGE(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpSGE(left, right, "cmptmp");
+    } else if (node->op == "==") {
+        if (isDouble) lastValue = builder->CreateFCmpOEQ(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpEQ(left, right, "cmptmp");
+    } else if (node->op == "!=") {
+        if (isDouble) lastValue = builder->CreateFCmpONE(left, right, "cmptmp");
+        else lastValue = builder->CreateICmpNE(left, right, "cmptmp");
     }
     // TODO: Other ops
 }
@@ -157,7 +213,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
     if (namedValues.count(node->name)) {
         lastValue = namedValues[node->name];
     } else {
-        // TODO: Global variables or error
+        llvm::errs() << "Error: Undefined variable " << node->name << "\n";
         lastValue = nullptr;
     }
 }
@@ -194,15 +250,35 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     
                     visit(node->arguments[0].get());
                     llvm::Value* arg = lastValue;
-                    if (!arg) return;
-
-                    llvm::Function* logFn = module->getFunction("ts_console_log");
-                    if (!logFn) {
-                        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
-                        llvm::FunctionType* ft = llvm::FunctionType::get(
-                            llvm::Type::getVoidTy(*context), args, false);
-                        logFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_console_log", module.get());
+                    if (!arg) {
+                        llvm::errs() << "Error: console.log argument evaluated to null\n";
+                        return;
                     }
+
+                    llvm::Type* argType = arg->getType();
+
+                    if (argType->isVoidTy()) {
+                        llvm::errs() << "Error: Argument to console.log is void\n";
+                        return;
+                    }
+
+                    std::string funcName = "ts_console_log";
+                    llvm::Type* paramType = llvm::PointerType::getUnqual(*context);
+
+                    if (argType->isIntegerTy(64)) {
+                        funcName = "ts_console_log_int";
+                        paramType = llvm::Type::getInt64Ty(*context);
+                    } else if (argType->isDoubleTy()) {
+                        funcName = "ts_console_log_double";
+                        paramType = llvm::Type::getDoubleTy(*context);
+                    } else if (argType->isIntegerTy(1)) {
+                        funcName = "ts_console_log_bool";
+                        paramType = llvm::Type::getInt1Ty(*context);
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(
+                        llvm::Type::getVoidTy(*context), { paramType }, false);
+                    llvm::FunctionCallee logFn = module->getOrInsertFunction(funcName, ft);
 
                     builder->CreateCall(logFn, { arg });
                     lastValue = nullptr;
@@ -233,8 +309,11 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {
+            llvm::errs() << "Found function: " << mangledName << "\n";
             lastValue = builder->CreateCall(func, args);
+            llvm::errs() << "Created call\n";
         } else {
+            llvm::errs() << "Function not found: " << mangledName << "\n";
             // TODO: Error handling
             lastValue = nullptr;
         }
@@ -243,6 +322,58 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
 void IRGenerator::visitExpressionStatement(ast::ExpressionStatement* node) {
     visit(node->expression.get());
+}
+
+void IRGenerator::visitIfStatement(ast::IfStatement* node) {
+    visit(node->condition.get());
+    llvm::Value* condValue = lastValue;
+    if (!condValue) return;
+
+    // Convert condition to bool
+    if (condValue->getType()->isIntegerTy(64)) {
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "ifcond");
+    } else if (condValue->getType()->isDoubleTy()) {
+        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
+    }
+
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "then", func);
+    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "else");
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "ifcont");
+
+    bool hasElse = (node->elseStatement != nullptr);
+
+    builder->CreateCondBr(condValue, thenBB, hasElse ? elseBB : mergeBB);
+
+    // Emit then block
+    builder->SetInsertPoint(thenBB);
+    visit(node->thenStatement.get());
+    
+    // If the then block doesn't already have a terminator (like return), branch to merge
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(mergeBB);
+    }
+
+    // Emit else block
+    if (hasElse) {
+        func->insert(func->end(), elseBB);
+        builder->SetInsertPoint(elseBB);
+        visit(node->elseStatement.get());
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(mergeBB);
+        }
+    }
+
+    // Emit merge block
+    func->insert(func->end(), mergeBB);
+    builder->SetInsertPoint(mergeBB);
+}
+
+void IRGenerator::visitBlockStatement(ast::BlockStatement* node) {
+    for (const auto& stmt : node->statements) {
+        visit(stmt.get());
+    }
 }
 
 void IRGenerator::dumpIR() {

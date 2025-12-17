@@ -12,4 +12,16 @@ void ts_console_log(TsString* str) {
     }
 }
 
+void ts_console_log_int(int64_t val) {
+    std::printf("%lld\n", val);
+}
+
+void ts_console_log_double(double val) {
+    std::printf("%f\n", val);
+}
+
+void ts_console_log_bool(bool val) {
+    std::printf("%s\n", val ? "true" : "false");
+}
+
 }

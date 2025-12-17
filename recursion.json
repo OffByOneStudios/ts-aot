@@ -1,0 +1,131 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "factorial",
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": "n",
+          "type": "number"
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<=",
+            "left": {
+              "kind": "Identifier",
+              "name": "n"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 1
+            }
+          },
+          "thenStatement": {
+            "kind": "ReturnStatement",
+            "expression": {
+              "kind": "NumericLiteral",
+              "value": 1
+            }
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "*",
+            "left": {
+              "kind": "Identifier",
+              "name": "n"
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "factorial"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "-",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "n"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Factorial of 5:"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "factorial"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
