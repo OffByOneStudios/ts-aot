@@ -312,11 +312,39 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     return;
                 }
             }
+        } else if (prop->name == "readFileSync") {
+            if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                if (obj->name == "fs") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    
+                    llvm::FunctionCallee readFn = module->getOrInsertFunction("ts_fs_readFileSync",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::PointerType::getUnqual(*context) }, false));
+                    
+                    lastValue = builder->CreateCall(readFn, { arg });
+                    return;
+                }
+            }
         }
     }
 
     // User function call
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        if (id->name == "parseInt") {
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* arg = lastValue;
+
+             llvm::FunctionCallee parseFn = module->getOrInsertFunction("ts_parseInt",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             
+             lastValue = builder->CreateCall(parseFn, { arg });
+             return;
+        }
+
         std::string funcName = id->name;
         std::string mangledName = funcName;
 
