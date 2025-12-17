@@ -61,6 +61,19 @@ int main(int argc, char** argv) {
         analyzer.analyze(program.get());
         fmt::print("Analysis complete.\n");
 
+        // Debug: Print function usages
+        for (const auto& [name, usages] : analyzer.getFunctionUsages()) {
+            fmt::print("Function '{}' called {} times:\n", name, usages.size());
+            for (const auto& args : usages) {
+                fmt::print("  (");
+                for (size_t i = 0; i < args.size(); ++i) {
+                    fmt::print("{}", args[i]->toString());
+                    if (i < args.size() - 1) fmt::print(", ");
+                }
+                fmt::print(")\n");
+            }
+        }
+
         fmt::print("Successfully loaded AST from {}\n", inputFile);
     } catch (const std::exception& e) {
         std::cerr << "Error loading AST: " << e.what() << std::endl;

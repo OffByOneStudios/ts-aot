@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <map>
+#include <vector>
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
 
@@ -16,8 +18,13 @@ public:
     // Get the symbol table (for later passes)
     const SymbolTable& getSymbolTable() const { return symbols; }
 
+    // Get usage information (Function Name -> List of Argument Type Lists)
+    const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getFunctionUsages() const { return functionUsages; }
+
 private:
     SymbolTable symbols;
+    std::shared_ptr<Type> lastType; // Result of the last visited expression
+    std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> functionUsages;
 
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node);

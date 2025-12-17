@@ -1,0 +1,76 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "add",
+      "body": []
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "add"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "add"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 3.5
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 4.5
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Hello"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
