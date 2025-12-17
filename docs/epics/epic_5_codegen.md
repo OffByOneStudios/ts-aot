@@ -32,8 +32,8 @@ Configure the LLVM TargetMachine and emit the generated module as a native objec
 - [ ] Add a method to dump the module IR to stdout.
 
 ### Task 5.2: Function Prototypes
-- [ ] Implement `generatePrototypes` to create LLVM Functions for each `Specialization`.
-- [ ] Map internal types (`TypeKind::Int`) to LLVM types (`llvm::Type::getInt64Ty`).
+- [x] Implement `generatePrototypes` to create LLVM Functions for each `Specialization`.
+- [x] Map internal types (`TypeKind::Int`) to LLVM types (`llvm::Type::getInt64Ty`).
 
 ### Task 5.3: Body Generation
 - [ ] Implement AST visitor for code generation (`visitBinaryExpression`, `visitCallExpression`, etc.).
