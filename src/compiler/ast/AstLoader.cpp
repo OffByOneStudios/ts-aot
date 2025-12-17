@@ -10,6 +10,7 @@ namespace ast {
 
 ExprPtr parseExpression(const json& j);
 StmtPtr parseStatement(const json& j);
+NodePtr parseClassMember(const json& j);
 
 ExprPtr parseExpression(const json& j) {
     if (j.is_null()) throw std::runtime_error("parseExpression called with null");
@@ -126,10 +127,45 @@ ExprPtr parseExpression(const json& j) {
     throw std::runtime_error("Unknown expression kind: " + kind);
 }
 
+NodePtr parseClassMember(const json& j) {
+    std::string kind = j["kind"];
+    if (kind == "PropertyDefinition") {
+        auto node = std::make_unique<PropertyDefinition>();
+        node->name = j["name"];
+        node->type = j["type"];
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseExpression(j["initializer"]);
+        }
+        return node;
+    } else if (kind == "MethodDefinition") {
+        auto node = std::make_unique<MethodDefinition>();
+        node->name = j["name"];
+        node->returnType = j["returnType"];
+        for (const auto& p : j["parameters"]) {
+            auto param = std::make_unique<Parameter>();
+            param->name = p["name"];
+            param->type = p["type"];
+            node->parameters.push_back(std::move(param));
+        }
+        for (const auto& stmt : j["body"]) {
+            node->body.push_back(parseStatement(stmt));
+        }
+        return node;
+    }
+    throw std::runtime_error("Unknown class member kind: " + kind);
+}
+
 StmtPtr parseStatement(const json& j) {
     std::string kind = j["kind"];
 
-    if (kind == "FunctionDeclaration") {
+    if (kind == "ClassDeclaration") {
+        auto node = std::make_unique<ClassDeclaration>();
+        node->name = j["name"];
+        for (const auto& member : j["members"]) {
+            node->members.push_back(parseClassMember(member));
+        }
+        return node;
+    } else if (kind == "FunctionDeclaration") {
         auto node = std::make_unique<FunctionDeclaration>();
         node->name = j["name"];
         if (j.contains("returnType")) node->returnType = j["returnType"];

@@ -17,7 +17,8 @@ enum class TypeKind {
     Function,
     Array,
     Map,
-    Object
+    Object,
+    Class
 };
 
 struct Type {
@@ -38,6 +39,7 @@ struct Type {
             case TypeKind::Array: return "array";
             case TypeKind::Map: return "Map";
             case TypeKind::Object: return "object";
+            case TypeKind::Class: return "class";
         }
         return "unknown";
     }
@@ -80,6 +82,18 @@ struct ObjectType : public Type {
         }
         s += " }";
         return s;
+    }
+};
+
+struct ClassType : public Type {
+    std::string name;
+    std::map<std::string, std::shared_ptr<Type>> fields;
+    std::map<std::string, std::shared_ptr<FunctionType>> methods;
+
+    ClassType(std::string n) : Type(TypeKind::Class), name(n) {}
+
+    std::string toString() const override {
+        return name;
     }
 };
 

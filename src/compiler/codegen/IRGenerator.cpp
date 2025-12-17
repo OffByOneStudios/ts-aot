@@ -16,10 +16,80 @@ IRGenerator::IRGenerator() {
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 }
 
-void IRGenerator::generate(const std::vector<Specialization>& specializations) {
+void IRGenerator::generate(const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
+    generateClasses(analyzer);
     generatePrototypes(specializations);
     generateBodies(specializations);
     generateEntryPoint();
+}
+
+void IRGenerator::generateClasses(const Analyzer& analyzer) {
+    // First pass: Create opaque structs for all classes to handle circular references
+    for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        if (type->kind == TypeKind::Class) {
+            llvm::StructType::create(*context, name);
+        }
+    }
+
+    // Second pass: Define struct bodies and VTables
+    for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        if (type->kind != TypeKind::Class) continue;
+
+        auto classType = std::static_pointer_cast<ClassType>(type);
+        llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
+        if (!classStruct) continue;
+
+        // 1. Define VTable Type
+        std::string vtableName = name + "_VTable";
+        llvm::StructType* vtableStruct = llvm::StructType::create(*context, vtableName);
+
+        // 2. Define Class Body: { VTable*, Fields... }
+        std::vector<llvm::Type*> fieldTypes;
+        fieldTypes.push_back(llvm::PointerType::getUnqual(vtableStruct)); // vptr
+
+        for (const auto& [fieldName, fieldType] : classType->fields) {
+            fieldTypes.push_back(getLLVMType(fieldType));
+        }
+        classStruct->setBody(fieldTypes);
+
+        // 3. Define VTable Body: { Function Pointers... }
+        std::vector<llvm::Type*> vtableFieldTypes;
+        std::vector<llvm::Constant*> vtableFuncs;
+
+        for (const auto& [methodName, methodType] : classType->methods) {
+            // Method signature: (this: Class*, args...) -> ret
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(llvm::PointerType::getUnqual(classStruct)); // this
+            for (const auto& param : methodType->paramTypes) {
+                paramTypes.push_back(getLLVMType(param));
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                getLLVMType(methodType->returnType), paramTypes, false);
+            
+            vtableFieldTypes.push_back(llvm::PointerType::getUnqual(ft));
+
+            // Create or get the method function
+            std::string mangledName = name + "_" + methodName;
+            llvm::Function* func = module->getFunction(mangledName);
+            if (!func) {
+                func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
+            }
+            vtableFuncs.push_back(func);
+        }
+        vtableStruct->setBody(vtableFieldTypes);
+
+        // 4. Create Global VTable Constant
+        llvm::Constant* vtableConst = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
+        new llvm::GlobalVariable(
+            *module,
+            vtableStruct,
+            true, // isConstant
+            llvm::GlobalValue::ExternalLinkage,
+            vtableConst,
+            vtableName + "_Global"
+        );
+    }
 }
 
 void IRGenerator::generateEntryPoint() {
@@ -71,6 +141,15 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
             llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
             return llvm::PointerType::getUnqual(structType);
         }
+        case TypeKind::Class: {
+            auto classType = std::static_pointer_cast<ClassType>(type);
+            llvm::StructType* structType = llvm::StructType::getTypeByName(*context, classType->name);
+            if (!structType) {
+                // Should have been created in generateClasses, but fallback just in case
+                structType = llvm::StructType::create(*context, classType->name);
+            }
+            return llvm::PointerType::getUnqual(structType);
+        }
         case TypeKind::String:
         case TypeKind::Any:
         case TypeKind::Array:
@@ -107,26 +186,52 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         builder->SetInsertPoint(bb);
 
         namedValues.clear();
-        unsigned idx = 0;
-        for (auto& arg : function->args()) {
-            if (idx < spec.node->parameters.size()) {
-                std::string argName = spec.node->parameters[idx]->name;
-                arg.setName(argName);
-                
-                // Create an alloca for this variable.
-                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
+        
+        if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+            unsigned idx = 0;
+            for (auto& arg : function->args()) {
+                if (idx < funcNode->parameters.size()) {
+                    std::string argName = funcNode->parameters[idx]->name;
+                    arg.setName(argName);
+                    
+                    // Create an alloca for this variable.
+                    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
 
-                // Store the initial value into the alloca.
-                builder->CreateStore(&arg, alloca);
+                    // Store the initial value into the alloca.
+                    builder->CreateStore(&arg, alloca);
 
-                // Add arguments to variable symbol table.
+                    // Add arguments to variable symbol table.
+                    namedValues[argName] = alloca;
+                }
+                idx++;
+            }
+
+            for (auto& stmt : funcNode->body) {
+                visit(stmt.get());
+            }
+        } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            // Handle 'this' parameter (first argument)
+            auto argIt = function->arg_begin();
+            if (argIt != function->arg_end()) {
+                argIt->setName("this");
+                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", argIt->getType());
+                builder->CreateStore(&*argIt, alloca);
+                namedValues["this"] = alloca;
+                ++argIt;
+            }
+
+            // Handle other parameters
+            for (size_t i = 0; i < methodNode->parameters.size() && argIt != function->arg_end(); ++i, ++argIt) {
+                std::string argName = methodNode->parameters[i]->name;
+                argIt->setName(argName);
+                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, argIt->getType());
+                builder->CreateStore(&*argIt, alloca);
                 namedValues[argName] = alloca;
             }
-            idx++;
-        }
 
-        for (auto& stmt : spec.node->body) {
-            visit(stmt.get());
+            for (auto& stmt : methodNode->body) {
+                visit(stmt.get());
+            }
         }
 
         if (!builder->GetInsertBlock()->getTerminator()) {
@@ -324,6 +429,77 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
 void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     // Check for console.log
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+            std::string className = classType->name;
+            std::string methodName = prop->name;
+            
+            // 1. Evaluate Object
+            visit(prop->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+            if (!classStruct) return;
+            
+            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+            llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, typedObjPtr, 0);
+            llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(llvm::StructType::getTypeByName(*context, className + "_VTable")), vptrPtr);
+            
+            // 3. Calculate Offset
+            int methodIndex = 0;
+            bool found = false;
+            for (const auto& [name, type] : classType->methods) {
+                if (name == methodName) {
+                    found = true;
+                    break;
+                }
+                methodIndex++;
+            }
+            
+            if (!found) return;
+            
+            // 4. Load Function Pointer
+            llvm::Value* funcPtrPtr = builder->CreateStructGEP(llvm::StructType::getTypeByName(*context, className + "_VTable"), vptr, methodIndex);
+            
+            auto methodType = classType->methods[methodName];
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(llvm::PointerType::getUnqual(classStruct)); // this
+            for (const auto& param : methodType->paramTypes) {
+                paramTypes.push_back(getLLVMType(param));
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(methodType->returnType), paramTypes, false);
+            
+            llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+            
+            // 5. Call
+            std::vector<llvm::Value*> args;
+            args.push_back(typedObjPtr); // this
+            
+            int argIdx = 0;
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                llvm::Value* val = lastValue;
+                
+                // Cast if necessary
+                if (argIdx + 1 < ft->getNumParams()) {
+                    llvm::Type* expectedType = ft->getParamType(argIdx + 1);
+                    if (val->getType() != expectedType) {
+                        if (expectedType->isDoubleTy() && val->getType()->isIntegerTy()) {
+                            val = builder->CreateSIToFP(val, expectedType);
+                        } else if (expectedType->isIntegerTy() && val->getType()->isDoubleTy()) {
+                            val = builder->CreateFPToSI(val, expectedType);
+                        }
+                    }
+                }
+                
+                args.push_back(val);
+                argIdx++;
+            }
+            
+            lastValue = builder->CreateCall(ft, funcPtr, args);
+            return;
+        }
+
         if (prop->name == "log") {
             if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
                 if (obj->name == "console") {
@@ -583,7 +759,6 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
     // User function call
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
-        llvm::errs() << "Calling: " << id->name << ". In namedValues: " << namedValues.count(id->name) << "\n";
         if (namedValues.count(id->name)) {
             llvm::Value* val = namedValues[id->name];
             if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
@@ -641,9 +816,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {
-            llvm::errs() << "Found function: " << mangledName << "\n";
             lastValue = builder->CreateCall(func, args);
-            llvm::errs() << "Created call\n";
         } else {
             llvm::errs() << "Function not found: " << mangledName << "\n";
             // TODO: Error handling
@@ -1178,6 +1351,36 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
                 
         builder->CreateCall(setFn, { arr, index, storeVal });
+    } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+            std::string className = classType->name;
+            std::string fieldName = prop->name;
+            
+            visit(prop->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+            if (!classStruct) return;
+            
+            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+            
+            // Find field index
+            int fieldIndex = 1; // Start at 1 because 0 is vptr
+            bool found = false;
+            for (const auto& [name, type] : classType->fields) {
+                if (name == fieldName) {
+                    found = true;
+                    break;
+                }
+                fieldIndex++;
+            }
+            
+            if (found) {
+                llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+                builder->CreateStore(val, fieldPtr);
+            }
+        }
     } else {
         llvm::errs() << "Error: LHS of assignment must be an identifier or element access\n";
         return;
@@ -1295,6 +1498,35 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+        std::string className = classType->name;
+        std::string fieldName = node->name;
+        
+        // Check if it's a field access
+        if (classType->fields.count(fieldName)) {
+            visit(node->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+            if (!classStruct) return;
+            
+            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+            
+            // Find field index
+            int fieldIndex = 1; // Start at 1 because 0 is vptr
+            for (const auto& [name, type] : classType->fields) {
+                if (name == fieldName) break;
+                fieldIndex++;
+            }
+            
+            llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+            auto fieldType = classType->fields[fieldName];
+            lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+            return;
+        }
+    }
+
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
@@ -1388,6 +1620,76 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
+        std::string className = classType->name;
+        
+        // 1. Get Struct Type
+        llvm::StructType* structType = llvm::StructType::getTypeByName(*context, className);
+        if (!structType) {
+            llvm::errs() << "Error: Class struct not found for " << className << "\n";
+            lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));
+            return;
+        }
+        
+        // 2. Allocate
+        llvm::DataLayout dl(module.get());
+        uint64_t size = dl.getTypeAllocSize(structType);
+        
+        llvm::Function* allocFn = module->getFunction("ts_alloc");
+        if (!allocFn) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                llvm::PointerType::getUnqual(*context),
+                { llvm::Type::getInt64Ty(*context) }, false);
+            allocFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_alloc", module.get());
+        }
+        
+        llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
+        llvm::Value* mem = builder->CreateCall(allocFn, { sizeVal });
+        llvm::Value* thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
+        
+        // 3. Initialize VPtr
+        std::string vtableName = className + "_VTable";
+        llvm::GlobalVariable* vtable = module->getGlobalVariable(vtableName + "_Global");
+        if (vtable) {
+            llvm::Value* vptrField = builder->CreateStructGEP(structType, thisPtr, 0);
+            builder->CreateStore(vtable, vptrField);
+        }
+        
+        // 4. Call Constructor
+        std::string ctorName = className + "_constructor";
+        llvm::Function* ctor = module->getFunction(ctorName);
+        if (ctor) {
+            std::vector<llvm::Value*> args;
+            args.push_back(thisPtr);
+            
+            int argIdx = 0;
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                llvm::Value* val = lastValue;
+                
+                // Cast if necessary
+                if (argIdx + 1 < ctor->arg_size()) {
+                    llvm::Type* expectedType = ctor->getArg(argIdx + 1)->getType();
+                    if (val->getType() != expectedType) {
+                        if (expectedType->isDoubleTy() && val->getType()->isIntegerTy()) {
+                            val = builder->CreateSIToFP(val, expectedType);
+                        } else if (expectedType->isIntegerTy() && val->getType()->isDoubleTy()) {
+                            val = builder->CreateFPToSI(val, expectedType);
+                        }
+                    }
+                }
+                
+                args.push_back(val);
+                argIdx++;
+            }
+            builder->CreateCall(ctor, args);
+        }
+        
+        lastValue = thisPtr;
+        return;
+    }
+
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create",

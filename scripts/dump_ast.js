@@ -34,6 +34,43 @@ function visit(node) {
                 })),
                 body: visitBlock(node.body)
             };
+        case ts.SyntaxKind.ClassDeclaration:
+            return {
+                kind: "ClassDeclaration",
+                name: node.name ? node.name.text : "anonymous",
+                members: node.members.map(visit).filter(m => m)
+            };
+        case ts.SyntaxKind.PropertyDeclaration:
+            return {
+                kind: "PropertyDefinition",
+                name: node.name.text,
+                type: node.type ? node.type.getText(currentSourceFile) : "any",
+                initializer: node.initializer ? visit(node.initializer) : null
+            };
+        case ts.SyntaxKind.MethodDeclaration:
+            return {
+                kind: "MethodDefinition",
+                name: node.name.text,
+                parameters: node.parameters.map(p => ({
+                    kind: "Parameter",
+                    name: p.name.text,
+                    type: p.type ? p.type.getText(currentSourceFile) : "any"
+                })),
+                returnType: node.type ? node.type.getText(currentSourceFile) : "any",
+                body: visitBlock(node.body)
+            };
+        case ts.SyntaxKind.Constructor:
+             return {
+                kind: "MethodDefinition",
+                name: "constructor",
+                parameters: node.parameters.map(p => ({
+                    kind: "Parameter",
+                    name: p.name.text,
+                    type: p.type ? p.type.getText(currentSourceFile) : "any"
+                })),
+                returnType: "void",
+                body: visitBlock(node.body)
+            };
         case ts.SyntaxKind.VariableStatement:
             // Simplified: assume one declaration per statement
             const decl = node.declarationList.declarations[0];
@@ -121,6 +158,11 @@ function visit(node) {
             return {
                 kind: "Identifier",
                 name: node.text
+            };
+        case ts.SyntaxKind.ThisKeyword:
+            return {
+                kind: "Identifier",
+                name: "this"
             };
         case ts.SyntaxKind.PrefixUnaryExpression:
             return {

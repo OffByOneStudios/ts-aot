@@ -31,6 +31,15 @@ void printAst(const ast::Node* node, int indent = 0) {
     } else if (auto call = dynamic_cast<const ast::CallExpression*>(node)) {
         printAst(call->callee.get(), indent + 1);
         for (const auto& arg : call->arguments) printAst(arg.get(), indent + 1);
+    } else if (auto cls = dynamic_cast<const ast::ClassDeclaration*>(node)) {
+        fmt::print("{}  Name: {}\n", padding, cls->name);
+        for (const auto& member : cls->members) printAst(member.get(), indent + 1);
+    } else if (auto prop = dynamic_cast<const ast::PropertyDefinition*>(node)) {
+        fmt::print("{}  Name: {}\n", padding, prop->name);
+        if (prop->initializer) printAst(prop->initializer.get(), indent + 1);
+    } else if (auto method = dynamic_cast<const ast::MethodDefinition*>(node)) {
+        fmt::print("{}  Name: {}\n", padding, method->name);
+        for (const auto& stmt : method->body) printAst(stmt.get(), indent + 1);
     }
 }
 
@@ -88,7 +97,7 @@ int main(int argc, char** argv) {
         }
 
         ts::Monomorphizer monomorphizer;
-        monomorphizer.monomorphize(program.get(), analyzer.getFunctionUsages());
+        monomorphizer.monomorphize(program.get(), analyzer);
         
         fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
     for (const auto& spec : monomorphizer.getSpecializations()) {
@@ -96,7 +105,7 @@ int main(int argc, char** argv) {
     }
 
     ts::IRGenerator irGen;
-    irGen.generate(monomorphizer.getSpecializations());
+    irGen.generate(monomorphizer.getSpecializations(), analyzer);
     
     if (result.count("debug-ast")) { // Reuse debug flag for now, or add a new one
         fmt::print("\n--- Generated IR ---\n");

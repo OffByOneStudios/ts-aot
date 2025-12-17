@@ -17,6 +17,7 @@ struct Symbol {
 class SymbolTable {
 public:
     SymbolTable();
+    ~SymbolTable();
 
     // Enter a new scope (e.g. function body, block)
     void enterScope();
@@ -30,9 +31,20 @@ public:
     // Lookup a symbol in the current scope and parent scopes.
     std::shared_ptr<Symbol> lookup(const std::string& name);
 
+    // Define a type in the current scope. Returns false if already defined.
+    bool defineType(const std::string& name, std::shared_ptr<Type> type);
+
+    // Lookup a type in the current scope and parent scopes.
+    std::shared_ptr<Type> lookupType(const std::string& name) const;
+
+    // Get all types defined in the global scope
+    const std::unordered_map<std::string, std::shared_ptr<Type>>& getGlobalTypes() const;
+
 private:
     // Stack of scopes. Each scope is a map of name -> Symbol
     std::vector<std::unordered_map<std::string, std::shared_ptr<Symbol>>> scopes;
+    // Stack of type scopes. Each scope is a map of name -> Type
+    std::vector<std::unordered_map<std::string, std::shared_ptr<Type>>> typeScopes;
 };
 
 } // namespace ts

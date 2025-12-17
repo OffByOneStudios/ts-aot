@@ -8,6 +8,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 
+#include "../analysis/Analyzer.h"
 #include "../analysis/Monomorphizer.h"
 
 namespace ts {
@@ -16,7 +17,7 @@ class IRGenerator {
 public:
     IRGenerator();
 
-    void generate(const std::vector<Specialization>& specializations);
+    void generate(const std::vector<Specialization>& specializations, const Analyzer& analyzer);
     void emitObjectCode(const std::string& filename);
     void dumpIR();
 
@@ -26,6 +27,7 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
+    void generateClasses(const Analyzer& analyzer);
     void generatePrototypes(const std::vector<Specialization>& specializations);
     void generateBodies(const std::vector<Specialization>& specializations);
     void generateEntryPoint();

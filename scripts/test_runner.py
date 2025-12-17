@@ -61,7 +61,8 @@ def main():
 
     # Step 2: Compile to Object Code
     print("--- Step 2: Compile ---", flush=True)
-    run_command([compiler_exe, json_file, "-o", obj_file], shell=False, timeout=10)
+    compiler_output = run_command([compiler_exe, json_file, "-o", obj_file, "-d"], shell=False, timeout=10)
+    print(compiler_output, flush=True)
 
     # Step 3: Link (using CMake)
     print("--- Step 3: Link ---", flush=True)

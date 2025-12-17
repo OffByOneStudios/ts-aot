@@ -14,14 +14,16 @@ struct Specialization {
     std::string specializedName;
     std::vector<std::shared_ptr<Type>> argTypes;
     std::shared_ptr<Type> returnType; // Inferred return type
-    ast::FunctionDeclaration* node; // Pointer to the original AST node
+    ast::Node* node; // Pointer to the original AST node (FunctionDeclaration or MethodDefinition)
 };
+
+class Analyzer; // Forward declaration
 
 class Monomorphizer {
 public:
     Monomorphizer();
 
-    void monomorphize(ast::Program* program, const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& usages);
+    void monomorphize(ast::Program* program, Analyzer& analyzer);
 
     const std::vector<Specialization>& getSpecializations() const { return specializations; }
 

@@ -4,6 +4,7 @@
     {
       "kind": "FunctionDeclaration",
       "name": "main",
+      "returnType": "any",
       "parameters": [],
       "body": [
         {
