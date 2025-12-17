@@ -55,6 +55,13 @@ StmtPtr parseStatement(const json& j) {
     if (kind == "FunctionDeclaration") {
         auto node = std::make_unique<FunctionDeclaration>();
         node->name = j["name"];
+        if (j.contains("parameters")) {
+            for (const auto& param : j["parameters"]) {
+                auto p = std::make_unique<Parameter>();
+                p->name = param["name"];
+                node->parameters.push_back(std::move(p));
+            }
+        }
         for (const auto& stmt : j["body"]) {
             node->body.push_back(parseStatement(stmt));
         }
@@ -69,6 +76,12 @@ StmtPtr parseStatement(const json& j) {
     } else if (kind == "ExpressionStatement") {
         auto node = std::make_unique<ExpressionStatement>();
         node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "ReturnStatement") {
+        auto node = std::make_unique<ReturnStatement>();
+        if (j.contains("expression") && !j["expression"].is_null()) {
+            node->expression = parseExpression(j["expression"]);
+        }
         return node;
     }
 

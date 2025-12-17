@@ -31,8 +31,14 @@ struct Program : Node {
     std::string getKind() const override { return "Program"; }
 };
 
+struct Parameter : Node {
+    std::string name;
+    std::string getKind() const override { return "Parameter"; }
+};
+
 struct FunctionDeclaration : Statement {
     std::string name;
+    std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<StmtPtr> body;
     std::string getKind() const override { return "FunctionDeclaration"; }
 };
@@ -46,6 +52,11 @@ struct VariableDeclaration : Statement {
 struct ExpressionStatement : Statement {
     ExprPtr expression;
     std::string getKind() const override { return "ExpressionStatement"; }
+};
+
+struct ReturnStatement : Statement {
+    ExprPtr expression;
+    std::string getKind() const override { return "ReturnStatement"; }
 };
 
 // --- Expressions ---

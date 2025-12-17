@@ -26,6 +26,20 @@ private:
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void generatePrototypes(const std::vector<Specialization>& specializations);
+    void generateBodies(const std::vector<Specialization>& specializations);
+    void generateEntryPoint();
+
+    void visit(ast::Node* node);
+    void visitReturnStatement(ast::ReturnStatement* node);
+    void visitBinaryExpression(ast::BinaryExpression* node);
+    void visitIdentifier(ast::Identifier* node);
+    void visitNumericLiteral(ast::NumericLiteral* node);
+    void visitStringLiteral(ast::StringLiteral* node);
+    void visitCallExpression(ast::CallExpression* node);
+    void visitExpressionStatement(ast::ExpressionStatement* node);
+
+    std::map<std::string, llvm::Value*> namedValues;
+    llvm::Value* lastValue = nullptr;
 };
 
 } // namespace ts
