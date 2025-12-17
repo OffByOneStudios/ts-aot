@@ -171,6 +171,23 @@ function visit(node) {
                 incrementor: node.incrementor ? visit(node.incrementor) : null,
                 body: visit(node.statement)
             };
+        case ts.SyntaxKind.SwitchStatement:
+            return {
+                kind: "SwitchStatement",
+                expression: visit(node.expression),
+                clauses: node.caseBlock.clauses.map(visit)
+            };
+        case ts.SyntaxKind.CaseClause:
+            return {
+                kind: "CaseClause",
+                expression: visit(node.expression),
+                statements: node.statements.map(visit)
+            };
+        case ts.SyntaxKind.DefaultClause:
+            return {
+                kind: "DefaultClause",
+                statements: node.statements.map(visit)
+            };
         case ts.SyntaxKind.BreakStatement:
             return { kind: "BreakStatement" };
         case ts.SyntaxKind.ContinueStatement:

@@ -171,6 +171,27 @@ StmtPtr parseStatement(const json& j) {
         return std::make_unique<BreakStatement>();
     } else if (kind == "ContinueStatement") {
         return std::make_unique<ContinueStatement>();
+    } else if (kind == "SwitchStatement") {
+        auto node = std::make_unique<SwitchStatement>();
+        node->expression = parseExpression(j["expression"]);
+        for (const auto& clause : j["clauses"]) {
+            std::string clauseKind = clause["kind"];
+            if (clauseKind == "CaseClause") {
+                auto c = std::make_unique<CaseClause>();
+                c->expression = parseExpression(clause["expression"]);
+                for (const auto& stmt : clause["statements"]) {
+                    c->statements.push_back(parseStatement(stmt));
+                }
+                node->clauses.push_back(std::move(c));
+            } else if (clauseKind == "DefaultClause") {
+                auto c = std::make_unique<DefaultClause>();
+                for (const auto& stmt : clause["statements"]) {
+                    c->statements.push_back(parseStatement(stmt));
+                }
+                node->clauses.push_back(std::move(c));
+            }
+        }
+        return node;
     }
 
     throw std::runtime_error("Unknown statement kind: " + kind);

@@ -103,6 +103,23 @@ struct ContinueStatement : Statement {
     std::string getKind() const override { return "ContinueStatement"; }
 };
 
+struct CaseClause : Node {
+    ExprPtr expression;
+    std::vector<StmtPtr> statements;
+    std::string getKind() const override { return "CaseClause"; }
+};
+
+struct DefaultClause : Node {
+    std::vector<StmtPtr> statements;
+    std::string getKind() const override { return "DefaultClause"; }
+};
+
+struct SwitchStatement : Statement {
+    ExprPtr expression;
+    std::vector<NodePtr> clauses;
+    std::string getKind() const override { return "SwitchStatement"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {

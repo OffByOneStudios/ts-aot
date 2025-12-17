@@ -18,8 +18,8 @@ Enable users to define their own functions, allowing for recursion and better co
 - **Codegen:** Implement `ReturnStatement`.
 
 ## Action Items
-- [ ] Implement `FunctionDeclaration` in Analyzer.
-- [ ] Implement `FunctionDeclaration` in IRGenerator.
-- [ ] Implement `ReturnStatement` in IRGenerator.
-- [ ] Test with `tests/integration/functions.ts` (simple call).
-- [ ] Test with `tests/integration/recursion.ts` (factorial/fibonacci).
+- [x] Implement `FunctionDeclaration` in Analyzer.
+- [x] Implement `FunctionDeclaration` in IRGenerator.
+- [x] Implement `ReturnStatement` in IRGenerator.
+- [x] Test with `tests/integration/functions.ts` (simple call).
+- [x] Test with `tests/integration/recursion.ts` (factorial/fibonacci).

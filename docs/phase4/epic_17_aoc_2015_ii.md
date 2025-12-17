@@ -25,5 +25,5 @@ Solve Days 4, 5, and 6 of Advent of Code 2015.
 
 ## Action Items
 - [x] Solve Day 4.
-- [ ] Solve Day 5.
-- [ ] Solve Day 6.
+- [x] Solve Day 5.
+- [x] Solve Day 6.

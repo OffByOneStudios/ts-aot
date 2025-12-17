@@ -18,6 +18,7 @@ public:
 
     static TsString* Concat(TsString* a, TsString* b);
     static TsString* FromInt(int64_t value);
+    bool Equals(TsString* other);
 
 private:
     TsString(const char* utf8Str);
@@ -34,4 +35,5 @@ extern "C" {
     void* ts_string_substring(void* str, int64_t start, int64_t end);
     bool ts_string_startsWith(void* str, void* prefix);
     void* ts_string_from_int(int64_t value);
+    bool ts_string_eq(void* a, void* b);
 }

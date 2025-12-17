@@ -1,0 +1,203 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": "x",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 2
+          }
+        },
+        {
+          "kind": "SwitchStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "x"
+          },
+          "clauses": [
+            {
+              "kind": "CaseClause",
+              "expression": {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 10
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "BreakStatement"
+                }
+              ]
+            },
+            {
+              "kind": "CaseClause",
+              "expression": {
+                "kind": "NumericLiteral",
+                "value": 2
+              },
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 20
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "BreakStatement"
+                }
+              ]
+            },
+            {
+              "kind": "DefaultClause",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 30
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "BreakStatement"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": "s",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "hello"
+          }
+        },
+        {
+          "kind": "SwitchStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "clauses": [
+            {
+              "kind": "CaseClause",
+              "expression": {
+                "kind": "StringLiteral",
+                "value": "world"
+              },
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "BreakStatement"
+                }
+              ]
+            },
+            {
+              "kind": "CaseClause",
+              "expression": {
+                "kind": "StringLiteral",
+                "value": "hello"
+              },
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 1
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "BreakStatement"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

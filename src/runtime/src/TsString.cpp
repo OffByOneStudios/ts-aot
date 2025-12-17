@@ -136,6 +136,14 @@ bool TsString::StartsWith(TsString* prefix) {
     return s->startsWith(*p);
 }
 
+bool TsString::Equals(TsString* other) {
+    if (this == other) return true;
+    if (!other) return false;
+    icu::UnicodeString* s1 = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* s2 = static_cast<icu::UnicodeString*>(other->impl);
+    return *s1 == *s2;
+}
+
 extern "C" TsString* ts_string_create(const char* str) {
     return TsString::Create(str);
 }
@@ -170,4 +178,8 @@ extern "C" bool ts_string_startsWith(void* str, void* prefix) {
 
 extern "C" void* ts_string_from_int(int64_t value) {
     return TsString::FromInt(value);
+}
+
+extern "C" bool ts_string_eq(void* a, void* b) {
+    return ((TsString*)a)->Equals((TsString*)b);
 }
