@@ -1,6 +1,7 @@
 #include <fmt/core.h>
 #include <cxxopts.hpp>
 #include "ast/AstLoader.h"
+#include "analysis/Analyzer.h"
 #include <iostream>
 
 void printAst(const ast::Node* node, int indent = 0) {
@@ -55,6 +56,11 @@ int main(int argc, char** argv) {
         if (result["debug-ast"].as<bool>()) {
             printAst(program.get());
         }
+
+        ts::Analyzer analyzer;
+        analyzer.analyze(program.get());
+        fmt::print("Analysis complete.\n");
+
         fmt::print("Successfully loaded AST from {}\n", inputFile);
     } catch (const std::exception& e) {
         std::cerr << "Error loading AST: " << e.what() << std::endl;
