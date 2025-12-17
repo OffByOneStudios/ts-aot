@@ -33,9 +33,9 @@ Update the `ts-aot` executable to accept input files and orchestrate the compila
 - [x] Output simplified JSON (Program -> Statements -> Expressions).
 
 ### Task 3.2: C++ AST Definitions
-- [ ] Create `src/compiler/ast/AstNodes.h`.
-- [ ] Define base `Node` struct and derived types (`FunctionDeclaration`, `VariableDeclaration`, `BinaryExpression`, `CallExpression`, `Literal`).
-- [ ] Use `std::variant` or inheritance for node types.
+- [x] Create `src/compiler/ast/AstNodes.h`.
+- [x] Define base `Node` struct and derived types (`FunctionDeclaration`, `VariableDeclaration`, `BinaryExpression`, `CallExpression`, `Literal`).
+- [x] Use `std::variant` or inheritance for node types.
 
 ### Task 3.3: AST Loader
 - [ ] Create `src/compiler/ast/AstLoader.h` and `src/compiler/ast/AstLoader.cpp`.
