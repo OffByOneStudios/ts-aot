@@ -26,6 +26,8 @@ void Analyzer::visit(Node* node) {
     else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto br = dynamic_cast<BreakStatement*>(node)) visitBreakStatement(br);
+    else if (auto cont = dynamic_cast<ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
@@ -171,6 +173,14 @@ void Analyzer::visitForStatement(ForStatement* node) {
     if (node->incrementor) visit(node->incrementor.get());
     visit(node->body.get());
     symbols.exitScope();
+}
+
+void Analyzer::visitBreakStatement(BreakStatement* node) {
+    // TODO: Check if inside loop
+}
+
+void Analyzer::visitContinueStatement(ContinueStatement* node) {
+    // TODO: Check if inside loop
 }
 
 void Analyzer::visitBlockStatement(BlockStatement* node) {

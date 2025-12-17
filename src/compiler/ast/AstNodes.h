@@ -87,6 +87,14 @@ struct ForStatement : Statement {
     std::string getKind() const override { return "ForStatement"; }
 };
 
+struct BreakStatement : Statement {
+    std::string getKind() const override { return "BreakStatement"; }
+};
+
+struct ContinueStatement : Statement {
+    std::string getKind() const override { return "ContinueStatement"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {

@@ -136,6 +136,8 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
+    else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
 }
@@ -422,11 +424,17 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 
     builder->CreateCondBr(condValue, loopBB, afterBB);
 
+    // Push loop info
+    loopStack.push_back({ condBB, afterBB });
+
     // Emit loop body
     func->insert(func->end(), loopBB);
     builder->SetInsertPoint(loopBB);
     visit(node->body.get());
     
+    // Pop loop info
+    loopStack.pop_back();
+
     // Jump back to condition
     if (!builder->GetInsertBlock()->getTerminator()) {
         builder->CreateBr(condBB);
@@ -477,10 +485,16 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
         builder->CreateBr(loopBB);
     }
 
+    // Push loop info
+    loopStack.push_back({ incBB, afterBB });
+
     // Emit loop body
     func->insert(func->end(), loopBB);
     builder->SetInsertPoint(loopBB);
     visit(node->body.get());
+    
+    // Pop loop info
+    loopStack.pop_back();
     
     // Jump to incrementor
     if (!builder->GetInsertBlock()->getTerminator()) {
@@ -498,6 +512,30 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     // Emit after block
     func->insert(func->end(), afterBB);
     builder->SetInsertPoint(afterBB);
+}
+
+void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
+    if (loopStack.empty()) {
+        llvm::errs() << "Error: Break statement outside of loop\n";
+        return;
+    }
+    builder->CreateBr(loopStack.back().breakBlock);
+    // Start a new block for dead code after break
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* deadBB = llvm::BasicBlock::Create(*context, "dead", func);
+    builder->SetInsertPoint(deadBB);
+}
+
+void IRGenerator::visitContinueStatement(ast::ContinueStatement* node) {
+    if (loopStack.empty()) {
+        llvm::errs() << "Error: Continue statement outside of loop\n";
+        return;
+    }
+    builder->CreateBr(loopStack.back().continueBlock);
+    // Start a new block for dead code after continue
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* deadBB = llvm::BasicBlock::Create(*context, "dead", func);
+    builder->SetInsertPoint(deadBB);
 }
 
 void IRGenerator::visitBlockStatement(ast::BlockStatement* node) {
