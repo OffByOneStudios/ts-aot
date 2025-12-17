@@ -129,8 +129,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             visit(stmt.get());
         }
 
-        if (spec.returnType->kind == TypeKind::Void) {
-             builder->CreateRetVoid();
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            llvm::Type* retType = function->getReturnType();
+            if (retType->isVoidTy()) {
+                builder->CreateRetVoid();
+            } else {
+                builder->CreateRet(llvm::Constant::getNullValue(retType));
+            }
         }
     }
 }
@@ -161,6 +166,8 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto newExpr = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(newExpr);
+    else if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node)) visitArrowFunction(arrow);
+    else if (auto tmpl = dynamic_cast<ast::TemplateExpression*>(node)) visitTemplateExpression(tmpl);
 }
 
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
@@ -576,6 +583,32 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
     // User function call
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        llvm::errs() << "Calling: " << id->name << ". In namedValues: " << namedValues.count(id->name) << "\n";
+        if (namedValues.count(id->name)) {
+            llvm::Value* val = namedValues[id->name];
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
+                llvm::Value* funcPtr = builder->CreateLoad(alloca->getAllocatedType(), alloca, id->name.c_str());
+                
+                std::vector<llvm::Value*> args;
+                std::vector<llvm::Type*> argTypes;
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    llvm::Value* v = lastValue;
+                    // Hack: Convert int to double for arrow functions
+                    if (v->getType()->isIntegerTy(64)) {
+                        v = builder->CreateSIToFP(v, llvm::Type::getDoubleTy(*context));
+                    }
+                    args.push_back(v);
+                    argTypes.push_back(v->getType());
+                }
+                
+                llvm::Type* retType = llvm::Type::getDoubleTy(*context);
+                llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
+                lastValue = builder->CreateCall(ft, funcPtr, args);
+                return;
+            }
+        }
+
         if (id->name == "parseInt") {
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
@@ -813,33 +846,7 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     // But wait, we need to know if it's a string or array to call the right length function.
     // We can check the struct name if we have typed pointers, but LLVM 15+ uses opaque pointers.
     // We should probably rely on the Analyzer's type info, but we don't have it here easily.
-    // HACK: For now, let's assume if we are calling a function that returns string, it's string.
-    // Or better, let's look at the AST or just try to guess.
-    // Actually, we can check if the type name contains "TsString".
-    // But with opaque pointers, getType() returns ptr.
-    
-    // Let's try to use the type from the allocation if possible, but that's hard.
-    // Alternative: Check if we have a "TsString" type in the module and if the pointer points to it? No.
-    
-    // Let's look at how we created the value.
-    // If it came from a StringLiteral, it's a string.
-    // If it came from ArrayLiteral, it's an array.
-    // If it came from a variable, we need to know the variable's type.
-    
-    // Since we don't have full type info in IRGenerator, let's cheat and assume:
-    // If we can't determine, default to Array? No, that crashes.
-    
-    // Let's use a runtime check? No, no RTTI.
-    
-    // Correct solution: Pass type info from Analyzer to IRGenerator.
-    // But that's a big refactor.
-    
-    // Temporary workaround:
-    // If the expression is a StringLiteral, it's a string.
-    // If it's a variable, check the name? No.
-    
-    // Let's look at the previous instruction?
-    // If it's a call to ts_string_create, it's a string.
+    // HACK: For now, let's assume if the type name contains "TsString", it's string.
     
     bool isString = false;
     // This is very fragile but might work for simple cases
@@ -1413,14 +1420,12 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 }
 
 void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
-    llvm::errs() << "Visiting ObjectLiteralExpression\n";
     auto objType = std::static_pointer_cast<ObjectType>(node->inferredType);
     if (!objType) {
         llvm::errs() << "Error: Object literal has no inferred type\n";
         lastValue = nullptr;
         return;
     }
-    llvm::errs() << "Object type inferred: " << objType->toString() << "\n";
 
     std::vector<llvm::Type*> fieldTypes;
     for (auto& [name, type] : objType->fields) {
@@ -1465,6 +1470,108 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
     }
 
     lastValue = ptr;
+}
+
+void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
+    static int lambdaCounter = 0;
+    std::string name = "lambda_" + std::to_string(lambdaCounter++);
+    
+    std::vector<llvm::Type*> argTypes;
+    for (auto& param : node->parameters) {
+        if (param->type == "number") argTypes.push_back(llvm::Type::getDoubleTy(*context));
+        else if (param->type == "string") argTypes.push_back(llvm::PointerType::getUnqual(*context));
+        else argTypes.push_back(llvm::Type::getDoubleTy(*context));
+    }
+    
+    llvm::Type* retType = llvm::Type::getDoubleTy(*context); // Default to double
+    
+    llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
+    llvm::Function* function = llvm::Function::Create(ft, llvm::Function::InternalLinkage, name, module.get());
+    
+    llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+    
+    llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
+    builder->SetInsertPoint(bb);
+    
+    auto oldNamedValues = namedValues;
+    namedValues.clear();
+    
+    unsigned idx = 0;
+    for (auto& arg : function->args()) {
+        std::string argName = node->parameters[idx]->name;
+        arg.setName(argName);
+        llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
+        builder->CreateStore(&arg, alloca);
+        namedValues[argName] = alloca;
+        idx++;
+    }
+    
+    visit(node->body.get());
+    
+    if (lastValue) {
+        builder->CreateRet(lastValue);
+    } else {
+        if (dynamic_cast<ast::Expression*>(node->body.get())) {
+             builder->CreateRet(lastValue);
+        } else {
+             if (!builder->GetInsertBlock()->getTerminator()) {
+                 builder->CreateRet(llvm::ConstantFP::get(*context, llvm::APFloat(0.0)));
+             }
+        }
+    }
+    
+    builder->SetInsertPoint(oldBB);
+    namedValues = oldNamedValues;
+    
+    lastValue = function;
+}
+
+void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
+    llvm::Function* createFn = module->getFunction("ts_string_create");
+    if (!createFn) {
+        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
+        createFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_create", module.get());
+    }
+    
+    llvm::Function* concatFn = module->getFunction("ts_string_concat");
+    if (!concatFn) {
+        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
+        concatFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_concat", module.get());
+    }
+
+    llvm::Constant* headStr = builder->CreateGlobalStringPtr(node->head);
+    llvm::Value* currentStr = builder->CreateCall(createFn, { headStr });
+    
+    for (auto& span : node->spans) {
+        visit(span.expression.get());
+        llvm::Value* exprVal = lastValue;
+        
+        if (exprVal->getType()->isIntegerTy()) {
+            llvm::Function* fromIntFn = module->getFunction("ts_string_from_int");
+            if (!fromIntFn) {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false);
+                fromIntFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_from_int", module.get());
+            }
+            exprVal = builder->CreateCall(fromIntFn, { exprVal });
+        } else if (exprVal->getType()->isDoubleTy()) {
+            llvm::Function* fromDoubleFn = module->getFunction("ts_string_from_double");
+            if (!fromDoubleFn) {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false);
+                fromDoubleFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_from_double", module.get());
+            }
+            exprVal = builder->CreateCall(fromDoubleFn, { exprVal });
+        }
+        
+        currentStr = builder->CreateCall(concatFn, { currentStr, exprVal });
+        
+        llvm::Constant* litStr = builder->CreateGlobalStringPtr(span.literal);
+        llvm::Value* litVal = builder->CreateCall(createFn, { litStr });
+        currentStr = builder->CreateCall(concatFn, { currentStr, litVal });
+    }
+    
+    lastValue = currentStr;
 }
 
 } // namespace ts

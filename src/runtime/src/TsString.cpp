@@ -51,6 +51,14 @@ TsString* TsString::FromInt(int64_t value) {
     return Create(str.c_str());
 }
 
+TsString* TsString::FromDouble(double value) {
+    std::string str = std::to_string(value);
+    // Remove trailing zeros? std::to_string(double) produces 6 decimal places.
+    // JS behavior is different.
+    // For now, simple to_string is enough.
+    return Create(str.c_str());
+}
+
 int64_t TsString::Length() {
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
     return s->length();
@@ -178,6 +186,10 @@ extern "C" bool ts_string_startsWith(void* str, void* prefix) {
 
 extern "C" void* ts_string_from_int(int64_t value) {
     return TsString::FromInt(value);
+}
+
+extern "C" void* ts_string_from_double(double value) {
+    return TsString::FromDouble(value);
 }
 
 extern "C" bool ts_string_eq(void* a, void* b) {

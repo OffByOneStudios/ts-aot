@@ -94,6 +94,33 @@ ExprPtr parseExpression(const json& j) {
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
+    } else if (kind == "ArrowFunction") {
+        auto node = std::make_unique<ArrowFunction>();
+        if (j.contains("parameters")) {
+            for (const auto& param : j["parameters"]) {
+                auto p = std::make_unique<Parameter>();
+                p->name = param["name"];
+                if (param.contains("type")) p->type = param["type"];
+                node->parameters.push_back(std::move(p));
+            }
+        }
+        std::string bodyKind = j["body"]["kind"];
+        if (bodyKind == "BlockStatement") {
+            node->body = parseStatement(j["body"]);
+        } else {
+            node->body = parseExpression(j["body"]);
+        }
+        return node;
+    } else if (kind == "TemplateExpression") {
+        auto node = std::make_unique<TemplateExpression>();
+        node->head = j["head"];
+        for (const auto& span : j["templateSpans"]) {
+            TemplateSpan s;
+            s.expression = parseExpression(span["expression"]);
+            s.literal = span["literal"];
+            node->spans.push_back(std::move(s));
+        }
+        return node;
     }
     
     throw std::runtime_error("Unknown expression kind: " + kind);

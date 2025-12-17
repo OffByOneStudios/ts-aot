@@ -56,6 +56,8 @@ private:
     void visitStringLiteral(ast::StringLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
+    void visitArrowFunction(ast::ArrowFunction* node);
+    void visitTemplateExpression(ast::TemplateExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
 };
 
