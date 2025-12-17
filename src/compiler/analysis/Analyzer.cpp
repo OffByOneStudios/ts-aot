@@ -148,6 +148,12 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                     lastType = std::make_shared<Type>(TypeKind::Int);
                     return;
                 }
+            } else if (obj->name == "fs") {
+                if (prop->name == "readFileSync") {
+                    for (auto& arg : node->arguments) visit(arg.get());
+                    lastType = std::make_shared<Type>(TypeKind::String);
+                    return;
+                }
             }
         }
     }

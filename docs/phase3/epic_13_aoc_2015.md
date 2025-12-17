@@ -24,6 +24,6 @@ Solve the first three days of Advent of Code 2015 to validate the compiler.
 - **Requirement:** Epic 12 (Maps).
 
 ## Action Items
-- [ ] Solve Day 1.
+- [x] Solve Day 1.
 - [ ] Solve Day 2.
 - [ ] Solve Day 3.
