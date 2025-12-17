@@ -35,12 +35,41 @@ function visit(node) {
                 body: visitBlock(node.body)
             };
         case ts.SyntaxKind.ClassDeclaration:
+            let baseClass = "";
+            let implementsInterfaces = [];
+            if (node.heritageClauses) {
+                for (const clause of node.heritageClauses) {
+                    if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+                        baseClass = clause.types[0].expression.getText(currentSourceFile);
+                    } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+                        implementsInterfaces = clause.types.map(t => t.expression.getText(currentSourceFile));
+                    }
+                }
+            }
             return {
                 kind: "ClassDeclaration",
                 name: node.name ? node.name.text : "anonymous",
+                baseClass: baseClass,
+                implementsInterfaces: implementsInterfaces,
+                members: node.members.map(visit).filter(m => m)
+            };
+        case ts.SyntaxKind.InterfaceDeclaration:
+            let baseInterfaces = [];
+            if (node.heritageClauses) {
+                for (const clause of node.heritageClauses) {
+                    if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+                        baseInterfaces = clause.types.map(t => t.expression.getText(currentSourceFile));
+                    }
+                }
+            }
+            return {
+                kind: "InterfaceDeclaration",
+                name: node.name.text,
+                baseInterfaces: baseInterfaces,
                 members: node.members.map(visit).filter(m => m)
             };
         case ts.SyntaxKind.PropertyDeclaration:
+        case ts.SyntaxKind.PropertySignature:
             return {
                 kind: "PropertyDefinition",
                 name: node.name.text,
@@ -48,6 +77,7 @@ function visit(node) {
                 initializer: node.initializer ? visit(node.initializer) : null
             };
         case ts.SyntaxKind.MethodDeclaration:
+        case ts.SyntaxKind.MethodSignature:
             return {
                 kind: "MethodDefinition",
                 name: node.name.text,
@@ -57,7 +87,7 @@ function visit(node) {
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
-                body: visitBlock(node.body)
+                body: node.body ? visitBlock(node.body) : []
             };
         case ts.SyntaxKind.Constructor:
              return {
@@ -163,6 +193,10 @@ function visit(node) {
             return {
                 kind: "Identifier",
                 name: "this"
+            };
+        case ts.SyntaxKind.SuperKeyword:
+            return {
+                kind: "SuperExpression"
             };
         case ts.SyntaxKind.PrefixUnaryExpression:
             return {

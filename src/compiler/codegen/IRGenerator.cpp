@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "../analysis/Monomorphizer.h"
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/TargetParser/Host.h>
@@ -24,14 +25,43 @@ void IRGenerator::generate(const std::vector<Specialization>& specializations, c
 }
 
 void IRGenerator::generateClasses(const Analyzer& analyzer) {
-    // First pass: Create opaque structs for all classes to handle circular references
+    // 1. First pass: Create opaque structs for all classes to handle circular references
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
         if (type->kind == TypeKind::Class) {
             llvm::StructType::create(*context, name);
         }
     }
 
-    // Second pass: Define struct bodies and VTables
+    // 2. Second pass: Compute layouts (recursive)
+    for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        if (type->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(type);
+            std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
+                if (classLayouts.count(c->name)) return;
+                if (c->baseClass) compute(c->baseClass);
+                
+                ClassLayout layout;
+                if (c->baseClass) layout = classLayouts[c->baseClass->name];
+                
+                for (const auto& [fname, ftype] : c->fields) {
+                    layout.fieldIndices[fname] = (int)layout.allFields.size() + 1; // +1 for vptr
+                    layout.allFields.push_back({fname, ftype});
+                }
+                for (const auto& [mname, mtype] : c->methods) {
+                    if (layout.methodIndices.count(mname)) {
+                        layout.allMethods[layout.methodIndices[mname]] = {mname, mtype};
+                    } else {
+                        layout.methodIndices[mname] = (int)layout.allMethods.size();
+                        layout.allMethods.push_back({mname, mtype});
+                    }
+                }
+                classLayouts[c->name] = layout;
+            };
+            compute(classType);
+        }
+    }
+
+    // 3. Third pass: Define struct bodies and VTables
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
         if (type->kind != TypeKind::Class) continue;
 
@@ -39,27 +69,29 @@ void IRGenerator::generateClasses(const Analyzer& analyzer) {
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
         if (!classStruct) continue;
 
-        // 1. Define VTable Type
+        const auto& layout = classLayouts[name];
+
+        // Define VTable Type
         std::string vtableName = name + "_VTable";
         llvm::StructType* vtableStruct = llvm::StructType::create(*context, vtableName);
 
-        // 2. Define Class Body: { VTable*, Fields... }
+        // Define Class Body: { VTable*, Fields... }
         std::vector<llvm::Type*> fieldTypes;
         fieldTypes.push_back(llvm::PointerType::getUnqual(vtableStruct)); // vptr
 
-        for (const auto& [fieldName, fieldType] : classType->fields) {
+        for (const auto& [fieldName, fieldType] : layout.allFields) {
             fieldTypes.push_back(getLLVMType(fieldType));
         }
         classStruct->setBody(fieldTypes);
 
-        // 3. Define VTable Body: { Function Pointers... }
+        // Define VTable Body: { Function Pointers... }
         std::vector<llvm::Type*> vtableFieldTypes;
         std::vector<llvm::Constant*> vtableFuncs;
 
-        for (const auto& [methodName, methodType] : classType->methods) {
-            // Method signature: (this: Class*, args...) -> ret
+        for (const auto& [methodName, methodType] : layout.allMethods) {
+            // Method signature: (this: ptr, args...) -> ret
             std::vector<llvm::Type*> paramTypes;
-            paramTypes.push_back(llvm::PointerType::getUnqual(classStruct)); // this
+            paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this (opaque ptr)
             for (const auto& param : methodType->paramTypes) {
                 paramTypes.push_back(getLLVMType(param));
             }
@@ -69,8 +101,14 @@ void IRGenerator::generateClasses(const Analyzer& analyzer) {
             
             vtableFieldTypes.push_back(llvm::PointerType::getUnqual(ft));
 
-            // Create or get the method function
-            std::string mangledName = name + "_" + methodName;
+            // Find which class actually defines this method
+            std::shared_ptr<ClassType> definer = classType;
+            while (definer) {
+                if (definer->methods.count(methodName)) break;
+                definer = definer->baseClass;
+            }
+            
+            std::string mangledName = definer->name + "_" + methodName;
             llvm::Function* func = module->getFunction(mangledName);
             if (!func) {
                 func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
@@ -79,7 +117,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer) {
         }
         vtableStruct->setBody(vtableFieldTypes);
 
-        // 4. Create Global VTable Constant
+        // Create Global VTable Constant
         llvm::Constant* vtableConst = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
         new llvm::GlobalVariable(
             *module,
@@ -186,6 +224,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         builder->SetInsertPoint(bb);
 
         namedValues.clear();
+        currentClass = spec.classType;
         
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
             unsigned idx = 0;
@@ -271,6 +310,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto newExpr = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(newExpr);
+    else if (auto sup = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(sup);
     else if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node)) visitArrowFunction(arrow);
     else if (auto tmpl = dynamic_cast<ast::TemplateExpression*>(node)) visitTemplateExpression(tmpl);
 }
@@ -427,8 +467,57 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
 }
 
 void IRGenerator::visitCallExpression(ast::CallExpression* node) {
-    // Check for console.log
+    if (auto superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get())) {
+        // super() call in constructor
+        if (!currentClass || currentClass->kind != TypeKind::Class) return;
+        auto classType = std::static_pointer_cast<ClassType>(currentClass);
+        if (!classType->baseClass) return;
+        
+        std::string baseClassName = classType->baseClass->name;
+        std::string ctorName = baseClassName + "_constructor";
+        llvm::Function* ctor = module->getFunction(ctorName);
+        if (ctor) {
+            std::vector<llvm::Value*> args;
+            // 'this' is the first argument of the current function
+            llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+            args.push_back(currentFunc->getArg(0));
+            
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                args.push_back(lastValue);
+            }
+            builder->CreateCall(ctor, args);
+        }
+        return;
+    }
+
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (dynamic_cast<ast::SuperExpression*>(prop->expression.get())) {
+            // super.method()
+            if (!currentClass || currentClass->kind != TypeKind::Class) return;
+            auto classType = std::static_pointer_cast<ClassType>(currentClass);
+            if (!classType->baseClass) return;
+            
+            std::string baseClassName = classType->baseClass->name;
+            std::string methodName = prop->name;
+            
+            // Static dispatch to base class method
+            std::string funcName = baseClassName + "_" + methodName;
+            llvm::Function* func = module->getFunction(funcName);
+            if (func) {
+                std::vector<llvm::Value*> args;
+                llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                args.push_back(currentFunc->getArg(0)); // this
+                
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    args.push_back(lastValue);
+                }
+                lastValue = builder->CreateCall(func, args);
+            }
+            return;
+        }
+
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
             std::string className = classType->name;
@@ -441,29 +530,22 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
             if (!classStruct) return;
             
+            const auto& layout = classLayouts[className];
+            if (!layout.methodIndices.count(methodName)) return;
+            int methodIndex = layout.methodIndices.at(methodName);
+
             llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
             llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, typedObjPtr, 0);
-            llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(llvm::StructType::getTypeByName(*context, className + "_VTable")), vptrPtr);
             
-            // 3. Calculate Offset
-            int methodIndex = 0;
-            bool found = false;
-            for (const auto& [name, type] : classType->methods) {
-                if (name == methodName) {
-                    found = true;
-                    break;
-                }
-                methodIndex++;
-            }
-            
-            if (!found) return;
+            llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
+            llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
             
             // 4. Load Function Pointer
-            llvm::Value* funcPtrPtr = builder->CreateStructGEP(llvm::StructType::getTypeByName(*context, className + "_VTable"), vptr, methodIndex);
+            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex);
             
-            auto methodType = classType->methods[methodName];
+            auto methodType = layout.allMethods[methodIndex].second;
             std::vector<llvm::Type*> paramTypes;
-            paramTypes.push_back(llvm::PointerType::getUnqual(classStruct)); // this
+            paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this
             for (const auto& param : methodType->paramTypes) {
                 paramTypes.push_back(getLLVMType(param));
             }
@@ -481,7 +563,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 llvm::Value* val = lastValue;
                 
                 // Cast if necessary
-                if (argIdx + 1 < ft->getNumParams()) {
+                if (argIdx + 1 < (int)ft->getNumParams()) {
                     llvm::Type* expectedType = ft->getParamType(argIdx + 1);
                     if (val->getType() != expectedType) {
                         if (expectedType->isDoubleTy() && val->getType()->isIntegerTy()) {
@@ -797,22 +879,52 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
              return;
         }
 
-        std::string funcName = id->name;
-        std::string mangledName = funcName;
+        if (id->name == "ts_console_log") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* arg = lastValue;
+            
+            std::string funcName = "ts_console_log";
+            llvm::Type* paramType = llvm::PointerType::getUnqual(*context);
 
+            if (arg->getType()->isIntegerTy(64)) {
+                funcName = "ts_console_log_int";
+                paramType = llvm::Type::getInt64Ty(*context);
+            } else if (arg->getType()->isDoubleTy()) {
+                funcName = "ts_console_log_double";
+                paramType = llvm::Type::getDoubleTy(*context);
+            } else if (arg->getType()->isIntegerTy(1)) {
+                funcName = "ts_console_log_bool";
+                paramType = llvm::Type::getInt1Ty(*context);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(*context), { paramType }, false);
+            llvm::FunctionCallee logFn = module->getOrInsertFunction(funcName, ft);
+
+            builder->CreateCall(logFn, { arg });
+            lastValue = nullptr;
+            return;
+        }
+
+        std::string funcName = id->name;
+        
         std::vector<llvm::Value*> args;
+        std::vector<std::shared_ptr<Type>> argTypes;
         for (auto& arg : node->arguments) {
             visit(arg.get());
             if (lastValue) {
                 args.push_back(lastValue);
-                
-                mangledName += "_";
-                if (lastValue->getType()->isDoubleTy()) mangledName += "dbl";
-                else if (lastValue->getType()->isIntegerTy(64)) mangledName += "int";
-                else if (lastValue->getType()->isPointerTy()) mangledName += "str";
-                else mangledName += "any";
+                if (arg->inferredType) {
+                    argTypes.push_back(arg->inferredType);
+                } else {
+                    // Fallback if type inference failed
+                    argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                }
             }
         }
+
+        std::string mangledName = Monomorphizer::generateMangledName(funcName, argTypes);
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {
@@ -1365,20 +1477,13 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             
             llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
             
-            // Find field index
-            int fieldIndex = 1; // Start at 1 because 0 is vptr
-            bool found = false;
-            for (const auto& [name, type] : classType->fields) {
-                if (name == fieldName) {
-                    found = true;
-                    break;
-                }
-                fieldIndex++;
-            }
-            
-            if (found) {
+            // Find field index using ClassLayout
+            if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+                int fieldIndex = classLayouts[className].fieldIndices[fieldName];
                 llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
                 builder->CreateStore(val, fieldPtr);
+            } else {
+                llvm::errs() << "Error: Field " << fieldName << " not found in class " << className << "\n";
             }
         }
     } else {
@@ -1504,7 +1609,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         std::string fieldName = node->name;
         
         // Check if it's a field access
-        if (classType->fields.count(fieldName)) {
+        if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
             
@@ -1513,16 +1618,24 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             
             llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
             
-            // Find field index
-            int fieldIndex = 1; // Start at 1 because 0 is vptr
-            for (const auto& [name, type] : classType->fields) {
-                if (name == fieldName) break;
-                fieldIndex++;
+            int fieldIndex = classLayouts[className].fieldIndices[fieldName];
+            llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+            
+            // We need the type of the field to load it correctly
+            // The field could be in a base class, so we look it up in the layout's allFields
+            std::shared_ptr<Type> fieldType;
+            for (const auto& f : classLayouts[className].allFields) {
+                if (f.first == fieldName) {
+                    fieldType = f.second;
+                    break;
+                }
             }
             
-            llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
-            auto fieldType = classType->fields[fieldName];
-            lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+            if (fieldType) {
+                lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+            } else {
+                lastValue = nullptr;
+            }
             return;
         }
     }
@@ -1874,6 +1987,11 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
     }
     
     lastValue = currentStr;
+}
+
+void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {
+    // Handled in visitCallExpression
+    lastValue = nullptr;
 }
 
 } // namespace ts

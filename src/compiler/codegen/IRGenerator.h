@@ -59,11 +59,21 @@ private:
     void visitBlockStatement(ast::BlockStatement* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
+    void visitSuperExpression(ast::SuperExpression* node);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
+    std::shared_ptr<Type> currentClass;
+
+    struct ClassLayout {
+        std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;
+        std::vector<std::pair<std::string, std::shared_ptr<FunctionType>>> allMethods;
+        std::map<std::string, int> fieldIndices;
+        std::map<std::string, int> methodIndices;
+    };
+    std::map<std::string, ClassLayout> classLayouts;
 
     struct LoopInfo {
         llvm::BasicBlock* continueBlock;

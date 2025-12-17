@@ -43,7 +43,9 @@ void Analyzer::visit(Node* node) {
     else if (auto arrow = dynamic_cast<ArrowFunction*>(node)) visitArrowFunction(arrow);
     else if (auto tmpl = dynamic_cast<TemplateExpression*>(node)) visitTemplateExpression(tmpl);
     else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
+    else if (auto sup = dynamic_cast<SuperExpression*>(node)) visitSuperExpression(sup);
     else if (auto cls = dynamic_cast<ClassDeclaration*>(node)) visitClassDeclaration(cls);
+    else if (auto inter = dynamic_cast<InterfaceDeclaration*>(node)) visitInterfaceDeclaration(inter);
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
         expr->inferredType = lastType;
@@ -201,14 +203,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         
         auto sym = symbols.lookup(calleeName);
         if (sym) {
-             std::cout << "Found symbol " << calleeName << " kind: " << (int)sym->type->kind << std::endl;
              if (sym->type->kind == TypeKind::Function) {
-                 for (auto& arg : node->arguments) visit(arg.get());
-                 lastType = std::make_shared<Type>(TypeKind::Double);
-                 return;
+                 auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
+                 lastType = funcType->returnType;
              }
-        } else {
-             std::cout << "Symbol " << calleeName << " not found" << std::endl;
         }
 
         if (calleeName == "parseInt") {
@@ -522,13 +520,42 @@ void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
     }
 }
 
+void Analyzer::visitSuperExpression(SuperExpression* node) {
+    if (currentClass && currentClass->baseClass) {
+        lastType = currentClass->baseClass;
+    } else {
+        std::cerr << "Error: 'super' used outside of a derived class" << std::endl;
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
 void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
     
-    // 1. Register class type
+    // 1. Resolve base class
+    if (!node->baseClass.empty()) {
+        auto base = symbols.lookupType(node->baseClass);
+        if (base && base->kind == TypeKind::Class) {
+            classType->baseClass = std::static_pointer_cast<ClassType>(base);
+        } else {
+            std::cerr << "Error: Base class " << node->baseClass << " not found or not a class" << std::endl;
+        }
+    }
+
+    // 2. Register class type
     symbols.defineType(node->name, classType);
 
-    // 2. Scan members to populate fields and methods
+    // 2.5 Resolve implemented interfaces
+    for (const auto& interfaceName : node->implementsInterfaces) {
+        auto inter = symbols.lookupType(interfaceName);
+        if (inter && inter->kind == TypeKind::Interface) {
+            classType->implementsInterfaces.push_back(std::static_pointer_cast<InterfaceType>(inter));
+        } else {
+            std::cerr << "Error: Interface " << interfaceName << " not found or not an interface" << std::endl;
+        }
+    }
+
+    // 3. Scan members to populate fields and methods
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             classType->fields[prop->name] = parseType(prop->type, symbols);
@@ -550,7 +577,7 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
         }
     }
 
-    // 3. Register constructor (if any) or default constructor
+    // 4. Register constructor (if any) or default constructor
     auto ctorType = std::make_shared<FunctionType>();
     ctorType->returnType = classType;
     
@@ -561,13 +588,60 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     
     symbols.define(node->name, ctorType);
 
-    // 4. Visit method bodies
+    // 5. Visit method bodies
+    auto oldClass = currentClass;
+    currentClass = classType;
     for (const auto& member : node->members) {
         if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             visitMethodDefinition(method, classType);
         } else if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             visitPropertyDefinition(prop, classType);
         }
+    }
+    currentClass = oldClass;
+
+    // 6. Check interface implementations
+    for (const auto& inter : classType->implementsInterfaces) {
+        checkInterfaceImplementation(classType, inter);
+    }
+}
+
+void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType) {
+    // Check fields
+    for (const auto& [name, type] : interfaceType->fields) {
+        bool found = false;
+        auto current = classType;
+        while (current) {
+            if (current->fields.count(name)) {
+                found = true;
+                break;
+            }
+            current = current->baseClass;
+        }
+        if (!found) {
+            std::cerr << "Error: Class " << classType->name << " does not implement property " << name << " from interface " << interfaceType->name << std::endl;
+        }
+    }
+
+    // Check methods
+    for (const auto& [name, type] : interfaceType->methods) {
+        bool found = false;
+        auto current = classType;
+        while (current) {
+            if (current->methods.count(name)) {
+                found = true;
+                break;
+            }
+            current = current->baseClass;
+        }
+        if (!found) {
+            std::cerr << "Error: Class " << classType->name << " does not implement method " << name << " from interface " << interfaceType->name << std::endl;
+        }
+    }
+
+    // Check base interfaces recursively
+    for (const auto& base : interfaceType->baseInterfaces) {
+        checkInterfaceImplementation(classType, base);
     }
 }
 
@@ -594,6 +668,31 @@ void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr
     if (node->initializer) {
         visit(node->initializer.get());
         // TODO: Check type compatibility
+    }
+}
+
+void Analyzer::visitInterfaceDeclaration(InterfaceDeclaration* node) {
+    auto interfaceType = std::make_shared<InterfaceType>(node->name);
+    symbols.defineType(node->name, interfaceType);
+
+    for (const auto& baseName : node->baseInterfaces) {
+        auto base = symbols.lookupType(baseName);
+        if (base && base->kind == TypeKind::Interface) {
+            interfaceType->baseInterfaces.push_back(std::static_pointer_cast<InterfaceType>(base));
+        }
+    }
+
+    for (const auto& member : node->members) {
+        if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
+            interfaceType->fields[prop->name] = parseType(prop->type, symbols);
+        } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
+            auto methodType = std::make_shared<FunctionType>();
+            methodType->returnType = parseType(method->returnType, symbols);
+            for (const auto& param : method->parameters) {
+                methodType->paramTypes.push_back(parseType(param->type, symbols));
+            }
+            interfaceType->methods[method->name] = methodType;
+        }
     }
 }
 

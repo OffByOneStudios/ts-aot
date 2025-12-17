@@ -8,6 +8,7 @@ Monomorphizer::Monomorphizer() {}
 
 void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     const auto& usages = analyzer.getFunctionUsages();
+    
     // Extract top-level code into user_main
     auto userMain = std::make_unique<ast::FunctionDeclaration>();
     userMain->name = "user_main";
@@ -16,7 +17,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     bool hasTopLevel = false;
     
     for (auto& stmt : program->body) {
-        if (stmt->getKind() == "FunctionDeclaration" || stmt->getKind() == "ClassDeclaration") {
+        if (stmt->getKind() == "FunctionDeclaration" || 
+            stmt->getKind() == "ClassDeclaration" ||
+            stmt->getKind() == "InterfaceDeclaration") {
             newProgramBody.push_back(std::move(stmt));
         } else {
             userMain->body.push_back(std::move(stmt));
@@ -57,9 +60,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             spec.node = funcNode;
             
             // Infer return type
-            fmt::print("Monomorphizer analyzing body of {}\n", name);
             spec.returnType = analyzer.analyzeFunctionBody(funcNode, args);
-            fmt::print("Monomorphizer inferred return type: {}\n", spec.returnType->toString());
             
             specializations.push_back(spec);
         }
@@ -108,6 +109,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     spec.originalName = method->name;
                     spec.specializedName = cls->name + "_" + method->name;
                     spec.node = method;
+                    spec.classType = ct;
                     
                     // Construct argTypes: [ClassType, explicitParams...]
                     spec.argTypes.push_back(ct);
@@ -139,6 +141,12 @@ std::string Monomorphizer::generateMangledName(const std::string& originalName, 
             case TypeKind::String: name += "str"; break;
             case TypeKind::Boolean: name += "bool"; break;
             case TypeKind::Void: name += "void"; break;
+            case TypeKind::Class: 
+                name += std::static_pointer_cast<ClassType>(type)->name; 
+                break;
+            case TypeKind::Interface:
+                name += std::static_pointer_cast<InterfaceType>(type)->name;
+                break;
             default: name += "any"; break;
         }
     }

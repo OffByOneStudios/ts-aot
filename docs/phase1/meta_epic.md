@@ -41,3 +41,11 @@ This document outlines the high-level epics required to deliver the `ts-aot` pro
 **Goal:** Ensure correctness through unit and integration tests.
 - **Unit Tests:** Set up `Catch2` for C++ runtime components.
 - **Integration Tests:** Create a suite of `.ts` files to compile and execute, verifying output against `ts-node` or `node`.
+
+## Epic 22: Interfaces & Structural Typing
+**Status:** Completed
+**Goal:** Support TypeScript `interface` declarations and structural typing.
+- **AST/Parser:** Support `interface` and `implements`.
+- **Type System:** Implement structural compatibility.
+- **Monomorphization:** Specialize functions for concrete classes implementing interfaces.
+
