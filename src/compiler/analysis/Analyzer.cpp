@@ -121,6 +121,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
+        } else if (prop->name == "sort") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
         }
         
         // Check for Math methods
