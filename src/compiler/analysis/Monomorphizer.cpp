@@ -1,4 +1,5 @@
 #include "Monomorphizer.h"
+#include "Analyzer.h"
 #include <fmt/core.h>
 
 namespace ts {
@@ -24,8 +25,35 @@ void Monomorphizer::monomorphize(ast::Program* program, const std::map<std::stri
             spec.specializedName = mangled;
             spec.argTypes = args;
             spec.node = funcNode;
-            // TODO: Infer return type based on body and arg types. For now, Void.
-            spec.returnType = std::make_shared<Type>(TypeKind::Void); 
+            
+            // Infer return type
+            Analyzer analyzer;
+            spec.returnType = analyzer.analyzeFunctionBody(funcNode, args);
+            
+            specializations.push_back(spec);
+        }
+    }
+
+    // Always ensure main is monomorphized
+    ast::FunctionDeclaration* mainFunc = findFunction(program, "main");
+    if (mainFunc) {
+        bool processed = false;
+        for (const auto& spec : specializations) {
+            if (spec.originalName == "main") {
+                processed = true;
+                break;
+            }
+        }
+
+        if (!processed) {
+            Specialization spec;
+            spec.originalName = "main";
+            spec.specializedName = "user_main";
+            spec.argTypes = {};
+            spec.node = mainFunc;
+            
+            Analyzer analyzer;
+            spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
             
             specializations.push_back(spec);
         }

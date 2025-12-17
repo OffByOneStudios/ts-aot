@@ -23,6 +23,10 @@ function visit(node) {
             return {
                 kind: "FunctionDeclaration",
                 name: node.name ? node.name.text : "anonymous",
+                parameters: node.parameters.map(p => ({
+                    kind: "Parameter",
+                    name: p.name.text
+                })),
                 body: visitBlock(node.body)
             };
         case ts.SyntaxKind.VariableStatement:
@@ -37,6 +41,11 @@ function visit(node) {
             return {
                 kind: "ExpressionStatement",
                 expression: visit(node.expression)
+            };
+        case ts.SyntaxKind.ReturnStatement:
+            return {
+                kind: "ReturnStatement",
+                expression: node.expression ? visit(node.expression) : null
             };
         case ts.SyntaxKind.CallExpression:
             return {

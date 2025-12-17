@@ -16,6 +16,9 @@ void ts_loop_run();
 // --- Console ---
 void ts_console_log(TsString* str);
 
+// --- String ---
+TsString* ts_string_create(const char* str);
+
 // --- Entry Point ---
 int ts_main(int argc, char** argv, void (*user_main)());
 

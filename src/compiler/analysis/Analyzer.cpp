@@ -18,6 +18,7 @@ void Analyzer::visit(Node* node) {
     else if (auto f = dynamic_cast<FunctionDeclaration*>(node)) visitFunctionDeclaration(f);
     else if (auto v = dynamic_cast<VariableDeclaration*>(node)) visitVariableDeclaration(v);
     else if (auto e = dynamic_cast<ExpressionStatement*>(node)) visitExpressionStatement(e);
+    else if (auto r = dynamic_cast<ReturnStatement*>(node)) visitReturnStatement(r);
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
     else if (auto bin = dynamic_cast<BinaryExpression*>(node)) visitBinaryExpression(bin);
@@ -137,6 +138,36 @@ void Analyzer::visitNumericLiteral(NumericLiteral* node) {
     } else {
         lastType = std::make_shared<Type>(TypeKind::Double);
     }
+}
+
+void Analyzer::visitReturnStatement(ReturnStatement* node) {
+    if (node->expression) {
+        visit(node->expression.get());
+        currentReturnType = lastType;
+    } else {
+        currentReturnType = std::make_shared<Type>(TypeKind::Void);
+    }
+}
+
+std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes) {
+    // Create a new scope for the function body
+    symbols.enterScope();
+    
+    // Bind parameters to the provided types
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        if (i < argTypes.size()) {
+            symbols.define(node->parameters[i]->name, argTypes[i]);
+        }
+    }
+
+    currentReturnType = std::make_shared<Type>(TypeKind::Void); // Default to Void
+
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+
+    symbols.exitScope();
+    return currentReturnType;
 }
 
 } // namespace ts

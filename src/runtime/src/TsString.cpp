@@ -32,3 +32,7 @@ const char* TsString::ToUtf8() {
     std::memcpy(utf8Buffer, str.c_str(), len + 1);
     return utf8Buffer;
 }
+
+extern "C" TsString* ts_string_create(const char* str) {
+    return TsString::Create(str);
+}

@@ -4,11 +4,38 @@
     {
       "kind": "FunctionDeclaration",
       "name": "add",
-      "body": []
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": "a"
+        },
+        {
+          "kind": "Parameter",
+          "name": "b"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b"
+            }
+          }
+        }
+      ]
     },
     {
       "kind": "FunctionDeclaration",
       "name": "main",
+      "parameters": [],
       "body": [
         {
           "kind": "ExpressionStatement",

@@ -21,9 +21,13 @@ public:
     // Get usage information (Function Name -> List of Argument Type Lists)
     const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getFunctionUsages() const { return functionUsages; }
 
+    // Analyze a function body with specific argument types to determine return type
+    std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes);
+
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
+    std::shared_ptr<Type> currentReturnType; // Inferred return type of the current function
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> functionUsages;
 
     void visit(ast::Node* node);
@@ -31,6 +35,7 @@ private:
     void visitFunctionDeclaration(ast::FunctionDeclaration* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
+    void visitReturnStatement(ast::ReturnStatement* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
