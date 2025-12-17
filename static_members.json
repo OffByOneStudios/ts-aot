@@ -15,8 +15,9 @@
             "kind": "NumericLiteral",
             "value": 3.14159
           },
-          "access": "public",
-          "isStatic": true
+          "access": null,
+          "isStatic": true,
+          "isReadonly": false
         },
         {
           "kind": "PropertyDefinition",
@@ -26,8 +27,9 @@
             "kind": "NumericLiteral",
             "value": 0
           },
-          "access": "public",
-          "isStatic": true
+          "access": null,
+          "isStatic": true,
+          "isReadonly": false
         },
         {
           "kind": "MethodDefinition",
@@ -92,8 +94,11 @@
               }
             }
           ],
-          "access": "public",
-          "isStatic": true
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
         },
         {
           "kind": "MethodDefinition",
@@ -113,10 +118,14 @@
               }
             }
           ],
-          "access": "public",
-          "isStatic": true
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
         }
-      ]
+      ],
+      "isAbstract": false
     },
     {
       "kind": "FunctionDeclaration",

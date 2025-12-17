@@ -1,0 +1,437 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Overloader",
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "count",
+          "type": "number",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0
+          },
+          "access": null,
+          "isStatic": true,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "number",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": false,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "string",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": false,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "any",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Overloader"
+                  },
+                  "name": "count"
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Overloader"
+                    },
+                    "name": "count"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  }
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "foo",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "body": [],
+          "hasBody": false,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "foo",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "string"
+            }
+          ],
+          "returnType": "string",
+          "body": [],
+          "hasBody": false,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "foo",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "any"
+            }
+          ],
+          "returnType": "any",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Overloader"
+                  },
+                  "name": "count"
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Overloader"
+                    },
+                    "name": "count"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  }
+                }
+              }
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "Identifier",
+                "name": "x"
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "bar",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "number"
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": false,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "bar",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "string"
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": false,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "bar",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "x",
+              "type": "any"
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Overloader"
+                  },
+                  "name": "count"
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Overloader"
+                    },
+                    "name": "count"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  }
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": "o1",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Overloader"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": "o2",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Overloader"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "hello"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "o1"
+              },
+              "name": "foo"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 20
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "o1"
+              },
+              "name": "foo"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "world"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Overloader"
+              },
+              "name": "bar"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 30
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Overloader"
+              },
+              "name": "bar"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "static"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Overloader"
+                },
+                "name": "count"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

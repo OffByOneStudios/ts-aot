@@ -95,6 +95,11 @@ ExprPtr parseExpression(const json& j) {
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
+    } else if (kind == "AsExpression") {
+        auto node = std::make_unique<AsExpression>();
+        node->expression = parseExpression(j["expression"]);
+        node->type = j["type"];
+        return node;
     } else if (kind == "ArrowFunction") {
         auto node = std::make_unique<ArrowFunction>();
         if (j.contains("parameters")) {
@@ -129,7 +134,9 @@ ExprPtr parseExpression(const json& j) {
     throw std::runtime_error("Unknown expression kind: " + kind);
 }
 
-ts::AccessModifier parseAccessModifier(const std::string& access) {
+ts::AccessModifier parseAccessModifier(const json& j) {
+    if (j.is_null()) return ts::AccessModifier::Public;
+    std::string access = j.get<std::string>();
     if (access == "private") return ts::AccessModifier::Private;
     if (access == "protected") return ts::AccessModifier::Protected;
     return ts::AccessModifier::Public;
@@ -150,6 +157,9 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("isStatic")) {
             node->isStatic = j["isStatic"];
         }
+        if (j.contains("isReadonly")) {
+            node->isReadonly = j["isReadonly"];
+        }
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
@@ -164,10 +174,27 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("isAbstract")) {
             node->isAbstract = j["isAbstract"];
         }
+        if (j.contains("isGetter")) {
+            node->isGetter = j["isGetter"];
+        }
+        if (j.contains("isSetter")) {
+            node->isSetter = j["isSetter"];
+        }
+        if (j.contains("hasBody")) {
+            node->hasBody = j["hasBody"];
+        }
         for (const auto& p : j["parameters"]) {
             auto param = std::make_unique<Parameter>();
             param->name = p["name"];
             param->type = p["type"];
+            if (p.contains("access")) {
+                param->access = parseAccessModifier(p["access"]);
+                if (!p["access"].is_null()) param->isParameterProperty = true;
+            }
+            if (p.contains("isReadonly") && p["isReadonly"]) {
+                param->isReadonly = p["isReadonly"];
+                param->isParameterProperty = true;
+            }
             node->parameters.push_back(std::move(param));
         }
         for (const auto& stmt : j["body"]) {
@@ -220,6 +247,14 @@ StmtPtr parseStatement(const json& j) {
                 auto p = std::make_unique<Parameter>();
                 p->name = param["name"];
                 if (param.contains("type")) p->type = param["type"];
+                if (param.contains("access")) {
+                    p->access = parseAccessModifier(param["access"]);
+                    if (!param["access"].is_null()) p->isParameterProperty = true;
+                }
+                if (param.contains("isReadonly") && param["isReadonly"]) {
+                    p->isReadonly = param["isReadonly"];
+                    p->isParameterProperty = true;
+                }
                 node->parameters.push_back(std::move(p));
             }
         }

@@ -21,13 +21,13 @@ function printAST(sourceFile) {
 }
 
 function getAccessModifier(node) {
-    if (!node.modifiers) return "public";
+    if (!node.modifiers) return null;
     for (const mod of node.modifiers) {
         if (mod.kind === ts.SyntaxKind.PrivateKeyword) return "private";
         if (mod.kind === ts.SyntaxKind.ProtectedKeyword) return "protected";
         if (mod.kind === ts.SyntaxKind.PublicKeyword) return "public";
     }
-    return "public";
+    return null;
 }
 
 function isStatic(node) {
@@ -42,6 +42,14 @@ function isAbstract(node) {
     if (!node.modifiers) return false;
     for (const mod of node.modifiers) {
         if (mod.kind === ts.SyntaxKind.AbstractKeyword) return true;
+    }
+    return false;
+}
+
+function isReadonly(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.ReadonlyKeyword) return true;
     }
     return false;
 }
@@ -103,10 +111,13 @@ function visit(node) {
                 type: node.type ? node.type.getText(currentSourceFile) : "any",
                 initializer: node.initializer ? visit(node.initializer) : null,
                 access: getAccessModifier(node),
-                isStatic: isStatic(node)
+                isStatic: isStatic(node),
+                isReadonly: isReadonly(node)
             };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:
+        case ts.SyntaxKind.GetAccessor:
+        case ts.SyntaxKind.SetAccessor:
             return {
                 kind: "MethodDefinition",
                 name: node.name.text,
@@ -117,9 +128,12 @@ function visit(node) {
                 })),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 body: node.body ? visitBlock(node.body) : [],
+                hasBody: !!node.body,
                 access: getAccessModifier(node),
                 isStatic: isStatic(node),
-                isAbstract: isAbstract(node)
+                isAbstract: isAbstract(node),
+                isGetter: node.kind === ts.SyntaxKind.GetAccessor,
+                isSetter: node.kind === ts.SyntaxKind.SetAccessor
             };
         case ts.SyntaxKind.Constructor:
              return {
@@ -128,10 +142,13 @@ function visit(node) {
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
                     name: p.name.text,
-                    type: p.type ? p.type.getText(currentSourceFile) : "any"
+                    type: p.type ? p.type.getText(currentSourceFile) : "any",
+                    access: getAccessModifier(p),
+                    isReadonly: isReadonly(p)
                 })),
                 returnType: "void",
                 body: node.body ? visitBlock(node.body) : [],
+                hasBody: !!node.body,
                 access: "public"
             };
         case ts.SyntaxKind.VariableStatement:
@@ -140,6 +157,7 @@ function visit(node) {
             return {
                 kind: "VariableDeclaration",
                 name: decl.name.text,
+                type: decl.type ? decl.type.getText() : "any",
                 initializer: decl.initializer ? visit(decl.initializer) : null
             };
         case ts.SyntaxKind.ExpressionStatement:
@@ -347,6 +365,12 @@ function visit(node) {
                 kind: "StringLiteral",
                 value: node.text
             };
+        case ts.SyntaxKind.AsExpression:
+            return {
+                kind: "AsExpression",
+                expression: visit(node.expression),
+                type: node.type.getText()
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;
@@ -377,6 +401,13 @@ const sourceFile = ts.createSourceFile(
     true
 );
 
-console.error("ObjectLiteralExpression kind:", ts.SyntaxKind.ObjectLiteralExpression);
+// console.error("ObjectLiteralExpression kind:", ts.SyntaxKind.ObjectLiteralExpression);
 
-console.log(printAST(sourceFile));
+const outputFileName = process.argv[3];
+const astJson = printAST(sourceFile);
+
+if (outputFileName) {
+    fs.writeFileSync(outputFileName, astJson, "utf-8");
+} else {
+    console.log(astJson);
+}

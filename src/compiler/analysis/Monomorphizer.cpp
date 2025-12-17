@@ -113,21 +113,39 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     spec.classType = ct;
 
                     if (method->isStatic) {
-                        spec.specializedName = cls->name + "_static_" + method->name;
+                        spec.specializedName = cls->name + "_static_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
                         if (ct->staticMethods.count(method->name)) {
                             auto methodType = ct->staticMethods[method->name];
+                            spec.argTypes = methodType->paramTypes;
+                            spec.returnType = methodType->returnType;
+                        } else if (ct->getters.count(method->name)) {
+                            auto methodType = ct->getters[method->name];
+                            spec.argTypes = methodType->paramTypes;
+                            spec.returnType = methodType->returnType;
+                        } else if (ct->setters.count(method->name)) {
+                            auto methodType = ct->setters[method->name];
                             spec.argTypes = methodType->paramTypes;
                             spec.returnType = methodType->returnType;
                         } else {
                             spec.returnType = std::make_shared<Type>(TypeKind::Void);
                         }
                     } else {
-                        spec.specializedName = cls->name + "_" + method->name;
+                        spec.specializedName = cls->name + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
                         // Construct argTypes: [ClassType, explicitParams...]
                         spec.argTypes.push_back(ct);
                         
                         if (ct->methods.count(method->name)) {
                             auto methodType = ct->methods[method->name];
+                            spec.argTypes.insert(spec.argTypes.end(), 
+                                methodType->paramTypes.begin(), methodType->paramTypes.end());
+                            spec.returnType = methodType->returnType;
+                        } else if (ct->getters.count(method->name)) {
+                            auto methodType = ct->getters[method->name];
+                            spec.argTypes.insert(spec.argTypes.end(), 
+                                methodType->paramTypes.begin(), methodType->paramTypes.end());
+                            spec.returnType = methodType->returnType;
+                        } else if (ct->setters.count(method->name)) {
+                            auto methodType = ct->setters[method->name];
                             spec.argTypes.insert(spec.argTypes.end(), 
                                 methodType->paramTypes.begin(), methodType->paramTypes.end());
                             spec.returnType = methodType->returnType;

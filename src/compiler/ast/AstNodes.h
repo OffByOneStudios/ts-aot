@@ -41,6 +41,9 @@ struct Program : Node {
 struct Parameter : Node {
     std::string name;
     std::string type;
+    ts::AccessModifier access = ts::AccessModifier::Public;
+    bool isReadonly = false;
+    bool isParameterProperty = false;
     std::string getKind() const override { return "Parameter"; }
 };
 
@@ -132,6 +135,7 @@ struct PropertyDefinition : Node {
     ExprPtr initializer;
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isStatic = false;
+    bool isReadonly = false;
     std::string getKind() const override { return "PropertyDefinition"; }
 };
 
@@ -143,6 +147,9 @@ struct MethodDefinition : Node {
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isStatic = false;
     bool isAbstract = false;
+    bool isGetter = false;
+    bool isSetter = false;
+    bool hasBody = true;
     std::string getKind() const override { return "MethodDefinition"; }
 };
 
@@ -262,6 +269,12 @@ struct TemplateExpression : Expression {
     std::string head;
     std::vector<TemplateSpan> spans;
     std::string getKind() const override { return "TemplateExpression"; }
+};
+
+struct AsExpression : Expression {
+    ExprPtr expression;
+    std::string type;
+    std::string getKind() const override { return "AsExpression"; }
 };
 
 } // namespace ast

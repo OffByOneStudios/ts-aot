@@ -49,6 +49,7 @@ private:
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
+    void visitAsExpression(ast::AsExpression* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIfStatement(ast::IfStatement* node);
@@ -58,21 +59,25 @@ private:
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
+    void visitTemplateExpression(ast::TemplateExpression* node);
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
+    void visitSuperExpression(ast::SuperExpression* node);
     void visitBlockStatement(ast::BlockStatement* node);
     void visitIdentifier(ast::Identifier* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitArrowFunction(ast::ArrowFunction* node);
-    void visitTemplateExpression(ast::TemplateExpression* node);
-    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
-    void visitSuperExpression(ast::SuperExpression* node);
+
+    std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
+
     void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
     void visitPropertyDefinition(ast::PropertyDefinition* node, std::shared_ptr<ClassType> classType);
 
     void checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType);
 
     std::shared_ptr<ClassType> currentClass;
+    std::string currentMethodName;
 };
 
 } // namespace ts
