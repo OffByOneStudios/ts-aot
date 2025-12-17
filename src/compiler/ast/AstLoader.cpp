@@ -55,10 +55,12 @@ StmtPtr parseStatement(const json& j) {
     if (kind == "FunctionDeclaration") {
         auto node = std::make_unique<FunctionDeclaration>();
         node->name = j["name"];
+        if (j.contains("returnType")) node->returnType = j["returnType"];
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 auto p = std::make_unique<Parameter>();
                 p->name = param["name"];
+                if (param.contains("type")) p->type = param["type"];
                 node->parameters.push_back(std::move(p));
             }
         }
@@ -77,10 +79,24 @@ StmtPtr parseStatement(const json& j) {
         auto node = std::make_unique<ExpressionStatement>();
         node->expression = parseExpression(j["expression"]);
         return node;
+    } else if (kind == "BlockStatement") {
+        auto node = std::make_unique<BlockStatement>();
+        for (const auto& stmt : j["statements"]) {
+            node->statements.push_back(parseStatement(stmt));
+        }
+        return node;
     } else if (kind == "ReturnStatement") {
         auto node = std::make_unique<ReturnStatement>();
         if (j.contains("expression") && !j["expression"].is_null()) {
             node->expression = parseExpression(j["expression"]);
+        }
+        return node;
+    } else if (kind == "IfStatement") {
+        auto node = std::make_unique<IfStatement>();
+        node->condition = parseExpression(j["condition"]);
+        node->thenStatement = parseStatement(j["thenStatement"]);
+        if (j.contains("elseStatement") && !j["elseStatement"].is_null()) {
+            node->elseStatement = parseStatement(j["elseStatement"]);
         }
         return node;
     }

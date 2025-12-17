@@ -22,6 +22,8 @@ void Analyzer::visit(Node* node) {
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
     else if (auto bin = dynamic_cast<BinaryExpression*>(node)) visitBinaryExpression(bin);
+    else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
+    else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
@@ -33,13 +35,38 @@ void Analyzer::visitProgram(Program* node) {
     }
 }
 
+std::shared_ptr<Type> parseType(const std::string& typeName) {
+    if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
+    if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
+    if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
+    if (typeName == "void") return std::make_shared<Type>(TypeKind::Void);
+    return std::make_shared<Type>(TypeKind::Any);
+}
+
 void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
     auto funcType = std::make_shared<FunctionType>();
-    funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
+    if (!node->returnType.empty()) {
+        funcType->returnType = parseType(node->returnType);
+    } else {
+        funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
+    }
     
+    for (const auto& param : node->parameters) {
+        if (!param->type.empty()) {
+            funcType->paramTypes.push_back(parseType(param->type));
+        } else {
+            funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        }
+    }
+
     symbols.define(node->name, funcType);
 
     symbols.enterScope();
+    // Define parameters in scope
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        symbols.define(node->parameters[i]->name, funcType->paramTypes[i]);
+    }
+
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
@@ -115,6 +142,22 @@ void Analyzer::visitBinaryExpression(BinaryExpression* node) {
     }
 }
 
+void Analyzer::visitIfStatement(IfStatement* node) {
+    visit(node->condition.get());
+    visit(node->thenStatement.get());
+    if (node->elseStatement) {
+        visit(node->elseStatement.get());
+    }
+}
+
+void Analyzer::visitBlockStatement(BlockStatement* node) {
+    symbols.enterScope();
+    for (auto& stmt : node->statements) {
+        visit(stmt.get());
+    }
+    symbols.exitScope();
+}
+
 void Analyzer::visitIdentifier(Identifier* node) {
     auto symbol = symbols.lookup(node->name);
     if (!symbol) {
@@ -150,6 +193,11 @@ void Analyzer::visitReturnStatement(ReturnStatement* node) {
 }
 
 std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes) {
+    // If return type is annotated, use it
+    if (!node->returnType.empty()) {
+        return parseType(node->returnType);
+    }
+
     // Create a new scope for the function body
     symbols.enterScope();
     

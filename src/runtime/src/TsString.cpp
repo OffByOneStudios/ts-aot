@@ -33,6 +33,22 @@ const char* TsString::ToUtf8() {
     return utf8Buffer;
 }
 
+TsString* TsString::Concat(TsString* a, TsString* b) {
+    if (!a || !b) return nullptr; // Safety check
+    icu::UnicodeString* s1 = static_cast<icu::UnicodeString*>(a->impl);
+    icu::UnicodeString* s2 = static_cast<icu::UnicodeString*>(b->impl);
+    
+    icu::UnicodeString result = *s1 + *s2;
+    
+    std::string str;
+    result.toUTF8String(str);
+    return Create(str.c_str());
+}
+
 extern "C" TsString* ts_string_create(const char* str) {
     return TsString::Create(str);
+}
+
+extern "C" TsString* ts_string_concat(TsString* a, TsString* b) {
+    return TsString::Concat(a, b);
 }

@@ -8,6 +8,8 @@ public:
     // Get UTF-8 representation (cached)
     const char* ToUtf8();
 
+    static TsString* Concat(TsString* a, TsString* b);
+
 private:
     TsString(const char* utf8Str);
     
