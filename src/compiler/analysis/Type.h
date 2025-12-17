@@ -13,7 +13,8 @@ enum class TypeKind {
     Double,
     String,
     Any,
-    Function
+    Function,
+    Array
 };
 
 struct Type {
@@ -31,11 +32,18 @@ struct Type {
             case TypeKind::String: return "string";
             case TypeKind::Any: return "any";
             case TypeKind::Function: return "function";
+            case TypeKind::Array: return "array";
             default: return "unknown";
         }
     }
     
     bool isNumber() const { return kind == TypeKind::Int || kind == TypeKind::Double; }
+};
+
+struct ArrayType : public Type {
+    std::shared_ptr<Type> elementType;
+    ArrayType(std::shared_ptr<Type> elem) : Type(TypeKind::Array), elementType(elem) {}
+    std::string toString() const override { return elementType->toString() + "[]"; }
 };
 
 struct FunctionType : public Type {

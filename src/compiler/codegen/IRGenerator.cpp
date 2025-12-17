@@ -132,6 +132,8 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
+    else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
+    else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
@@ -568,22 +570,44 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
     llvm::Value* val = lastValue;
     if (!val) return;
 
-    // 2. Get the LHS identifier name
-    auto id = dynamic_cast<ast::Identifier*>(node->left.get());
-    if (!id) {
-        llvm::errs() << "Error: LHS of assignment must be an identifier\n";
+    // 2. Check LHS type
+    if (auto id = dynamic_cast<ast::Identifier*>(node->left.get())) {
+        // 3. Look up the variable
+        llvm::Value* variable = namedValues[id->name];
+        if (!variable) {
+            llvm::errs() << "Error: Unknown variable name " << id->name << "\n";
+            return;
+        }
+
+        // 4. Store the value
+        builder->CreateStore(val, variable);
+    } else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
+        visit(elem->expression.get());
+        llvm::Value* arr = lastValue;
+        
+        visit(elem->argumentExpression.get());
+        llvm::Value* index = lastValue;
+        
+        if (index->getType()->isDoubleTy()) {
+            index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+        }
+        
+        llvm::Value* storeVal = val;
+        if (storeVal->getType()->isDoubleTy()) {
+            storeVal = builder->CreateBitCast(storeVal, llvm::Type::getInt64Ty(*context));
+        } else if (storeVal->getType()->isPointerTy()) {
+            storeVal = builder->CreatePtrToInt(storeVal, llvm::Type::getInt64Ty(*context));
+        }
+
+        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_array_set",
+            llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
+                
+        builder->CreateCall(setFn, { arr, index, storeVal });
+    } else {
+        llvm::errs() << "Error: LHS of assignment must be an identifier or element access\n";
         return;
     }
-
-    // 3. Look up the variable
-    llvm::Value* variable = namedValues[id->name];
-    if (!variable) {
-        llvm::errs() << "Error: Unknown variable name " << id->name << "\n";
-        return;
-    }
-
-    // 4. Store the value
-    builder->CreateStore(val, variable);
     
     // Assignment evaluates to the value
     lastValue = val;
@@ -639,6 +663,51 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
 
     pass.run(*module);
     dest.flush();
+}
+
+void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", 
+        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+    
+    llvm::Value* arr = builder->CreateCall(createFn);
+
+    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
+            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+
+    for (auto& el : node->elements) {
+        visit(el.get());
+        llvm::Value* val = lastValue;
+        if (!val) continue;
+
+        if (val->getType()->isDoubleTy()) {
+             val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
+        } else if (val->getType()->isPointerTy()) {
+             val = builder->CreatePtrToInt(val, llvm::Type::getInt64Ty(*context));
+        }
+        
+        builder->CreateCall(pushFn, { arr, val });
+    }
+    
+    lastValue = arr;
+}
+
+void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* node) {
+    visit(node->expression.get());
+    llvm::Value* arr = lastValue;
+    
+    visit(node->argumentExpression.get());
+    llvm::Value* index = lastValue;
+    
+    if (index->getType()->isDoubleTy()) {
+        index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+    }
+    
+    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get",
+        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+            
+    lastValue = builder->CreateCall(getFn, { arr, index });
 }
 
 } // namespace ts

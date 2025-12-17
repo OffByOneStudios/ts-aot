@@ -116,6 +116,17 @@ struct CallExpression : Expression {
     std::string getKind() const override { return "CallExpression"; }
 };
 
+struct ArrayLiteralExpression : Expression {
+    std::vector<ExprPtr> elements;
+    std::string getKind() const override { return "ArrayLiteralExpression"; }
+};
+
+struct ElementAccessExpression : Expression {
+    ExprPtr expression;
+    ExprPtr argumentExpression;
+    std::string getKind() const override { return "ElementAccessExpression"; }
+};
+
 struct PropertyAccessExpression : Expression {
     ExprPtr expression;
     std::string name;

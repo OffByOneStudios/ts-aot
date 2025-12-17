@@ -20,6 +20,8 @@ void Analyzer::visit(Node* node) {
     else if (auto e = dynamic_cast<ExpressionStatement*>(node)) visitExpressionStatement(e);
     else if (auto r = dynamic_cast<ReturnStatement*>(node)) visitReturnStatement(r);
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
+    else if (auto arr = dynamic_cast<ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
+    else if (auto elem = dynamic_cast<ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
     else if (auto bin = dynamic_cast<BinaryExpression*>(node)) visitBinaryExpression(bin);
     else if (auto assign = dynamic_cast<AssignmentExpression*>(node)) visitAssignmentExpression(assign);
@@ -117,6 +119,33 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     
     // For now, assume calls return Any unless we know better
     lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+void Analyzer::visitArrayLiteralExpression(ArrayLiteralExpression* node) {
+    std::shared_ptr<Type> elemType = nullptr;
+    for (auto& el : node->elements) {
+        visit(el.get());
+        if (!elemType) {
+            elemType = lastType;
+        }
+        // TODO: Check for mixed types and upgrade to Any
+    }
+    if (!elemType) elemType = std::make_shared<Type>(TypeKind::Any);
+    lastType = std::make_shared<ArrayType>(elemType);
+}
+
+void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
+    visit(node->expression.get());
+    auto arrayType = std::dynamic_pointer_cast<ArrayType>(lastType);
+    
+    visit(node->argumentExpression.get());
+    // TODO: Verify index is integer
+    
+    if (arrayType) {
+        lastType = arrayType->elementType;
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
 }
 
 void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
