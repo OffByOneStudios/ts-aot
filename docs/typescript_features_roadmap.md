@@ -74,10 +74,10 @@ This document tracks the implementation status of TypeScript language features i
 
 | Feature | Status | Phase | Notes |
 | :--- | :---: | :---: | :--- |
-| Union Types | 📅 | Phase 8 | `string | number`. |
-| Intersection Types | 📅 | Phase 8 | `A & B`. |
+| Union Types | ✅ | Phase 8 | `string | number`. |
+| Intersection Types | ✅ | Phase 8 | `A & B`. |
 | Type Aliases | 📅 | Phase 5 | `type ID = string`. |
-| Type Guards | 📅 | Phase 8 | `if (typeof x === 'string')`. |
+| Type Guards | ✅ | Phase 8 | `if (typeof x === 'string')`. |
 | Destructuring | 📅 | Phase 8 | `const { x } = obj`. |
 | Spread / Rest | 📅 | Phase 8 | `...obj`, `...arr`. |
 | Modules (`import`/`export`) | 📅 | Phase 9 | Multi-file compilation. |

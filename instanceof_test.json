@@ -1,0 +1,318 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Animal",
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "name",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "name",
+              "type": "string",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "name"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "name"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "Dog",
+      "baseClass": "Animal",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "bark",
+          "parameters": [],
+          "returnType": "any",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "ts_console_log"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "woof"
+                  }
+                ]
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "Cat",
+      "baseClass": "Animal",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "meow",
+          "parameters": [],
+          "returnType": "any",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "ts_console_log"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "meow"
+                  }
+                ]
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "identify",
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": "a",
+          "type": "Animal"
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "instanceof",
+            "left": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "Dog"
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "a"
+                    },
+                    "name": "bark"
+                  },
+                  "arguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": {
+            "kind": "IfStatement",
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": "instanceof",
+              "left": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "Cat"
+              }
+            },
+            "thenStatement": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "meow"
+                    },
+                    "arguments": []
+                  }
+                }
+              ]
+            },
+            "elseStatement": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "ts_console_log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "unknown animal"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": "d",
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Dog"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Fido"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": "c",
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Cat"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Whiskers"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "identify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "d"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "identify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "c"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
