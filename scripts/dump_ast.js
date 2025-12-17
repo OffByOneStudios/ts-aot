@@ -215,6 +215,29 @@ function visit(node) {
             };
         case ts.SyntaxKind.EndOfFileToken:
             return null;
+        case ts.SyntaxKind.ArrowFunction:
+            return {
+                kind: "ArrowFunction",
+                parameters: node.parameters.map(p => ({
+                    name: p.name.text,
+                    type: p.type ? p.type.getText() : "any"
+                })),
+                body: visit(node.body) // Body can be Block or Expression
+            };
+        case ts.SyntaxKind.TemplateExpression:
+            return {
+                kind: "TemplateExpression",
+                head: node.head.text,
+                templateSpans: node.templateSpans.map(span => ({
+                    expression: visit(span.expression),
+                    literal: span.literal.text
+                }))
+            };
+        case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+            return {
+                kind: "StringLiteral",
+                value: node.text
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;

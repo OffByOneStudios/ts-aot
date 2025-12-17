@@ -208,4 +208,21 @@ struct BooleanLiteral : Expression {
     std::string getKind() const override { return "BooleanLiteral"; }
 };
 
+struct ArrowFunction : Expression {
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    NodePtr body; // BlockStatement or Expression
+    std::string getKind() const override { return "ArrowFunction"; }
+};
+
+struct TemplateSpan {
+    ExprPtr expression;
+    std::string literal;
+};
+
+struct TemplateExpression : Expression {
+    std::string head;
+    std::vector<TemplateSpan> spans;
+    std::string getKind() const override { return "TemplateExpression"; }
+};
+
 } // namespace ast

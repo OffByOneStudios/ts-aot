@@ -40,6 +40,8 @@ void Analyzer::visit(Node* node) {
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
     else if (auto bl = dynamic_cast<BooleanLiteral*>(node)) visitBooleanLiteral(bl);
+    else if (auto arrow = dynamic_cast<ArrowFunction*>(node)) visitArrowFunction(arrow);
+    else if (auto tmpl = dynamic_cast<TemplateExpression*>(node)) visitTemplateExpression(tmpl);
     else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
@@ -176,6 +178,19 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
+        
+        auto sym = symbols.lookup(calleeName);
+        if (sym) {
+             std::cout << "Found symbol " << calleeName << " kind: " << (int)sym->type->kind << std::endl;
+             if (sym->type->kind == TypeKind::Function) {
+                 for (auto& arg : node->arguments) visit(arg.get());
+                 lastType = std::make_shared<Type>(TypeKind::Double);
+                 return;
+             }
+        } else {
+             std::cout << "Symbol " << calleeName << " not found" << std::endl;
+        }
+
         if (calleeName == "parseInt") {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::Int);
@@ -429,6 +444,32 @@ void Analyzer::visitReturnStatement(ReturnStatement* node) {
     } else {
         currentReturnType = std::make_shared<Type>(TypeKind::Void);
     }
+}
+
+void Analyzer::visitArrowFunction(ArrowFunction* node) {
+    symbols.enterScope();
+    for (auto& param : node->parameters) {
+        std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
+        if (param->type == "number") type = std::make_shared<Type>(TypeKind::Double); // Default to double for number
+        else if (param->type == "string") type = std::make_shared<Type>(TypeKind::String);
+        else if (param->type == "boolean") type = std::make_shared<Type>(TypeKind::Boolean);
+        
+        symbols.define(param->name, type);
+    }
+    
+    visit(node->body.get());
+    
+    symbols.exitScope();
+    
+    // TODO: Construct proper FunctionType
+    lastType = std::make_shared<Type>(TypeKind::Function);
+}
+
+void Analyzer::visitTemplateExpression(TemplateExpression* node) {
+    for (auto& span : node->spans) {
+        visit(span.expression.get());
+    }
+    lastType = std::make_shared<Type>(TypeKind::String);
 }
 
 void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
