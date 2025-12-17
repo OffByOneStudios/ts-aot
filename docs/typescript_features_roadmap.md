@@ -37,8 +37,8 @@ This document tracks the implementation status of TypeScript language features i
 | `switch` | ✅ | Phase 5 | |
 | `for..of` | ✅ | Phase 5 | Iterators. |
 | `for..in` | 📅 | Phase 5 | Object key iteration. |
-| `try` / `catch` / `finally` | 📅 | Phase 7 | Exception handling (C++ exceptions or setjmp/longjmp). |
-| `throw` | 📅 | Phase 7 | |
+| `try` / `catch` / `finally` | 📅 | Phase 8 | Exception handling (C++ exceptions or setjmp/longjmp). |
+| `throw` | 📅 | Phase 8 | |
 
 ## 3. Functions
 
@@ -53,7 +53,7 @@ This document tracks the implementation status of TypeScript language features i
 | Optional Parameters | 📅 | Phase 6 | `function foo(x?: number)`. |
 | Default Parameters | 📅 | Phase 6 | `function foo(x = 1)`. |
 | Rest Parameters | 📅 | Phase 6 | `function foo(...args)`. |
-| Overloads | 📅 | Phase 6 | Multiple signatures. |
+| Overloads | ✅ | Phase 7 | Multiple signatures. |
 
 ## 4. Objects & Classes
 
@@ -64,10 +64,11 @@ This document tracks the implementation status of TypeScript language features i
 | `Map` | ⚠️ | Phase 3 | Basic `get`/`set`/`has`. |
 | Classes | ✅ | Phase 6 | Basic support (fields, methods, ctors). |
 | Inheritance | ✅ | Phase 7 | `extends`. |
-| Access Modifiers | 📅 | Phase 7 | `public`, `private`, `protected`. |
+| Access Modifiers | ✅ | Phase 7 | `public`, `private`, `protected`. |
 | `this` keyword | ✅ | Phase 6 | Basic support (methods). |
 | Interfaces | ✅ | Phase 7 | Structural typing. |
-| Generics | 📅 | Phase 8 | `class Box<T>`. |
+| Abstract Classes | ✅ | Phase 7 | `abstract` keyword. |
+| Generics | 📅 | Phase 9 | `class Box<T>`. |
 
 ## 5. Advanced Features
 
@@ -77,8 +78,8 @@ This document tracks the implementation status of TypeScript language features i
 | Intersection Types | 📅 | Phase 8 | `A & B`. |
 | Type Aliases | 📅 | Phase 5 | `type ID = string`. |
 | Type Guards | 📅 | Phase 8 | `if (typeof x === 'string')`. |
-| Destructuring | 📅 | Phase 7 | `const { x } = obj`. |
-| Spread / Rest | 📅 | Phase 7 | `...obj`, `...arr`. |
+| Destructuring | 📅 | Phase 8 | `const { x } = obj`. |
+| Spread / Rest | 📅 | Phase 8 | `...obj`, `...arr`. |
 | Modules (`import`/`export`) | 📅 | Phase 9 | Multi-file compilation. |
 | Async / Await | 📅 | Phase 10 | Promises and Event Loop integration. |
 
@@ -90,9 +91,9 @@ This document tracks the implementation status of TypeScript language features i
 | `Math` | ⚠️ | Phase 3 | `min`, `floor`. Need `max`, `abs`, `random`, etc. |
 | `fs` | ⚠️ | Phase 3 | `readFileSync`. Need `writeFileSync`, etc. |
 | `crypto` | ⚠️ | Phase 4 | `md5`. Need `sha256`, etc. |
-| `Date` | 📅 | Phase 7 | |
-| `RegExp` | 📅 | Phase 7 | |
-| `JSON` | 📅 | Phase 7 | `parse`, `stringify`. |
+| `Date` | 📅 | Phase 8 | |
+| `RegExp` | 📅 | Phase 8 | |
+| `JSON` | 📅 | Phase 8 | `parse`, `stringify`. |
 
 ## Proposed Future Phases
 
@@ -106,15 +107,13 @@ This document tracks the implementation status of TypeScript language features i
 
 ### Phase 7: Advanced OOP
 - **Goal:** Complete object-oriented programming features.
-- **Features:** Inheritance, Interfaces, Access Modifiers.
+- **Status:** ✅ COMPLETED
+- **Features:** Inheritance, Interfaces, Access Modifiers, Abstract Classes, Method Overloading.
 
-### Phase 8: Robustness & Utilities
-- **Goal:** Error handling and standard library expansion.
-- **Features:** `try/catch`, Destructuring, `Date`, `RegExp`, `JSON`.
-
-### Phase 9: Advanced Type System
-- **Goal:** Support complex type relationships.
-- **Features:** Generics, Union/Intersection Types, Type Guards.
+### Phase 8: Advanced Type System & Robustness
+- **Goal:** Implement advanced type system features and improve error handling.
+- **Status:** 📅 IN PROGRESS
+- **Features:** Union/Intersection Types, Type Guards, `try/catch`, Destructuring, `Date`, `RegExp`, `JSON`.
 
 ### Phase 10: Modules & Build
 - **Goal:** Large scale project support.

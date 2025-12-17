@@ -1,0 +1,212 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Person",
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "name",
+          "type": "string",
+          "initializer": null,
+          "access": "public",
+          "isStatic": false,
+          "isReadonly": true
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "age",
+          "type": "number",
+          "initializer": null,
+          "access": "public",
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "kind": "Parameter",
+              "name": "age",
+              "type": "number"
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "name"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "name"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "age"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "age"
+                }
+              }
+            }
+          ],
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "updateName",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": "newName",
+              "type": "string"
+            }
+          ],
+          "returnType": "any",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "name"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "newName"
+                }
+              }
+            }
+          ],
+          "access": "public",
+          "isStatic": false,
+          "isAbstract": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": "p",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Person"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Alice"
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 30
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "p"
+                },
+                "name": "name"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AssignmentExpression",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "p"
+              },
+              "name": "age"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 31
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AssignmentExpression",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "p"
+              },
+              "name": "name"
+            },
+            "right": {
+              "kind": "StringLiteral",
+              "value": "Bob"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

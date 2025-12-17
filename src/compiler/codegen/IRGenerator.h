@@ -32,7 +32,8 @@ private:
     void generateBodies(const std::vector<Specialization>& specializations);
     void generateEntryPoint();
 
-    void visit(ast::Node* node);
+    void visitBlockStatement(ast::BlockStatement* node);
+    void visitVariableDeclaration(ast::VariableDeclaration* node);
     void visitReturnStatement(ast::ReturnStatement* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
     void visitAssignmentExpression(ast::AssignmentExpression* node);
@@ -48,6 +49,7 @@ private:
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
+    void visitAsExpression(ast::AsExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
@@ -56,10 +58,13 @@ private:
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
-    void visitBlockStatement(ast::BlockStatement* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
-    void visitVariableDeclaration(ast::VariableDeclaration* node);
     void visitSuperExpression(ast::SuperExpression* node);
+    void visit(ast::Node* node);
+
+    llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
+
+    void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 

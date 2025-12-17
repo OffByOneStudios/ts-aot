@@ -1,0 +1,252 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "InterfaceDeclaration",
+      "name": "Circle",
+      "baseInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "kind",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "radius",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        }
+      ]
+    },
+    {
+      "kind": "InterfaceDeclaration",
+      "name": "Square",
+      "baseInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "kind",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "side",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": "shape",
+          "type": "Circle | Square",
+          "initializer": {
+            "kind": "ObjectLiteralExpression",
+            "properties": [
+              {
+                "name": "kind",
+                "initializer": {
+                  "kind": "StringLiteral",
+                  "value": "circle"
+                }
+              },
+              {
+                "name": "radius",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 10
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "shape"
+                },
+                "name": "kind"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AssignmentExpression",
+            "left": {
+              "kind": "Identifier",
+              "name": "shape"
+            },
+            "right": {
+              "kind": "ObjectLiteralExpression",
+              "properties": [
+                {
+                  "name": "kind",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "square"
+                  }
+                },
+                {
+                  "name": "side",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 5
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "shape"
+                },
+                "name": "kind"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "InterfaceDeclaration",
+          "name": "A",
+          "baseInterfaces": [],
+          "members": [
+            {
+              "kind": "PropertyDefinition",
+              "name": "a",
+              "type": "number",
+              "initializer": null,
+              "access": null,
+              "isStatic": false,
+              "isReadonly": false
+            }
+          ]
+        },
+        {
+          "kind": "InterfaceDeclaration",
+          "name": "B",
+          "baseInterfaces": [],
+          "members": [
+            {
+              "kind": "PropertyDefinition",
+              "name": "b",
+              "type": "number",
+              "initializer": null,
+              "access": null,
+              "isStatic": false,
+              "isReadonly": false
+            }
+          ]
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": "y",
+          "type": "A & B",
+          "initializer": {
+            "kind": "ObjectLiteralExpression",
+            "properties": [
+              {
+                "name": "a",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 1
+                }
+              },
+              {
+                "name": "b",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 2
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "y"
+                },
+                "name": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "y"
+                },
+                "name": "b"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

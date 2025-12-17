@@ -10,6 +10,8 @@
 namespace ts {
 
 struct InterfaceType;
+struct UnionType;
+struct IntersectionType;
 
 enum class TypeKind {
     Void,
@@ -23,7 +25,9 @@ enum class TypeKind {
     Map,
     Object,
     Class,
-    Interface
+    Interface,
+    Union,
+    Intersection
 };
 
 struct Type : public std::enable_shared_from_this<Type> {
@@ -32,12 +36,7 @@ struct Type : public std::enable_shared_from_this<Type> {
     Type(TypeKind k) : kind(k) {}
     virtual ~Type() = default;
 
-    virtual bool isAssignableTo(std::shared_ptr<Type> other) {
-        if (other->kind == TypeKind::Any || kind == TypeKind::Any) return true;
-        if (kind == other->kind) return true;
-        if (isNumber() && other->isNumber()) return true;
-        return false;
-    }
+    virtual bool isAssignableTo(std::shared_ptr<Type> other);
 
     virtual std::string toString() const {
         switch (kind) {
@@ -53,6 +52,8 @@ struct Type : public std::enable_shared_from_this<Type> {
             case TypeKind::Object: return "object";
             case TypeKind::Class: return "class";
             case TypeKind::Interface: return "interface";
+            case TypeKind::Union: return "union";
+            case TypeKind::Intersection: return "intersection";
         }
         return "unknown";
     }
@@ -104,15 +105,22 @@ struct ClassType : public Type {
     std::vector<std::shared_ptr<InterfaceType>> implementsInterfaces;
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
+    std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
+    std::vector<std::shared_ptr<FunctionType>> constructorOverloads;
+    std::map<std::string, std::shared_ptr<FunctionType>> getters;
+    std::map<std::string, std::shared_ptr<FunctionType>> setters;
     std::map<std::string, AccessModifier> fieldAccess;
     std::map<std::string, AccessModifier> methodAccess;
     std::set<std::string> abstractMethods;
+    std::set<std::string> readonlyFields;
     bool isAbstract = false;
 
     std::map<std::string, std::shared_ptr<Type>> staticFields;
     std::map<std::string, std::shared_ptr<FunctionType>> staticMethods;
+    std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> staticMethodOverloads;
     std::map<std::string, AccessModifier> staticFieldAccess;
     std::map<std::string, AccessModifier> staticMethodAccess;
+    std::set<std::string> staticReadonlyFields;
 
     ClassType(std::string n) : Type(TypeKind::Class), name(n) {}
 
@@ -134,6 +142,7 @@ struct InterfaceType : public Type {
     std::vector<std::shared_ptr<InterfaceType>> baseInterfaces;
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
+    std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
 
     InterfaceType(std::string n) : Type(TypeKind::Interface), name(n) {}
 
@@ -141,6 +150,34 @@ struct InterfaceType : public Type {
 
     std::string toString() const override {
         return name;
+    }
+};
+
+struct UnionType : public Type {
+    std::vector<std::shared_ptr<Type>> types;
+    UnionType(std::vector<std::shared_ptr<Type>> t) : Type(TypeKind::Union), types(t) {}
+    
+    std::string toString() const override {
+        std::string s;
+        for (size_t i = 0; i < types.size(); ++i) {
+            s += types[i]->toString();
+            if (i < types.size() - 1) s += " | ";
+        }
+        return s;
+    }
+};
+
+struct IntersectionType : public Type {
+    std::vector<std::shared_ptr<Type>> types;
+    IntersectionType(std::vector<std::shared_ptr<Type>> t) : Type(TypeKind::Intersection), types(t) {}
+    
+    std::string toString() const override {
+        std::string s;
+        for (size_t i = 0; i < types.size(); ++i) {
+            s += types[i]->toString();
+            if (i < types.size() - 1) s += " & ";
+        }
+        return s;
     }
 };
 
@@ -192,6 +229,50 @@ inline bool InterfaceType::isAssignableTo(std::shared_ptr<Type> other) {
         }
         return true;
     }
+    return false;
+}
+
+inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
+    if (other->kind == TypeKind::Any || kind == TypeKind::Any) return true;
+
+    // Handle Union (Target)
+    if (other->kind == TypeKind::Union) {
+        auto unionOther = std::static_pointer_cast<UnionType>(other);
+        for (auto& t : unionOther->types) {
+            if (this->isAssignableTo(t)) return true;
+        }
+        return false;
+    }
+
+    // Handle Union (Source)
+    if (kind == TypeKind::Union) {
+        auto unionThis = std::static_pointer_cast<UnionType>(shared_from_this());
+        for (auto& t : unionThis->types) {
+            if (!t->isAssignableTo(other)) return false;
+        }
+        return true;
+    }
+
+    // Handle Intersection (Target)
+    if (other->kind == TypeKind::Intersection) {
+        auto interOther = std::static_pointer_cast<IntersectionType>(other);
+        for (auto& t : interOther->types) {
+            if (!this->isAssignableTo(t)) return false;
+        }
+        return true;
+    }
+
+    // Handle Intersection (Source)
+    if (kind == TypeKind::Intersection) {
+        auto interThis = std::static_pointer_cast<IntersectionType>(shared_from_this());
+        for (auto& t : interThis->types) {
+            if (t->isAssignableTo(other)) return true;
+        }
+        return false;
+    }
+
+    if (kind == other->kind) return true;
+    if (isNumber() && other->isNumber()) return true;
     return false;
 }
 

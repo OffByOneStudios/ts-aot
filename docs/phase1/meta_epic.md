@@ -49,31 +49,5 @@ This document outlines the high-level epics required to deliver the `ts-aot` pro
 - **Type System:** Implement structural compatibility.
 - **Monomorphization:** Specialize functions for concrete classes implementing interfaces.
 
-## Epic 23: Access Modifiers (public, private, protected)
-**Status:** Completed
-**Goal:** Support TypeScript access modifiers for class members and enforce visibility rules during compilation.
-- **AST/Parser:** Support `public`, `private`, and `protected` modifiers.
-- **Semantic Analysis:** Enforce visibility rules in `Analyzer`.
-- **Error Reporting:** Abort compilation on visibility violations.
-
-## Epic 24: Static Members
-**Status:** Completed
-**Goal:** Support the `static` keyword for class properties and methods.
-- **AST/Parser:** Support `static` modifier.
-- **Type System:** Separate static and instance members in `ClassType`.
-- **Codegen:** Implement static fields as globals and static methods as global functions.
-
-## Epic 25: Abstract Classes
-**Status:** Completed
-**Goal:** Support the `abstract` keyword for classes and methods.
-- **AST/Parser:** Support `abstract` modifier.
-- **Semantic Analysis:** Prevent instantiation of abstract classes and ensure abstract methods are implemented.
-- **Codegen:** Handle abstract methods in VTables.
-
-## Epic 26: Method Overloading (Basic)
-**Status:** Not Started
-**Goal:** Support basic method overloading in classes.
-- **AST/Parser:** Support multiple method signatures.
-- **Semantic Analysis:** Resolve the correct overload based on argument types.
-- **Codegen:** Generate specialized functions for each overload.
+```
 
