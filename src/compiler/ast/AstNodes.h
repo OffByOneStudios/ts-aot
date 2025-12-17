@@ -120,6 +120,13 @@ struct SwitchStatement : Statement {
     std::string getKind() const override { return "SwitchStatement"; }
 };
 
+struct ForOfStatement : Statement {
+    StmtPtr initializer; // VariableDeclaration
+    ExprPtr expression;  // Iterable
+    StmtPtr body;
+    std::string getKind() const override { return "ForOfStatement"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {

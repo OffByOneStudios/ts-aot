@@ -171,6 +171,22 @@ function visit(node) {
                 incrementor: node.incrementor ? visit(node.incrementor) : null,
                 body: visit(node.statement)
             };
+        case ts.SyntaxKind.ForOfStatement:
+            let forOfInit = null;
+            if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
+                const decl = node.initializer.declarations[0];
+                forOfInit = {
+                    kind: "VariableDeclaration",
+                    name: decl.name.text,
+                    initializer: null // No initializer in for-of
+                };
+            }
+            return {
+                kind: "ForOfStatement",
+                initializer: forOfInit,
+                expression: visit(node.expression),
+                body: visit(node.statement)
+            };
         case ts.SyntaxKind.SwitchStatement:
             return {
                 kind: "SwitchStatement",

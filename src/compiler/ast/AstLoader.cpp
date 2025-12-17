@@ -167,6 +167,12 @@ StmtPtr parseStatement(const json& j) {
         }
         node->body = parseStatement(j["body"]);
         return node;
+    } else if (kind == "ForOfStatement") {
+        auto node = std::make_unique<ForOfStatement>();
+        node->initializer = parseStatement(j["initializer"]);
+        node->expression = parseExpression(j["expression"]);
+        node->body = parseStatement(j["body"]);
+        return node;
     } else if (kind == "BreakStatement") {
         return std::make_unique<BreakStatement>();
     } else if (kind == "ContinueStatement") {

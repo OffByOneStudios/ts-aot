@@ -31,6 +31,7 @@ void Analyzer::visit(Node* node) {
     else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto forOfStmt = dynamic_cast<ForOfStatement*>(node)) visitForOfStatement(forOfStmt);
     else if (auto sw = dynamic_cast<SwitchStatement*>(node)) visitSwitchStatement(sw);
     else if (auto br = dynamic_cast<BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ContinueStatement*>(node)) visitContinueStatement(cont);
@@ -328,6 +329,30 @@ void Analyzer::visitForStatement(ForStatement* node) {
     if (node->initializer) visit(node->initializer.get());
     if (node->condition) visit(node->condition.get());
     if (node->incrementor) visit(node->incrementor.get());
+    visit(node->body.get());
+    symbols.exitScope();
+}
+
+void Analyzer::visitForOfStatement(ForOfStatement* node) {
+    symbols.enterScope();
+    
+    visit(node->expression.get());
+    auto iterableType = lastType;
+    
+    std::shared_ptr<Type> elemType;
+    if (iterableType->kind == TypeKind::Array) {
+        elemType = std::static_pointer_cast<ArrayType>(iterableType)->elementType;
+    } else if (iterableType->kind == TypeKind::String) {
+        elemType = std::make_shared<Type>(TypeKind::String); // Iterating string yields strings
+    } else {
+        elemType = std::make_shared<Type>(TypeKind::Any);
+    }
+
+    // Handle initializer (VariableDeclaration)
+    if (auto varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get())) {
+        symbols.define(varDecl->name, elemType);
+    }
+
     visit(node->body.get());
     symbols.exitScope();
 }

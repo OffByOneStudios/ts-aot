@@ -47,6 +47,7 @@ private:
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
     void visitForStatement(ast::ForStatement* node);
+    void visitForOfStatement(ast::ForOfStatement* node);
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
