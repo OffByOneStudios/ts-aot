@@ -29,7 +29,7 @@ This document outlines the high-level epics required to deliver the `ts-aot` pro
 - **Pass 2 (Specialize):** Generate specialized function signatures (e.g., `add_int_int`) for specific type arguments.
 - **Pass 3 (Fallback):** Implement fallback mechanisms for dynamic types using `TaggedValue`.
 
-## Epic 5: LLVM Code Generation
+## Epic 5: Code Generation (LLVM)
 **Goal:** Translate the specialized AST into native machine code.
 - **IR Generation:** Initialize `llvm::Module` and `llvm::IRBuilder`.
 - **Instruction Selection:** Map AST nodes to LLVM IR (math ops, function calls).
