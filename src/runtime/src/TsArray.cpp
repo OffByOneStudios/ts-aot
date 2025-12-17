@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <new>
+#include <algorithm>
 
 TsArray* TsArray::Create(size_t initialCapacity) {
     void* mem = ts_alloc(sizeof(TsArray));
@@ -50,6 +51,10 @@ int64_t TsArray::Length() {
     return length;
 }
 
+void TsArray::Sort() {
+    std::sort(elements, elements + length);
+}
+
 extern "C" {
     void* ts_array_create() {
         return TsArray::Create();
@@ -69,5 +74,9 @@ extern "C" {
 
     int64_t ts_array_length(void* arr) {
         return ((TsArray*)arr)->Length();
+    }
+
+    void ts_array_sort(void* arr) {
+        ((TsArray*)arr)->Sort();
     }
 }

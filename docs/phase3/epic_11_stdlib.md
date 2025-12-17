@@ -19,3 +19,5 @@ Implement the `Math` object and essential algorithms.
 - [x] Implement `Math` functions in Runtime.
 - [x] Add Codegen support for `Math` static methods.
 - [x] Test with `tests/integration/stdlib.ts`.
+- [x] Implement `Array.sort` in Runtime and Codegen.
+
