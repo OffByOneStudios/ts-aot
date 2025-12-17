@@ -38,8 +38,8 @@ Implement the logic to generate specialized function signatures based on call si
 - [x] Verify that variables are defined before use.
 
 ### Task 4.4: Call Graph & Usage Tracking
-- [ ] Update `Analyzer` to track function calls and argument types.
-- [ ] Store usage information (e.g., "function `add` called with (int, int)").
+- [x] Update `Analyzer` to track function calls and argument types.
+- [x] Store usage information (e.g., "function `add` called with (int, int)").
 
 ### Task 4.5: Specialization Logic
 - [ ] Implement a `Monomorphizer` class that takes the usage info and generates specialized function signatures.
