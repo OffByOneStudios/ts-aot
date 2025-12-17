@@ -18,6 +18,6 @@ Implement a hash map data structure for O(1) lookups.
 - **Codegen:** Generate calls to runtime map functions.
 
 ## Action Items
-- [ ] Implement `TsMap` in Runtime.
-- [ ] Add Codegen support for `Map` methods.
-- [ ] Test with `tests/integration/maps.ts`.
+- [x] Implement `TsMap` in Runtime.
+- [x] Add Codegen support for `Map` methods.
+- [x] Test with `tests/integration/maps.ts`.

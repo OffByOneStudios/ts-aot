@@ -130,6 +130,12 @@ struct CallExpression : Expression {
     std::string getKind() const override { return "CallExpression"; }
 };
 
+struct NewExpression : Expression {
+    ExprPtr expression;
+    std::vector<ExprPtr> arguments;
+    std::string getKind() const override { return "NewExpression"; }
+};
+
 struct ArrayLiteralExpression : Expression {
     std::vector<ExprPtr> elements;
     std::string getKind() const override { return "ArrayLiteralExpression"; }

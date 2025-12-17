@@ -58,6 +58,12 @@ function visit(node) {
                 callee: visit(node.expression),
                 arguments: node.arguments.map(visit)
             };
+        case ts.SyntaxKind.NewExpression:
+            return {
+                kind: "NewExpression",
+                expression: visit(node.expression),
+                arguments: node.arguments ? node.arguments.map(visit) : []
+            };
         case ts.SyntaxKind.ArrayLiteralExpression:
             return {
                 kind: "ArrayLiteralExpression",
