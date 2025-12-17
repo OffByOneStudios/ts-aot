@@ -131,6 +131,7 @@ struct PropertyDefinition : Node {
     std::string type;
     ExprPtr initializer;
     ts::AccessModifier access = ts::AccessModifier::Public;
+    bool isStatic = false;
     std::string getKind() const override { return "PropertyDefinition"; }
 };
 
@@ -140,6 +141,7 @@ struct MethodDefinition : Node {
     std::string returnType;
     std::vector<StmtPtr> body;
     ts::AccessModifier access = ts::AccessModifier::Public;
+    bool isStatic = false;
     std::string getKind() const override { return "MethodDefinition"; }
 };
 

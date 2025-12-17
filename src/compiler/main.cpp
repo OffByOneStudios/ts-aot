@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
     }
 
     ts::IRGenerator irGen;
-    irGen.generate(monomorphizer.getSpecializations(), analyzer);
+    irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
     
     if (result.count("debug-ast")) { // Reuse debug flag for now, or add a new one
         fmt::print("\n--- Generated IR ---\n");

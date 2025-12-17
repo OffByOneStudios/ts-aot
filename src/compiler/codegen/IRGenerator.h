@@ -17,7 +17,7 @@ class IRGenerator {
 public:
     IRGenerator();
 
-    void generate(const std::vector<Specialization>& specializations, const Analyzer& analyzer);
+    void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer);
     void emitObjectCode(const std::string& filename);
     void dumpIR();
 
@@ -27,7 +27,7 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
-    void generateClasses(const Analyzer& analyzer);
+    void generateClasses(ast::Program* program, const Analyzer& analyzer);
     void generatePrototypes(const std::vector<Specialization>& specializations);
     void generateBodies(const std::vector<Specialization>& specializations);
     void generateEntryPoint();

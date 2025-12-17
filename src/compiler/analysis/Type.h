@@ -106,6 +106,11 @@ struct ClassType : public Type {
     std::map<std::string, AccessModifier> fieldAccess;
     std::map<std::string, AccessModifier> methodAccess;
 
+    std::map<std::string, std::shared_ptr<Type>> staticFields;
+    std::map<std::string, std::shared_ptr<FunctionType>> staticMethods;
+    std::map<std::string, AccessModifier> staticFieldAccess;
+    std::map<std::string, AccessModifier> staticMethodAccess;
+
     ClassType(std::string n) : Type(TypeKind::Class), name(n) {}
 
     bool isSubclassOf(std::shared_ptr<ClassType> other) {

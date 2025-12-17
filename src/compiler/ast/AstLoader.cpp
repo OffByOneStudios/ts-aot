@@ -147,6 +147,9 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("access")) {
             node->access = parseAccessModifier(j["access"]);
         }
+        if (j.contains("isStatic")) {
+            node->isStatic = j["isStatic"];
+        }
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
@@ -154,6 +157,9 @@ NodePtr parseClassMember(const json& j) {
         node->returnType = j["returnType"];
         if (j.contains("access")) {
             node->access = parseAccessModifier(j["access"]);
+        }
+        if (j.contains("isStatic")) {
+            node->isStatic = j["isStatic"];
         }
         for (const auto& p : j["parameters"]) {
             auto param = std::make_unique<Parameter>();

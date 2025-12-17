@@ -17,14 +17,14 @@ IRGenerator::IRGenerator() {
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 }
 
-void IRGenerator::generate(const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
-    generateClasses(analyzer);
+void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
+    generateClasses(program, analyzer);
     generatePrototypes(specializations);
     generateBodies(specializations);
     generateEntryPoint();
 }
 
-void IRGenerator::generateClasses(const Analyzer& analyzer) {
+void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyzer) {
     // 1. First pass: Create opaque structs for all classes to handle circular references
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
         if (type->kind == TypeKind::Class) {
@@ -127,6 +127,49 @@ void IRGenerator::generateClasses(const Analyzer& analyzer) {
             vtableConst,
             vtableName + "_Global"
         );
+
+        // Create VTable Global
+        std::string vtableGlobalName = name + "_VTable_Global";
+        auto* vtableGlobal = new llvm::GlobalVariable(
+            *module, vtableStruct, true, llvm::GlobalValue::ExternalLinkage,
+            llvm::ConstantStruct::get(vtableStruct, vtableFuncs), vtableGlobalName);
+    }
+
+    // 4. Fourth pass: Define static fields as global variables
+    for (const auto& stmt : program->body) {
+        if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+            auto type = analyzer.getSymbolTable().lookupType(cls->name);
+            if (!type || type->kind != TypeKind::Class) continue;
+            auto classType = std::static_pointer_cast<ClassType>(type);
+
+            for (const auto& member : cls->members) {
+                if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                    if (prop->isStatic) {
+                        std::string mangledName = cls->name + "_static_" + prop->name;
+                        auto propType = classType->staticFields[prop->name];
+                        
+                        llvm::Constant* init = llvm::Constant::getNullValue(getLLVMType(propType));
+                        if (prop->initializer) {
+                            if (auto nl = dynamic_cast<ast::NumericLiteral*>(prop->initializer.get())) {
+                                if (propType->kind == TypeKind::Int) {
+                                    init = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), (int64_t)nl->value);
+                                } else {
+                                    init = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), nl->value);
+                                }
+                            } else if (auto bl = dynamic_cast<ast::BooleanLiteral*>(prop->initializer.get())) {
+                                init = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), bl->value);
+                            }
+                        }
+
+                        new llvm::GlobalVariable(
+                            *module, getLLVMType(propType), false,
+                            llvm::GlobalValue::ExternalLinkage,
+                            init,
+                            mangledName);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -249,23 +292,30 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 visit(stmt.get());
             }
         } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
-            // Handle 'this' parameter (first argument)
             auto argIt = function->arg_begin();
-            if (argIt != function->arg_end()) {
-                argIt->setName("this");
-                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", argIt->getType());
-                builder->CreateStore(&*argIt, alloca);
-                namedValues["this"] = alloca;
-                ++argIt;
+            if (!methodNode->isStatic) {
+                // Handle 'this' parameter (first argument)
+                if (argIt != function->arg_end()) {
+                    argIt->setName("this");
+                    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", argIt->getType());
+                    builder->CreateStore(&*argIt, alloca);
+                    namedValues["this"] = alloca;
+                    ++argIt;
+                }
             }
 
-            // Handle other parameters
-            for (size_t i = 0; i < methodNode->parameters.size() && argIt != function->arg_end(); ++i, ++argIt) {
-                std::string argName = methodNode->parameters[i]->name;
+            // Handle explicit parameters
+            unsigned idx = 0;
+            while (argIt != function->arg_end() && idx < methodNode->parameters.size()) {
+                std::string argName = methodNode->parameters[idx]->name;
                 argIt->setName(argName);
+                
                 llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, argIt->getType());
                 builder->CreateStore(&*argIt, alloca);
                 namedValues[argName] = alloca;
+                
+                ++argIt;
+                ++idx;
             }
 
             for (auto& stmt : methodNode->body) {
@@ -369,16 +419,22 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
                          llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
                      left = builder->CreateCall(fromInt, { left });
+                 } else if (left->getType()->isDoubleTy()) {
+                     llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false));
+                     left = builder->CreateCall(fromDouble, { left });
                  }
-                 // TODO: Handle double
              }
              if (!rightIsString) {
                  if (right->getType()->isIntegerTy()) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
                          llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
                      right = builder->CreateCall(fromInt, { right });
+                 } else if (right->getType()->isDoubleTy()) {
+                     llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false));
+                     right = builder->CreateCall(fromDouble, { right });
                  }
-                 // TODO: Handle double
              }
 
              llvm::Function* concatFn = module->getFunction("ts_string_concat");
@@ -492,6 +548,56 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     }
 
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(prop->expression->inferredType);
+            if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+                
+                // Static method call
+                auto current = cls;
+                while (current) {
+                    if (current->staticMethods.count(prop->name)) {
+                        std::string implName = current->name + "_static_" + prop->name;
+                        auto methodType = current->staticMethods[prop->name];
+                        
+                        std::vector<llvm::Type*> paramTypes;
+                        for (const auto& param : methodType->paramTypes) {
+                            paramTypes.push_back(getLLVMType(param));
+                        }
+                        llvm::FunctionType* ft = llvm::FunctionType::get(
+                            getLLVMType(methodType->returnType), paramTypes, false);
+                        
+                        llvm::FunctionCallee func = module->getOrInsertFunction(implName, ft);
+                        
+                        std::vector<llvm::Value*> args;
+                        int argIdx = 0;
+                        for (auto& arg : node->arguments) {
+                            visit(arg.get());
+                            llvm::Value* val = lastValue;
+                            
+                            // Cast if necessary
+                            if (argIdx < (int)ft->getNumParams()) {
+                                llvm::Type* expectedType = ft->getParamType(argIdx);
+                                if (val->getType() != expectedType) {
+                                    if (expectedType->isDoubleTy() && val->getType()->isIntegerTy()) {
+                                        val = builder->CreateSIToFP(val, expectedType);
+                                    } else if (expectedType->isIntegerTy() && val->getType()->isDoubleTy()) {
+                                        val = builder->CreateFPToSI(val, expectedType);
+                                    }
+                                }
+                            }
+                            
+                            args.push_back(val);
+                            argIdx++;
+                        }
+                        lastValue = builder->CreateCall(ft, func.getCallee(), args);
+                        return;
+                    }
+                    current = current->baseClass;
+                }
+            }
+        }
+
         if (dynamic_cast<ast::SuperExpression*>(prop->expression.get())) {
             // super.method()
             if (!currentClass || currentClass->kind != TypeKind::Class) return;
@@ -1464,24 +1570,61 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         builder->CreateCall(setFn, { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(prop->expression->inferredType);
+            if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+                std::string mangledName = cls->name + "_static_" + prop->name;
+                auto* gVar = module->getGlobalVariable(mangledName);
+                if (gVar) {
+                    // Cast if necessary
+                    if (val->getType() != gVar->getValueType()) {
+                        if (gVar->getValueType()->isDoubleTy() && val->getType()->isIntegerTy()) {
+                            val = builder->CreateSIToFP(val, gVar->getValueType());
+                        } else if (gVar->getValueType()->isIntegerTy() && val->getType()->isDoubleTy()) {
+                            val = builder->CreateFPToSI(val, gVar->getValueType());
+                        }
+                    }
+                    builder->CreateStore(val, gVar);
+                    lastValue = val;
+                    return;
+                }
+            }
+        }
+
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
             std::string className = classType->name;
             std::string fieldName = prop->name;
             
-            visit(prop->expression.get());
-            llvm::Value* objPtr = lastValue;
-            
-            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
-            if (!classStruct) return;
-            
-            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
-            
-            // Find field index using ClassLayout
+            // Check if it's a field access
             if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+                visit(prop->expression.get());
+                llvm::Value* objPtr = lastValue;
+                
+                llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+                if (!classStruct) return;
+                
+                llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+                
                 int fieldIndex = classLayouts[className].fieldIndices[fieldName];
                 llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
-                builder->CreateStore(val, fieldPtr);
+                
+                // We need the type of the field to load it correctly
+                // The field could be in a base class, so we look it up in the layout's allFields
+                std::shared_ptr<Type> fieldType;
+                for (const auto& f : classLayouts[className].allFields) {
+                    if (f.first == fieldName) {
+                        fieldType = f.second;
+                        break;
+                    }
+                }
+                
+                if (fieldType) {
+                    lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                } else {
+                    lastValue = nullptr;
+                }
             } else {
                 llvm::errs() << "Error: Field " << fieldName << " not found in class " << className << "\n";
             }
@@ -1603,6 +1746,40 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(node->expression->inferredType);
+        if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+            
+            // Check if it's a static field
+            std::string mangledName = cls->name + "_static_" + node->name;
+            auto* gVar = module->getGlobalVariable(mangledName);
+            if (gVar) {
+                lastValue = builder->CreateLoad(gVar->getValueType(), gVar);
+                return;
+            }
+
+            // Check if it's a static method
+            auto current = cls;
+            while (current) {
+                if (current->staticMethods.count(node->name)) {
+                    std::string implName = current->name + "_static_" + node->name;
+                    auto methodType = current->staticMethods[node->name];
+                    
+                    std::vector<llvm::Type*> paramTypes;
+                    for (const auto& param : methodType->paramTypes) {
+                        paramTypes.push_back(getLLVMType(param));
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), paramTypes, false);
+                    
+                    lastValue = module->getOrInsertFunction(implName, ft).getCallee();
+                    return;
+                }
+                current = current->baseClass;
+            }
+        }
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
         std::string className = classType->name;

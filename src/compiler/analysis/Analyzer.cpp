@@ -362,6 +362,49 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
                 lastType = memberType;
                 return;
             }
+        } else if (objType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(objType);
+            if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+                
+                // Static access
+                std::shared_ptr<ClassType> definingClass = nullptr;
+                AccessModifier access = AccessModifier::Public;
+                std::shared_ptr<Type> memberType = nullptr;
+
+                auto current = cls;
+                while (current) {
+                    if (current->staticFields.count(node->name)) {
+                        definingClass = current;
+                        access = current->staticFieldAccess[node->name];
+                        memberType = current->staticFields[node->name];
+                        break;
+                    } else if (current->staticMethods.count(node->name)) {
+                        definingClass = current;
+                        access = current->staticMethodAccess[node->name];
+                        memberType = current->staticMethods[node->name];
+                        break;
+                    }
+                    current = current->baseClass;
+                }
+
+                if (definingClass) {
+                    if (access == AccessModifier::Private) {
+                        if (currentClass != definingClass) {
+                            reportError(fmt::format("Static property {} is private and not accessible from here", node->name));
+                        }
+                    } else if (access == AccessModifier::Protected) {
+                        if (!currentClass || !currentClass->isSubclassOf(definingClass)) {
+                            reportError(fmt::format("Static property {} is protected and not accessible from here", node->name));
+                        }
+                    }
+                    lastType = memberType;
+                    return;
+                }
+            }
+        } else if (objType->kind == TypeKind::Any) {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+            return;
         }
         reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
@@ -587,8 +630,14 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     // 3. Scan members to populate fields and methods
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
-            classType->fields[prop->name] = parseType(prop->type, symbols);
-            classType->fieldAccess[prop->name] = prop->access;
+            auto propType = parseType(prop->type, symbols);
+            if (prop->isStatic) {
+                classType->staticFields[prop->name] = propType;
+                classType->staticFieldAccess[prop->name] = prop->access;
+            } else {
+                classType->fields[prop->name] = propType;
+                classType->fieldAccess[prop->name] = prop->access;
+            }
         } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             auto methodType = std::make_shared<FunctionType>();
             if (!method->returnType.empty()) {
@@ -603,8 +652,13 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
                     methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
                 }
             }
-            classType->methods[method->name] = methodType;
-            classType->methodAccess[method->name] = method->access;
+            if (method->isStatic) {
+                classType->staticMethods[method->name] = methodType;
+                classType->staticMethodAccess[method->name] = method->access;
+            } else {
+                classType->methods[method->name] = methodType;
+                classType->methodAccess[method->name] = method->access;
+            }
         }
     }
 
@@ -670,11 +724,19 @@ void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType
 void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<ClassType> classType) {
     symbols.enterScope();
     
-    // Define 'this'
-    symbols.define("this", classType);
+    // Define 'this' (only for instance methods)
+    if (!node->isStatic) {
+        symbols.define("this", classType);
+    }
 
     // Define parameters
-    auto methodType = classType->methods[node->name];
+    std::shared_ptr<FunctionType> methodType;
+    if (node->isStatic) {
+        methodType = classType->staticMethods[node->name];
+    } else {
+        methodType = classType->methods[node->name];
+    }
+    
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         symbols.define(node->parameters[i]->name, methodType->paramTypes[i]);
     }
