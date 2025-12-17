@@ -142,6 +142,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
+    else if (auto pre = dynamic_cast<ast::PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
     else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
 }
 
@@ -328,7 +329,52 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     return;
                 }
             }
-        } else if (prop->name == "charCodeAt") {
+        } else if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "Math") {
+                if (prop->name == "min" || prop->name == "max") {
+                    if (node->arguments.size() < 2) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg1 = lastValue;
+                    visit(node->arguments[1].get());
+                    llvm::Value* arg2 = lastValue;
+                    
+                    std::string funcName = (prop->name == "min") ? "ts_math_min" : "ts_math_max";
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(funcName,
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                            { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg1, arg2 });
+                    return;
+                } else if (prop->name == "abs") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_abs",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                            { llvm::Type::getInt64Ty(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                } else if (prop->name == "floor") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    
+                    if (arg->getType()->isIntegerTy(64)) {
+                        // floor(int) is just int
+                        lastValue = arg;
+                        return;
+                    }
+                    
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_floor",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                            { llvm::Type::getDoubleTy(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                }
+            }
+        }
+        
+        if (prop->name == "charCodeAt") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
              
@@ -845,6 +891,27 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     } else {
         llvm::errs() << "Error: Unknown property " << node->name << "\n";
         lastValue = nullptr;
+    }
+}
+
+void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
+    visit(node->operand.get());
+    llvm::Value* operandV = lastValue;
+    if (!operandV) return;
+
+    if (node->op == "-") {
+        if (operandV->getType()->isDoubleTy()) {
+            lastValue = builder->CreateFNeg(operandV, "negtmp");
+        } else if (operandV->getType()->isIntegerTy()) {
+            lastValue = builder->CreateNeg(operandV, "negtmp");
+        }
+    } else if (node->op == "!") {
+        if (operandV->getType()->isDoubleTy()) {
+            operandV = builder->CreateFCmpONE(operandV, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "tobool");
+        } else if (operandV->getType()->isIntegerTy() && operandV->getType()->getIntegerBitWidth() > 1) {
+             operandV = builder->CreateICmpNE(operandV, llvm::ConstantInt::get(operandV->getType(), 0), "tobool");
+        }
+        lastValue = builder->CreateNot(operandV, "nottmp");
     }
 }
 

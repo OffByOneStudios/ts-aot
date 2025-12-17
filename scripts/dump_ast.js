@@ -98,6 +98,12 @@ function visit(node) {
                 kind: "Identifier",
                 name: node.text
             };
+        case ts.SyntaxKind.PrefixUnaryExpression:
+            return {
+                kind: "PrefixUnaryExpression",
+                operator: ts.tokenToString(node.operator),
+                operand: visit(node.operand)
+            };
         case ts.SyntaxKind.PropertyAccessExpression:
             return {
                 kind: "PropertyAccessExpression",

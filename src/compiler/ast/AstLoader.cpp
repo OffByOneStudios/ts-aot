@@ -12,6 +12,11 @@ ExprPtr parseExpression(const json& j);
 StmtPtr parseStatement(const json& j);
 
 ExprPtr parseExpression(const json& j) {
+    if (j.is_null()) throw std::runtime_error("parseExpression called with null");
+    if (!j.contains("kind")) {
+        std::cerr << "JSON missing kind: " << j.dump() << std::endl;
+        throw std::runtime_error("JSON missing kind");
+    }
     std::string kind = j["kind"];
     
     if (kind == "BinaryExpression") {
@@ -59,6 +64,11 @@ ExprPtr parseExpression(const json& j) {
     } else if (kind == "NumericLiteral") {
         auto node = std::make_unique<NumericLiteral>();
         node->value = j["value"];
+        return node;
+    } else if (kind == "PrefixUnaryExpression") {
+        auto node = std::make_unique<PrefixUnaryExpression>();
+        node->op = j["operator"];
+        node->operand = parseExpression(j["operand"]);
         return node;
     }
     

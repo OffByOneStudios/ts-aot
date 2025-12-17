@@ -48,6 +48,7 @@ private:
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);

@@ -34,6 +34,7 @@ void Analyzer::visit(Node* node) {
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
+    else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
         expr->inferredType = lastType;
@@ -120,6 +121,17 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
+        }
+        
+        // Check for Math methods
+        if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
+            if (obj->name == "Math") {
+                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor") {
+                    for (auto& arg : node->arguments) visit(arg.get());
+                    lastType = std::make_shared<Type>(TypeKind::Int);
+                    return;
+                }
+            }
         }
     }
     
@@ -285,6 +297,13 @@ void Analyzer::visitReturnStatement(ReturnStatement* node) {
         currentReturnType = lastType;
     } else {
         currentReturnType = std::make_shared<Type>(TypeKind::Void);
+    }
+}
+
+void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
+    visit(node->operand.get());
+    if (node->op == "!") {
+         lastType = std::make_shared<Type>(TypeKind::Boolean);
     }
 }
 
