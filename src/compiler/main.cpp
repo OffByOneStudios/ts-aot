@@ -3,6 +3,7 @@
 #include "ast/AstLoader.h"
 #include "analysis/Analyzer.h"
 #include "analysis/Monomorphizer.h"
+#include "codegen/IRGenerator.h"
 #include <iostream>
 
 void printAst(const ast::Node* node, int indent = 0) {
@@ -79,11 +80,19 @@ int main(int argc, char** argv) {
         monomorphizer.monomorphize(program.get(), analyzer.getFunctionUsages());
         
         fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
-        for (const auto& spec : monomorphizer.getSpecializations()) {
-            fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
-        }
+    for (const auto& spec : monomorphizer.getSpecializations()) {
+        fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
+    }
 
-        fmt::print("Successfully loaded AST from {}\n", inputFile);
+    ts::IRGenerator irGen;
+    irGen.generate(monomorphizer.getSpecializations());
+    
+    if (result.count("debug-ast")) { // Reuse debug flag for now, or add a new one
+        fmt::print("\n--- Generated IR ---\n");
+        irGen.dumpIR();
+    }
+
+    fmt::print("Successfully loaded AST from {}\n", inputFile);
     } catch (const std::exception& e) {
         std::cerr << "Error loading AST: " << e.what() << std::endl;
         return 1;

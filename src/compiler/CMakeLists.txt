@@ -15,6 +15,7 @@ add_executable(ts-aot
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
     analysis/Monomorphizer.cpp
+    codegen/IRGenerator.cpp
     # Add other source files here
 )
 
