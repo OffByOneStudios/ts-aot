@@ -62,11 +62,11 @@ This document tracks the implementation status of TypeScript language features i
 | Object Literals | ✅ | Phase 4 | `{ x: 1, y: 2 }`. |
 | Property Access | ✅ | Phase 4 | `obj.prop`. |
 | `Map` | ⚠️ | Phase 3 | Basic `get`/`set`/`has`. |
-| Classes | ⚠️ | Phase 6 | Basic support (fields, methods, ctors). |
-| Inheritance | 📅 | Phase 7 | `extends`. |
+| Classes | ✅ | Phase 6 | Basic support (fields, methods, ctors). |
+| Inheritance | ✅ | Phase 7 | `extends`. |
 | Access Modifiers | 📅 | Phase 7 | `public`, `private`, `protected`. |
-| `this` keyword | ⚠️ | Phase 6 | Basic support (methods). |
-| Interfaces | 📅 | Phase 7 | Structural typing. |
+| `this` keyword | ✅ | Phase 6 | Basic support (methods). |
+| Interfaces | ✅ | Phase 7 | Structural typing. |
 | Generics | 📅 | Phase 8 | `class Box<T>`. |
 
 ## 5. Advanced Features

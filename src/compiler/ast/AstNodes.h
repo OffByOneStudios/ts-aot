@@ -144,8 +144,17 @@ struct MethodDefinition : Node {
 
 struct ClassDeclaration : Statement {
     std::string name;
+    std::string baseClass;
+    std::vector<std::string> implementsInterfaces;
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
     std::string getKind() const override { return "ClassDeclaration"; }
+};
+
+struct InterfaceDeclaration : Statement {
+    std::string name;
+    std::vector<std::string> baseInterfaces;
+    std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
+    std::string getKind() const override { return "InterfaceDeclaration"; }
 };
 
 // --- Expressions ---
@@ -212,6 +221,10 @@ struct ObjectLiteralExpression : Expression {
 struct Identifier : Expression {
     std::string name;
     std::string getKind() const override { return "Identifier"; }
+};
+
+struct SuperExpression : Expression {
+    std::string getKind() const override { return "SuperExpression"; }
 };
 
 struct StringLiteral : Expression {

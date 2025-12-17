@@ -33,6 +33,7 @@ private:
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node);
     void visitClassDeclaration(ast::ClassDeclaration* node);
+    void visitInterfaceDeclaration(ast::InterfaceDeclaration* node);
     void visitFunctionDeclaration(ast::FunctionDeclaration* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
@@ -60,8 +61,13 @@ private:
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
+    void visitSuperExpression(ast::SuperExpression* node);
     void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
     void visitPropertyDefinition(ast::PropertyDefinition* node, std::shared_ptr<ClassType> classType);
+
+    void checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType);
+
+    std::shared_ptr<ClassType> currentClass;
 };
 
 } // namespace ts

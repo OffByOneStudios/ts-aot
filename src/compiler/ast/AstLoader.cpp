@@ -122,6 +122,8 @@ ExprPtr parseExpression(const json& j) {
             node->spans.push_back(std::move(s));
         }
         return node;
+    } else if (kind == "SuperExpression") {
+        return std::make_unique<SuperExpression>();
     }
     
     throw std::runtime_error("Unknown expression kind: " + kind);
@@ -161,6 +163,26 @@ StmtPtr parseStatement(const json& j) {
     if (kind == "ClassDeclaration") {
         auto node = std::make_unique<ClassDeclaration>();
         node->name = j["name"];
+        if (j.contains("baseClass")) {
+            node->baseClass = j["baseClass"];
+        }
+        if (j.contains("implementsInterfaces")) {
+            for (const auto& i : j["implementsInterfaces"]) {
+                node->implementsInterfaces.push_back(i);
+            }
+        }
+        for (const auto& member : j["members"]) {
+            node->members.push_back(parseClassMember(member));
+        }
+        return node;
+    } else if (kind == "InterfaceDeclaration") {
+        auto node = std::make_unique<InterfaceDeclaration>();
+        node->name = j["name"];
+        if (j.contains("baseInterfaces")) {
+            for (const auto& i : j["baseInterfaces"]) {
+                node->baseInterfaces.push_back(i);
+            }
+        }
         for (const auto& member : j["members"]) {
             node->members.push_back(parseClassMember(member));
         }
