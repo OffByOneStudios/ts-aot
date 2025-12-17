@@ -43,7 +43,7 @@ Update the `ts-aot` executable to accept input files and orchestrate the compila
 - [x] Use `nlohmann/json` to parse the file and map fields to C++ structs.
 
 ### Task 3.4: CLI Implementation
-- [ ] Update `src/compiler/main.cpp`.
-- [ ] Use `cxxopts` to parse command line arguments (`--output`, input file).
-- [ ] Integrate `AstLoader` to load the input.
-- [ ] Add a debug flag to print the loaded AST structure.
+- [x] Update `src/compiler/main.cpp`.
+- [x] Use `cxxopts` to parse command line arguments (`--output`, input file).
+- [x] Integrate `AstLoader` to load the input.
+- [x] Add a debug flag to print the loaded AST structure.
