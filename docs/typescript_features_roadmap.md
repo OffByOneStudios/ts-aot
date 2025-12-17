@@ -47,7 +47,8 @@ This document tracks the implementation status of TypeScript language features i
 | Function Declaration | ✅ | Phase 4 | `function foo() {}`. |
 | Function Call | ✅ | Phase 1 | |
 | Recursion | ✅ | Phase 4 | |
-| Arrow Functions | 📅 | Phase 5 | `() => {}`. |
+| Arrow Functions | ✅ | Phase 5 | `() => {}`. |
+| Template Literals | ✅ | Phase 5 | `` `Hello ${name}` ``. |
 | Function Expressions | 📅 | Phase 5 | `const foo = function() {}`. |
 | Optional Parameters | 📅 | Phase 6 | `function foo(x?: number)`. |
 | Default Parameters | 📅 | Phase 6 | `function foo(x = 1)`. |
