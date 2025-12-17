@@ -94,6 +94,37 @@ void* TsString::Split(TsString* separator) {
     return arr;
 }
 
+TsString* TsString::Trim() {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString trimmed = *s;
+    trimmed.trim();
+    
+    std::string utf8;
+    trimmed.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
+TsString* TsString::Substring(int64_t start, int64_t end) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    int32_t len = s->length();
+    
+    // Clamp to int32 range and string length
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (start > len) start = len;
+    if (end > len) end = len;
+    
+    int32_t s32 = (int32_t)start;
+    int32_t e32 = (int32_t)end;
+    
+    if (s32 > e32) std::swap(s32, e32);
+    
+    icu::UnicodeString sub = s->tempSubString(s32, e32 - s32);
+    std::string utf8;
+    sub.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
 extern "C" TsString* ts_string_create(const char* str) {
     return TsString::Create(str);
 }
@@ -112,4 +143,12 @@ extern "C" int64_t ts_string_charCodeAt(void* str, int64_t index) {
 
 extern "C" void* ts_string_split(void* str, void* separator) {
     return ((TsString*)str)->Split((TsString*)separator);
+}
+
+extern "C" void* ts_string_trim(void* str) {
+    return ((TsString*)str)->Trim();
+}
+
+extern "C" void* ts_string_substring(void* str, int64_t start, int64_t end) {
+    return ((TsString*)str)->Substring(start, end);
 }
