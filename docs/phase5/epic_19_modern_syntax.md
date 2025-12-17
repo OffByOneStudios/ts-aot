@@ -1,6 +1,6 @@
 # Epic 19: Modern Functions & Strings
 
-**Status:** Planned
+**Status:** Completed
 **Parent:** [Phase 5 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -18,6 +18,6 @@ Add support for Arrow Functions and Template Literals, which are ubiquitous in m
 - **Codegen:** Lower `` `a${b}c` `` to string concatenation: `ts_string_concat("a", ts_string_concat(b, "c"))`.
 
 ## Action Items
-- [ ] Implement `ArrowFunction` in Analyzer & IRGenerator.
-- [ ] Implement `TemplateExpression` in Analyzer & IRGenerator.
-- [ ] Test with `tests/integration/modern_syntax.ts`.
+- [x] Implement `ArrowFunction` in Analyzer & IRGenerator.
+- [x] Implement `TemplateExpression` in Analyzer & IRGenerator.
+- [x] Test with `tests/integration/modern_syntax.ts`.
