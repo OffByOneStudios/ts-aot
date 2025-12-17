@@ -1,5 +1,12 @@
 #include "IRGenerator.h"
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/IR/LegacyPassManager.h>
 
 namespace ts {
 
@@ -240,6 +247,54 @@ void IRGenerator::visitExpressionStatement(ast::ExpressionStatement* node) {
 
 void IRGenerator::dumpIR() {
     module->print(llvm::outs(), nullptr);
+}
+
+void IRGenerator::emitObjectCode(const std::string& filename) {
+    // Initialize the target registry etc.
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
+
+    auto targetTriple = llvm::sys::getDefaultTargetTriple();
+    module->setTargetTriple(targetTriple);
+
+    std::string error;
+    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
+
+    if (!target) {
+        llvm::errs() << error;
+        return;
+    }
+
+    auto cpu = "generic";
+    auto features = "";
+
+    llvm::TargetOptions opt;
+    auto rm = std::optional<llvm::Reloc::Model>();
+    auto targetMachine = target->createTargetMachine(targetTriple, cpu, features, opt, rm);
+
+    module->setDataLayout(targetMachine->createDataLayout());
+
+    std::error_code ec;
+    llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
+
+    if (ec) {
+        llvm::errs() << "Could not open file: " << ec.message();
+        return;
+    }
+
+    llvm::legacy::PassManager pass;
+    auto fileType = llvm::CodeGenFileType::ObjectFile;
+
+    if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
+        llvm::errs() << "TargetMachine can't emit a file of this type";
+        return;
+    }
+
+    pass.run(*module);
+    dest.flush();
 }
 
 } // namespace ts

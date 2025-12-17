@@ -92,6 +92,12 @@ int main(int argc, char** argv) {
         irGen.dumpIR();
     }
 
+    if (result.count("output")) {
+        std::string outputFile = result["output"].as<std::string>();
+        irGen.emitObjectCode(outputFile);
+        fmt::print("Emitted object code to {}\n", outputFile);
+    }
+
     fmt::print("Successfully loaded AST from {}\n", inputFile);
     } catch (const std::exception& e) {
         std::cerr << "Error loading AST: " << e.what() << std::endl;
