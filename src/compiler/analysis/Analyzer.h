@@ -42,6 +42,7 @@ private:
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
+    void visitForStatement(ast::ForStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
     void visitIdentifier(ast::Identifier* node);
     void visitStringLiteral(ast::StringLiteral* node);

@@ -79,6 +79,14 @@ struct WhileStatement : Statement {
     std::string getKind() const override { return "WhileStatement"; }
 };
 
+struct ForStatement : Statement {
+    StmtPtr initializer;
+    ExprPtr condition;
+    ExprPtr incrementor;
+    StmtPtr body;
+    std::string getKind() const override { return "ForStatement"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {

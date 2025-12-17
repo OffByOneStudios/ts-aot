@@ -25,6 +25,6 @@ Implement standard iteration constructs to allow algorithms that require looping
 ## Action Items
 - [x] Implement `WhileStatement` in AST and Parser.
 - [x] Implement `WhileStatement` in Analyzer and IRGenerator.
-- [ ] Implement `ForStatement` in AST and Parser.
-- [ ] Implement `ForStatement` in Analyzer and IRGenerator.
-- [ ] Add integration tests for loops (e.g., calculating sum of 1..N).
+- [x] Implement `ForStatement` in AST and Parser.
+- [x] Implement `ForStatement` in Analyzer and IRGenerator.
+- [x] Add integration tests for loops (e.g., calculating sum of 1..N).

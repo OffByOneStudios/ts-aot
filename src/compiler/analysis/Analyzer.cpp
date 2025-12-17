@@ -25,6 +25,7 @@ void Analyzer::visit(Node* node) {
     else if (auto assign = dynamic_cast<AssignmentExpression*>(node)) visitAssignmentExpression(assign);
     else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<WhileStatement*>(node)) visitWhileStatement(whileStmt);
+    else if (auto forStmt = dynamic_cast<ForStatement*>(node)) visitForStatement(forStmt);
     else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
@@ -161,6 +162,15 @@ void Analyzer::visitIfStatement(IfStatement* node) {
 void Analyzer::visitWhileStatement(WhileStatement* node) {
     visit(node->condition.get());
     visit(node->body.get());
+}
+
+void Analyzer::visitForStatement(ForStatement* node) {
+    symbols.enterScope();
+    if (node->initializer) visit(node->initializer.get());
+    if (node->condition) visit(node->condition.get());
+    if (node->incrementor) visit(node->incrementor.get());
+    visit(node->body.get());
+    symbols.exitScope();
 }
 
 void Analyzer::visitBlockStatement(BlockStatement* node) {

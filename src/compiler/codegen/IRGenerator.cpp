@@ -135,6 +135,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
+    else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
 }
@@ -430,6 +431,69 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
     if (!builder->GetInsertBlock()->getTerminator()) {
         builder->CreateBr(condBB);
     }
+
+    // Emit after block
+    func->insert(func->end(), afterBB);
+    builder->SetInsertPoint(afterBB);
+}
+
+void IRGenerator::visitForStatement(ast::ForStatement* node) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "forcond", func);
+    llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "forloop");
+    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "forinc");
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "forafter");
+
+    // Emit initializer
+    if (node->initializer) {
+        visit(node->initializer.get());
+    }
+
+    // Jump to condition
+    builder->CreateBr(condBB);
+
+    // Emit condition
+    builder->SetInsertPoint(condBB);
+    if (node->condition) {
+        visit(node->condition.get());
+        llvm::Value* condValue = lastValue;
+
+        if (!condValue) {
+            llvm::errs() << "Error: For condition evaluated to null\n";
+            return;
+        }
+
+        // Convert condition to bool
+        if (condValue->getType()->isDoubleTy()) {
+            condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
+        } else if (condValue->getType()->isIntegerTy()) {
+            condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(condValue->getType(), 0), "ifcond");
+        }
+
+        builder->CreateCondBr(condValue, loopBB, afterBB);
+    } else {
+        // Infinite loop
+        builder->CreateBr(loopBB);
+    }
+
+    // Emit loop body
+    func->insert(func->end(), loopBB);
+    builder->SetInsertPoint(loopBB);
+    visit(node->body.get());
+    
+    // Jump to incrementor
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(incBB);
+    }
+
+    // Emit incrementor
+    func->insert(func->end(), incBB);
+    builder->SetInsertPoint(incBB);
+    if (node->incrementor) {
+        visit(node->incrementor.get());
+    }
+    builder->CreateBr(condBB);
 
     // Emit after block
     func->insert(func->end(), afterBB);

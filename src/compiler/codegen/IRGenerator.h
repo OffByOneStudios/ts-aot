@@ -41,6 +41,7 @@ private:
     void visitExpressionStatement(ast::ExpressionStatement* node);
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
+    void visitForStatement(ast::ForStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
 
