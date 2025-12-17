@@ -99,6 +99,14 @@ function visit(node) {
                 kind: "NumericLiteral",
                 value: Number(node.text)
             };
+        case ts.SyntaxKind.ObjectLiteralExpression:
+            return {
+                kind: "ObjectLiteralExpression",
+                properties: node.properties.map(p => ({
+                    name: p.name.text,
+                    initializer: visit(p.initializer)
+                }))
+            };
         case ts.SyntaxKind.Identifier:
             return {
                 kind: "Identifier",
@@ -165,7 +173,7 @@ function visit(node) {
         case ts.SyntaxKind.EndOfFileToken:
             return null;
         default:
-            // console.warn("Unhandled node kind:", ts.SyntaxKind[node.kind]);
+            console.error("Unhandled node kind:", node.kind);
             return null;
     }
 }
@@ -193,5 +201,7 @@ const sourceFile = ts.createSourceFile(
     ts.ScriptTarget.Latest,
     true
 );
+
+console.error("ObjectLiteralExpression kind:", ts.SyntaxKind.ObjectLiteralExpression);
 
 console.log(printAST(sourceFile));

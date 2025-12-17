@@ -1,5 +1,6 @@
 #include "Analyzer.h"
 #include <iostream>
+#include <fmt/core.h>
 
 namespace ts {
 
@@ -21,6 +22,7 @@ void Analyzer::visit(Node* node) {
     else if (auto r = dynamic_cast<ReturnStatement*>(node)) visitReturnStatement(r);
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
     else if (auto n = dynamic_cast<NewExpression*>(node)) visitNewExpression(n);
+    else if (auto obj = dynamic_cast<ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
     else if (auto arr = dynamic_cast<ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto elem = dynamic_cast<ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
@@ -154,6 +156,12 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                     lastType = std::make_shared<Type>(TypeKind::String);
                     return;
                 }
+            } else if (obj->name == "crypto") {
+                if (prop->name == "md5") {
+                    for (auto& arg : node->arguments) visit(arg.get());
+                    lastType = std::make_shared<Type>(TypeKind::String);
+                    return;
+                }
             }
         }
     }
@@ -198,7 +206,15 @@ void Analyzer::visitNewExpression(NewExpression* node) {
             return;
         }
     }
-    lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {
+    auto objType = std::make_shared<ObjectType>();
+    for (auto& prop : node->properties) {
+        visit(prop->initializer.get());
+        objType->fields[prop->name] = lastType;
+    }
+    lastType = objType;
 }
 
 void Analyzer::visitArrayLiteralExpression(ArrayLiteralExpression* node) {
@@ -245,6 +261,13 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
     } else {
+        if (objType->kind == TypeKind::Object) {
+            auto obj = std::static_pointer_cast<ObjectType>(objType);
+            if (obj->fields.count(node->name)) {
+                lastType = obj->fields[node->name];
+                return;
+            }
+        }
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
 }
@@ -344,6 +367,7 @@ void Analyzer::visitReturnStatement(ReturnStatement* node) {
     if (node->expression) {
         visit(node->expression.get());
         currentReturnType = lastType;
+        fmt::print("Return statement inferred type: {}\n", currentReturnType->toString());
     } else {
         currentReturnType = std::make_shared<Type>(TypeKind::Void);
     }
@@ -357,8 +381,8 @@ void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
 }
 
 std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes) {
-    // If return type is annotated, use it
-    if (!node->returnType.empty()) {
+    // If return type is annotated, use it (unless it's explicit 'any', which we want to refine if possible)
+    if (!node->returnType.empty() && node->returnType != "any") {
         return parseType(node->returnType);
     }
 
@@ -377,6 +401,9 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+
+    // Debug
+    fmt::print("Analyzed function {} return type: {}\n", node->name, currentReturnType->toString());
 
     symbols.exitScope();
     return currentReturnType;

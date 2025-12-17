@@ -71,61 +71,53 @@
       ]
     },
     {
-      "kind": "FunctionDeclaration",
-      "name": "main",
-      "returnType": "any",
-      "parameters": [],
-      "body": [
-        {
-          "kind": "ExpressionStatement",
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
           "expression": {
-            "kind": "CallExpression",
-            "callee": {
-              "kind": "PropertyAccessExpression",
-              "expression": {
-                "kind": "Identifier",
-                "name": "console"
-              },
-              "name": "log"
-            },
-            "arguments": [
-              {
-                "kind": "StringLiteral",
-                "value": "Factorial of 5:"
-              }
-            ]
-          }
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
         },
-        {
-          "kind": "ExpressionStatement",
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Factorial of 5:"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
           "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
             "kind": "CallExpression",
             "callee": {
-              "kind": "PropertyAccessExpression",
-              "expression": {
-                "kind": "Identifier",
-                "name": "console"
-              },
-              "name": "log"
+              "kind": "Identifier",
+              "name": "factorial"
             },
             "arguments": [
               {
-                "kind": "CallExpression",
-                "callee": {
-                  "kind": "Identifier",
-                  "name": "factorial"
-                },
-                "arguments": [
-                  {
-                    "kind": "NumericLiteral",
-                    "value": 5
-                  }
-                ]
+                "kind": "NumericLiteral",
+                "value": 5
               }
             ]
           }
-        }
-      ]
+        ]
+      }
     }
   ]
 }

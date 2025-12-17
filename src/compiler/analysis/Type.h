@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
 
 namespace ts {
 
@@ -15,7 +16,8 @@ enum class TypeKind {
     Any,
     Function,
     Array,
-    Map
+    Map,
+    Object
 };
 
 struct Type {
@@ -35,6 +37,7 @@ struct Type {
             case TypeKind::Function: return "function";
             case TypeKind::Array: return "array";
             case TypeKind::Map: return "Map";
+            case TypeKind::Object: return "object";
         }
         return "unknown";
     }
@@ -61,6 +64,21 @@ struct FunctionType : public Type {
             if (i < paramTypes.size() - 1) s += ", ";
         }
         s += ") => " + (returnType ? returnType->toString() : "void");
+        return s;
+    }
+};
+
+struct ObjectType : public Type {
+    std::map<std::string, std::shared_ptr<Type>> fields;
+    ObjectType() : Type(TypeKind::Object) {}
+    
+    std::string toString() const override {
+        std::string s = "{ ";
+        for (auto it = fields.begin(); it != fields.end(); ++it) {
+            s += it->first + ": " + it->second->toString();
+            if (std::next(it) != fields.end()) s += ", ";
+        }
+        s += " }";
         return s;
     }
 };

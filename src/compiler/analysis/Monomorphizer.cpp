@@ -57,7 +57,9 @@ void Monomorphizer::monomorphize(ast::Program* program, const std::map<std::stri
             
             // Infer return type
             Analyzer analyzer;
+            fmt::print("Monomorphizer analyzing body of {}\n", name);
             spec.returnType = analyzer.analyzeFunctionBody(funcNode, args);
+            fmt::print("Monomorphizer inferred return type: {}\n", spec.returnType->toString());
             
             specializations.push_back(spec);
         }

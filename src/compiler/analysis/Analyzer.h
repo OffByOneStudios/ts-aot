@@ -38,6 +38,7 @@ private:
     void visitReturnStatement(ast::ReturnStatement* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitNewExpression(ast::NewExpression* node);
+    void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
