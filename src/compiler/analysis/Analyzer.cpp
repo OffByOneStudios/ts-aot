@@ -112,6 +112,14 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
              return;
+        } else if (prop->name == "trim") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "substring") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         }
     }
     

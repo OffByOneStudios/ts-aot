@@ -19,6 +19,6 @@ Add string processing capabilities required for parsing input formats.
 ## Action Items
 - [x] Implement `split` in `TsString`.
 - [x] Implement `length` and `charCodeAt` in `TsString`.
-- [ ] Implement `trim` in `TsString`.
-- [ ] Implement `substring` in `TsString`.
+- [x] Implement `trim` in `TsString`.
+- [x] Implement `substring` in `TsString`.
 - [x] Add integration tests for string parsing.

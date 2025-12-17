@@ -354,6 +354,42 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
              lastValue = builder->CreateCall(fn, { obj, sep });
              return;
+        } else if (prop->name == "trim") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_trim",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj });
+             return;
+        } else if (prop->name == "substring") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             llvm::Value* start = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
+             llvm::Value* end = llvm::ConstantInt::get(*context, llvm::APInt(64, 0x7FFFFFFFFFFFFFFF)); // Max int64
+             
+             if (node->arguments.size() > 0) {
+                 visit(node->arguments[0].get());
+                 start = lastValue;
+             }
+             
+             if (node->arguments.size() > 1) {
+                 visit(node->arguments[1].get());
+                 end = lastValue;
+             } else {
+                 // If end is not provided, we need the length of the string.
+                 // But we can just pass a very large number and let runtime handle it.
+                 // Or we can call length() here.
+                 // Let's pass max int64 and let runtime clamp it.
+             }
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_substring",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, start, end });
+             return;
         }
     }
 
