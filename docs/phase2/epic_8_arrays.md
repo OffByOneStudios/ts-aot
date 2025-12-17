@@ -23,8 +23,8 @@ Implement dynamic arrays to store lists of data.
 - **Methods:** Implement `push` and `pop` as built-ins or runtime methods.
 
 ## Action Items
-- [ ] Implement `TsArray` in Runtime.
-- [ ] Add `ArrayLiteral` to AST/Parser.
-- [ ] Implement Array type inference in Analyzer.
-- [ ] Implement `ElementAccess` in Codegen.
-- [ ] Add integration tests for array operations.
+- [x] Implement `TsArray` in Runtime.
+- [x] Add `ArrayLiteral` to AST/Parser.
+- [x] Implement Array type inference in Analyzer.
+- [x] Implement `ElementAccess` in Codegen.
+- [x] Add integration tests for array operations.

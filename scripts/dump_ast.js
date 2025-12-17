@@ -58,6 +58,17 @@ function visit(node) {
                 callee: visit(node.expression),
                 arguments: node.arguments.map(visit)
             };
+        case ts.SyntaxKind.ArrayLiteralExpression:
+            return {
+                kind: "ArrayLiteralExpression",
+                elements: node.elements.map(visit)
+            };
+        case ts.SyntaxKind.ElementAccessExpression:
+            return {
+                kind: "ElementAccessExpression",
+                expression: visit(node.expression),
+                argumentExpression: visit(node.argumentExpression)
+            };
         case ts.SyntaxKind.BinaryExpression:
             if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
                 return {

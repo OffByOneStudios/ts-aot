@@ -7,6 +7,7 @@ add_library(tsruntime STATIC
     src/Memory.cpp
     src/EventLoop.cpp
     src/TsString.cpp
+    src/TsArray.cpp
     src/Primitives.cpp
     # Add other source files here as they are created
 )
