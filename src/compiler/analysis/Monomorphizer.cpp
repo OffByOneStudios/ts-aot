@@ -7,6 +7,35 @@ namespace ts {
 Monomorphizer::Monomorphizer() {}
 
 void Monomorphizer::monomorphize(ast::Program* program, const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& usages) {
+    // Extract top-level code into user_main
+    auto userMain = std::make_unique<ast::FunctionDeclaration>();
+    userMain->name = "user_main";
+    
+    std::vector<std::unique_ptr<ast::Statement>> newProgramBody;
+    bool hasTopLevel = false;
+    
+    for (auto& stmt : program->body) {
+        if (stmt->getKind() == "FunctionDeclaration") {
+            newProgramBody.push_back(std::move(stmt));
+        } else {
+            userMain->body.push_back(std::move(stmt));
+            hasTopLevel = true;
+        }
+    }
+    program->body = std::move(newProgramBody);
+    
+    if (hasTopLevel) {
+        Specialization spec;
+        spec.originalName = "user_main";
+        spec.specializedName = "user_main";
+        spec.argTypes = {};
+        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+        spec.node = userMain.get();
+        
+        specializations.push_back(spec);
+        syntheticFunctions.push_back(std::move(userMain));
+    }
+
     for (const auto& [name, calls] : usages) {
         ast::FunctionDeclaration* funcNode = findFunction(program, name);
         if (!funcNode) continue; // Skip if not a user-defined function (e.g. console.log)

@@ -1,4 +1,5 @@
 #include "TsString.h"
+#include "TsArray.h"
 #include "GC.h"
 #include <unicode/unistr.h>
 #include <new>
@@ -45,10 +46,70 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
     return Create(str.c_str());
 }
 
+int64_t TsString::Length() {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    return s->length();
+}
+
+int64_t TsString::CharCodeAt(int64_t index) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    if (index < 0 || index >= s->length()) return 0;
+    return s->charAt((int32_t)index);
+}
+
+void* TsString::Split(TsString* separator) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* sep = static_cast<icu::UnicodeString*>(separator->impl);
+    
+    TsArray* arr = TsArray::Create();
+    
+    if (sep->length() == 0) {
+        // Split by character
+        for (int32_t i = 0; i < s->length(); ++i) {
+            icu::UnicodeString charStr = s->tempSubString(i, 1);
+            std::string utf8;
+            charStr.toUTF8String(utf8);
+            arr->Push((int64_t)TsString::Create(utf8.c_str()));
+        }
+        return arr;
+    }
+
+    int32_t start = 0;
+    int32_t pos = 0;
+    
+    while ((pos = s->indexOf(*sep, start)) != -1) {
+        icu::UnicodeString sub = s->tempSubString(start, pos - start);
+        std::string utf8;
+        sub.toUTF8String(utf8);
+        arr->Push((int64_t)TsString::Create(utf8.c_str()));
+        start = pos + sep->length();
+    }
+    
+    // Last part
+    icu::UnicodeString sub = s->tempSubString(start);
+    std::string utf8;
+    sub.toUTF8String(utf8);
+    arr->Push((int64_t)TsString::Create(utf8.c_str()));
+    
+    return arr;
+}
+
 extern "C" TsString* ts_string_create(const char* str) {
     return TsString::Create(str);
 }
 
 extern "C" TsString* ts_string_concat(TsString* a, TsString* b) {
     return TsString::Concat(a, b);
+}
+
+extern "C" int64_t ts_string_length(void* str) {
+    return ((TsString*)str)->Length();
+}
+
+extern "C" int64_t ts_string_charCodeAt(void* str, int64_t index) {
+    return ((TsString*)str)->CharCodeAt(index);
+}
+
+extern "C" void* ts_string_split(void* str, void* separator) {
+    return ((TsString*)str)->Split((TsString*)separator);
 }

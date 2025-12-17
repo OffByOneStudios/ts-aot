@@ -17,7 +17,8 @@ Add string processing capabilities required for parsing input formats.
 - **Codegen:** Handle `str[i]`.
 
 ## Action Items
-- [ ] Implement `split` in `TsString`.
+- [x] Implement `split` in `TsString`.
+- [x] Implement `length` and `charCodeAt` in `TsString`.
 - [ ] Implement `trim` in `TsString`.
 - [ ] Implement `substring` in `TsString`.
-- [ ] Add integration tests for string parsing.
+- [x] Add integration tests for string parsing.

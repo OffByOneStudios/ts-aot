@@ -26,10 +26,11 @@ public:
     const std::vector<Specialization>& getSpecializations() const { return specializations; }
 
 private:
+    std::vector<std::unique_ptr<ast::FunctionDeclaration>> syntheticFunctions;
     std::vector<Specialization> specializations;
     
-    std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes);
     ast::FunctionDeclaration* findFunction(ast::Program* program, const std::string& name);
+    std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes);
 };
 
 } // namespace ts

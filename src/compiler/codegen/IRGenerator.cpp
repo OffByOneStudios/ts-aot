@@ -134,6 +134,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
     else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
+    else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
@@ -327,6 +328,32 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     return;
                 }
             }
+        } else if (prop->name == "charCodeAt") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* index = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_charCodeAt",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, index });
+             return;
+        } else if (prop->name == "split") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* sep = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_split",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, sep });
+             return;
         }
     }
 
@@ -735,7 +762,54 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
             { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
             
-    lastValue = builder->CreateCall(getFn, { arr, index });
+    llvm::Value* val = builder->CreateCall(getFn, { arr, index });
+
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+        auto arrayType = std::static_pointer_cast<ts::ArrayType>(node->expression->inferredType);
+        if (arrayType->elementType->kind == TypeKind::String) {
+             lastValue = builder->CreateIntToPtr(val, llvm::PointerType::getUnqual(*context));
+             return;
+        }
+    }
+    
+    lastValue = val;
+}
+
+void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->name == "length") {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+        
+        if (!node->expression->inferredType) {
+             // Fallback: assume string if we can't tell? Or error?
+             // For now, let's assume string as a default if type is missing (e.g. string literal)
+             // Actually, string literals should have type inferred.
+             llvm::errs() << "Warning: No type inferred for length access, assuming string\n";
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(lenFn, { obj });
+             return;
+        }
+        
+        if (node->expression->inferredType->kind == TypeKind::String) {
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(lenFn, { obj });
+        } else if (node->expression->inferredType->kind == TypeKind::Array) {
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(lenFn, { obj });
+        } else {
+             llvm::errs() << "Error: length property not supported on type " << node->expression->inferredType->toString() << "\n";
+             lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
+        }
+    } else {
+        llvm::errs() << "Error: Unknown property " << node->name << "\n";
+        lastValue = nullptr;
+    }
 }
 
 } // namespace ts

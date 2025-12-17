@@ -34,6 +34,10 @@ void Analyzer::visit(Node* node) {
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
+
+    if (auto expr = dynamic_cast<Expression*>(node)) {
+        expr->inferredType = lastType;
+    }
 }
 
 void Analyzer::visitProgram(Program* node) {
@@ -98,6 +102,19 @@ void Analyzer::visitExpressionStatement(ExpressionStatement* node) {
 void Analyzer::visitCallExpression(CallExpression* node) {
     visit(node->callee.get());
     
+    // Check for property access calls (methods)
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->name == "charCodeAt") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "split") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+             return;
+        }
+    }
+    
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
@@ -150,8 +167,17 @@ void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
 
 void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
     visit(node->expression.get());
-    // TODO: Resolve property type
-    lastType = std::make_shared<Type>(TypeKind::Any);
+    auto objType = lastType;
+    
+    if (node->name == "length") {
+        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
 }
 
 void Analyzer::visitBinaryExpression(BinaryExpression* node) {

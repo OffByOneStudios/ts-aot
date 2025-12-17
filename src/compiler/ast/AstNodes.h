@@ -16,13 +16,21 @@ using NodePtr = std::unique_ptr<Node>;
 using StmtPtr = std::unique_ptr<Statement>;
 using ExprPtr = std::unique_ptr<Expression>;
 
+} // namespace ast
+
+namespace ts { struct Type; }
+
+namespace ast {
+
 struct Node {
     virtual ~Node() = default;
     virtual std::string getKind() const = 0;
 };
 
 struct Statement : Node {};
-struct Expression : Node {};
+struct Expression : Node {
+    std::shared_ptr<ts::Type> inferredType;
+};
 
 // --- Statements ---
 
