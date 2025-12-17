@@ -325,16 +325,45 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             }
         } else if (objType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(objType);
-            if (cls->fields.count(node->name)) {
-                lastType = cls->fields[node->name];
+            
+            // Find defining class and access modifier
+            std::shared_ptr<ClassType> definingClass = nullptr;
+            AccessModifier access = AccessModifier::Public;
+            std::shared_ptr<Type> memberType = nullptr;
+
+            auto current = cls;
+            while (current) {
+                if (current->fields.count(node->name)) {
+                    definingClass = current;
+                    access = current->fieldAccess[node->name];
+                    memberType = current->fields[node->name];
+                    break;
+                } else if (current->methods.count(node->name)) {
+                    definingClass = current;
+                    access = current->methodAccess[node->name];
+                    memberType = current->methods[node->name];
+                    break;
+                }
+                current = current->baseClass;
+            }
+
+            if (definingClass) {
+                // Visibility check
+                bool allowed = true;
+                if (access == AccessModifier::Private) {
+                    if (currentClass != definingClass) {
+                        reportError(fmt::format("Property {} is private and not accessible from here", node->name));
+                    }
+                } else if (access == AccessModifier::Protected) {
+                    if (!currentClass || !currentClass->isSubclassOf(definingClass)) {
+                        reportError(fmt::format("Property {} is protected and not accessible from here", node->name));
+                    }
+                }
+                lastType = memberType;
                 return;
-            } else if (cls->methods.count(node->name)) {
-                lastType = cls->methods[node->name];
-                return;
-            } else {
-                fmt::print(stderr, "Error: Unknown property {}\n", node->name);
             }
         }
+        reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
 }
@@ -524,7 +553,7 @@ void Analyzer::visitSuperExpression(SuperExpression* node) {
     if (currentClass && currentClass->baseClass) {
         lastType = currentClass->baseClass;
     } else {
-        std::cerr << "Error: 'super' used outside of a derived class" << std::endl;
+        reportError("'super' used outside of a derived class");
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
 }
@@ -535,10 +564,10 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     // 1. Resolve base class
     if (!node->baseClass.empty()) {
         auto base = symbols.lookupType(node->baseClass);
-        if (base && base->kind == TypeKind::Class) {
-            classType->baseClass = std::static_pointer_cast<ClassType>(base);
+        if (!base || base->kind != TypeKind::Class) {
+            reportError(fmt::format("Base class {} not found or not a class", node->baseClass));
         } else {
-            std::cerr << "Error: Base class " << node->baseClass << " not found or not a class" << std::endl;
+            classType->baseClass = std::static_pointer_cast<ClassType>(base);
         }
     }
 
@@ -546,12 +575,12 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     symbols.defineType(node->name, classType);
 
     // 2.5 Resolve implemented interfaces
-    for (const auto& interfaceName : node->implementsInterfaces) {
-        auto inter = symbols.lookupType(interfaceName);
-        if (inter && inter->kind == TypeKind::Interface) {
-            classType->implementsInterfaces.push_back(std::static_pointer_cast<InterfaceType>(inter));
+            for (const auto& interfaceName : node->implementsInterfaces) {
+        auto interfaceType = symbols.lookupType(interfaceName);
+        if (!interfaceType || interfaceType->kind != TypeKind::Interface) {
+            reportError(fmt::format("Interface {} not found or not an interface", interfaceName));
         } else {
-            std::cerr << "Error: Interface " << interfaceName << " not found or not an interface" << std::endl;
+            classType->implementsInterfaces.push_back(std::static_pointer_cast<InterfaceType>(interfaceType));
         }
     }
 
@@ -559,6 +588,7 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             classType->fields[prop->name] = parseType(prop->type, symbols);
+            classType->fieldAccess[prop->name] = prop->access;
         } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             auto methodType = std::make_shared<FunctionType>();
             if (!method->returnType.empty()) {
@@ -574,6 +604,7 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
                 }
             }
             classType->methods[method->name] = methodType;
+            classType->methodAccess[method->name] = method->access;
         }
     }
 
@@ -619,23 +650,14 @@ void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType
             current = current->baseClass;
         }
         if (!found) {
-            std::cerr << "Error: Class " << classType->name << " does not implement property " << name << " from interface " << interfaceType->name << std::endl;
+            reportError(fmt::format("Class {} does not implement property {} from interface {}", classType->name, name, interfaceType->name));
         }
     }
 
     // Check methods
-    for (const auto& [name, type] : interfaceType->methods) {
-        bool found = false;
-        auto current = classType;
-        while (current) {
-            if (current->methods.count(name)) {
-                found = true;
-                break;
-            }
-            current = current->baseClass;
-        }
-        if (!found) {
-            std::cerr << "Error: Class " << classType->name << " does not implement method " << name << " from interface " << interfaceType->name << std::endl;
+    for (const auto& [name, methodType] : interfaceType->methods) {
+        if (classType->methods.find(name) == classType->methods.end()) {
+            reportError(fmt::format("Class {} does not implement method {} from interface {}", classType->name, name, interfaceType->name));
         }
     }
 
@@ -723,6 +745,11 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 
     symbols.exitScope();
     return currentReturnType;
+}
+
+void Analyzer::reportError(const std::string& message) {
+    fmt::print(stderr, "Error: {}\n", message);
+    errorCount++;
 }
 
 } // namespace ts

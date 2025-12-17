@@ -129,6 +129,12 @@ ExprPtr parseExpression(const json& j) {
     throw std::runtime_error("Unknown expression kind: " + kind);
 }
 
+ts::AccessModifier parseAccessModifier(const std::string& access) {
+    if (access == "private") return ts::AccessModifier::Private;
+    if (access == "protected") return ts::AccessModifier::Protected;
+    return ts::AccessModifier::Public;
+}
+
 NodePtr parseClassMember(const json& j) {
     std::string kind = j["kind"];
     if (kind == "PropertyDefinition") {
@@ -138,11 +144,17 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseExpression(j["initializer"]);
         }
+        if (j.contains("access")) {
+            node->access = parseAccessModifier(j["access"]);
+        }
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
         node->name = j["name"];
         node->returnType = j["returnType"];
+        if (j.contains("access")) {
+            node->access = parseAccessModifier(j["access"]);
+        }
         for (const auto& p : j["parameters"]) {
             auto param = std::make_unique<Parameter>();
             param->name = p["name"];

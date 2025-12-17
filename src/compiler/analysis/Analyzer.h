@@ -21,14 +21,19 @@ public:
     // Get usage information (Function Name -> List of Argument Type Lists)
     const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getFunctionUsages() const { return functionUsages; }
 
+    int getErrorCount() const { return errorCount; }
+
     // Analyze a function body with specific argument types to determine return type
     std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes);
+
+    void reportError(const std::string& message);
 
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
     std::shared_ptr<Type> currentReturnType; // Inferred return type of the current function
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> functionUsages;
+    int errorCount = 0;
 
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node);
