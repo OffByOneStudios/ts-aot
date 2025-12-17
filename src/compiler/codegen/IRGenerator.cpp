@@ -183,7 +183,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool leftIsDouble = left->getType()->isDoubleTy();
     bool rightIsDouble = right->getType()->isDoubleTy();
     bool isDouble = leftIsDouble || rightIsDouble;
-    bool isString = left->getType()->isPointerTy() && right->getType()->isPointerTy();
+    bool leftIsString = left->getType()->isPointerTy();
+    bool rightIsString = right->getType()->isPointerTy();
+    bool isString = leftIsString || rightIsString;
 
     if (isDouble && !isString) {
         if (!leftIsDouble) left = builder->CreateSIToFP(left, llvm::Type::getDoubleTy(*context), "casttmp");
@@ -193,6 +195,24 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
 
     if (node->op == "+") {
         if (isString) {
+             // Convert non-string operands to string
+             if (!leftIsString) {
+                 if (left->getType()->isIntegerTy()) {
+                     llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                     left = builder->CreateCall(fromInt, { left });
+                 }
+                 // TODO: Handle double
+             }
+             if (!rightIsString) {
+                 if (right->getType()->isIntegerTy()) {
+                     llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                     right = builder->CreateCall(fromInt, { right });
+                 }
+                 // TODO: Handle double
+             }
+
              llvm::Function* concatFn = module->getFunction("ts_string_concat");
              if (!concatFn) {
                  std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
@@ -229,6 +249,10 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     } else if (node->op == "!=") {
         if (isDouble) lastValue = builder->CreateFCmpONE(left, right, "cmptmp");
         else lastValue = builder->CreateICmpNE(left, right, "cmptmp");
+    } else if (node->op == "&&") {
+        lastValue = builder->CreateAnd(left, right, "andtmp");
+    } else if (node->op == "||") {
+        lastValue = builder->CreateOr(left, right, "ortmp");
     }
     // TODO: Other ops
 }
@@ -449,7 +473,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
              llvm::Value* key = lastValue;
              
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                 llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
              llvm::Value* res = builder->CreateCall(fn, { map, key });
              lastValue = builder->CreateICmpNE(res, llvm::ConstantInt::get(res->getType(), 0), "tobool");
@@ -904,6 +928,19 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
              lastValue = builder->CreateCall(lenFn, { obj });
         } else {
              llvm::errs() << "Error: length property not supported on type " << node->expression->inferredType->toString() << "\n";
+             lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
+        }
+    } else if (node->name == "size") {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+        
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
+             llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(sizeFn, { obj });
+        } else {
+             llvm::errs() << "Error: size property only supported on Map\n";
              lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
         }
     } else {

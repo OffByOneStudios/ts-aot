@@ -25,5 +25,5 @@ Solve the first three days of Advent of Code 2015 to validate the compiler.
 
 ## Action Items
 - [x] Solve Day 1.
-- [ ] Solve Day 2.
-- [ ] Solve Day 3.
+- [x] Solve Day 2.
+- [x] Solve Day 3.

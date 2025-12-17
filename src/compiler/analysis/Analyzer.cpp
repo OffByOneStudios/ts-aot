@@ -161,6 +161,11 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
+        if (calleeName == "parseInt") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        }
     }
 
     std::vector<std::shared_ptr<Type>> argTypes;
@@ -229,6 +234,12 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
     
     if (node->name == "length") {
         if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else if (node->name == "size") {
+        if (objType->kind == TypeKind::Map) {
             lastType = std::make_shared<Type>(TypeKind::Int);
         } else {
             lastType = std::make_shared<Type>(TypeKind::Any);

@@ -1,0 +1,537 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": "input",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "fs"
+          },
+          "name": "readFileSync"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\integration\\aoc_2015_day2.txt"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": "lines",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "input"
+          },
+          "name": "split"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "\n"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": "total",
+      "initializer": {
+        "kind": "NumericLiteral",
+        "value": 0
+      }
+    },
+    {
+      "kind": "ForStatement",
+      "initializer": {
+        "kind": "VariableDeclaration",
+        "name": "i",
+        "initializer": {
+          "kind": "NumericLiteral",
+          "value": 0
+        }
+      },
+      "condition": {
+        "kind": "BinaryExpression",
+        "operator": "<",
+        "left": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "right": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "lines"
+          },
+          "name": "length"
+        }
+      },
+      "incrementor": {
+        "kind": "AssignmentExpression",
+        "left": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "right": {
+          "kind": "BinaryExpression",
+          "operator": "+",
+          "left": {
+            "kind": "Identifier",
+            "name": "i"
+          },
+          "right": {
+            "kind": "NumericLiteral",
+            "value": 1
+          }
+        }
+      },
+      "body": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "VariableDeclaration",
+            "name": "line",
+            "initializer": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "lines"
+              },
+              "argumentExpression": {
+                "kind": "Identifier",
+                "name": "i"
+              }
+            }
+          },
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "AssignmentExpression",
+              "left": {
+                "kind": "Identifier",
+                "name": "line"
+              },
+              "right": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "line"
+                  },
+                  "name": "trim"
+                },
+                "arguments": []
+              }
+            }
+          },
+          {
+            "kind": "IfStatement",
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": "==",
+              "left": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "line"
+                },
+                "name": "length"
+              },
+              "right": {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            },
+            "thenStatement": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ContinueStatement"
+                }
+              ]
+            },
+            "elseStatement": null
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "parts",
+            "initializer": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "line"
+                },
+                "name": "split"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "x"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "l",
+            "initializer": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "parseInt"
+              },
+              "arguments": [
+                {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "parts"
+                  },
+                  "argumentExpression": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "w",
+            "initializer": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "parseInt"
+              },
+              "arguments": [
+                {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "parts"
+                  },
+                  "argumentExpression": {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "h",
+            "initializer": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "parseInt"
+              },
+              "arguments": [
+                {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "parts"
+                  },
+                  "argumentExpression": {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "s1",
+            "initializer": {
+              "kind": "BinaryExpression",
+              "operator": "*",
+              "left": {
+                "kind": "Identifier",
+                "name": "l"
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "w"
+              }
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "s2",
+            "initializer": {
+              "kind": "BinaryExpression",
+              "operator": "*",
+              "left": {
+                "kind": "Identifier",
+                "name": "w"
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "h"
+              }
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "s3",
+            "initializer": {
+              "kind": "BinaryExpression",
+              "operator": "*",
+              "left": {
+                "kind": "Identifier",
+                "name": "h"
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "l"
+              }
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "slack",
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          {
+            "kind": "IfStatement",
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": "&&",
+              "left": {
+                "kind": "BinaryExpression",
+                "operator": "<=",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "s1"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "s2"
+                }
+              },
+              "right": {
+                "kind": "BinaryExpression",
+                "operator": "<=",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "s1"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "s3"
+                }
+              }
+            },
+            "thenStatement": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "AssignmentExpression",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "slack"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "s1"
+                    }
+                  }
+                }
+              ]
+            },
+            "elseStatement": {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "BinaryExpression",
+                "operator": "&&",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "<=",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "s2"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "s1"
+                  }
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "<=",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "s2"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "s3"
+                  }
+                }
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "statements": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "slack"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "s2"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "BlockStatement",
+                "statements": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "slack"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "s3"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": "area",
+            "initializer": {
+              "kind": "BinaryExpression",
+              "operator": "+",
+              "left": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 2
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "s1"
+                    }
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 2
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "s2"
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "*",
+                  "left": {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "s3"
+                  }
+                }
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "slack"
+              }
+            }
+          },
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "AssignmentExpression",
+              "left": {
+                "kind": "Identifier",
+                "name": "total"
+              },
+              "right": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "total"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "area"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "total"
+          }
+        ]
+      }
+    }
+  ]
+}

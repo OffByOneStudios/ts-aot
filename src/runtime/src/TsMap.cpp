@@ -63,8 +63,13 @@ int64_t TsMap::Get(TsString* key) {
 }
 
 bool TsMap::Has(TsString* key) {
-    auto* map = (MapType*)impl;
+    MapType* map = static_cast<MapType*>(impl);
     return map->find(key) != map->end();
+}
+
+int64_t TsMap::Size() {
+    MapType* map = static_cast<MapType*>(impl);
+    return static_cast<int64_t>(map->size());
 }
 
 extern "C" {
@@ -77,7 +82,11 @@ extern "C" {
     int64_t ts_map_get(void* map, void* key) {
         return ((TsMap*)map)->Get((TsString*)key);
     }
-    int64_t ts_map_has(void* map, void* key) {
-        return ((TsMap*)map)->Has((TsString*)key) ? 1 : 0;
+    bool ts_map_has(void* map, void* key) {
+        return static_cast<TsMap*>(map)->Has(static_cast<TsString*>(key));
+    }
+
+    int64_t ts_map_size(void* map) {
+        return static_cast<TsMap*>(map)->Size();
     }
 }
