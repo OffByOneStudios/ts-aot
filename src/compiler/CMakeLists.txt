@@ -9,24 +9,32 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 # Map LLVM components
 llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codegen x86asmparser)
 
-add_executable(ts-aot
-    main.cpp
+add_library(tscompiler_lib STATIC
     ast/AstLoader.cpp
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
     analysis/Monomorphizer.cpp
     codegen/IRGenerator.cpp
-    # Add other source files here
 )
 
-target_include_directories(ts-aot PRIVATE ${LLVM_INCLUDE_DIRS})
+target_include_directories(tscompiler_lib PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${LLVM_INCLUDE_DIRS}
+)
 
-target_link_libraries(ts-aot PRIVATE
+target_link_libraries(tscompiler_lib PUBLIC
     ${llvm_libs}
     nlohmann_json::nlohmann_json
     fmt::fmt
     cxxopts::cxxopts
-    # tsruntime # Link if needed, but usually compiler generates code that links to runtime, not links to it itself
 )
 
-target_compile_definitions(ts-aot PRIVATE ${LLVM_DEFINITIONS})
+target_compile_definitions(tscompiler_lib PUBLIC ${LLVM_DEFINITIONS})
+
+add_executable(ts-aot
+    main.cpp
+)
+
+target_link_libraries(ts-aot PRIVATE
+    tscompiler_lib
+)

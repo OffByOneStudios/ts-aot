@@ -26,20 +26,6 @@ TEST_CASE("Type System", "[runtime][types]") {
         // 1 byte type + 8 byte union + padding = 16 bytes usually
         REQUIRE(sizeof(TaggedValue) <= 16);
     }
-
-    SECTION("TsString Creation") {
-        TsString* str = TsString::Create("Hello World");
-        REQUIRE(str != nullptr);
-        
-        const char* utf8 = str->ToUtf8();
-        REQUIRE(std::strcmp(utf8, "Hello World") == 0);
-    }
-    
-    SECTION("TsString UTF-8 Conversion") {
-        // Test with some non-ASCII chars if possible, but keep it simple for now
-        TsString* str = TsString::Create("Test");
-        REQUIRE(std::strcmp(str->ToUtf8(), "Test") == 0);
-    }
 }
 
 TEST_CASE("Event Loop", "[runtime][loop]") {

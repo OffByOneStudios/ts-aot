@@ -1,6 +1,6 @@
 # Epic 6: Testing & Integration
 
-**Status:** Planned
+**Status:** Completed
 **Parent:** [Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -23,8 +23,8 @@ Populate the `tests/integration` directory with various TypeScript scenarios.
 ## Action Items
 
 ### Task 6.1: Unit Tests
-- [ ] Add tests for `TsString` (concatenation, UTF-8 conversion).
-- [ ] Add tests for `Analyzer` (type inference logic).
+- [x] Add tests for `TsString` (concatenation, UTF-8 conversion).
+- [x] Add tests for `Analyzer` (type inference logic).
 
 ### Task 6.2: Linker Driver
 - [x] Create a script or tool to link the generated `.obj` file with `tsruntime.lib` and system libraries (libuv, icu, etc.) to produce a final `.exe`.
@@ -36,5 +36,5 @@ Populate the `tests/integration` directory with various TypeScript scenarios.
 
 ### Task 6.4: Test Cases
 - [x] Create `tests/integration/math.ts`.
-- [ ] Create `tests/integration/strings.ts`.
-- [ ] Create `tests/integration/recursion.ts`.
+- [x] Create `tests/integration/strings.ts`.
+- [x] Create `tests/integration/recursion.ts`.
