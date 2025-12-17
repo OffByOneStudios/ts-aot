@@ -82,6 +82,11 @@ int main(int argc, char** argv) {
         ts::Analyzer analyzer;
         analyzer.analyze(program.get());
 
+        if (analyzer.getErrorCount() > 0) {
+            fmt::print(stderr, "Compilation failed with {} errors.\n", analyzer.getErrorCount());
+            return 1;
+        }
+
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
         

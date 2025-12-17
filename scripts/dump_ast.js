@@ -20,6 +20,16 @@ function printAST(sourceFile) {
     return JSON.stringify(result, null, 2);
 }
 
+function getAccessModifier(node) {
+    if (!node.modifiers) return "public";
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.PrivateKeyword) return "private";
+        if (mod.kind === ts.SyntaxKind.ProtectedKeyword) return "protected";
+        if (mod.kind === ts.SyntaxKind.PublicKeyword) return "public";
+    }
+    return "public";
+}
+
 function visit(node) {
     switch (node.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
@@ -74,7 +84,8 @@ function visit(node) {
                 kind: "PropertyDefinition",
                 name: node.name.text,
                 type: node.type ? node.type.getText(currentSourceFile) : "any",
-                initializer: node.initializer ? visit(node.initializer) : null
+                initializer: node.initializer ? visit(node.initializer) : null,
+                access: getAccessModifier(node)
             };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:
@@ -87,7 +98,8 @@ function visit(node) {
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
-                body: node.body ? visitBlock(node.body) : []
+                body: node.body ? visitBlock(node.body) : [],
+                access: getAccessModifier(node)
             };
         case ts.SyntaxKind.Constructor:
              return {
@@ -99,7 +111,8 @@ function visit(node) {
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 returnType: "void",
-                body: visitBlock(node.body)
+                body: node.body ? visitBlock(node.body) : [],
+                access: "public"
             };
         case ts.SyntaxKind.VariableStatement:
             // Simplified: assume one declaration per statement

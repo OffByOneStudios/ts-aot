@@ -4,6 +4,11 @@
 #include <vector>
 #include <memory>
 #include <variant>
+#include "AccessModifier.h"
+
+namespace ts {
+    struct Type;
+}
 
 namespace ast {
 
@@ -15,12 +20,6 @@ struct Expression;
 using NodePtr = std::unique_ptr<Node>;
 using StmtPtr = std::unique_ptr<Statement>;
 using ExprPtr = std::unique_ptr<Expression>;
-
-} // namespace ast
-
-namespace ts { struct Type; }
-
-namespace ast {
 
 struct Node {
     virtual ~Node() = default;
@@ -131,6 +130,7 @@ struct PropertyDefinition : Node {
     std::string name;
     std::string type;
     ExprPtr initializer;
+    ts::AccessModifier access = ts::AccessModifier::Public;
     std::string getKind() const override { return "PropertyDefinition"; }
 };
 
@@ -139,6 +139,7 @@ struct MethodDefinition : Node {
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::string returnType;
     std::vector<StmtPtr> body;
+    ts::AccessModifier access = ts::AccessModifier::Public;
     std::string getKind() const override { return "MethodDefinition"; }
 };
 

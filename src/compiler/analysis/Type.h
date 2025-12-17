@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include "../ast/AccessModifier.h"
 
 namespace ts {
 
@@ -102,8 +103,16 @@ struct ClassType : public Type {
     std::vector<std::shared_ptr<InterfaceType>> implementsInterfaces;
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
+    std::map<std::string, AccessModifier> fieldAccess;
+    std::map<std::string, AccessModifier> methodAccess;
 
     ClassType(std::string n) : Type(TypeKind::Class), name(n) {}
+
+    bool isSubclassOf(std::shared_ptr<ClassType> other) {
+        if (this == other.get()) return true;
+        if (baseClass) return baseClass->isSubclassOf(other);
+        return false;
+    }
 
     bool isAssignableTo(std::shared_ptr<Type> other) override;
 
