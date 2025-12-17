@@ -14,6 +14,7 @@ public:
     void* Split(TsString* separator);
     TsString* Trim();
     TsString* Substring(int64_t start, int64_t end);
+    bool StartsWith(TsString* prefix);
 
     static TsString* Concat(TsString* a, TsString* b);
     static TsString* FromInt(int64_t value);
@@ -31,5 +32,6 @@ extern "C" {
     void* ts_string_split(void* str, void* separator);
     void* ts_string_trim(void* str);
     void* ts_string_substring(void* str, int64_t start, int64_t end);
+    bool ts_string_startsWith(void* str, void* prefix);
     void* ts_string_from_int(int64_t value);
 }

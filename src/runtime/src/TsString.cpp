@@ -130,6 +130,12 @@ TsString* TsString::Substring(int64_t start, int64_t end) {
     return TsString::Create(utf8.c_str());
 }
 
+bool TsString::StartsWith(TsString* prefix) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(prefix->impl);
+    return s->startsWith(*p);
+}
+
 extern "C" TsString* ts_string_create(const char* str) {
     return TsString::Create(str);
 }
@@ -156,6 +162,10 @@ extern "C" void* ts_string_trim(void* str) {
 
 extern "C" void* ts_string_substring(void* str, int64_t start, int64_t end) {
     return ((TsString*)str)->Substring(start, end);
+}
+
+extern "C" bool ts_string_startsWith(void* str, void* prefix) {
+    return ((TsString*)str)->StartsWith((TsString*)prefix);
 }
 
 extern "C" void* ts_string_from_int(int64_t value) {

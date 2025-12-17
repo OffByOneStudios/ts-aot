@@ -1,6 +1,6 @@
 # Epic 17: AoC 2015 Solutions II
 
-**Status:** Planned
+**Status:** In Progress
 **Parent:** [Phase 4 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -24,6 +24,6 @@ Solve Days 4, 5, and 6 of Advent of Code 2015.
 - **Requirement:** Performance (1M elements).
 
 ## Action Items
-- [ ] Solve Day 4.
+- [x] Solve Day 4.
 - [ ] Solve Day 5.
 - [ ] Solve Day 6.

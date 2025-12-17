@@ -36,6 +36,7 @@ private:
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIdentifier(ast::Identifier* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
+    void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitNewExpression(ast::NewExpression* node);
