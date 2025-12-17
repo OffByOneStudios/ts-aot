@@ -34,7 +34,10 @@ function visit(node) {
                 initializer: decl.initializer ? visit(decl.initializer) : null
             };
         case ts.SyntaxKind.ExpressionStatement:
-            return visit(node.expression);
+            return {
+                kind: "ExpressionStatement",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.CallExpression:
             return {
                 kind: "CallExpression",

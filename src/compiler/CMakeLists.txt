@@ -11,6 +11,7 @@ llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codeg
 
 add_executable(ts-aot
     main.cpp
+    ast/AstLoader.cpp
     # Add other source files here
 )
 

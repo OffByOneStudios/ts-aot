@@ -38,9 +38,9 @@ Update the `ts-aot` executable to accept input files and orchestrate the compila
 - [x] Use `std::variant` or inheritance for node types.
 
 ### Task 3.3: AST Loader
-- [ ] Create `src/compiler/ast/AstLoader.h` and `src/compiler/ast/AstLoader.cpp`.
-- [ ] Implement `std::unique_ptr<Program> loadAst(const std::string& jsonPath)`.
-- [ ] Use `nlohmann/json` to parse the file and map fields to C++ structs.
+- [x] Create `src/compiler/ast/AstLoader.h` and `src/compiler/ast/AstLoader.cpp`.
+- [x] Implement `std::unique_ptr<Program> loadAst(const std::string& jsonPath)`.
+- [x] Use `nlohmann/json` to parse the file and map fields to C++ structs.
 
 ### Task 3.4: CLI Implementation
 - [ ] Update `src/compiler/main.cpp`.
