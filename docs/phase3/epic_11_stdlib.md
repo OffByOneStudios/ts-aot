@@ -16,6 +16,6 @@ Implement the `Math` object and essential algorithms.
 - **Runtime:** Implement `ts_array_sort` (optional, if needed for Day 2).
 
 ## Action Items
-- [ ] Implement `Math` functions in Runtime.
-- [ ] Add Codegen support for `Math` static methods.
-- [ ] Test with `tests/integration/stdlib.ts`.
+- [x] Implement `Math` functions in Runtime.
+- [x] Add Codegen support for `Math` static methods.
+- [x] Test with `tests/integration/stdlib.ts`.

@@ -51,6 +51,7 @@ private:
     void visitIdentifier(ast::Identifier* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
 };
 
 } // namespace ts

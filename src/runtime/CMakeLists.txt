@@ -10,6 +10,7 @@ add_library(tsruntime STATIC
     src/TsArray.cpp
     src/IO.cpp
     src/Primitives.cpp
+    src/Math.cpp
     # Add other source files here as they are created
 )
 

@@ -106,10 +106,16 @@ struct ContinueStatement : Statement {
 // --- Expressions ---
 
 struct BinaryExpression : Expression {
-    std::string op; // operator
+    std::string op;
     ExprPtr left;
     ExprPtr right;
     std::string getKind() const override { return "BinaryExpression"; }
+};
+
+struct PrefixUnaryExpression : Expression {
+    std::string op;
+    ExprPtr operand;
+    std::string getKind() const override { return "PrefixUnaryExpression"; }
 };
 
 struct AssignmentExpression : Expression {

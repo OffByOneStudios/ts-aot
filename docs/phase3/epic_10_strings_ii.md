@@ -18,8 +18,8 @@ Enhance `TsString` to support parsing and iteration.
 - **Codegen:** Support `str.split(sep)`.
 
 ## Action Items
-- [ ] Implement `TsString::Length` and `TsString::CharCodeAt`.
-- [ ] Implement `TsString::Split`.
-- [ ] Add AST/Codegen support for `length` property on strings.
-- [ ] Add AST/Codegen support for `charCodeAt` and `split`.
-- [ ] Test with `tests/integration/strings_ii.ts`.
+- [x] Implement `TsString::Length` and `TsString::CharCodeAt`.
+- [x] Implement `TsString::Split`.
+- [x] Add AST/Codegen support for `length` property on strings.
+- [x] Add AST/Codegen support for `charCodeAt` and `split`.
+- [x] Test with `tests/integration/strings_ii.ts`.

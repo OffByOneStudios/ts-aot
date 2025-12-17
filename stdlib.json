@@ -1,0 +1,182 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math"
+              },
+              "name": "min"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 20
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math"
+              },
+              "name": "max"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 20
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math"
+              },
+              "name": "abs"
+            },
+            "arguments": [
+              {
+                "kind": "PrefixUnaryExpression",
+                "operator": "-",
+                "operand": {
+                  "kind": "NumericLiteral",
+                  "value": 50
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math"
+              },
+              "name": "floor"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 3.14
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math"
+              },
+              "name": "floor"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 5
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
