@@ -17,6 +17,6 @@ Enable reading input data from files and parsing strings into numbers.
 - **Binding:** Expose as global `parseInt` and `parseFloat`.
 
 ## Action Items
-- [ ] Implement `fs.readFileSync` in Runtime.
-- [ ] Implement `parseInt` in Runtime.
-- [ ] Add integration test: Read a file containing numbers and sum them.
+- [x] Implement `fs.readFileSync` in Runtime.
+- [x] Implement `parseInt` in Runtime.
+- [x] Add integration test: Read a file containing numbers and sum them.

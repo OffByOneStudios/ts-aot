@@ -3,6 +3,7 @@ find_package(Catch2 CONFIG REQUIRED)
 add_executable(unit_tests
     unit/RuntimeTests.cpp
     unit/TsStringTests.cpp
+    unit/TsArrayTests.cpp
     unit/AnalyzerTests.cpp
 )
 
