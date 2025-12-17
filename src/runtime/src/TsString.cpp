@@ -46,6 +46,11 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
     return Create(str.c_str());
 }
 
+TsString* TsString::FromInt(int64_t value) {
+    std::string str = std::to_string(value);
+    return Create(str.c_str());
+}
+
 int64_t TsString::Length() {
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
     return s->length();
@@ -151,4 +156,8 @@ extern "C" void* ts_string_trim(void* str) {
 
 extern "C" void* ts_string_substring(void* str, int64_t start, int64_t end) {
     return ((TsString*)str)->Substring(start, end);
+}
+
+extern "C" void* ts_string_from_int(int64_t value) {
+    return TsString::FromInt(value);
 }
