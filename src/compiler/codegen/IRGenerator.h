@@ -33,13 +33,18 @@ private:
     void visit(ast::Node* node);
     void visitReturnStatement(ast::ReturnStatement* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
+    void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIdentifier(ast::Identifier* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
     void visitIfStatement(ast::IfStatement* node);
+    void visitWhileStatement(ast::WhileStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
+    void visitVariableDeclaration(ast::VariableDeclaration* node);
+
+    llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;

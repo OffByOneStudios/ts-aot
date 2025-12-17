@@ -59,6 +59,13 @@ function visit(node) {
                 arguments: node.arguments.map(visit)
             };
         case ts.SyntaxKind.BinaryExpression:
+            if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+                return {
+                    kind: "AssignmentExpression",
+                    left: visit(node.left),
+                    right: visit(node.right)
+                };
+            }
             return {
                 kind: "BinaryExpression",
                 operator: node.operatorToken.getText(),
@@ -92,6 +99,12 @@ function visit(node) {
                 condition: visit(node.expression),
                 thenStatement: visit(node.thenStatement),
                 elseStatement: node.elseStatement ? visit(node.elseStatement) : null
+            };
+        case ts.SyntaxKind.WhileStatement:
+            return {
+                kind: "WhileStatement",
+                condition: visit(node.expression),
+                statement: visit(node.statement)
             };
         case ts.SyntaxKind.Block:
             return {
