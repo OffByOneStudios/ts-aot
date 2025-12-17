@@ -28,3 +28,5 @@ Implement standard iteration constructs to allow algorithms that require looping
 - [x] Implement `ForStatement` in AST and Parser.
 - [x] Implement `ForStatement` in Analyzer and IRGenerator.
 - [x] Add integration tests for loops (e.g., calculating sum of 1..N).
+- [x] Implement `BreakStatement` and `ContinueStatement` in AST and Parser.
+- [x] Implement `BreakStatement` and `ContinueStatement` in Analyzer and IRGenerator.

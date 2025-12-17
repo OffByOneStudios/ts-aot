@@ -42,6 +42,8 @@ private:
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
     void visitForStatement(ast::ForStatement* node);
+    void visitBreakStatement(ast::BreakStatement* node);
+    void visitContinueStatement(ast::ContinueStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
     void visitVariableDeclaration(ast::VariableDeclaration* node);
 
@@ -49,6 +51,12 @@ private:
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
+
+    struct LoopInfo {
+        llvm::BasicBlock* continueBlock;
+        llvm::BasicBlock* breakBlock;
+    };
+    std::vector<LoopInfo> loopStack;
 };
 
 } // namespace ts

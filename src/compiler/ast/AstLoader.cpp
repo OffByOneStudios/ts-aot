@@ -122,6 +122,10 @@ StmtPtr parseStatement(const json& j) {
         }
         node->body = parseStatement(j["body"]);
         return node;
+    } else if (kind == "BreakStatement") {
+        return std::make_unique<BreakStatement>();
+    } else if (kind == "ContinueStatement") {
+        return std::make_unique<ContinueStatement>();
     }
 
     throw std::runtime_error("Unknown statement kind: " + kind);

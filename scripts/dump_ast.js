@@ -130,10 +130,14 @@ function visit(node) {
                 incrementor: node.incrementor ? visit(node.incrementor) : null,
                 body: visit(node.statement)
             };
+        case ts.SyntaxKind.BreakStatement:
+            return { kind: "BreakStatement" };
+        case ts.SyntaxKind.ContinueStatement:
+            return { kind: "ContinueStatement" };
         case ts.SyntaxKind.Block:
             return {
                 kind: "BlockStatement",
-                statements: visitBlock(node)
+                statements: node.statements.map(visit).filter(s => s)
             };
         case ts.SyntaxKind.EndOfFileToken:
             return null;
