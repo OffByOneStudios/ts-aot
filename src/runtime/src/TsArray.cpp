@@ -10,6 +10,14 @@ TsArray* TsArray::Create(size_t initialCapacity) {
     return new(mem) TsArray(initialCapacity);
 }
 
+TsArray* TsArray::CreateSized(size_t size) {
+    void* mem = ts_alloc(sizeof(TsArray));
+    TsArray* arr = new(mem) TsArray(size);
+    arr->length = size;
+    std::memset(arr->elements, 0, size * sizeof(int64_t));
+    return arr;
+}
+
 TsArray::TsArray(size_t initialCapacity) {
     this->capacity = initialCapacity > 0 ? initialCapacity : 4;
     this->length = 0;
@@ -58,6 +66,10 @@ void TsArray::Sort() {
 extern "C" {
     void* ts_array_create() {
         return TsArray::Create();
+    }
+
+    void* ts_array_create_sized(int64_t size) {
+        return TsArray::CreateSized((size_t)size);
     }
 
     void ts_array_push(void* arr, int64_t value) {

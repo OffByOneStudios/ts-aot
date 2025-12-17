@@ -18,6 +18,6 @@ Support "Plain Old JavaScript Objects" (POJOs) for grouping data, distinct from 
 - **Codegen:** Update `PropertyAccessExpression` to handle `TsObject`.
 
 ## Action Items
-- [ ] Implement `TsObject` in Runtime.
-- [ ] Add AST/Codegen support for Object Literals.
-- [ ] Test with `tests/integration/objects.ts`.
+- [x] Implement `TsObject` in Runtime.
+- [x] Add AST/Codegen support for Object Literals.
+- [x] Test with `tests/integration/objects.ts`.

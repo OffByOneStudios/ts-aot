@@ -6,6 +6,7 @@
 class TsArray {
 public:
     static TsArray* Create(size_t initialCapacity = 4);
+    static TsArray* CreateSized(size_t size);
 
     void Push(int64_t value);
     int64_t Get(size_t index);
@@ -23,6 +24,7 @@ private:
 
 extern "C" {
     void* ts_array_create();
+    void* ts_array_create_sized(int64_t size);
     void ts_array_push(void* arr, int64_t value);
     int64_t ts_array_get(void* arr, int64_t index);
     void ts_array_set(void* arr, int64_t index, int64_t value);

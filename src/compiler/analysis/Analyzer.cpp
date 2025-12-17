@@ -31,6 +31,7 @@ void Analyzer::visit(Node* node) {
     else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto sw = dynamic_cast<SwitchStatement*>(node)) visitSwitchStatement(sw);
     else if (auto br = dynamic_cast<BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
@@ -209,8 +210,12 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         if (id->name == "Map") {
             lastType = std::make_shared<Type>(TypeKind::Map);
             return;
+        } else if (id->name == "Array") {
+            lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            return;
         }
     }
+    lastType = std::make_shared<Type>(TypeKind::Any);
 }
 
 void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {
@@ -324,6 +329,25 @@ void Analyzer::visitForStatement(ForStatement* node) {
     if (node->condition) visit(node->condition.get());
     if (node->incrementor) visit(node->incrementor.get());
     visit(node->body.get());
+    symbols.exitScope();
+}
+
+void Analyzer::visitSwitchStatement(SwitchStatement* node) {
+    visit(node->expression.get());
+    
+    symbols.enterScope();
+    for (auto& clause : node->clauses) {
+        if (auto caseClause = dynamic_cast<CaseClause*>(clause.get())) {
+            visit(caseClause->expression.get());
+            for (auto& stmt : caseClause->statements) {
+                visit(stmt.get());
+            }
+        } else if (auto defaultClause = dynamic_cast<DefaultClause*>(clause.get())) {
+            for (auto& stmt : defaultClause->statements) {
+                visit(stmt.get());
+            }
+        }
+    }
     symbols.exitScope();
 }
 

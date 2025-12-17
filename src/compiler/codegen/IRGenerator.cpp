@@ -151,6 +151,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto sw = dynamic_cast<ast::SwitchStatement*>(node)) visitSwitchStatement(sw);
     else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
@@ -470,6 +471,38 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
              lastValue = builder->CreateCall(fn, { obj, prefix });
              return;
+        } else if (prop->name == "substring") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             if (node->arguments.empty()) return;
+             
+             visit(node->arguments[0].get());
+             llvm::Value* start = lastValue;
+             if (start->getType()->isDoubleTy()) {
+                 start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+             }
+
+             llvm::Value* end = nullptr;
+             if (node->arguments.size() > 1) {
+                 visit(node->arguments[1].get());
+                 end = lastValue;
+                 if (end->getType()->isDoubleTy()) {
+                     end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+                 }
+             } else {
+                 // Default end to length
+                 llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
+                     llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                         { llvm::PointerType::getUnqual(*context) }, false));
+                 end = builder->CreateCall(lenFn, { obj });
+             }
+
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_substring",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, start, end });
+             return;
         } else if (prop->name == "sort") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
@@ -754,6 +787,127 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     builder->SetInsertPoint(afterBB);
 }
 
+void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
+    visit(node->expression.get());
+    llvm::Value* switchVal = lastValue;
+    if (!switchVal) return;
+
+    llvm::Function* function = builder->GetInsertBlock()->getParent();
+    
+    // Create blocks
+    std::vector<llvm::BasicBlock*> clauseBlocks;
+    for (size_t i = 0; i < node->clauses.size(); ++i) {
+        clauseBlocks.push_back(llvm::BasicBlock::Create(*context, "case", function));
+    }
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "switch.end", function);
+    
+    // Find default
+    int defaultIdx = -1;
+    for (size_t i = 0; i < node->clauses.size(); ++i) {
+        if (dynamic_cast<ast::DefaultClause*>(node->clauses[i].get())) {
+            defaultIdx = i;
+            break;
+        }
+    }
+    
+    llvm::BasicBlock* defaultBB = (defaultIdx != -1) ? clauseBlocks[defaultIdx] : mergeBB;
+
+    // Dispatch
+    bool useSwitchInst = switchVal->getType()->isIntegerTy();
+    if (useSwitchInst) {
+        for (auto& clause : node->clauses) {
+             if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                 if (!dynamic_cast<ast::NumericLiteral*>(cc->expression.get())) {
+                     useSwitchInst = false;
+                     break;
+                 }
+             }
+        }
+    }
+
+    if (useSwitchInst) {
+        llvm::SwitchInst* swInst = builder->CreateSwitch(switchVal, defaultBB, node->clauses.size());
+        for (size_t i = 0; i < node->clauses.size(); ++i) {
+            if (auto cc = dynamic_cast<ast::CaseClause*>(node->clauses[i].get())) {
+                auto numLit = static_cast<ast::NumericLiteral*>(cc->expression.get());
+                int64_t val = (int64_t)numLit->value;
+                swInst->addCase(llvm::cast<llvm::ConstantInt>(llvm::ConstantInt::get(switchVal->getType(), val)), clauseBlocks[i]);
+            }
+        }
+    } else {
+        // If-Else chain
+        for (size_t i = 0; i < node->clauses.size(); ++i) {
+            if (auto cc = dynamic_cast<ast::CaseClause*>(node->clauses[i].get())) {
+                llvm::BasicBlock* checkBB = llvm::BasicBlock::Create(*context, "check_case", function);
+                builder->CreateBr(checkBB);
+                builder->SetInsertPoint(checkBB);
+                
+                visit(cc->expression.get());
+                llvm::Value* caseVal = lastValue;
+                
+                llvm::Value* cmp = nullptr;
+                if (switchVal->getType()->isIntegerTy()) {
+                    cmp = builder->CreateICmpEQ(switchVal, caseVal, "cmp");
+                } else if (switchVal->getType()->isDoubleTy()) {
+                    cmp = builder->CreateFCmpOEQ(switchVal, caseVal, "cmp");
+                } else {
+                    // String comparison
+                    llvm::Function* eqFn = module->getFunction("ts_string_eq");
+                    if (!eqFn) {
+                        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
+                        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), args, false);
+                        eqFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_eq", module.get());
+                    }
+                    cmp = builder->CreateCall(eqFn, { switchVal, caseVal }, "cmp");
+                }
+                
+                llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "next_check", function);
+                builder->CreateCondBr(cmp, clauseBlocks[i], nextBB);
+                builder->SetInsertPoint(nextBB);
+            }
+        }
+        builder->CreateBr(defaultBB);
+    }
+
+    // Push loop info
+    llvm::BasicBlock* enclosingContinue = nullptr;
+    for (auto it = loopStack.rbegin(); it != loopStack.rend(); ++it) {
+        if (it->continueBlock) {
+            enclosingContinue = it->continueBlock;
+            break;
+        }
+    }
+    loopStack.push_back({enclosingContinue, mergeBB});
+
+    // Generate bodies
+    for (size_t i = 0; i < node->clauses.size(); ++i) {
+        builder->SetInsertPoint(clauseBlocks[i]);
+        
+        auto& clause = node->clauses[i];
+        if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+            for (auto& stmt : cc->statements) {
+                visit(stmt.get());
+            }
+        } else if (auto dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+            for (auto& stmt : dc->statements) {
+                visit(stmt.get());
+            }
+        }
+        
+        // Fallthrough
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            if (i + 1 < node->clauses.size()) {
+                builder->CreateBr(clauseBlocks[i+1]);
+            } else {
+                builder->CreateBr(mergeBB);
+            }
+        }
+    }
+
+    loopStack.pop_back();
+    builder->SetInsertPoint(mergeBB);
+}
+
 void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
     if (loopStack.empty()) {
         llvm::errs() << "Error: Break statement outside of loop\n";
@@ -964,9 +1118,6 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         llvm::Value* obj = lastValue;
         
         if (!node->expression->inferredType) {
-             // Fallback: assume string if we can't tell? Or error?
-             // For now, let's assume string as a default if type is missing (e.g. string literal)
-             // Actually, string literals should have type inferred.
              llvm::errs() << "Warning: No type inferred for length access, assuming string\n";
              llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
                  llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
@@ -1061,6 +1212,26 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
             lastValue = builder->CreateCall(fn);
             return;
+        } else if (id->name == "Array") {
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                llvm::Value* size = lastValue;
+                
+                if (size->getType()->isDoubleTy()) {
+                    size = builder->CreateFPToSI(size, llvm::Type::getInt64Ty(*context));
+                }
+                
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create_sized",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                        { llvm::Type::getInt64Ty(*context) }, false));
+                lastValue = builder->CreateCall(fn, { size });
+                return;
+            } else {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+                lastValue = builder->CreateCall(fn);
+                return;
+            }
         }
     }
     lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));
