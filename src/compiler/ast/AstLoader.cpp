@@ -33,8 +33,19 @@ ExprPtr parseExpression(const json& j) {
     } else if (kind == "CallExpression") {
         auto node = std::make_unique<CallExpression>();
         node->callee = parseExpression(j["callee"]);
-        for (const auto& arg : j["arguments"]) {
-            node->arguments.push_back(parseExpression(arg));
+        if (j.contains("arguments")) {
+            for (const auto& arg : j["arguments"]) {
+                node->arguments.push_back(parseExpression(arg));
+            }
+        }
+        return node;
+    } else if (kind == "NewExpression") {
+        auto node = std::make_unique<NewExpression>();
+        node->expression = parseExpression(j["expression"]);
+        if (j.contains("arguments")) {
+            for (const auto& arg : j["arguments"]) {
+                node->arguments.push_back(parseExpression(arg));
+            }
         }
         return node;
     } else if (kind == "ArrayLiteralExpression") {

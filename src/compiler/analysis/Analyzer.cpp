@@ -20,6 +20,7 @@ void Analyzer::visit(Node* node) {
     else if (auto e = dynamic_cast<ExpressionStatement*>(node)) visitExpressionStatement(e);
     else if (auto r = dynamic_cast<ReturnStatement*>(node)) visitReturnStatement(r);
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
+    else if (auto n = dynamic_cast<NewExpression*>(node)) visitNewExpression(n);
     else if (auto arr = dynamic_cast<ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto elem = dynamic_cast<ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
@@ -125,6 +126,18 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::Void);
              return;
+        } else if (prop->name == "set") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "get") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "has") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
+             return;
         }
         
         // Check for Math methods
@@ -159,6 +172,21 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     }
     
     // For now, assume calls return Any unless we know better
+    lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+void Analyzer::visitNewExpression(NewExpression* node) {
+    visit(node->expression.get());
+    for (auto& arg : node->arguments) {
+        visit(arg.get());
+    }
+    
+    if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
+        if (id->name == "Map") {
+            lastType = std::make_shared<Type>(TypeKind::Map);
+            return;
+        }
+    }
     lastType = std::make_shared<Type>(TypeKind::Any);
 }
 

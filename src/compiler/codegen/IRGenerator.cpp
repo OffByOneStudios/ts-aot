@@ -132,6 +132,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
+    else if (auto newExpr = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(newExpr);
     else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
@@ -409,6 +410,49 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                      { llvm::PointerType::getUnqual(*context) }, false));
              builder->CreateCall(fn, { obj });
              lastValue = nullptr;
+             return;
+        } else if (prop->name == "set") {
+             visit(prop->expression.get());
+             llvm::Value* map = lastValue;
+             
+             if (node->arguments.size() < 2) return;
+             visit(node->arguments[0].get());
+             llvm::Value* key = lastValue;
+             visit(node->arguments[1].get());
+             llvm::Value* value = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_set",
+                 llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+             builder->CreateCall(fn, { map, key, value });
+             lastValue = nullptr;
+             return;
+        } else if (prop->name == "get") {
+             visit(prop->expression.get());
+             llvm::Value* map = lastValue;
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* key = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { map, key });
+             return;
+        } else if (prop->name == "has") {
+             visit(prop->expression.get());
+             llvm::Value* map = lastValue;
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* key = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             llvm::Value* res = builder->CreateCall(fn, { map, key });
+             lastValue = builder->CreateICmpNE(res, llvm::ConstantInt::get(res->getType(), 0), "tobool");
              return;
         }
     }
@@ -887,6 +931,18 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         }
         lastValue = builder->CreateNot(operandV, "nottmp");
     }
+}
+
+void IRGenerator::visitNewExpression(ast::NewExpression* node) {
+    if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (id->name == "Map") {
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+            lastValue = builder->CreateCall(fn);
+            return;
+        }
+    }
+    lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));
 }
 
 } // namespace ts

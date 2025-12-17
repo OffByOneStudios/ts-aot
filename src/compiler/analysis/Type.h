@@ -14,7 +14,8 @@ enum class TypeKind {
     String,
     Any,
     Function,
-    Array
+    Array,
+    Map
 };
 
 struct Type {
@@ -33,8 +34,9 @@ struct Type {
             case TypeKind::Any: return "any";
             case TypeKind::Function: return "function";
             case TypeKind::Array: return "array";
-            default: return "unknown";
+            case TypeKind::Map: return "Map";
         }
+        return "unknown";
     }
     
     bool isNumber() const { return kind == TypeKind::Int || kind == TypeKind::Double; }
