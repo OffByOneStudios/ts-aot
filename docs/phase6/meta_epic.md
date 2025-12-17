@@ -51,7 +51,7 @@
     - Type assertions (`as Foo`).
 
 ## Technical Considerations
-- **VTable:** Need to implement virtual tables for dynamic dispatch in inheritance.
+- **VTable:** Need to implement virtual tables for dynamic dispatch in inheritance. See [Design: Classes & VTables](./design_classes.md).
 - **Memory Layout:** Class instances will need a defined memory layout compatible with inheritance.
 - **`this` Context:** Need to pass `this` pointer implicitly to methods.
 - **Structural Typing:** Analysis phase needs to check shape compatibility, not just nominal type equality.

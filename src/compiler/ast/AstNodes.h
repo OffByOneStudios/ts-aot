@@ -127,6 +127,27 @@ struct ForOfStatement : Statement {
     std::string getKind() const override { return "ForOfStatement"; }
 };
 
+struct PropertyDefinition : Node {
+    std::string name;
+    std::string type;
+    ExprPtr initializer;
+    std::string getKind() const override { return "PropertyDefinition"; }
+};
+
+struct MethodDefinition : Node {
+    std::string name;
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    std::string returnType;
+    std::vector<StmtPtr> body;
+    std::string getKind() const override { return "MethodDefinition"; }
+};
+
+struct ClassDeclaration : Statement {
+    std::string name;
+    std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
+    std::string getKind() const override { return "ClassDeclaration"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {

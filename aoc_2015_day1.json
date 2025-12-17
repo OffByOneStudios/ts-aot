@@ -23,30 +23,6 @@
       }
     },
     {
-      "kind": "ExpressionStatement",
-      "expression": {
-        "kind": "CallExpression",
-        "callee": {
-          "kind": "PropertyAccessExpression",
-          "expression": {
-            "kind": "Identifier",
-            "name": "console"
-          },
-          "name": "log"
-        },
-        "arguments": [
-          {
-            "kind": "PropertyAccessExpression",
-            "expression": {
-              "kind": "Identifier",
-              "name": "input"
-            },
-            "name": "length"
-          }
-        ]
-      }
-    },
-    {
       "kind": "VariableDeclaration",
       "name": "floor",
       "initializer": {

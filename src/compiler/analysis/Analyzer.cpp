@@ -43,6 +43,7 @@ void Analyzer::visit(Node* node) {
     else if (auto arrow = dynamic_cast<ArrowFunction*>(node)) visitArrowFunction(arrow);
     else if (auto tmpl = dynamic_cast<TemplateExpression*>(node)) visitTemplateExpression(tmpl);
     else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
+    else if (auto cls = dynamic_cast<ClassDeclaration*>(node)) visitClassDeclaration(cls);
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
         expr->inferredType = lastType;
@@ -55,25 +56,31 @@ void Analyzer::visitProgram(Program* node) {
     }
 }
 
-std::shared_ptr<Type> parseType(const std::string& typeName) {
+std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols) {
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
     if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
     if (typeName == "void") return std::make_shared<Type>(TypeKind::Void);
+    if (typeName == "any") return std::make_shared<Type>(TypeKind::Any);
+    
+    // Look up in symbol table for classes
+    auto type = symbols.lookupType(typeName);
+    if (type) return type;
+
     return std::make_shared<Type>(TypeKind::Any);
 }
 
 void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
     auto funcType = std::make_shared<FunctionType>();
     if (!node->returnType.empty()) {
-        funcType->returnType = parseType(node->returnType);
+        funcType->returnType = parseType(node->returnType, symbols);
     } else {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
     
     for (const auto& param : node->parameters) {
         if (!param->type.empty()) {
-            funcType->paramTypes.push_back(parseType(param->type));
+            funcType->paramTypes.push_back(parseType(param->type, symbols));
         } else {
             funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
         }
@@ -173,6 +180,19 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                 }
             }
         }
+
+        // Check for class methods
+        visit(prop->expression.get());
+        auto objType = lastType;
+        if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            if (cls->methods.count(prop->name)) {
+                auto methodType = cls->methods[prop->name];
+                lastType = methodType->returnType;
+                for (auto& arg : node->arguments) visit(arg.get());
+                return;
+            }
+        }
     }
     
     std::string calleeName;
@@ -230,7 +250,19 @@ void Analyzer::visitNewExpression(NewExpression* node) {
             lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
             return;
         }
+
+        // Check for user-defined classes
+        auto sym = symbols.lookup(id->name);
+        if (sym && sym->type->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
+            if (funcType->returnType->kind == TypeKind::Class) {
+                lastType = funcType->returnType;
+                // TODO: Validate arguments against funcType->paramTypes
+                return;
+            }
+        }
     }
+    
     lastType = std::make_shared<Type>(TypeKind::Any);
 }
 
@@ -293,6 +325,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
                 lastType = obj->fields[node->name];
                 return;
             }
+        } else if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            if (cls->fields.count(node->name)) {
+                lastType = cls->fields[node->name];
+                return;
+            } else if (cls->methods.count(node->name)) {
+                lastType = cls->methods[node->name];
+                return;
+            } else {
+                fmt::print(stderr, "Error: Unknown property {}\n", node->name);
+            }
         }
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
@@ -321,6 +364,7 @@ void Analyzer::visitBinaryExpression(BinaryExpression* node) {
 }
 
 void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
+    visit(node->left.get());
     visit(node->right.get());
     // In a real compiler, we'd check if left is assignable from right
     // For now, assignment evaluates to the right side type
@@ -450,10 +494,9 @@ void Analyzer::visitArrowFunction(ArrowFunction* node) {
     symbols.enterScope();
     for (auto& param : node->parameters) {
         std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
-        if (param->type == "number") type = std::make_shared<Type>(TypeKind::Double); // Default to double for number
-        else if (param->type == "string") type = std::make_shared<Type>(TypeKind::String);
-        else if (param->type == "boolean") type = std::make_shared<Type>(TypeKind::Boolean);
-        
+        if (!param->type.empty()) {
+            type = parseType(param->type, symbols);
+        }
         symbols.define(param->name, type);
     }
     
@@ -479,10 +522,85 @@ void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
     }
 }
 
+void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
+    auto classType = std::make_shared<ClassType>(node->name);
+    
+    // 1. Register class type
+    symbols.defineType(node->name, classType);
+
+    // 2. Scan members to populate fields and methods
+    for (const auto& member : node->members) {
+        if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
+            classType->fields[prop->name] = parseType(prop->type, symbols);
+        } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
+            auto methodType = std::make_shared<FunctionType>();
+            if (!method->returnType.empty()) {
+                methodType->returnType = parseType(method->returnType, symbols);
+            } else {
+                methodType->returnType = std::make_shared<Type>(TypeKind::Void);
+            }
+            for (const auto& param : method->parameters) {
+                if (!param->type.empty()) {
+                    methodType->paramTypes.push_back(parseType(param->type, symbols));
+                } else {
+                    methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                }
+            }
+            classType->methods[method->name] = methodType;
+        }
+    }
+
+    // 3. Register constructor (if any) or default constructor
+    auto ctorType = std::make_shared<FunctionType>();
+    ctorType->returnType = classType;
+    
+    if (classType->methods.count("constructor")) {
+        auto ctorMethod = classType->methods["constructor"];
+        ctorType->paramTypes = ctorMethod->paramTypes;
+    }
+    
+    symbols.define(node->name, ctorType);
+
+    // 4. Visit method bodies
+    for (const auto& member : node->members) {
+        if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
+            visitMethodDefinition(method, classType);
+        } else if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
+            visitPropertyDefinition(prop, classType);
+        }
+    }
+}
+
+void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<ClassType> classType) {
+    symbols.enterScope();
+    
+    // Define 'this'
+    symbols.define("this", classType);
+
+    // Define parameters
+    auto methodType = classType->methods[node->name];
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        symbols.define(node->parameters[i]->name, methodType->paramTypes[i]);
+    }
+
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+
+    symbols.exitScope();
+}
+
+void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr<ClassType> classType) {
+    if (node->initializer) {
+        visit(node->initializer.get());
+        // TODO: Check type compatibility
+    }
+}
+
 std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes) {
     // If return type is annotated, use it (unless it's explicit 'any', which we want to refine if possible)
     if (!node->returnType.empty() && node->returnType != "any") {
-        return parseType(node->returnType);
+        return parseType(node->returnType, symbols);
     }
 
     // Create a new scope for the function body

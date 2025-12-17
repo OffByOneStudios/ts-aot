@@ -1,4 +1,5 @@
 #include "SymbolTable.h"
+#include <fmt/core.h>
 
 namespace ts {
 
@@ -7,13 +8,18 @@ SymbolTable::SymbolTable() {
     enterScope();
 }
 
+SymbolTable::~SymbolTable() {
+}
+
 void SymbolTable::enterScope() {
     scopes.emplace_back();
+    typeScopes.emplace_back();
 }
 
 void SymbolTable::exitScope() {
     if (!scopes.empty()) {
         scopes.pop_back();
+        typeScopes.pop_back();
     }
 }
 
@@ -41,6 +47,35 @@ std::shared_ptr<Symbol> SymbolTable::lookup(const std::string& name) {
         }
     }
     return nullptr;
+}
+
+bool SymbolTable::defineType(const std::string& name, std::shared_ptr<Type> type) {
+    if (typeScopes.empty()) return false;
+
+    auto& currentScope = typeScopes.back();
+    if (currentScope.find(name) != currentScope.end()) {
+        return false; // Already defined in this scope
+    }
+
+    currentScope[name] = type;
+    return true;
+}
+
+std::shared_ptr<Type> SymbolTable::lookupType(const std::string& name) const {
+    // Search from the innermost scope outwards
+    for (auto it = typeScopes.rbegin(); it != typeScopes.rend(); ++it) {
+        auto found = it->find(name);
+        if (found != it->end()) {
+            return found->second;
+        }
+    }
+    return nullptr;
+}
+
+const std::unordered_map<std::string, std::shared_ptr<Type>>& SymbolTable::getGlobalTypes() const {
+    static const std::unordered_map<std::string, std::shared_ptr<Type>> empty;
+    if (typeScopes.empty()) return empty;
+    return typeScopes.front();
 }
 
 } // namespace ts
