@@ -79,7 +79,6 @@ This document tracks the implementation status of TypeScript language features i
 | Type Guards | 📅 | Phase 8 | `if (typeof x === 'string')`. |
 | Destructuring | 📅 | Phase 7 | `const { x } = obj`. |
 | Spread / Rest | 📅 | Phase 7 | `...obj`, `...arr`. |
-| Template Literals | 📅 | Phase 5 | `` `Hello ${name}` ``. |
 | Modules (`import`/`export`) | 📅 | Phase 9 | Multi-file compilation. |
 | Async / Await | 📅 | Phase 10 | Promises and Event Loop integration. |
 
