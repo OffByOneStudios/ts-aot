@@ -179,4 +179,9 @@ struct NumericLiteral : Expression {
     std::string getKind() const override { return "NumericLiteral"; }
 };
 
+struct BooleanLiteral : Expression {
+    bool value;
+    std::string getKind() const override { return "BooleanLiteral"; }
+};
+
 } // namespace ast

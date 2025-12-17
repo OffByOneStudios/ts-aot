@@ -139,6 +139,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto assign = dynamic_cast<ast::AssignmentExpression*>(node)) visitAssignmentExpression(assign);
     else if (auto id = dynamic_cast<ast::Identifier*>(node)) visitIdentifier(id);
     else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
+    else if (auto boolean = dynamic_cast<ast::BooleanLiteral*>(node)) visitBooleanLiteral(boolean);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
     else if (auto obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
@@ -287,6 +288,10 @@ void IRGenerator::visitNumericLiteral(ast::NumericLiteral* node) {
     }
 }
 
+void IRGenerator::visitBooleanLiteral(ast::BooleanLiteral* node) {
+    lastValue = llvm::ConstantInt::get(*context, llvm::APInt(1, node->value ? 1 : 0));
+}
+
 void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
     llvm::Function* createFn = module->getFunction("ts_string_create");
     if (!createFn) {
@@ -431,6 +436,19 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                  llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
              lastValue = builder->CreateCall(fn, { obj, sep });
+             return;
+        } else if (prop->name == "startsWith") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* prefix = lastValue;
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_startsWith",
+                 llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, prefix });
              return;
         } else if (prop->name == "sort") {
              visit(prop->expression.get());

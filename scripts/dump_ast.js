@@ -99,6 +99,16 @@ function visit(node) {
                 kind: "NumericLiteral",
                 value: Number(node.text)
             };
+        case ts.SyntaxKind.TrueKeyword:
+            return {
+                kind: "BooleanLiteral",
+                value: true
+            };
+        case ts.SyntaxKind.FalseKeyword:
+            return {
+                kind: "BooleanLiteral",
+                value: false
+            };
         case ts.SyntaxKind.ObjectLiteralExpression:
             return {
                 kind: "ObjectLiteralExpression",

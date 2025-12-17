@@ -37,6 +37,7 @@ void Analyzer::visit(Node* node) {
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
+    else if (auto bl = dynamic_cast<BooleanLiteral*>(node)) visitBooleanLiteral(bl);
     else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
@@ -123,6 +124,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "substring") {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "startsWith") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
         } else if (prop->name == "sort") {
              for (auto& arg : node->arguments) visit(arg.get());
@@ -361,6 +366,10 @@ void Analyzer::visitNumericLiteral(NumericLiteral* node) {
     } else {
         lastType = std::make_shared<Type>(TypeKind::Double);
     }
+}
+
+void Analyzer::visitBooleanLiteral(BooleanLiteral* node) {
+    lastType = std::make_shared<Type>(TypeKind::Boolean);
 }
 
 void Analyzer::visitReturnStatement(ReturnStatement* node) {
