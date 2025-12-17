@@ -102,9 +102,19 @@ void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyze
         }
         classStruct->setBody(fieldTypes);
 
-        // Define VTable Body: { Function Pointers... }
+        // Define VTable Body: { ParentVTable*, Function Pointers... }
         std::vector<llvm::Type*> vtableFieldTypes;
         std::vector<llvm::Constant*> vtableFuncs;
+
+        vtableFieldTypes.push_back(llvm::PointerType::getUnqual(*context)); // Parent VTable
+        if (classType->baseClass) {
+            std::string baseVTableGlobalName = classType->baseClass->name + "_VTable_Global";
+            // We don't know the type yet, so use ptr
+            llvm::Constant* baseVTable = module->getOrInsertGlobal(baseVTableGlobalName, llvm::PointerType::getUnqual(*context));
+            vtableFuncs.push_back(baseVTable);
+        } else {
+            vtableFuncs.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context)));
+        }
 
         for (const auto& [methodName, methodType] : layout.allMethods) {
             // Method signature: (this: ptr, args...) -> ret
@@ -442,6 +452,31 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
 }
 
 void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
+    if (node->op == "instanceof") {
+        visit(node->left.get());
+        llvm::Value* left = lastValue;
+        
+        if (auto id = dynamic_cast<ast::Identifier*>(node->right.get())) {
+            std::string className = id->name;
+            std::string vtableGlobalName = className + "_VTable_Global";
+            llvm::GlobalVariable* vtableGlobal = module->getGlobalVariable(vtableGlobalName);
+            
+            if (!vtableGlobal) {
+                lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+                return;
+            }
+            
+            llvm::FunctionCallee instanceofFn = module->getOrInsertFunction("ts_instanceof",
+                llvm::Type::getInt1Ty(*context),
+                builder->getPtrTy(), builder->getPtrTy());
+            
+            lastValue = builder->CreateCall(instanceofFn, { left, vtableGlobal });
+            return;
+        }
+        lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+        return;
+    }
+
     visit(node->left.get());
     llvm::Value* left = lastValue;
 
@@ -708,8 +743,8 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
             llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
             
-            // 4. Load Function Pointer
-            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex);
+            // 4. Load Function Pointer (index + 1 because of parentVTable at index 0)
+            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex + 1);
             
             auto methodType = layout.allMethods[methodIndex].second;
             std::vector<llvm::Type*> paramTypes;

@@ -557,6 +557,12 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
 }
 
 void Analyzer::visitBinaryExpression(BinaryExpression* node) {
+    if (node->op == "instanceof") {
+        visit(node->left.get());
+        visit(node->right.get());
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+        return;
+    }
     visit(node->left.get());
     auto leftType = lastType;
     visit(node->right.get());
@@ -639,6 +645,16 @@ void Analyzer::visitIfStatement(IfStatement* node) {
                     if (typeString->value == "string") narrowedType = std::make_shared<Type>(TypeKind::String);
                     else if (typeString->value == "number") narrowedType = std::make_shared<Type>(TypeKind::Double);
                     else if (typeString->value == "boolean") narrowedType = std::make_shared<Type>(TypeKind::Boolean);
+                }
+            }
+        } else if (bin->op == "instanceof") {
+            if (auto id = dynamic_cast<Identifier*>(bin->left.get())) {
+                if (auto rightId = dynamic_cast<Identifier*>(bin->right.get())) {
+                    auto type = symbols.lookupType(rightId->name);
+                    if (type) {
+                        narrowedVar = id->name;
+                        narrowedType = type;
+                    }
                 }
             }
         }
