@@ -20,5 +20,5 @@ Implement `switch` statements for cleaner multi-branch logic and `for..of` loops
 
 ## Action Items
 - [x] Implement `SwitchStatement` in Analyzer & IRGenerator.
-- [ ] Implement `ForOfStatement` in Analyzer & IRGenerator.
-- [ ] Test with `tests/integration/control_flow_advanced.ts`.
+- [x] Implement `ForOfStatement` in Analyzer & IRGenerator.
+- [x] Test with `tests/integration/control_flow_advanced.ts`.

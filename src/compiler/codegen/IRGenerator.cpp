@@ -151,6 +151,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
+    else if (auto forOfStmt = dynamic_cast<ast::ForOfStatement*>(node)) visitForOfStatement(forOfStmt);
     else if (auto sw = dynamic_cast<ast::SwitchStatement*>(node)) visitSwitchStatement(sw);
     else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
@@ -784,6 +785,180 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 
     // Emit after block
     func->insert(func->end(), afterBB);
+    builder->SetInsertPoint(afterBB);
+}
+
+void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
+    // Lowering:
+    // for (const x of arr) { ... }
+    // ->
+    // int i = 0;
+    // int len = arr.length;
+    // while (i < len) {
+    //   x = arr[i];
+    //   ...
+    //   i++;
+    // }
+
+    llvm::Function* function = builder->GetInsertBlock()->getParent();
+    
+    // Evaluate iterable
+    visit(node->expression.get());
+    llvm::Value* iterable = lastValue;
+    if (!iterable) return;
+
+    // Determine type (Array or String)
+    // In opaque pointer world, we can't check element type easily.
+    // We rely on the fact that we know what we are compiling.
+    // But wait, we need to know if it's a string or array to call the right length function.
+    // We can check the struct name if we have typed pointers, but LLVM 15+ uses opaque pointers.
+    // We should probably rely on the Analyzer's type info, but we don't have it here easily.
+    // HACK: For now, let's assume if we are calling a function that returns string, it's string.
+    // Or better, let's look at the AST or just try to guess.
+    // Actually, we can check if the type name contains "TsString".
+    // But with opaque pointers, getType() returns ptr.
+    
+    // Let's try to use the type from the allocation if possible, but that's hard.
+    // Alternative: Check if we have a "TsString" type in the module and if the pointer points to it? No.
+    
+    // Let's look at how we created the value.
+    // If it came from a StringLiteral, it's a string.
+    // If it came from ArrayLiteral, it's an array.
+    // If it came from a variable, we need to know the variable's type.
+    
+    // Since we don't have full type info in IRGenerator, let's cheat and assume:
+    // If we can't determine, default to Array? No, that crashes.
+    
+    // Let's use a runtime check? No, no RTTI.
+    
+    // Correct solution: Pass type info from Analyzer to IRGenerator.
+    // But that's a big refactor.
+    
+    // Temporary workaround:
+    // If the expression is a StringLiteral, it's a string.
+    // If it's a variable, check the name? No.
+    
+    // Let's look at the previous instruction?
+    // If it's a call to ts_string_create, it's a string.
+    
+    bool isString = false;
+    // This is very fragile but might work for simple cases
+    if (auto* call = llvm::dyn_cast<llvm::CallInst>(iterable)) {
+        if (call->getCalledFunction() && call->getCalledFunction()->getName().contains("string")) {
+            isString = true;
+        }
+    } else if (auto* load = llvm::dyn_cast<llvm::LoadInst>(iterable)) {
+         // If we loaded from a variable, check the variable name?
+         // Or check the alloca type? Alloca type is also ptr.
+         // But we stored the type when we created the alloca?
+         // In createEntryBlockAlloca, we pass llvm::Type*.
+         // But that type is just ptr for objects.
+    }
+    
+    // BETTER HACK:
+    // In Analyzer, we know the type.
+    // We can annotate the AST node with the type.
+    // The AST node `node->expression` has `inferredType`.
+    // Let's use that!
+    
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::String) {
+        isString = true;
+    }
+
+    // Create loop variables
+    llvm::AllocaInst* indexVar = createEntryBlockAlloca(function, "forof_index", llvm::Type::getInt64Ty(*context));
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0), indexVar);
+
+    // Get length
+    llvm::Value* lengthVal = nullptr;
+    if (isString) {
+        llvm::Function* lenFn = module->getFunction("ts_string_length");
+        if (!lenFn) {
+             // Declare it
+             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+             lenFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_length", module.get());
+        }
+        lengthVal = builder->CreateCall(lenFn, { iterable }, "len");
+    } else {
+        // Array
+        llvm::Function* lenFn = module->getFunction("ts_array_length");
+        if (!lenFn) {
+             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+             lenFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_length", module.get());
+        }
+        lengthVal = builder->CreateCall(lenFn, { iterable }, "len");
+    }
+
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "loop.cond", function);
+    llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "loop.body", function);
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "loop.end", function);
+
+    builder->CreateBr(condBB);
+    builder->SetInsertPoint(condBB);
+
+    // Check condition: i < length
+    llvm::Value* currIndex = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "idx");
+    llvm::Value* cond = builder->CreateICmpSLT(currIndex, lengthVal, "loopcond");
+    builder->CreateCondBr(cond, bodyBB, afterBB);
+
+    builder->SetInsertPoint(bodyBB);
+
+    // Get element
+    llvm::Value* elementVal = nullptr;
+    if (isString) {
+        // String: substring(i, i+1) or charCodeAt?
+        // TS for-of on string yields 1-char strings.
+        llvm::Function* substrFn = module->getFunction("ts_string_substring");
+        if (!substrFn) {
+             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) };
+             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
+             substrFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_substring", module.get());
+        }
+        llvm::Value* nextIndex = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
+        elementVal = builder->CreateCall(substrFn, { iterable, currIndex, nextIndex }, "char");
+    } else {
+        // Array: get(i)
+        llvm::Function* getFn = module->getFunction("ts_array_get");
+        if (!getFn) {
+             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) };
+             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), args, false); // Returns int64_t
+             getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
+        }
+        
+        elementVal = builder->CreateCall(getFn, { iterable, currIndex }, "elem");
+    }
+
+    // Bind loop variable
+    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
+        // Create alloca for loop var
+        // We need to know the type of the element.
+        // If it's a string, it's TsString*.
+        // If it's an array, it depends on what's in it.
+        // For now, let's assume we can just store what we got.
+        
+        llvm::Type* varType = elementVal->getType();
+        
+        // If array element is void*, but we know it's an int array, we might need to cast?
+        // But wait, if we are in IRGenerator, we don't have easy access to the Analyzer's type info here unless we stored it.
+        // However, for `for (const x of arr)`, `x` is a new variable.
+        // We should create an alloca for `x`.
+        
+        llvm::AllocaInst* loopVarAlloca = createEntryBlockAlloca(function, varDecl->name, varType);
+        builder->CreateStore(elementVal, loopVarAlloca);
+        namedValues[varDecl->name] = loopVarAlloca;
+    }
+
+    // Body
+    loopStack.push_back({condBB, afterBB}); // Continue goes to increment (which is at end of body here)
+    visit(node->body.get());
+    loopStack.pop_back();
+
+    // Increment
+    llvm::Value* nextIdx = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
+    builder->CreateStore(nextIdx, indexVar);
+    
+    builder->CreateBr(condBB);
+
     builder->SetInsertPoint(afterBB);
 }
 
