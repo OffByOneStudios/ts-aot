@@ -54,6 +54,15 @@ ExprPtr parseExpression(const json& j) {
             node->elements.push_back(parseExpression(el));
         }
         return node;
+    } else if (kind == "ObjectLiteralExpression") {
+        auto node = std::make_unique<ObjectLiteralExpression>();
+        for (const auto& prop : j["properties"]) {
+            auto p = std::make_unique<PropertyAssignment>();
+            p->name = prop["name"];
+            p->initializer = parseExpression(prop["initializer"]);
+            node->properties.push_back(std::move(p));
+        }
+        return node;
     } else if (kind == "ElementAccessExpression") {
         auto node = std::make_unique<ElementAccessExpression>();
         node->expression = parseExpression(j["expression"]);

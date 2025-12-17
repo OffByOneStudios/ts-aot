@@ -9,6 +9,7 @@
     "libuv",
     "bdwgc",
     "icu",
-    "catch2"
+    "catch2",
+    "libsodium"
   ]
 }

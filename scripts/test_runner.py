@@ -19,6 +19,10 @@ def run_command(cmd, shell=True, timeout=None, env=None):
         print(result.stdout, flush=True)
         print(result.stderr, flush=True)
         sys.exit(1)
+    
+    if result.stderr:
+        print("STDERR:", result.stderr, flush=True)
+
     return result.stdout
 
 def main():

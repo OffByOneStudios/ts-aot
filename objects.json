@@ -1,0 +1,76 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": "p",
+      "initializer": {
+        "kind": "ObjectLiteralExpression",
+        "properties": [
+          {
+            "name": "x",
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 10
+            }
+          },
+          {
+            "name": "y",
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 20
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "p"
+            },
+            "name": "x"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "p"
+            },
+            "name": "y"
+          }
+        ]
+      }
+    }
+  ]
+}

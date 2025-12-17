@@ -153,6 +153,17 @@ struct PropertyAccessExpression : Expression {
     std::string getKind() const override { return "PropertyAccessExpression"; }
 };
 
+struct PropertyAssignment : Node {
+    std::string name;
+    ExprPtr initializer;
+    std::string getKind() const override { return "PropertyAssignment"; }
+};
+
+struct ObjectLiteralExpression : Expression {
+    std::vector<std::unique_ptr<PropertyAssignment>> properties;
+    std::string getKind() const override { return "ObjectLiteralExpression"; }
+};
+
 struct Identifier : Expression {
     std::string name;
     std::string getKind() const override { return "Identifier"; }

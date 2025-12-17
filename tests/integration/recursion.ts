@@ -3,7 +3,5 @@ function factorial(n: number): number {
     return n * factorial(n - 1);
 }
 
-function main() {
-    console.log("Factorial of 5:");
-    console.log(factorial(5));
-}
+console.log("Factorial of 5:");
+console.log(factorial(5));

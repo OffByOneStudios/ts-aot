@@ -62,6 +62,15 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::Int: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
         case TypeKind::Boolean: return llvm::Type::getInt1Ty(*context);
+        case TypeKind::Object: {
+            auto objType = std::static_pointer_cast<ObjectType>(type);
+            std::vector<llvm::Type*> fieldTypes;
+            for (auto& [name, fieldType] : objType->fields) {
+                fieldTypes.push_back(getLLVMType(fieldType));
+            }
+            llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
+            return llvm::PointerType::getUnqual(structType);
+        }
         // TODO: String, Any, Function
         default: return llvm::Type::getVoidTy(*context);
     }
@@ -132,9 +141,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
-    else if (auto newExpr = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(newExpr);
-    else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
-    else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
+    else if (auto obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
     else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
@@ -478,6 +485,20 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
              llvm::Value* res = builder->CreateCall(fn, { map, key });
              lastValue = builder->CreateICmpNE(res, llvm::ConstantInt::get(res->getType(), 0), "tobool");
              return;
+        } else if (prop->name == "md5") {
+            if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                if (obj->name == "crypto") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_crypto_md5",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::PointerType::getUnqual(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                }
+            }
         }
     }
 
@@ -944,6 +965,31 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
              lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
         }
     } else {
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Object) {
+            visit(node->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            auto objType = std::static_pointer_cast<ObjectType>(node->expression->inferredType);
+            
+            std::vector<llvm::Type*> fieldTypes;
+            int fieldIdx = -1;
+            int idx = 0;
+            for (auto& [name, type] : objType->fields) {
+                fieldTypes.push_back(getLLVMType(type));
+                if (name == node->name) {
+                    fieldIdx = idx;
+                }
+                idx++;
+            }
+            
+            if (fieldIdx != -1) {
+                llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
+                llvm::Value* fieldPtr = builder->CreateStructGEP(structType, objPtr, fieldIdx);
+                lastValue = builder->CreateLoad(fieldTypes[fieldIdx], fieldPtr, node->name);
+                return;
+            }
+        }
+        
         llvm::errs() << "Error: Unknown property " << node->name << "\n";
         lastValue = nullptr;
     }
@@ -980,6 +1026,61 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         }
     }
     lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));
+}
+
+void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
+    llvm::errs() << "Visiting ObjectLiteralExpression\n";
+    auto objType = std::static_pointer_cast<ObjectType>(node->inferredType);
+    if (!objType) {
+        llvm::errs() << "Error: Object literal has no inferred type\n";
+        lastValue = nullptr;
+        return;
+    }
+    llvm::errs() << "Object type inferred: " << objType->toString() << "\n";
+
+    std::vector<llvm::Type*> fieldTypes;
+    for (auto& [name, type] : objType->fields) {
+        // getLLVMType returns pointer for Object, which is correct for field type
+        fieldTypes.push_back(getLLVMType(type));
+    }
+    llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
+
+    llvm::DataLayout dl(module.get());
+    uint64_t size = dl.getTypeAllocSize(structType);
+    
+    llvm::Function* allocFn = module->getFunction("ts_alloc");
+    if (!allocFn) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::PointerType::getUnqual(*context),
+            { llvm::Type::getInt64Ty(*context) }, false);
+        allocFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_alloc", module.get());
+    }
+    
+    llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
+    llvm::Value* mem = builder->CreateCall(allocFn, { sizeVal });
+    llvm::Value* ptr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
+
+    int idx = 0;
+    for (auto& [name, type] : objType->fields) {
+        ast::Expression* initExpr = nullptr;
+        for (auto& prop : node->properties) {
+            if (prop->name == name) {
+                initExpr = prop->initializer.get();
+                break;
+            }
+        }
+        
+        if (initExpr) {
+            visit(initExpr);
+            llvm::Value* val = lastValue;
+            
+            llvm::Value* fieldPtr = builder->CreateStructGEP(structType, ptr, idx);
+            builder->CreateStore(val, fieldPtr);
+        }
+        idx++;
+    }
+
+    lastValue = ptr;
 }
 
 } // namespace ts
