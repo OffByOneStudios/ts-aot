@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <set>
 #include "../ast/AccessModifier.h"
 
 namespace ts {
@@ -105,6 +106,8 @@ struct ClassType : public Type {
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
     std::map<std::string, AccessModifier> fieldAccess;
     std::map<std::string, AccessModifier> methodAccess;
+    std::set<std::string> abstractMethods;
+    bool isAbstract = false;
 
     std::map<std::string, std::shared_ptr<Type>> staticFields;
     std::map<std::string, std::shared_ptr<FunctionType>> staticMethods;

@@ -103,17 +103,31 @@ void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyze
 
             // Find which class actually defines this method
             std::shared_ptr<ClassType> definer = classType;
+            bool isAbstract = false;
             while (definer) {
-                if (definer->methods.count(methodName)) break;
+                if (definer->methods.count(methodName)) {
+                    // Check if this specific class's version of the method is abstract
+                    // We need to find the AST node to be sure, or check the ClassType's abstractMethods set
+                    if (definer->abstractMethods.count(methodName)) {
+                        isAbstract = true;
+                    } else {
+                        isAbstract = false;
+                    }
+                    break;
+                }
                 definer = definer->baseClass;
             }
             
-            std::string mangledName = definer->name + "_" + methodName;
-            llvm::Function* func = module->getFunction(mangledName);
-            if (!func) {
-                func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
+            if (isAbstract) {
+                vtableFuncs.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(ft)));
+            } else {
+                std::string mangledName = definer->name + "_" + methodName;
+                llvm::Function* func = module->getFunction(mangledName);
+                if (!func) {
+                    func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
+                }
+                vtableFuncs.push_back(func);
             }
-            vtableFuncs.push_back(func);
         }
         vtableStruct->setBody(vtableFieldTypes);
 
@@ -292,6 +306,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 visit(stmt.get());
             }
         } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            if (methodNode->isAbstract) continue;
+
             auto argIt = function->arg_begin();
             if (!methodNode->isStatic) {
                 // Handle 'this' parameter (first argument)
@@ -1621,7 +1637,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 }
                 
                 if (fieldType) {
-                    lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                    builder->CreateStore(val, fieldPtr);
+                    lastValue = val;
                 } else {
                     lastValue = nullptr;
                 }

@@ -105,6 +105,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
             for (const auto& member : cls->members) {
                 if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                    if (method->isAbstract) continue;
+
                     Specialization spec;
                     spec.originalName = method->name;
                     spec.node = method;

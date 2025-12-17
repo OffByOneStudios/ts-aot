@@ -38,6 +38,14 @@ function isStatic(node) {
     return false;
 }
 
+function isAbstract(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.AbstractKeyword) return true;
+    }
+    return false;
+}
+
 function visit(node) {
     switch (node.kind) {
         case ts.SyntaxKind.FunctionDeclaration:
@@ -69,7 +77,8 @@ function visit(node) {
                 name: node.name ? node.name.text : "anonymous",
                 baseClass: baseClass,
                 implementsInterfaces: implementsInterfaces,
-                members: node.members.map(visit).filter(m => m)
+                members: node.members.map(visit).filter(m => m),
+                isAbstract: isAbstract(node)
             };
         case ts.SyntaxKind.InterfaceDeclaration:
             let baseInterfaces = [];
@@ -109,7 +118,8 @@ function visit(node) {
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 body: node.body ? visitBlock(node.body) : [],
                 access: getAccessModifier(node),
-                isStatic: isStatic(node)
+                isStatic: isStatic(node),
+                isAbstract: isAbstract(node)
             };
         case ts.SyntaxKind.Constructor:
              return {
