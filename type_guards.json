@@ -1,0 +1,112 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testTypeGuard",
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": "x",
+          "type": "string | number"
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "===",
+            "left": {
+              "kind": "PrefixUnaryExpression",
+              "operator": "typeof",
+              "operand": {
+                "kind": "Identifier",
+                "name": "x"
+              }
+            },
+            "right": {
+              "kind": "StringLiteral",
+              "value": "string"
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "ts_console_log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "x"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "elseStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "ts_console_log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "it is a number"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "testTypeGuard"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "hello"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "testTypeGuard"
+        },
+        "arguments": [
+          {
+            "kind": "NumericLiteral",
+            "value": 123
+          }
+        ]
+      }
+    }
+  ]
+}

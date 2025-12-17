@@ -260,6 +260,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     if (calleeType->kind == TypeKind::Function) {
         auto func = std::static_pointer_cast<FunctionType>(calleeType);
         lastType = func->returnType;
+        
+        if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+            functionUsages[id->name].push_back(argTypes);
+        }
         return;
     }
 
@@ -607,7 +611,48 @@ void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
 
 void Analyzer::visitIfStatement(IfStatement* node) {
     visit(node->condition.get());
-    visit(node->thenStatement.get());
+    
+    // Basic type narrowing
+    std::string narrowedVar;
+    std::shared_ptr<Type> narrowedType;
+    
+    if (auto bin = dynamic_cast<BinaryExpression*>(node->condition.get())) {
+        if (bin->op == "===" || bin->op == "==") {
+            PrefixUnaryExpression* typeofExpr = nullptr;
+            StringLiteral* typeString = nullptr;
+            
+            if (auto left = dynamic_cast<PrefixUnaryExpression*>(bin->left.get())) {
+                if (left->op == "typeof") {
+                    typeofExpr = left;
+                    typeString = dynamic_cast<StringLiteral*>(bin->right.get());
+                }
+            } else if (auto right = dynamic_cast<PrefixUnaryExpression*>(bin->right.get())) {
+                if (right->op == "typeof") {
+                    typeofExpr = right;
+                    typeString = dynamic_cast<StringLiteral*>(bin->left.get());
+                }
+            }
+            
+            if (typeofExpr && typeString) {
+                if (auto id = dynamic_cast<Identifier*>(typeofExpr->operand.get())) {
+                    narrowedVar = id->name;
+                    if (typeString->value == "string") narrowedType = std::make_shared<Type>(TypeKind::String);
+                    else if (typeString->value == "number") narrowedType = std::make_shared<Type>(TypeKind::Double);
+                    else if (typeString->value == "boolean") narrowedType = std::make_shared<Type>(TypeKind::Boolean);
+                }
+            }
+        }
+    }
+
+    if (!narrowedVar.empty() && narrowedType) {
+        symbols.enterScope();
+        symbols.define(narrowedVar, narrowedType);
+        visit(node->thenStatement.get());
+        symbols.exitScope();
+    } else {
+        visit(node->thenStatement.get());
+    }
+
     if (node->elseStatement) {
         visit(node->elseStatement.get());
     }
@@ -754,6 +799,8 @@ void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
     visit(node->operand.get());
     if (node->op == "!") {
          lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "typeof") {
+         lastType = std::make_shared<Type>(TypeKind::String);
     }
 }
 
