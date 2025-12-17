@@ -73,6 +73,12 @@ struct IfStatement : Statement {
     std::string getKind() const override { return "IfStatement"; }
 };
 
+struct WhileStatement : Statement {
+    ExprPtr condition;
+    StmtPtr body;
+    std::string getKind() const override { return "WhileStatement"; }
+};
+
 // --- Expressions ---
 
 struct BinaryExpression : Expression {
@@ -80,6 +86,12 @@ struct BinaryExpression : Expression {
     ExprPtr left;
     ExprPtr right;
     std::string getKind() const override { return "BinaryExpression"; }
+};
+
+struct AssignmentExpression : Expression {
+    ExprPtr left; // Usually Identifier
+    ExprPtr right;
+    std::string getKind() const override { return "AssignmentExpression"; }
 };
 
 struct CallExpression : Expression {

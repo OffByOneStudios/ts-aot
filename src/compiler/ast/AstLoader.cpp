@@ -20,6 +20,11 @@ ExprPtr parseExpression(const json& j) {
         node->left = parseExpression(j["left"]);
         node->right = parseExpression(j["right"]);
         return node;
+    } else if (kind == "AssignmentExpression") {
+        auto node = std::make_unique<AssignmentExpression>();
+        node->left = parseExpression(j["left"]);
+        node->right = parseExpression(j["right"]);
+        return node;
     } else if (kind == "CallExpression") {
         auto node = std::make_unique<CallExpression>();
         node->callee = parseExpression(j["callee"]);
@@ -98,6 +103,11 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("elseStatement") && !j["elseStatement"].is_null()) {
             node->elseStatement = parseStatement(j["elseStatement"]);
         }
+        return node;
+    } else if (kind == "WhileStatement") {
+        auto node = std::make_unique<WhileStatement>();
+        node->condition = parseExpression(j["condition"]);
+        node->body = parseStatement(j["statement"]);
         return node;
     }
 

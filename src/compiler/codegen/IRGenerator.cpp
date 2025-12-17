@@ -67,6 +67,11 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     }
 }
 
+llvm::AllocaInst* IRGenerator::createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type) {
+    llvm::IRBuilder<> tmpBuilder(&function->getEntryBlock(), function->getEntryBlock().begin());
+    return tmpBuilder.CreateAlloca(type, nullptr, varName);
+}
+
 void IRGenerator::generatePrototypes(const std::vector<Specialization>& specializations) {
     for (const auto& spec : specializations) {
         std::vector<llvm::Type*> argTypes;
@@ -95,7 +100,15 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             if (idx < spec.node->parameters.size()) {
                 std::string argName = spec.node->parameters[idx]->name;
                 arg.setName(argName);
-                namedValues[argName] = &arg;
+                
+                // Create an alloca for this variable.
+                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
+
+                // Store the initial value into the alloca.
+                builder->CreateStore(&arg, alloca);
+
+                // Add arguments to variable symbol table.
+                namedValues[argName] = alloca;
             }
             idx++;
         }
@@ -114,13 +127,16 @@ void IRGenerator::visit(ast::Node* node) {
     if (!node) return;
     if (auto ret = dynamic_cast<ast::ReturnStatement*>(node)) visitReturnStatement(ret);
     else if (auto bin = dynamic_cast<ast::BinaryExpression*>(node)) visitBinaryExpression(bin);
+    else if (auto assign = dynamic_cast<ast::AssignmentExpression*>(node)) visitAssignmentExpression(assign);
     else if (auto id = dynamic_cast<ast::Identifier*>(node)) visitIdentifier(id);
     else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
+    else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
+    else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
 }
 
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
@@ -211,7 +227,13 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
 
 void IRGenerator::visitIdentifier(ast::Identifier* node) {
     if (namedValues.count(node->name)) {
-        lastValue = namedValues[node->name];
+        llvm::Value* val = namedValues[node->name];
+        if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
+            lastValue = builder->CreateLoad(alloca->getAllocatedType(), alloca, node->name.c_str());
+        } else {
+            llvm::errs() << "Error: Variable " << node->name << " is not an alloca\n";
+            lastValue = nullptr;
+        }
     } else {
         llvm::errs() << "Error: Undefined variable " << node->name << "\n";
         lastValue = nullptr;
@@ -370,10 +392,99 @@ void IRGenerator::visitIfStatement(ast::IfStatement* node) {
     builder->SetInsertPoint(mergeBB);
 }
 
+void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "whilecond", func);
+    llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "whileloop");
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "whileafter");
+
+    // Jump to condition
+    builder->CreateBr(condBB);
+
+    // Emit condition
+    builder->SetInsertPoint(condBB);
+    visit(node->condition.get());
+    llvm::Value* condValue = lastValue;
+
+    if (!condValue) {
+        llvm::errs() << "Error: While condition evaluated to null\n";
+        return;
+    }
+
+    // Convert condition to bool
+    if (condValue->getType()->isDoubleTy()) {
+        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
+    } else if (condValue->getType()->isIntegerTy()) {
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(condValue->getType(), 0), "ifcond");
+    }
+
+    builder->CreateCondBr(condValue, loopBB, afterBB);
+
+    // Emit loop body
+    func->insert(func->end(), loopBB);
+    builder->SetInsertPoint(loopBB);
+    visit(node->body.get());
+    
+    // Jump back to condition
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(condBB);
+    }
+
+    // Emit after block
+    func->insert(func->end(), afterBB);
+    builder->SetInsertPoint(afterBB);
+}
+
 void IRGenerator::visitBlockStatement(ast::BlockStatement* node) {
     for (const auto& stmt : node->statements) {
         visit(stmt.get());
     }
+}
+
+void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
+    llvm::Function* function = builder->GetInsertBlock()->getParent();
+    
+    // Determine type from initializer
+    visit(node->initializer.get());
+    llvm::Value* initVal = lastValue;
+    
+    if (!initVal) {
+        llvm::errs() << "Error: Variable initializer evaluated to null\n";
+        return;
+    }
+
+    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, node->name, initVal->getType());
+    builder->CreateStore(initVal, alloca);
+
+    namedValues[node->name] = alloca;
+}
+
+void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
+    // 1. Evaluate the RHS
+    visit(node->right.get());
+    llvm::Value* val = lastValue;
+    if (!val) return;
+
+    // 2. Get the LHS identifier name
+    auto id = dynamic_cast<ast::Identifier*>(node->left.get());
+    if (!id) {
+        llvm::errs() << "Error: LHS of assignment must be an identifier\n";
+        return;
+    }
+
+    // 3. Look up the variable
+    llvm::Value* variable = namedValues[id->name];
+    if (!variable) {
+        llvm::errs() << "Error: Unknown variable name " << id->name << "\n";
+        return;
+    }
+
+    // 4. Store the value
+    builder->CreateStore(val, variable);
+    
+    // Assignment evaluates to the value
+    lastValue = val;
 }
 
 void IRGenerator::dumpIR() {

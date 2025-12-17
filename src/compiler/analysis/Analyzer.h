@@ -39,7 +39,9 @@ private:
     void visitCallExpression(ast::CallExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
+    void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIfStatement(ast::IfStatement* node);
+    void visitWhileStatement(ast::WhileStatement* node);
     void visitBlockStatement(ast::BlockStatement* node);
     void visitIdentifier(ast::Identifier* node);
     void visitStringLiteral(ast::StringLiteral* node);

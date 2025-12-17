@@ -22,7 +22,9 @@ void Analyzer::visit(Node* node) {
     else if (auto c = dynamic_cast<CallExpression*>(node)) visitCallExpression(c);
     else if (auto pa = dynamic_cast<PropertyAccessExpression*>(node)) visitPropertyAccessExpression(pa);
     else if (auto bin = dynamic_cast<BinaryExpression*>(node)) visitBinaryExpression(bin);
+    else if (auto assign = dynamic_cast<AssignmentExpression*>(node)) visitAssignmentExpression(assign);
     else if (auto ifStmt = dynamic_cast<IfStatement*>(node)) visitIfStatement(ifStmt);
+    else if (auto whileStmt = dynamic_cast<WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto id = dynamic_cast<Identifier*>(node)) visitIdentifier(id);
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
@@ -142,12 +144,23 @@ void Analyzer::visitBinaryExpression(BinaryExpression* node) {
     }
 }
 
+void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
+    visit(node->right.get());
+    // In a real compiler, we'd check if left is assignable from right
+    // For now, assignment evaluates to the right side type
+}
+
 void Analyzer::visitIfStatement(IfStatement* node) {
     visit(node->condition.get());
     visit(node->thenStatement.get());
     if (node->elseStatement) {
         visit(node->elseStatement.get());
     }
+}
+
+void Analyzer::visitWhileStatement(WhileStatement* node) {
+    visit(node->condition.get());
+    visit(node->body.get());
 }
 
 void Analyzer::visitBlockStatement(BlockStatement* node) {
