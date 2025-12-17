@@ -519,12 +519,29 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     } else if (node->op == ">=") {
         if (isDouble) lastValue = builder->CreateFCmpOGE(left, right, "cmptmp");
         else lastValue = builder->CreateICmpSGE(left, right, "cmptmp");
-    } else if (node->op == "==") {
-        if (isDouble) lastValue = builder->CreateFCmpOEQ(left, right, "cmptmp");
-        else lastValue = builder->CreateICmpEQ(left, right, "cmptmp");
-    } else if (node->op == "!=") {
-        if (isDouble) lastValue = builder->CreateFCmpONE(left, right, "cmptmp");
-        else lastValue = builder->CreateICmpNE(left, right, "cmptmp");
+    } else if (node->op == "==" || node->op == "===") {
+        if (isString) {
+             llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq",
+                 llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(eqFn, { left, right });
+        } else if (isDouble) {
+            lastValue = builder->CreateFCmpOEQ(left, right, "cmptmp");
+        } else {
+            lastValue = builder->CreateICmpEQ(left, right, "cmptmp");
+        }
+    } else if (node->op == "!=" || node->op == "!==") {
+        if (isString) {
+             llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq",
+                 llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             llvm::Value* eq = builder->CreateCall(eqFn, { left, right });
+             lastValue = builder->CreateNot(eq);
+        } else if (isDouble) {
+            lastValue = builder->CreateFCmpONE(left, right, "cmptmp");
+        } else {
+            lastValue = builder->CreateICmpNE(left, right, "cmptmp");
+        }
     } else if (node->op == "&&") {
         lastValue = builder->CreateAnd(left, right, "andtmp");
     } else if (node->op == "||") {
@@ -2063,9 +2080,42 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 }
 
 void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
+    if (node->op == "typeof") {
+        visit(node->operand.get());
+        llvm::Value* val = lastValue;
+        
+        if (val->getType()->isDoubleTy()) {
+            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
+                builder->getPtrTy(), builder->getPtrTy());
+            llvm::Value* strPtr = builder->CreateGlobalStringPtr("number");
+            lastValue = builder->CreateCall(createFn, {strPtr});
+            return;
+        }
+        
+        if (val->getType()->isIntegerTy(1)) {
+            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
+                builder->getPtrTy(), builder->getPtrTy());
+            llvm::Value* strPtr = builder->CreateGlobalStringPtr("boolean");
+            lastValue = builder->CreateCall(createFn, {strPtr});
+            return;
+        }
+
+        if (val->getType()->isPointerTy()) {
+            llvm::FunctionCallee typeofFn = module->getOrInsertFunction("ts_typeof",
+                builder->getPtrTy(), builder->getPtrTy());
+            lastValue = builder->CreateCall(typeofFn, {val});
+            return;
+        }
+
+        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
+            builder->getPtrTy(), builder->getPtrTy());
+        llvm::Value* strPtr = builder->CreateGlobalStringPtr("unknown");
+        lastValue = builder->CreateCall(createFn, {strPtr});
+        return;
+    }
+
     visit(node->operand.get());
     llvm::Value* operandV = lastValue;
-    if (!operandV) return;
 
     if (node->op == "-") {
         if (operandV->getType()->isDoubleTy()) {

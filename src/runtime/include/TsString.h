@@ -3,6 +3,8 @@
 
 class TsString {
 public:
+    static constexpr uint32_t MAGIC = 0x53545247; // "STRG"
+
     // Factory method to create a new TsString on the GC heap
     static TsString* Create(const char* utf8Str);
 
@@ -24,6 +26,7 @@ public:
 private:
     TsString(const char* utf8Str);
     
+    uint32_t magic = MAGIC;
     void* impl;       // Pointer to icu::UnicodeString
     char* utf8Buffer; // Cached UTF-8 buffer
 };

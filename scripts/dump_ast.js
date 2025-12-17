@@ -250,10 +250,11 @@ function visit(node) {
                 kind: "SuperExpression"
             };
         case ts.SyntaxKind.PrefixUnaryExpression:
+        case ts.SyntaxKind.TypeOfExpression:
             return {
                 kind: "PrefixUnaryExpression",
-                operator: ts.tokenToString(node.operator),
-                operand: visit(node.operand)
+                operator: node.kind === ts.SyntaxKind.TypeOfExpression ? "typeof" : ts.tokenToString(node.operator),
+                operand: visit(node.kind === ts.SyntaxKind.TypeOfExpression ? node.expression : node.operand)
             };
         case ts.SyntaxKind.PropertyAccessExpression:
             return {
