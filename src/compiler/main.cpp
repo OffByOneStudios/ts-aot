@@ -2,6 +2,7 @@
 #include <cxxopts.hpp>
 #include "ast/AstLoader.h"
 #include "analysis/Analyzer.h"
+#include "analysis/Monomorphizer.h"
 #include <iostream>
 
 void printAst(const ast::Node* node, int indent = 0) {
@@ -72,6 +73,14 @@ int main(int argc, char** argv) {
                 }
                 fmt::print(")\n");
             }
+        }
+
+        ts::Monomorphizer monomorphizer;
+        monomorphizer.monomorphize(program.get(), analyzer.getFunctionUsages());
+        
+        fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
+        for (const auto& spec : monomorphizer.getSpecializations()) {
+            fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
         }
 
         fmt::print("Successfully loaded AST from {}\n", inputFile);

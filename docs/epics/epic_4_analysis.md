@@ -42,5 +42,5 @@ Implement the logic to generate specialized function signatures based on call si
 - [x] Store usage information (e.g., "function `add` called with (int, int)").
 
 ### Task 4.5: Specialization Logic
-- [ ] Implement a `Monomorphizer` class that takes the usage info and generates specialized function signatures.
-- [ ] Create new `FunctionDeclaration` nodes (or similar) for the specialized versions.
+- [x] Implement a `Monomorphizer` class that takes the usage info and generates specialized function signatures.
+- [x] Create new `FunctionDeclaration` nodes (or similar) for the specialized versions.

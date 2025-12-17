@@ -14,6 +14,7 @@ add_executable(ts-aot
     ast/AstLoader.cpp
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
+    analysis/Monomorphizer.cpp
     # Add other source files here
 )
 
