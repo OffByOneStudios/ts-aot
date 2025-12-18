@@ -1,4 +1,5 @@
 #include "Analyzer.h"
+#include "Monomorphizer.h"
 #include <fmt/core.h>
 
 namespace ts {
@@ -12,6 +13,13 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         visit(arg.get());
         argTypes.push_back(lastType);
     }
+
+    // Resolve type arguments if any
+    std::vector<std::shared_ptr<Type>> resolvedTypeArguments;
+    for (const auto& typeName : node->typeArguments) {
+        resolvedTypeArguments.push_back(parseType(typeName, symbols));
+    }
+    node->resolvedTypeArguments = resolvedTypeArguments;
 
     // 2. Evaluate callee
     visit(node->callee.get());
@@ -154,10 +162,19 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     
     if (calleeType->kind == TypeKind::Function) {
         auto func = std::static_pointer_cast<FunctionType>(calleeType);
-        lastType = func->returnType;
+        
+        if (!resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
+            std::map<std::string, std::shared_ptr<Type>> env;
+            for (size_t i = 0; i < func->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
+                env[func->typeParameters[i]->name] = resolvedTypeArguments[i];
+            }
+            lastType = substitute(func->returnType, env);
+        } else {
+            lastType = func->returnType;
+        }
         
         if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
-            functionUsages[id->name].push_back(argTypes);
+            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments});
         }
         return;
     }
@@ -182,7 +199,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     }
 
     if (!calleeName.empty()) {
-        functionUsages[calleeName].push_back(argTypes);
+        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments});
     }
     
     // For now, assume calls return Any unless we know better
@@ -195,6 +212,13 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         visit(arg.get());
         ctorArgTypes.push_back(lastType);
     }
+
+    // Resolve type arguments if any
+    std::vector<std::shared_ptr<Type>> resolvedTypeArguments;
+    for (const auto& typeName : node->typeArguments) {
+        resolvedTypeArguments.push_back(parseType(typeName, symbols));
+    }
+    node->resolvedTypeArguments = resolvedTypeArguments;
 
     visit(node->expression.get());
     
@@ -210,7 +234,15 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         // Check for user-defined classes
         auto type = symbols.lookupType(id->name);
         if (type && type->kind == TypeKind::Class) {
-            lastType = type;
+            auto classType = std::static_pointer_cast<ClassType>(type);
+            if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
+                auto specType = analyzeClassBody(classType->node, resolvedTypeArguments);
+                specType->name = Monomorphizer::generateMangledName(classType->name, {}, resolvedTypeArguments);
+                lastType = specType;
+            } else {
+                lastType = type;
+            }
+            classUsages[id->name].push_back(resolvedTypeArguments);
             return;
         }
 
@@ -544,6 +576,8 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
+            fmt::print("Failed to find identifier: {}\n", node->name);
+            reportError("Undefined variable " + node->name);
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
     }

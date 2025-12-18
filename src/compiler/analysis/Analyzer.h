@@ -5,37 +5,53 @@
 #include <vector>
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
+#include "Module.h"
 
 namespace ts {
 
-class Analyzer {
+struct CallSignature {
+    std::vector<std::shared_ptr<Type>> argTypes;
+    std::vector<std::shared_ptr<Type>> typeArguments;
+};
+
+class Analyzer : public ast::Visitor {
 public:
     Analyzer();
 
     // Run the analysis pass on the program
-    void analyze(ast::Program* program);
+    void analyze(ast::Program* program, const std::string& path = "main");
 
     // Get the symbol table (for later passes)
+    SymbolTable& getSymbolTable() { return symbols; }
     const SymbolTable& getSymbolTable() const { return symbols; }
 
     // Get usage information (Function Name -> List of Argument Type Lists)
-    const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getFunctionUsages() const { return functionUsages; }
+    const std::map<std::string, std::vector<CallSignature>>& getFunctionUsages() const { return functionUsages; }
+    const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getClassUsages() const { return classUsages; }
 
     int getErrorCount() const { return errorCount; }
 
     // Analyze a function body with specific argument types to determine return type
-    std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes);
+    std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {});
+    std::shared_ptr<ClassType> analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments);
+    std::shared_ptr<Type> analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments);
 
     void reportError(const std::string& message);
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
     std::shared_ptr<Type> resolveType(const std::string& typeName);
 
+    std::shared_ptr<Type> substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env);
+
+    std::map<std::string, std::shared_ptr<Module>> modules;
+    std::vector<std::string> moduleOrder;
+
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
     std::shared_ptr<Type> currentReturnType; // Inferred return type of the current function
-    std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> functionUsages;
+    std::map<std::string, std::vector<CallSignature>> functionUsages;
+    std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;
     int errorCount = 0;
 
     void visit(ast::Node* node);
@@ -62,6 +78,8 @@ private:
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitTryStatement(ast::TryStatement* node);
     void visitThrowStatement(ast::ThrowStatement* node);
+    void visitImportDeclaration(ast::ImportDeclaration* node);
+    void visitExportDeclaration(ast::ExportDeclaration* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
@@ -87,6 +105,12 @@ private:
     void visitPropertyDefinition(ast::PropertyDefinition* node, std::shared_ptr<ClassType> classType);
 
     void checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType);
+
+    std::shared_ptr<Module> currentModule;
+    std::string currentFilePath;
+
+    void analyzeModule(std::shared_ptr<Module> module);
+    std::string resolveModulePath(const std::string& specifier);
 
     std::shared_ptr<ClassType> currentClass;
     std::string currentMethodName;

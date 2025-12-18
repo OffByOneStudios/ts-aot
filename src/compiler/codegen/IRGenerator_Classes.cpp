@@ -3,67 +3,115 @@
 
 namespace ts {
 
-void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyzer) {
-    // 1. First pass: Create opaque structs for all classes to handle circular references
-    for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
-        llvm::errs() << "Found global type: " << name << " kind: " << (int)type->kind << "\n";
-        if (type->kind == TypeKind::Class) {
-            llvm::StructType::create(*context, name);
-        }
-    }
-
-    // 2. Second pass: Compute layouts (recursive)
+void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations) {
+    std::vector<std::shared_ptr<ClassType>> allClassTypes;
+    
+    // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
-            std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
-                if (classLayouts.count(c->name)) return;
-                if (c->baseClass) compute(c->baseClass);
-                
-                ClassLayout layout;
-                if (c->baseClass) layout = classLayouts[c->baseClass->name];
-                
-                for (const auto& [fname, ftype] : c->fields) {
-                    layout.fieldIndices[fname] = (int)layout.allFields.size() + 1; // +1 for vptr
-                    layout.allFields.push_back({fname, ftype});
-                }
-                for (const auto& [mname, mtype] : c->methods) {
-                    if (layout.methodIndices.count(mname)) {
-                        layout.allMethods[layout.methodIndices[mname]] = {mname, mtype};
-                    } else {
-                        layout.methodIndices[mname] = (int)layout.allMethods.size();
-                        layout.allMethods.push_back({mname, mtype});
-                    }
-                }
-                for (const auto& [mname, mtype] : c->getters) {
-                    std::string vname = "get_" + mname;
-                    if (layout.methodIndices.count(vname)) {
-                        layout.allMethods[layout.methodIndices[vname]] = {vname, mtype};
-                    } else {
-                        layout.methodIndices[vname] = (int)layout.allMethods.size();
-                        layout.allMethods.push_back({vname, mtype});
-                    }
-                }
-                for (const auto& [mname, mtype] : c->setters) {
-                    std::string vname = "set_" + mname;
-                    if (layout.methodIndices.count(vname)) {
-                        layout.allMethods[layout.methodIndices[vname]] = {vname, mtype};
-                    } else {
-                        layout.methodIndices[vname] = (int)layout.allMethods.size();
-                        layout.allMethods.push_back({vname, mtype});
-                    }
-                }
-                classLayouts[c->name] = layout;
-            };
-            compute(classType);
+            if (classType->typeParameters.empty()) {
+                allClassTypes.push_back(classType);
+            }
         }
     }
 
-    // 3. Third pass: Define struct bodies and VTables
-    for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
-        if (type->kind != TypeKind::Class) continue;
+    // Add classes from all modules
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        for (auto& stmt : module->ast->body) {
+            if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                auto type = analyzer.getSymbolTable().lookupType(cls->name);
+                if (type && type->kind == TypeKind::Class) {
+                    auto classType = std::static_pointer_cast<ClassType>(type);
+                    if (classType->typeParameters.empty()) {
+                        bool found = false;
+                        for (const auto& existing : allClassTypes) {
+                            if (existing->name == classType->name) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) allClassTypes.push_back(classType);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Add specialized classes
+    for (const auto& spec : specializations) {
+        if (spec.classType && spec.classType->kind == TypeKind::Class) {
+            auto specClass = std::static_pointer_cast<ClassType>(spec.classType);
+            
+            // Skip generic templates
+            if (!specClass->typeParameters.empty()) continue;
 
-        auto classType = std::static_pointer_cast<ClassType>(type);
+            bool found = false;
+            for (const auto& existing : allClassTypes) {
+                if (existing->name == specClass->name) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                allClassTypes.push_back(specClass);
+            }
+        }
+    }
+
+    // 1. First pass: Create opaque structs for all classes to handle circular references
+    for (const auto& classType : allClassTypes) {
+        llvm::StructType::create(*context, classType->name);
+    }
+
+    // 2. Second pass: Compute layouts (recursive)
+    for (const auto& classType : allClassTypes) {
+        std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
+            if (classLayouts.count(c->name)) return;
+            if (c->baseClass) compute(c->baseClass);
+            
+            ClassLayout layout;
+            if (c->baseClass) layout = classLayouts[c->baseClass->name];
+            
+            for (const auto& [fname, ftype] : c->fields) {
+                layout.fieldIndices[fname] = (int)layout.allFields.size() + 1; // +1 for vptr
+                layout.allFields.push_back({fname, ftype});
+            }
+            for (const auto& [mname, mtype] : c->methods) {
+                if (layout.methodIndices.count(mname)) {
+                    layout.allMethods[layout.methodIndices[mname]] = {mname, mtype};
+                } else {
+                    layout.methodIndices[mname] = (int)layout.allMethods.size();
+                    layout.allMethods.push_back({mname, mtype});
+                }
+            }
+            for (const auto& [mname, mtype] : c->getters) {
+                std::string vname = "get_" + mname;
+                if (layout.methodIndices.count(vname)) {
+                    layout.allMethods[layout.methodIndices[vname]] = {vname, mtype};
+                } else {
+                    layout.methodIndices[vname] = (int)layout.allMethods.size();
+                    layout.allMethods.push_back({vname, mtype});
+                }
+            }
+            for (const auto& [mname, mtype] : c->setters) {
+                std::string vname = "set_" + mname;
+                if (layout.methodIndices.count(vname)) {
+                    layout.allMethods[layout.methodIndices[vname]] = {vname, mtype};
+                } else {
+                    layout.methodIndices[vname] = (int)layout.allMethods.size();
+                    layout.allMethods.push_back({vname, mtype});
+                }
+            }
+            classLayouts[c->name] = layout;
+        };
+        compute(classType);
+    }
+
+    // 3. Third pass: Define struct bodies and VTables
+    for (const auto& classType : allClassTypes) {
+        std::string name = classType->name;
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
         if (!classStruct) continue;
 
@@ -136,71 +184,33 @@ void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyze
                 }
                 definer = definer->baseClass;
             }
-            
-            if (isAbstract || mangledName.empty()) {
+
+            if (isAbstract) {
                 vtableFuncs.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(ft)));
             } else {
-                llvm::Function* func = module->getFunction(mangledName);
-                if (!func) {
-                    func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
+                llvm::Function* methodFunc = module->getFunction(mangledName);
+                if (!methodFunc) {
+                    methodFunc = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
                 }
-                vtableFuncs.push_back(func);
+                vtableFuncs.push_back(methodFunc);
             }
         }
-        vtableStruct->setBody(vtableFieldTypes);
 
-        // Create Global VTable Constant
-        llvm::Constant* vtableConst = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
-        new llvm::GlobalVariable(
-            *module,
-            vtableStruct,
-            true, // isConstant
-            llvm::GlobalValue::ExternalLinkage,
-            vtableConst,
-            vtableName + "_Global"
-        );
+        vtableStruct->setBody(vtableFieldTypes);
 
         // Create VTable Global
         std::string vtableGlobalName = name + "_VTable_Global";
-        auto* vtableGlobal = new llvm::GlobalVariable(
-            *module, vtableStruct, true, llvm::GlobalValue::ExternalLinkage,
-            llvm::ConstantStruct::get(vtableStruct, vtableFuncs), vtableGlobalName);
+        llvm::Constant* vtableInit = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
+        new llvm::GlobalVariable(*module, vtableStruct, true, llvm::GlobalValue::ExternalLinkage, vtableInit, vtableGlobalName);
     }
 
-    // 4. Fourth pass: Define static fields as global variables
-    for (const auto& stmt : program->body) {
-        if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
-            auto type = analyzer.getSymbolTable().lookupType(cls->name);
-            if (!type || type->kind != TypeKind::Class) continue;
-            auto classType = std::static_pointer_cast<ClassType>(type);
-
-            for (const auto& member : cls->members) {
-                if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
-                    if (prop->isStatic) {
-                        std::string mangledName = cls->name + "_static_" + prop->name;
-                        auto propType = classType->staticFields[prop->name];
-                        
-                        llvm::Constant* init = llvm::Constant::getNullValue(getLLVMType(propType));
-                        if (prop->initializer) {
-                            if (auto nl = dynamic_cast<ast::NumericLiteral*>(prop->initializer.get())) {
-                                if (propType->kind == TypeKind::Int) {
-                                    init = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), (int64_t)nl->value);
-                                } else {
-                                    init = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), nl->value);
-                                }
-                            } else if (auto bl = dynamic_cast<ast::BooleanLiteral*>(prop->initializer.get())) {
-                                init = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), bl->value);
-                            }
-                        }
-
-                        new llvm::GlobalVariable(
-                            *module, getLLVMType(propType), false,
-                            llvm::GlobalValue::ExternalLinkage,
-                            init,
-                            mangledName);
-                    }
-                }
-            }
+    // 4. Fourth pass: Generate static fields and methods
+    for (const auto& classType : allClassTypes) {
+        std::string name = classType->name;
+        for (const auto& [fname, ftype] : classType->staticFields) {
+            std::string globalName = name + "_" + fname;
+            llvm::Type* llvmType = getLLVMType(ftype);
+            new llvm::GlobalVariable(*module, llvmType, false, llvm::GlobalValue::ExternalLinkage, llvm::Constant::getNullValue(llvmType), globalName);
         }
     }
 }
@@ -299,6 +309,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         std::string ctorName = className + "_constructor";
         llvm::Function* ctor = module->getFunction(ctorName);
         if (ctor) {
+            llvm::errs() << "Calling constructor: " << ctorName << " with " << ctor->arg_size() << " args\n";
             std::vector<llvm::Value*> args;
             args.push_back(thisPtr);
             
@@ -309,13 +320,17 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 
                 // Cast if necessary
                 if (argIdx + 1 < (int)ctor->arg_size()) {
+                    llvm::errs() << "Casting arg " << argIdx << " to " << argIdx + 1 << "\n";
                     val = castValue(val, ctor->getArg(argIdx + 1)->getType());
                 }
                 
                 args.push_back(val);
                 argIdx++;
             }
+            
             builder->CreateCall(ctor, args);
+        } else {
+            llvm::errs() << "Constructor not found: " << ctorName << "\n";
         }
         
         lastValue = thisPtr;

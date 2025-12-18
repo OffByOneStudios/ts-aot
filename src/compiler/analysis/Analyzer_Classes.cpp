@@ -8,7 +8,24 @@ using namespace ast;
 void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
     classType->isAbstract = node->isAbstract;
+    classType->node = node;
     
+    symbols.defineType(node->name, classType);
+    if (node->isExported && currentModule) {
+        currentModule->exports->defineType(node->name, classType);
+    }
+
+    symbols.enterScope();
+    // Register type parameters
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        classType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
+
     // 1. Resolve base class
     if (!node->baseClass.empty()) {
         auto base = symbols.lookupType(node->baseClass);
@@ -20,9 +37,6 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
             classType->abstractMethods = classType->baseClass->abstractMethods;
         }
     }
-
-    // 2. Register class type
-    symbols.defineType(node->name, classType);
 
     // 2.5 Resolve implemented interfaces
     for (const auto& interfaceName : node->implementsInterfaces) {
@@ -133,8 +147,6 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
         ctorType->paramTypes = ctorMethod->paramTypes;
     }
     
-    symbols.define(node->name, ctorType);
-
     // 5. Visit method bodies
     auto oldClass = currentClass;
     currentClass = classType;
@@ -151,6 +163,9 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     for (const auto& inter : classType->implementsInterfaces) {
         checkInterfaceImplementation(classType, inter);
     }
+
+    symbols.exitScope();
+    symbols.define(node->name, ctorType);
 }
 
 void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType) {
@@ -193,6 +208,20 @@ void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr
 void Analyzer::visitInterfaceDeclaration(InterfaceDeclaration* node) {
     auto interfaceType = std::make_shared<InterfaceType>(node->name);
     symbols.defineType(node->name, interfaceType);
+    if (node->isExported && currentModule) {
+        currentModule->exports->defineType(node->name, interfaceType);
+    }
+
+    symbols.enterScope();
+    // Register type parameters
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        interfaceType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
 
     for (const auto& baseName : node->baseInterfaces) {
         auto base = symbols.lookupType(baseName);
@@ -214,6 +243,62 @@ void Analyzer::visitInterfaceDeclaration(InterfaceDeclaration* node) {
             interfaceType->methodOverloads[method->name].push_back(methodType);
         }
     }
+    symbols.exitScope();
+}
+
+std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+    auto classType = std::make_shared<ClassType>(node->name);
+    
+    std::map<std::string, std::shared_ptr<Type>> env;
+    for (size_t i = 0; i < node->typeParameters.size() && i < typeArguments.size(); ++i) {
+        env[node->typeParameters[i]->name] = typeArguments[i];
+    }
+
+    symbols.enterScope();
+    for (const auto& [name, type] : env) {
+        symbols.defineType(name, type);
+    }
+
+    for (const auto& member : node->members) {
+        if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+            auto propType = parseType(prop->type, symbols);
+            classType->fields[prop->name] = substitute(propType, env);
+        } else if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+            auto methodType = std::make_shared<FunctionType>();
+            for (const auto& p : method->parameters) {
+                methodType->paramTypes.push_back(substitute(parseType(p->type, symbols), env));
+            }
+            methodType->returnType = substitute(parseType(method->returnType, symbols), env);
+            classType->methods[method->name] = methodType;
+        }
+    }
+
+    symbols.exitScope();
+    return classType;
+}
+
+std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+    symbols.enterScope();
+    
+    // Define 'this'
+    symbols.define("this", classType);
+
+    // Define parameters
+    for (const auto& p : node->parameters) {
+        if (auto id = dynamic_cast<ast::Identifier*>(p->name.get())) {
+            symbols.define(id->name, parseType(p->type, symbols));
+        }
+    }
+
+    // Let's just analyze the body
+    currentReturnType = std::make_shared<Type>(TypeKind::Any);
+    for (const auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+    
+    auto result = currentReturnType;
+    symbols.exitScope();
+    return result;
 }
 
 } // namespace ts

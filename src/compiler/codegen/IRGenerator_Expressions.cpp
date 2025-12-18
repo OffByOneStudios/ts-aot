@@ -158,10 +158,18 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             llvm::errs() << "Error: Variable " << node->name << " is not an alloca\n";
             lastValue = nullptr;
         }
-    } else {
-        llvm::errs() << "Error: Undefined variable " << node->name << "\n";
-        lastValue = nullptr;
+        return;
     }
+
+    // Check for global variable
+    llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);
+    if (gv) {
+        lastValue = builder->CreateLoad(gv->getValueType(), gv, node->name.c_str());
+        return;
+    }
+
+    llvm::errs() << "Error: Undefined variable " << node->name << "\n";
+    lastValue = nullptr;
 }
 
 void IRGenerator::visitNumericLiteral(ast::NumericLiteral* node) {
@@ -343,15 +351,22 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             llvm::Value* objPtr = lastValue;
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
-            if (!classStruct) return;
+            if (!classStruct) {
+                return;
+            }
             
+            if (!classLayouts.count(className)) {
+                return;
+            }
             const auto& layout = classLayouts[className];
-            if (!layout.methodIndices.count(methodName)) return;
+            if (!layout.methodIndices.count(methodName)) {
+                return;
+            }
+            
             int methodIndex = layout.methodIndices.at(methodName);
 
-            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
-            llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, typedObjPtr, 0);
-            
+            // 2. Get VTable Pointer
+            llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, objPtr, 0);
             llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
             llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
             
@@ -370,7 +385,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             
             // 5. Call
             std::vector<llvm::Value*> args;
-            args.push_back(typedObjPtr); // this
+            args.push_back(objPtr); // this
             
             int argIdx = 0;
             for (auto& arg : node->arguments) {
@@ -1045,7 +1060,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
-        std::string mangledName = Monomorphizer::generateMangledName(funcName, argTypes);
+        std::string mangledName = Monomorphizer::generateMangledName(funcName, argTypes, node->resolvedTypeArguments);
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {
@@ -1067,14 +1082,29 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // 2. Check LHS type
     if (auto id = dynamic_cast<ast::Identifier*>(node->left.get())) {
         // 3. Look up the variable
-        llvm::Value* variable = namedValues[id->name];
+        llvm::Value* variable = nullptr;
+        llvm::Type* varType = nullptr;
+
+        if (namedValues.count(id->name)) {
+            variable = namedValues[id->name];
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                varType = alloca->getAllocatedType();
+            }
+        } else {
+            // Check for global variable
+            llvm::GlobalVariable* gv = module->getGlobalVariable(id->name);
+            if (gv) {
+                variable = gv;
+                varType = gv->getValueType();
+            }
+        }
+
         if (!variable) {
             llvm::errs() << "Error: Unknown variable name " << id->name << "\n";
             return;
         }
 
         // 4. Store the value
-        llvm::Type* varType = llvm::dyn_cast<llvm::AllocaInst>(variable)->getAllocatedType();
         val = castValue(val, varType);
         builder->CreateStore(val, variable);
     } else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
@@ -1551,7 +1581,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         visit(node->operand.get());
         llvm::Value* val = lastValue;
         
-        if (val->getType()->isDoubleTy()) {
+        if (val->getType()->isDoubleTy() || val->getType()->isIntegerTy(64)) {
             llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
                 builder->getPtrTy(), builder->getPtrTy());
             llvm::Value* strPtr = builder->CreateGlobalStringPtr("number");

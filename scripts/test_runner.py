@@ -41,8 +41,8 @@ def main():
     vcpkg_installed = os.path.join(build_dir, "vcpkg_installed", "x64-windows")
     
     # Intermediate files
-    json_file = os.path.abspath(f"{base_name}.json")
-    obj_file = os.path.abspath(f"{base_name}.obj")
+    json_file = os.path.join(os.path.dirname(input_ts), f"{base_name}.json")
+    obj_file = os.path.join(os.path.dirname(input_ts), f"{base_name}.obj")
     
     # Test build dir
     test_build_dir = os.path.abspath(f"build/tests/{base_name}")

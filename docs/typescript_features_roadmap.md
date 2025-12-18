@@ -78,8 +78,8 @@ This document tracks the implementation status of TypeScript language features i
 | Intersection Types | ✅ | Phase 8 | `A & B`. |
 | Type Aliases | 📅 | Phase 5 | `type ID = string`. |
 | Type Guards | ✅ | Phase 8 | `if (typeof x === 'string')`. |
-| Destructuring | 📅 | Phase 8 | `const { x } = obj`. |
-| Spread / Rest | 📅 | Phase 8 | `...obj`, `...arr`. |
+| Destructuring | ✅ | Phase 8 | `const { x } = obj`. |
+| Spread / Rest | ✅ | Phase 8 | `...obj`, `...arr`. |
 | Modules (`import`/`export`) | 📅 | Phase 9 | Multi-file compilation. |
 | Async / Await | 📅 | Phase 10 | Promises and Event Loop integration. |
 
@@ -88,12 +88,12 @@ This document tracks the implementation status of TypeScript language features i
 | Feature | Status | Phase | Notes |
 | :--- | :---: | :---: | :--- |
 | `console.log` | ✅ | Phase 1 | |
-| `Math` | ⚠️ | Phase 3 | `min`, `floor`. Need `max`, `abs`, `random`, etc. |
-| `fs` | ⚠️ | Phase 3 | `readFileSync`. Need `writeFileSync`, etc. |
+| `Math` | ✅ | Phase 8 | `min`, `floor`, `max`, `abs`, `random`, `sqrt`, `pow`, `PI`. |
+| `fs` | ✅ | Phase 8 | `readFileSync`, `writeFileSync`. |
 | `crypto` | ⚠️ | Phase 4 | `md5`. Need `sha256`, etc. |
-| `Date` | 📅 | Phase 8 | |
-| `RegExp` | 📅 | Phase 8 | |
-| `JSON` | 📅 | Phase 8 | `parse`, `stringify`. |
+| `Date` | ✅ | Phase 8 | `now`, `getTime`, `getFullYear`, etc. |
+| `RegExp` | ✅ | Phase 8 | `test`, `exec`. |
+| `JSON` | ✅ | Phase 8 | `parse`, `stringify`. |
 
 ## Proposed Future Phases
 

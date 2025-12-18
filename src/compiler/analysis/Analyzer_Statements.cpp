@@ -16,7 +16,13 @@ void Analyzer::visitVariableDeclaration(VariableDeclaration* node) {
             type = lastType;
         }
     }
+    node->resolvedType = type;
     declareBindingPattern(node->name.get(), type);
+    if (node->isExported && currentModule) {
+        if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
+            currentModule->exports->define(id->name, type);
+        }
+    }
 }
 
 void Analyzer::visitReturnStatement(ast::ReturnStatement* node) {

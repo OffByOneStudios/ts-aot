@@ -6,7 +6,21 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
+    symbols.enterScope();
+
     auto funcType = std::make_shared<FunctionType>();
+    funcType->node = node;
+    
+    // Register type parameters first
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        funcType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
+
     if (!node->returnType.empty()) {
         funcType->returnType = parseType(node->returnType, symbols);
     } else {
@@ -21,9 +35,19 @@ void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
         }
     }
 
+    // Define function in the OUTER scope
+    symbols.exitScope();
     symbols.define(node->name, funcType);
-
+    if (node->isExported && currentModule) {
+        currentModule->exports->define(node->name, funcType);
+    }
     symbols.enterScope();
+
+    // Re-define type parameters in the new scope for the body
+    for (const auto& tpType : funcType->typeParameters) {
+        symbols.defineType(tpType->name, tpType);
+    }
+
     // Define parameters in scope
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
@@ -72,6 +96,18 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     }
 
     auto methodType = std::make_shared<FunctionType>();
+    
+    symbols.enterScope();
+    // Register type parameters
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        methodType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
+
     if (node->isGetter) {
         methodType->returnType = parseType(node->returnType, symbols);
     } else if (node->isSetter) {
@@ -97,7 +133,30 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
     }
 
-    symbols.define(node->name, methodType);
+    // Define method in the class scope (which is the current scope before we entered a new one for type params)
+    // Wait, we are already in a scope for the method.
+    // Actually, method definitions are added to the ClassType, not just the symbol table.
+    
+    // Define parameters in scope
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
+    }
+
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+    symbols.exitScope();
+
+    // Add to class
+    if (classType) {
+        if (node->isGetter) classType->getters[node->name] = methodType;
+        else if (node->isSetter) classType->setters[node->name] = methodType;
+        else if (node->name == "constructor") {
+             // Handle constructor overloads if needed
+        } else {
+            classType->methods[node->name] = methodType;
+        }
+    }
 
     symbols.enterScope();
     // Define 'this' (only for instance methods)
@@ -118,33 +177,40 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     currentMethodName = oldMethod;
 }
 
-std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes) {
-    // If return type is annotated, use it (unless it's explicit 'any', which we want to refine if possible)
-    if (!node->returnType.empty() && node->returnType != "any") {
-        return parseType(node->returnType, symbols);
-    }
-
-    // Create a new scope for the function body
+std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     symbols.enterScope();
     
-    // Bind parameters to the provided types
+    // Define type parameters with actual type arguments
+    for (size_t i = 0; i < node->typeParameters.size(); ++i) {
+        if (i < typeArguments.size()) {
+            symbols.defineType(node->typeParameters[i]->name, typeArguments[i]);
+        } else {
+            // If no type argument provided, use Any (or we could do inference here later)
+            symbols.defineType(node->typeParameters[i]->name, std::make_shared<Type>(TypeKind::Any));
+        }
+    }
+    
+    // Define parameters with actual argument types
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         if (i < argTypes.size()) {
             declareBindingPattern(node->parameters[i]->name.get(), argTypes[i]);
+        } else {
+            // Handle default parameters or optional parameters
+            declareBindingPattern(node->parameters[i]->name.get(), std::make_shared<Type>(TypeKind::Any));
         }
     }
 
-    currentReturnType = std::make_shared<Type>(TypeKind::Void); // Default to Void
-
+    std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
+    
     for (auto& stmt : node->body) {
         visit(stmt.get());
+        if (stmt->getKind() == "ReturnStatement") {
+            inferredReturnType = lastType;
+        }
     }
-
-    // Debug
-    fmt::print("Analyzed function {} return type: {}\n", node->name, currentReturnType->toString());
-
+    
     symbols.exitScope();
-    return currentReturnType;
+    return inferredReturnType;
 }
 
 void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {

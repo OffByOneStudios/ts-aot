@@ -1,7 +1,11 @@
 #include "Analyzer.h"
+#include "../ast/AstLoader.h"
 #include <iostream>
 #include <fmt/core.h>
 #include <sstream>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 namespace ts {
 
@@ -63,10 +67,67 @@ Analyzer::Analyzer() {
     regexpClass->methods["exec"] = execType;
     
     symbols.defineType("RegExp", regexpClass);
+
+    // Register console global
+    auto consoleType = std::make_shared<ObjectType>();
+    auto logType = std::make_shared<FunctionType>();
+    logType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    logType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["log"] = logType;
+    symbols.define("console", consoleType);
+
+    // Register ts_console_log
+    auto consoleLogType = std::make_shared<FunctionType>();
+    consoleLogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    consoleLogType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("ts_console_log", consoleLogType);
 }
 
-void Analyzer::analyze(Program* program) {
+void Analyzer::analyze(ast::Program* program, const std::string& path) {
+    currentFilePath = fs::absolute(path).string();
+    auto mainModule = std::make_shared<Module>();
+    mainModule->path = currentFilePath;
+    // We don't own the main program's AST, but we can wrap it in a shared_ptr with a no-op deleter
+    // or just assume it lives long enough.
+    mainModule->ast = std::shared_ptr<ast::Program>(program, [](ast::Program*){});
+    currentModule = mainModule;
+    modules[currentFilePath] = mainModule;
+
+    symbols.enterScope();
     visitProgram(program);
+    symbols.exitScope();
+    
+    mainModule->analyzed = true;
+    moduleOrder.push_back(currentFilePath);
+}
+
+void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
+    auto oldModule = currentModule;
+    auto oldPath = currentFilePath;
+
+    currentModule = module;
+    currentFilePath = module->path;
+
+    symbols.enterScope();
+    visitProgram(module->ast.get());
+    symbols.exitScope();
+    
+    module->analyzed = true;
+    moduleOrder.push_back(module->path);
+
+    currentModule = oldModule;
+    currentFilePath = oldPath;
+}
+
+std::string Analyzer::resolveModulePath(const std::string& specifier) {
+    fs::path base = fs::path(currentFilePath).parent_path();
+    fs::path resolved = base / specifier;
+    
+    // Try .ts, then .json (pre-compiled AST)
+    if (fs::exists(resolved.string() + ".ts")) return fs::absolute(resolved.string() + ".ts").string();
+    if (fs::exists(resolved.string() + ".json")) return fs::absolute(resolved.string() + ".json").string();
+    
+    return "";
 }
 
 void Analyzer::visitProgram(Program* node) {
@@ -100,6 +161,8 @@ void Analyzer::visit(Node* node) {
     else if (auto sw = dynamic_cast<SwitchStatement*>(node)) visitSwitchStatement(sw);
     else if (auto tryStmt = dynamic_cast<TryStatement*>(node)) visitTryStatement(tryStmt);
     else if (auto throwStmt = dynamic_cast<ThrowStatement*>(node)) visitThrowStatement(throwStmt);
+    else if (auto imp = dynamic_cast<ImportDeclaration*>(node)) visitImportDeclaration(imp);
+    else if (auto exp = dynamic_cast<ExportDeclaration*>(node)) visitExportDeclaration(exp);
     else if (auto br = dynamic_cast<BreakStatement*>(node)) visitBreakStatement(br);
     else if (auto cont = dynamic_cast<ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<BlockStatement*>(node)) visitBlockStatement(block);
@@ -262,6 +325,121 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
 void Analyzer::reportError(const std::string& message) {
     fmt::print(stderr, "Error: {}\n", message);
     errorCount++;
+}
+
+std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env) {
+    if (!type) return nullptr;
+
+    if (type->kind == TypeKind::TypeParameter) {
+        auto tp = std::static_pointer_cast<TypeParameterType>(type);
+        if (env.count(tp->name)) {
+            return env.at(tp->name);
+        }
+        return type;
+    }
+
+    if (type->kind == TypeKind::Array) {
+        auto arr = std::static_pointer_cast<ArrayType>(type);
+        return std::make_shared<ArrayType>(substitute(arr->elementType, env));
+    }
+
+    if (type->kind == TypeKind::Function) {
+        auto func = std::static_pointer_cast<FunctionType>(type);
+        auto result = std::make_shared<FunctionType>();
+        for (const auto& p : func->paramTypes) {
+            result->paramTypes.push_back(substitute(p, env));
+        }
+        result->returnType = substitute(func->returnType, env);
+        return result;
+    }
+
+    // For classes and interfaces, we might need to substitute their type arguments if they are generic
+    // But for now, let's keep it simple.
+    return type;
+}
+
+void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
+    std::string resolvedPath = resolveModulePath(node->moduleSpecifier);
+    if (resolvedPath.empty()) {
+        reportError("Could not resolve module: " + node->moduleSpecifier);
+        return;
+    }
+
+    std::shared_ptr<Module> module;
+    if (modules.count(resolvedPath)) {
+        module = modules[resolvedPath];
+    } else {
+        module = std::make_shared<Module>();
+        module->path = resolvedPath;
+        modules[resolvedPath] = module;
+
+        try {
+            if (resolvedPath.ends_with(".ts")) {
+                std::string jsonPath = resolvedPath + ".json";
+                std::string command = "node scripts/dump_ast.js \"" + resolvedPath + "\" \"" + jsonPath + "\"";
+                if (system(command.c_str()) != 0) {
+                    reportError("Failed to run dump_ast.js for " + resolvedPath);
+                    return;
+                }
+                module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
+            } else {
+                module->ast = std::shared_ptr<ast::Program>(ast::loadAst(resolvedPath).release());
+            }
+            analyzeModule(module);
+        } catch (const std::exception& e) {
+            reportError("Failed to load module " + resolvedPath + ": " + e.what());
+            return;
+        }
+    }
+
+    // Import symbols
+    if (!node->defaultImport.empty()) {
+        // TODO: Support default exports
+    }
+
+    if (!node->namespaceImport.empty()) {
+        // TODO: Support namespace imports
+    }
+
+    for (const auto& spec : node->namedImports) {
+        std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+        auto sym = module->exports->lookup(name);
+        if (sym) {
+            fmt::print("Importing symbol {} as {} from {}\n", name, spec.name, node->moduleSpecifier);
+            symbols.define(spec.name, sym->type);
+        } else {
+            auto type = module->exports->lookupType(name);
+            if (type) {
+                fmt::print("Importing type {} as {} from {}\n", name, spec.name, node->moduleSpecifier);
+                symbols.defineType(spec.name, type);
+            } else {
+                reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
+            }
+        }
+    }
+}
+
+void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
+    if (!node->moduleSpecifier.empty()) {
+        // export { ... } from '...'
+        // TODO
+        return;
+    }
+
+    for (const auto& spec : node->namedExports) {
+        std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+        auto sym = symbols.lookup(name);
+        if (sym) {
+            currentModule->exports->define(spec.name, sym->type);
+        } else {
+            auto type = symbols.lookupType(name);
+            if (type) {
+                currentModule->exports->defineType(spec.name, type);
+            } else {
+                reportError(fmt::format("Symbol {} not found for export", name));
+            }
+        }
+    }
 }
 
 } // namespace ts

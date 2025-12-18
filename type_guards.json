@@ -8,7 +8,10 @@
       "parameters": [
         {
           "kind": "Parameter",
-          "name": "x",
+          "name": {
+            "kind": "Identifier",
+            "name": "x"
+          },
           "type": "string | number"
         }
       ],
