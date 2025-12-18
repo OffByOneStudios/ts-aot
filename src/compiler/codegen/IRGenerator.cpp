@@ -34,10 +34,28 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         module->setDataLayout(targetMachine->createDataLayout());
     }
 
-    generateClasses(program, analyzer);
+    generateGlobals(analyzer);
+    generateClasses(analyzer, specializations);
     generatePrototypes(specializations);
     generateBodies(specializations);
     generateEntryPoint();
+}
+
+void IRGenerator::generateGlobals(const Analyzer& analyzer) {
+    for (auto& [path, modulePtr] : analyzer.modules) {
+        if (!modulePtr->ast) continue;
+        for (auto& stmt : modulePtr->ast->body) {
+            if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+                    if (module->getGlobalVariable(id->name)) continue;
+
+                    llvm::Type* type = getLLVMType(var->resolvedType);
+                    new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
+                        llvm::Constant::getNullValue(type), id->name);
+                }
+            }
+        }
+    }
 }
 
 void IRGenerator::generateEntryPoint() {
@@ -331,17 +349,14 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
     else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
     else if (auto forOfStmt = dynamic_cast<ast::ForOfStatement*>(node)) visitForOfStatement(forOfStmt);
-    else if (auto* n = dynamic_cast<ast::SwitchStatement*>(node)) {
-        visitSwitchStatement(n);
-    } else if (auto* n = dynamic_cast<ast::TryStatement*>(node)) {
-        visitTryStatement(n);
-    } else if (auto* n = dynamic_cast<ast::ThrowStatement*>(node)) {
-        visitThrowStatement(n);
-    } else if (auto* n = dynamic_cast<ast::BreakStatement*>(node)) {
-        visitBreakStatement(n);
-    } else if (auto* n = dynamic_cast<ast::ContinueStatement*>(node)) {
-        visitContinueStatement(n);
-    } else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
+    else if (auto sw = dynamic_cast<ast::SwitchStatement*>(node)) visitSwitchStatement(sw);
+    else if (auto tryStmt = dynamic_cast<ast::TryStatement*>(node)) visitTryStatement(tryStmt);
+    else if (auto throwStmt = dynamic_cast<ast::ThrowStatement*>(node)) visitThrowStatement(throwStmt);
+    else if (auto imp = dynamic_cast<ast::ImportDeclaration*>(node)) visitImportDeclaration(imp);
+    else if (auto exp = dynamic_cast<ast::ExportDeclaration*>(node)) visitExportDeclaration(exp);
+    else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
+    else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
+    else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto pre = dynamic_cast<ast::PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
     else if (auto sup = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(sup);
     else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(node)) visitObjectBindingPattern(obp);
@@ -435,5 +450,13 @@ void IRGenerator::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {}
 void IRGenerator::visitBindingElement(ast::BindingElement* node) {}
 void IRGenerator::visitSpreadElement(ast::SpreadElement* node) {}
 void IRGenerator::visitOmittedExpression(ast::OmittedExpression* node) {}
+
+void IRGenerator::visitImportDeclaration(ast::ImportDeclaration* node) {
+    // Handled during module resolution
+}
+
+void IRGenerator::visitExportDeclaration(ast::ExportDeclaration* node) {
+    // Handled during module resolution
+}
 
 } // namespace ts

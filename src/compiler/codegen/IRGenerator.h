@@ -27,7 +27,8 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
-    void generateClasses(ast::Program* program, const Analyzer& analyzer);
+    void generateGlobals(const Analyzer& analyzer);
+    void generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations);
     void generatePrototypes(const std::vector<Specialization>& specializations);
     void generateBodies(const std::vector<Specialization>& specializations);
     void generateEntryPoint();
@@ -63,6 +64,8 @@ private:
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitTryStatement(ast::TryStatement* node);
     void visitThrowStatement(ast::ThrowStatement* node);
+    void visitImportDeclaration(ast::ImportDeclaration* node);
+    void visitExportDeclaration(ast::ExportDeclaration* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
@@ -78,6 +81,7 @@ private:
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
+    std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
 
     struct ClassLayout {
         std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;

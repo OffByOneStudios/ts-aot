@@ -35,8 +35,16 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
         namedValues.clear();
         currentClass = spec.classType;
-        
+        typeEnvironment.clear();
+
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+            // Populate type environment
+            for (size_t i = 0; i < funcNode->typeParameters.size(); ++i) {
+                if (i < spec.typeArguments.size()) {
+                    typeEnvironment[funcNode->typeParameters[i]->name] = spec.typeArguments[i];
+                }
+            }
+
             unsigned idx = 0;
             for (auto& arg : function->args()) {
                 if (idx < funcNode->parameters.size()) {
@@ -72,7 +80,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                     argIt->setName(id->name);
                 }
-                generateDestructuring(&*argIt, spec.argTypes[idx], param->name.get());
+                
+                unsigned argTypeIdx = methodNode->isStatic ? idx : idx + 1;
+                if (argTypeIdx < spec.argTypes.size()) {
+                    generateDestructuring(&*argIt, spec.argTypes[argTypeIdx], param->name.get());
+                }
                 
                 ++argIt;
                 ++idx;

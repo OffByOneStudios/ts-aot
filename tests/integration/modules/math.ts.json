@@ -1,0 +1,139 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Initializing math module"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "add",
+      "isExported": true,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a"
+          },
+          "type": "number"
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b"
+          },
+          "type": "number"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "PI"
+      },
+      "isExported": true,
+      "type": "any",
+      "initializer": {
+        "kind": "NumericLiteral",
+        "value": 3.14159
+      }
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "Calculator",
+      "isExported": true,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "add",
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "number"
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "b"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    }
+  ]
+}

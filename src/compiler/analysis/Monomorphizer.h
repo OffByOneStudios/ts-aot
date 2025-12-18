@@ -13,6 +13,7 @@ struct Specialization {
     std::string originalName;
     std::string specializedName;
     std::vector<std::shared_ptr<Type>> argTypes;
+    std::vector<std::shared_ptr<Type>> typeArguments; // Added this
     std::shared_ptr<Type> returnType; // Inferred return type
     std::shared_ptr<Type> classType; // If this is a class method, the class type
     ast::Node* node; // Pointer to the original AST node (FunctionDeclaration or MethodDefinition)
@@ -28,13 +29,14 @@ public:
 
     const std::vector<Specialization>& getSpecializations() const { return specializations; }
 
-    static std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes);
+    static std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {});
 
 private:
     std::vector<std::unique_ptr<ast::FunctionDeclaration>> syntheticFunctions;
     std::vector<Specialization> specializations;
     
-    ast::FunctionDeclaration* findFunction(ast::Program* program, const std::string& name);
+    ast::FunctionDeclaration* findFunction(Analyzer& analyzer, const std::string& name);
+    ast::ClassDeclaration* findClass(Analyzer& analyzer, const std::string& name);
 };
 
 } // namespace ts

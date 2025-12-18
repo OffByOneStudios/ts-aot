@@ -40,6 +40,8 @@ public:
     // Get all types defined in the global scope
     const std::unordered_map<std::string, std::shared_ptr<Type>>& getGlobalTypes() const;
 
+    size_t getDepth() const { return scopes.size(); }
+
 private:
     // Stack of scopes. Each scope is a map of name -> Symbol
     std::vector<std::unordered_map<std::string, std::shared_ptr<Symbol>>> scopes;

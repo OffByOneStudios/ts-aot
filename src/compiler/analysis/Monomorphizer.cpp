@@ -1,6 +1,8 @@
 #include "Monomorphizer.h"
 #include "Analyzer.h"
 #include <fmt/core.h>
+#include <set>
+#include <iostream>
 
 namespace ts {
 
@@ -8,66 +10,118 @@ Monomorphizer::Monomorphizer() {}
 
 void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     const auto& usages = analyzer.getFunctionUsages();
-    
-    // Extract top-level code into user_main
-    auto userMain = std::make_unique<ast::FunctionDeclaration>();
-    userMain->name = "user_main";
-    
-    std::vector<std::unique_ptr<ast::Statement>> newProgramBody;
-    bool hasTopLevel = false;
-    
-    for (auto& stmt : program->body) {
-        if (stmt->getKind() == "FunctionDeclaration" || 
-            stmt->getKind() == "ClassDeclaration" ||
-            stmt->getKind() == "InterfaceDeclaration") {
-            newProgramBody.push_back(std::move(stmt));
-        } else {
-            userMain->body.push_back(std::move(stmt));
-            hasTopLevel = true;
+    std::vector<std::string> moduleInitFunctions;
+
+    for (const auto& path : analyzer.moduleOrder) {
+        auto module = analyzer.modules[path];
+        if (!module->ast) continue; // Main program might not be in module->ast if passed separately
+
+        auto moduleInit = std::make_unique<ast::FunctionDeclaration>();
+        // Use a simpler name for the main module init if possible, or just hash it
+        std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
+        moduleInit->name = initName;
+        moduleInitFunctions.push_back(initName);
+
+        std::vector<std::unique_ptr<ast::Statement>> newBody;
+        for (auto& stmt : module->ast->body) {
+            if (stmt->getKind() == "FunctionDeclaration" || 
+                stmt->getKind() == "ClassDeclaration" ||
+                stmt->getKind() == "InterfaceDeclaration" ||
+                stmt->getKind() == "ImportDeclaration" ||
+                stmt->getKind() == "ExportDeclaration") {
+                newBody.push_back(std::move(stmt));
+            } else if (stmt->getKind() == "VariableDeclaration") {
+                auto var = static_cast<ast::VariableDeclaration*>(stmt.get());
+                if (var->initializer) {
+                    if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+                        // Create an assignment for the initializer
+                        auto assign = std::make_unique<ast::AssignmentExpression>();
+                        auto leftId = std::make_unique<ast::Identifier>();
+                        leftId->name = id->name;
+                        assign->left = std::move(leftId);
+                        assign->right = std::move(var->initializer);
+                        
+                        auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                        exprStmt->expression = std::move(assign);
+                        moduleInit->body.push_back(std::move(exprStmt));
+                    }
+                }
+                newBody.push_back(std::move(stmt));
+            } else {
+                moduleInit->body.push_back(std::move(stmt));
+            }
         }
-    }
-    program->body = std::move(newProgramBody);
-    
-    if (hasTopLevel) {
+        module->ast->body = std::move(newBody);
+
         Specialization spec;
-        spec.originalName = "user_main";
-        spec.specializedName = "user_main";
+        spec.originalName = initName;
+        spec.specializedName = initName;
         spec.argTypes = {};
         spec.returnType = std::make_shared<Type>(TypeKind::Void);
-        spec.node = userMain.get();
-        
+        spec.node = moduleInit.get();
         specializations.push_back(spec);
-        syntheticFunctions.push_back(std::move(userMain));
+        syntheticFunctions.push_back(std::move(moduleInit));
     }
 
+    // Special case for the program passed to monomorphize if it's not in analyzer.modules
+    // (Though it should be now)
+    
+    // Create user_main that calls all module inits
+    auto userMain = std::make_unique<ast::FunctionDeclaration>();
+    userMain->name = "user_main";
+    for (const auto& initName : moduleInitFunctions) {
+        auto call = std::make_unique<ast::CallExpression>();
+        auto callId = std::make_unique<ast::Identifier>();
+        callId->name = initName;
+        call->callee = std::move(callId);
+        
+        auto stmt = std::make_unique<ast::ExpressionStatement>();
+        stmt->expression = std::move(call);
+        userMain->body.push_back(std::move(stmt));
+    }
+
+    Specialization mainSpec;
+    mainSpec.originalName = "user_main";
+    mainSpec.specializedName = "user_main";
+    mainSpec.argTypes = {};
+    mainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+    mainSpec.node = userMain.get();
+    specializations.push_back(mainSpec);
+    syntheticFunctions.push_back(std::move(userMain));
+
     for (const auto& [name, calls] : usages) {
-        ast::FunctionDeclaration* funcNode = findFunction(program, name);
+        ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
         if (!funcNode) continue; // Skip if not a user-defined function (e.g. console.log)
 
         // Deduplicate signatures
-        std::map<std::string, std::vector<std::shared_ptr<Type>>> uniqueSignatures;
+        struct Sig {
+            std::vector<std::shared_ptr<Type>> argTypes;
+            std::vector<std::shared_ptr<Type>> typeArguments;
+        };
+        std::map<std::string, Sig> uniqueSignatures;
 
-        for (const auto& args : calls) {
-            std::string mangled = generateMangledName(name, args);
-            uniqueSignatures[mangled] = args;
+        for (const auto& call : calls) {
+            std::string mangled = generateMangledName(name, call.argTypes, call.typeArguments);
+            uniqueSignatures[mangled] = {call.argTypes, call.typeArguments};
         }
 
-        for (const auto& [mangled, args] : uniqueSignatures) {
+        for (const auto& [mangled, sig] : uniqueSignatures) {
             Specialization spec;
             spec.originalName = name;
             spec.specializedName = mangled;
-            spec.argTypes = args;
+            spec.argTypes = sig.argTypes;
+            spec.typeArguments = sig.typeArguments;
             spec.node = funcNode;
             
             // Infer return type
-            spec.returnType = analyzer.analyzeFunctionBody(funcNode, args);
+            spec.returnType = analyzer.analyzeFunctionBody(funcNode, sig.argTypes, sig.typeArguments);
             
             specializations.push_back(spec);
         }
     }
 
     // Always ensure main is monomorphized
-    ast::FunctionDeclaration* mainFunc = findFunction(program, "main");
+    ast::FunctionDeclaration* mainFunc = findFunction(analyzer, "main");
     if (mainFunc) {
         bool processed = false;
         for (const auto& spec : specializations) {
@@ -97,61 +151,119 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     }
 
     // Process Class Methods
-    for (const auto& stmt : program->body) {
-        if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
-            auto classType = analyzer.getSymbolTable().lookupType(cls->name);
-            if (!classType || classType->kind != TypeKind::Class) continue;
-            auto ct = std::static_pointer_cast<ClassType>(classType);
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        for (const auto& stmt : module->ast->body) {
+            if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                auto classType = analyzer.getSymbolTable().lookupType(cls->name);
+                if (!classType || classType->kind != TypeKind::Class) continue;
+                auto ct = std::static_pointer_cast<ClassType>(classType);
 
-            for (const auto& member : cls->members) {
+                // Skip generic classes here; they are handled via classUsages
+                if (!ct->typeParameters.empty()) continue;
+
+                for (const auto& member : cls->members) {
+                    if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                        if (method->isAbstract) continue;
+
+                        Specialization spec;
+                        spec.originalName = method->name;
+                        spec.node = method;
+                        spec.classType = ct;
+
+                        if (method->isStatic) {
+                            spec.specializedName = cls->name + "_static_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
+                            if (ct->staticMethods.count(method->name)) {
+                                auto methodType = ct->staticMethods[method->name];
+                                spec.argTypes = methodType->paramTypes;
+                                spec.returnType = methodType->returnType;
+                            } else if (ct->getters.count(method->name)) {
+                                auto methodType = ct->getters[method->name];
+                                spec.argTypes = methodType->paramTypes;
+                                spec.returnType = methodType->returnType;
+                            } else if (ct->setters.count(method->name)) {
+                                auto methodType = ct->setters[method->name];
+                                spec.argTypes = methodType->paramTypes;
+                                spec.returnType = methodType->returnType;
+                            } else {
+                                spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                            }
+                        } else {
+                            spec.specializedName = cls->name + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
+                            // Construct argTypes: [ClassType, explicitParams...]
+                            spec.argTypes.push_back(ct);
+                            
+                            if (ct->methods.count(method->name)) {
+                                auto methodType = ct->methods[method->name];
+                                spec.argTypes.insert(spec.argTypes.end(), 
+                                    methodType->paramTypes.begin(), methodType->paramTypes.end());
+                                spec.returnType = methodType->returnType;
+                            } else if (ct->getters.count(method->name)) {
+                                auto methodType = ct->getters[method->name];
+                                spec.argTypes.insert(spec.argTypes.end(), 
+                                    methodType->paramTypes.begin(), methodType->paramTypes.end());
+                                spec.returnType = methodType->returnType;
+                            } else if (ct->setters.count(method->name)) {
+                                auto methodType = ct->setters[method->name];
+                                spec.argTypes.insert(spec.argTypes.end(), 
+                                    methodType->paramTypes.begin(), methodType->paramTypes.end());
+                                spec.returnType = methodType->returnType;
+                            } else {
+                                spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                            }
+                        }
+
+                        specializations.push_back(spec);
+                    }
+                }
+            }
+        }
+    }
+
+    const auto& classUsages = analyzer.getClassUsages();
+    for (const auto& [name, instances] : classUsages) {
+        ast::ClassDeclaration* classNode = findClass(analyzer, name);
+        if (!classNode) continue;
+
+        // Deduplicate by type argument strings
+        std::map<std::string, std::vector<std::shared_ptr<Type>>> uniqueInstances;
+        for (const auto& inst : instances) {
+            std::string key;
+            for (const auto& t : inst) key += t->toString() + ",";
+            uniqueInstances[key] = inst;
+        }
+
+        for (const auto& [key, typeArgs] : uniqueInstances) {
+            std::string mangled = generateMangledName(name, {}, typeArgs);
+            
+            // Specialize the class type
+            auto specializedClass = analyzer.analyzeClassBody(classNode, typeArgs);
+            specializedClass->name = mangled;
+
+            std::map<std::string, std::shared_ptr<Type>> env;
+            for (size_t i = 0; i < classNode->typeParameters.size() && i < typeArgs.size(); ++i) {
+                env[classNode->typeParameters[i]->name] = typeArgs[i];
+            }
+
+            // Specialize all methods
+            for (const auto& member : classNode->members) {
                 if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
-                    if (method->isAbstract) continue;
-
                     Specialization spec;
                     spec.originalName = method->name;
+                    spec.specializedName = mangled + "_" + method->name;
+                    spec.typeArguments = typeArgs;
+                    spec.classType = specializedClass;
                     spec.node = method;
-                    spec.classType = ct;
-
-                    if (method->isStatic) {
-                        spec.specializedName = cls->name + "_static_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
-                        if (ct->staticMethods.count(method->name)) {
-                            auto methodType = ct->staticMethods[method->name];
-                            spec.argTypes = methodType->paramTypes;
-                            spec.returnType = methodType->returnType;
-                        } else if (ct->getters.count(method->name)) {
-                            auto methodType = ct->getters[method->name];
-                            spec.argTypes = methodType->paramTypes;
-                            spec.returnType = methodType->returnType;
-                        } else if (ct->setters.count(method->name)) {
-                            auto methodType = ct->setters[method->name];
-                            spec.argTypes = methodType->paramTypes;
-                            spec.returnType = methodType->returnType;
-                        } else {
-                            spec.returnType = std::make_shared<Type>(TypeKind::Void);
-                        }
-                    } else {
-                        spec.specializedName = cls->name + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
-                        // Construct argTypes: [ClassType, explicitParams...]
-                        spec.argTypes.push_back(ct);
-                        
-                        if (ct->methods.count(method->name)) {
-                            auto methodType = ct->methods[method->name];
-                            spec.argTypes.insert(spec.argTypes.end(), 
-                                methodType->paramTypes.begin(), methodType->paramTypes.end());
-                            spec.returnType = methodType->returnType;
-                        } else if (ct->getters.count(method->name)) {
-                            auto methodType = ct->getters[method->name];
-                            spec.argTypes.insert(spec.argTypes.end(), 
-                                methodType->paramTypes.begin(), methodType->paramTypes.end());
-                            spec.returnType = methodType->returnType;
-                        } else if (ct->setters.count(method->name)) {
-                            auto methodType = ct->setters[method->name];
-                            spec.argTypes.insert(spec.argTypes.end(), 
-                                methodType->paramTypes.begin(), methodType->paramTypes.end());
-                            spec.returnType = methodType->returnType;
-                        } else {
-                            spec.returnType = std::make_shared<Type>(TypeKind::Void);
-                        }
+                    
+                    // Infer return type for method
+                    spec.returnType = analyzer.analyzeMethodBody(method, specializedClass, typeArgs);
+                    
+                    if (!method->isStatic) {
+                        spec.argTypes.push_back(specializedClass);
+                    }
+                    for (const auto& p : method->parameters) {
+                        auto pType = analyzer.parseType(p->type, analyzer.getSymbolTable());
+                        spec.argTypes.push_back(analyzer.substitute(pType, env));
                     }
 
                     specializations.push_back(spec);
@@ -161,8 +273,24 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     }
 }
 
-std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes) {
+std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     std::string name = originalName;
+    
+    if (!typeArguments.empty()) {
+        name += "_T";
+        for (const auto& type : typeArguments) {
+            name += "_";
+            switch (type->kind) {
+                case TypeKind::Int: name += "int"; break;
+                case TypeKind::Double: name += "dbl"; break;
+                case TypeKind::String: name += "str"; break;
+                case TypeKind::Boolean: name += "bool"; break;
+                case TypeKind::Class: name += std::static_pointer_cast<ClassType>(type)->name; break;
+                default: name += "any"; break;
+            }
+        }
+    }
+
     for (const auto& type : argTypes) {
         name += "_";
         switch (type->kind) {
@@ -183,10 +311,25 @@ std::string Monomorphizer::generateMangledName(const std::string& originalName, 
     return name;
 }
 
-ast::FunctionDeclaration* Monomorphizer::findFunction(ast::Program* program, const std::string& name) {
-    for (const auto& stmt : program->body) {
-        if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-            if (func->name == name) return func;
+ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const std::string& name) {
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        for (auto& stmt : module->ast->body) {
+            if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                if (func->name == name) return func;
+            }
+        }
+    }
+    return nullptr;
+}
+
+ast::ClassDeclaration* Monomorphizer::findClass(Analyzer& analyzer, const std::string& name) {
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        for (auto& stmt : module->ast->body) {
+            if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                if (cls->name == name) return cls;
+            }
         }
     }
     return nullptr;

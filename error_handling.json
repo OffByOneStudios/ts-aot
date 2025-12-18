@@ -8,7 +8,10 @@
       "parameters": [
         {
           "kind": "Parameter",
-          "name": "msg",
+          "name": {
+            "kind": "Identifier",
+            "name": "msg"
+          },
           "type": "string"
         }
       ],
@@ -98,7 +101,10 @@
           ],
           "catchClause": {
             "kind": "CatchClause",
-            "variable": "e",
+            "variable": {
+              "kind": "Identifier",
+              "name": "e"
+            },
             "block": [
               {
                 "kind": "ExpressionStatement",

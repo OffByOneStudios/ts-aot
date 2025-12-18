@@ -7,8 +7,13 @@
 #include <set>
 #include "../ast/AccessModifier.h"
 
-namespace ts {
+namespace ast {
+    struct ClassDeclaration;
+    struct InterfaceDeclaration;
+    struct FunctionDeclaration;
+}
 
+namespace ts {
 struct InterfaceType;
 struct UnionType;
 struct IntersectionType;
@@ -27,7 +32,8 @@ enum class TypeKind {
     Class,
     Interface,
     Union,
-    Intersection
+    Intersection,
+    TypeParameter
 };
 
 struct Type : public std::enable_shared_from_this<Type> {
@@ -54,11 +60,19 @@ struct Type : public std::enable_shared_from_this<Type> {
             case TypeKind::Interface: return "interface";
             case TypeKind::Union: return "union";
             case TypeKind::Intersection: return "intersection";
+            case TypeKind::TypeParameter: return "type-parameter";
+            default: return "unknown";
         }
-        return "unknown";
     }
     
     bool isNumber() const { return kind == TypeKind::Int || kind == TypeKind::Double; }
+};
+
+struct TypeParameterType : public Type {
+    std::string name;
+    std::shared_ptr<Type> constraint;
+    TypeParameterType(const std::string& n) : Type(TypeKind::TypeParameter), name(n) {}
+    std::string toString() const override { return name; }
 };
 
 struct ArrayType : public Type {
@@ -68,8 +82,10 @@ struct ArrayType : public Type {
 };
 
 struct FunctionType : public Type {
+    ast::FunctionDeclaration* node = nullptr;
     std::vector<std::shared_ptr<Type>> paramTypes;
     std::shared_ptr<Type> returnType;
+    std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
 
     FunctionType() : Type(TypeKind::Function) {}
     
@@ -101,8 +117,10 @@ struct ObjectType : public Type {
 
 struct ClassType : public Type {
     std::string name;
+    ast::ClassDeclaration* node = nullptr;
     std::shared_ptr<ClassType> baseClass;
     std::vector<std::shared_ptr<InterfaceType>> implementsInterfaces;
+    std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
     std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
@@ -139,7 +157,9 @@ struct ClassType : public Type {
 
 struct InterfaceType : public Type {
     std::string name;
+    ast::InterfaceDeclaration* node = nullptr;
     std::vector<std::shared_ptr<InterfaceType>> baseInterfaces;
+    std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
     std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;

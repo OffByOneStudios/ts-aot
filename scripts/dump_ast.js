@@ -54,12 +54,66 @@ function isReadonly(node) {
     return false;
 }
 
+function isExported(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.ExportKeyword) return true;
+    }
+    return false;
+}
+
+function getTypeParameters(node) {
+    if (!node.typeParameters) return [];
+    return node.typeParameters.map(tp => ({
+        name: tp.name.text,
+        constraint: tp.constraint ? tp.constraint.getText(currentSourceFile) : null
+    }));
+}
+
+function getTypeArguments(node) {
+    if (!node.typeArguments) return [];
+    return node.typeArguments.map(ta => ta.getText(currentSourceFile));
+}
+
 function visit(node) {
     switch (node.kind) {
+        case ts.SyntaxKind.ImportDeclaration:
+            return {
+                kind: "ImportDeclaration",
+                moduleSpecifier: node.moduleSpecifier.text,
+                importClause: node.importClause ? {
+                    name: node.importClause.name ? node.importClause.name.text : null,
+                    namedBindings: node.importClause.namedBindings ? (
+                        node.importClause.namedBindings.kind === ts.SyntaxKind.NamespaceImport ?
+                        { kind: "NamespaceImport", name: node.importClause.namedBindings.name.text } :
+                        {
+                            kind: "NamedImports",
+                            elements: node.importClause.namedBindings.elements.map(e => ({
+                                name: e.name.text,
+                                propertyName: e.propertyName ? e.propertyName.text : null
+                            }))
+                        }
+                    ) : null
+                } : null
+            };
+        case ts.SyntaxKind.ExportDeclaration:
+            return {
+                kind: "ExportDeclaration",
+                moduleSpecifier: node.moduleSpecifier ? node.moduleSpecifier.text : null,
+                exportClause: node.exportClause ? {
+                    kind: "NamedExports",
+                    elements: node.exportClause.elements.map(e => ({
+                        name: e.name.text,
+                        propertyName: e.propertyName ? e.propertyName.text : null
+                    }))
+                } : null
+            };
         case ts.SyntaxKind.FunctionDeclaration:
             return {
                 kind: "FunctionDeclaration",
                 name: node.name ? node.name.text : "anonymous",
+                isExported: isExported(node),
+                typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
@@ -83,6 +137,8 @@ function visit(node) {
             return {
                 kind: "ClassDeclaration",
                 name: node.name ? node.name.text : "anonymous",
+                isExported: isExported(node),
+                typeParameters: getTypeParameters(node),
                 baseClass: baseClass,
                 implementsInterfaces: implementsInterfaces,
                 members: node.members.map(visit).filter(m => m),
@@ -100,6 +156,8 @@ function visit(node) {
             return {
                 kind: "InterfaceDeclaration",
                 name: node.name.text,
+                isExported: isExported(node),
+                typeParameters: getTypeParameters(node),
                 baseInterfaces: baseInterfaces,
                 members: node.members.map(visit).filter(m => m)
             };
@@ -121,6 +179,7 @@ function visit(node) {
             return {
                 kind: "MethodDefinition",
                 name: node.name.text,
+                typeParameters: getTypeParameters(node),
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
                     name: visit(p.name),
@@ -157,6 +216,7 @@ function visit(node) {
             return {
                 kind: "VariableDeclaration",
                 name: visit(decl.name),
+                isExported: isExported(node),
                 type: decl.type ? decl.type.getText(currentSourceFile) : "any",
                 initializer: decl.initializer ? visit(decl.initializer) : null
             };
@@ -190,13 +250,15 @@ function visit(node) {
             return {
                 kind: "CallExpression",
                 callee: visit(node.expression),
-                arguments: node.arguments.map(visit)
+                arguments: node.arguments.map(visit),
+                typeArguments: getTypeArguments(node)
             };
         case ts.SyntaxKind.NewExpression:
             return {
                 kind: "NewExpression",
                 expression: visit(node.expression),
-                arguments: node.arguments ? node.arguments.map(visit) : []
+                arguments: node.arguments ? node.arguments.map(visit) : [],
+                typeArguments: getTypeArguments(node)
             };
         case ts.SyntaxKind.ArrayLiteralExpression:
             return {

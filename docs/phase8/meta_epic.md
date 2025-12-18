@@ -34,12 +34,14 @@ Support modern syntax for objects and arrays.
     - [x] Array destructuring (`const [first, second] = arr`).
     - [x] Spread operator (`...`).
 
-### [Epic 35: Standard Library Expansion](./epic_35_stdlib_expansion.md) (In Progress)
+### [Epic 35: Standard Library Expansion](./epic_35_stdlib_expansion.md) (Completed)
 Implement remaining core built-in objects.
 - **Key Features:**
-    - `Date` object.
-    - `RegExp` support.
-    - `JSON` (parse/stringify).
+    - [x] `Date` object.
+    - [x] `RegExp` support.
+    - [x] `JSON` (parse/stringify).
+    - [x] `Math` and `IO` expansion.
+    - [x] `String` and `Array` enhancements.
 
 ## Success Criteria
 - Can handle variables with multiple possible types (Unions).
