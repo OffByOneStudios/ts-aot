@@ -3,37 +3,27 @@
 namespace ts {
 
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::Type* retType = func->getReturnType();
+
     if (node->expression) {
         visit(node->expression.get());
-        if (currentAsyncContext) {
-            llvm::Value* boxedVal = boxValue(lastValue, node->expression->inferredType);
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
-            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
-            
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
-            builder->CreateCall(resolveFn, { promise, boxedVal });
-            builder->CreateRetVoid();
-            return;
-        }
+        llvm::Value* val = lastValue;
         
-        llvm::Type* retType = builder->GetInsertBlock()->getParent()->getReturnType();
-        builder->CreateRet(castValue(lastValue, retType));
-    } else {
-        if (currentAsyncContext) {
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
-            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
-            
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
-            
-            // Create undefined
-            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", builder->getPtrTy());
-            llvm::Value* undefined = builder->CreateCall(undefFn);
-            
-            builder->CreateCall(resolveFn, { promise, undefined });
-            builder->CreateRetVoid();
-            return;
+        if (retType->isPointerTy() && !val->getType()->isPointerTy()) {
+            val = boxValue(val, node->expression->inferredType);
+        } else {
+            val = castValue(val, retType);
         }
-        builder->CreateRetVoid();
+        builder->CreateRet(val);
+    } else {
+        if (retType->isVoidTy()) {
+            builder->CreateRetVoid();
+        } else if (retType->isPointerTy()) {
+            builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+        } else {
+            builder->CreateRet(llvm::ConstantInt::get(retType, 0));
+        }
     }
 }
 
@@ -262,6 +252,7 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
 
     llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "loop.cond", function);
     llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "loop.body", function);
+    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "loop.inc", function);
     llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "loop.end", function);
 
     builder->CreateBr(condBB);
@@ -291,8 +282,8 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         // Array: get(i)
         llvm::Function* getFn = module->getFunction("ts_array_get");
         if (!getFn) {
-             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) };
-             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), args, false); // Returns int64_t
+             std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
+             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), args, false);
              getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
         }
         
@@ -309,14 +300,117 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     }
 
     // Body
-    loopStack.push_back({condBB, afterBB}); // Continue goes to increment (which is at end of body here)
+    loopStack.push_back({incBB, afterBB});
     visit(node->body.get());
     loopStack.pop_back();
 
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(incBB);
+    }
+
+    builder->SetInsertPoint(incBB);
     // Increment
     llvm::Value* nextIdx = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
     builder->CreateStore(nextIdx, indexVar);
+    builder->CreateBr(condBB);
+
+    builder->SetInsertPoint(afterBB);
+}
+
+void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
+    llvm::Function* function = builder->GetInsertBlock()->getParent();
     
+    // Evaluate object
+    visit(node->expression.get());
+    llvm::Value* obj = lastValue;
+    if (!obj) return;
+
+    llvm::Value* keys = nullptr;
+    if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Class)) {
+        // For static objects/classes, we know the keys at compile time.
+        // Create a TsArray and push all field names into it.
+        llvm::FunctionCallee createArrFn = module->getOrInsertFunction("ts_array_create",
+            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+        keys = builder->CreateCall(createArrFn, {}, "keys_arr");
+
+        llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
+            llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+        
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
+            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+
+        std::vector<std::string> fieldNames;
+        if (node->expression->inferredType->kind == TypeKind::Object) {
+            auto objType = std::static_pointer_cast<ObjectType>(node->expression->inferredType);
+            for (auto const& [name, type] : objType->fields) fieldNames.push_back(name);
+        } else {
+            auto clsType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+            auto current = clsType;
+            while (current) {
+                for (auto const& [name, type] : current->fields) fieldNames.push_back(name);
+                current = current->baseClass;
+            }
+        }
+
+        for (const auto& name : fieldNames) {
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(name);
+            llvm::Value* tsStr = builder->CreateCall(createStrFn, { keyStr });
+            builder->CreateCall(pushFn, { keys, tsStr });
+        }
+    } else {
+        // Get keys array from Map or Any at runtime
+        llvm::FunctionCallee keysFn = module->getOrInsertFunction("ts_map_keys",
+            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
+        keys = builder->CreateCall(keysFn, { obj }, "keys");
+    }
+
+    // Now iterate over keys (which is a TsArray)
+    llvm::AllocaInst* indexVar = createEntryBlockAlloca(function, "forin_index", llvm::Type::getInt64Ty(*context));
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0), indexVar);
+
+    llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
+        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false));
+    llvm::Value* lengthVal = builder->CreateCall(lenFn, { keys }, "len");
+
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "forin_cond", function);
+    llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "forin_loop", function);
+    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "forin_inc", function);
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "forin_after", function);
+
+    builder->CreateBr(condBB);
+    builder->SetInsertPoint(condBB);
+
+    llvm::Value* index = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "index");
+    llvm::Value* cond = builder->CreateICmpSLT(index, lengthVal, "forin_cond_tmp");
+    builder->CreateCondBr(cond, loopBB, afterBB);
+
+    builder->SetInsertPoint(loopBB);
+
+    // Get key at index
+    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get",
+        llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+    llvm::Value* key = builder->CreateCall(getFn, { keys, index }, "key");
+
+    // Handle initializer
+    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
+        generateDestructuring(key, std::make_shared<ts::Type>(ts::TypeKind::String), varDecl->name.get());
+    }
+
+    // Body
+    loopStack.push_back({incBB, afterBB});
+    visit(node->body.get());
+    loopStack.pop_back();
+
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(incBB);
+    }
+
+    builder->SetInsertPoint(incBB);
+    // Increment index
+    index = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "index");
+    llvm::Value* nextIndex = builder->CreateAdd(index, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1), "next_index");
+    builder->CreateStore(nextIndex, indexVar);
     builder->CreateBr(condBB);
 
     builder->SetInsertPoint(afterBB);

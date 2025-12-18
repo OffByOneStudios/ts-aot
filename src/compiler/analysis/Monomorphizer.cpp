@@ -87,7 +87,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     mainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
     mainSpec.node = userMain.get();
     specializations.push_back(mainSpec);
-    syntheticFunctions.push_back(std::move(userMain));
 
     for (const auto& [name, calls] : usages) {
         ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
@@ -148,6 +147,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         
         specializations.push_back(spec);
     }
+
+    syntheticFunctions.push_back(std::move(userMain));
 
     // Process Class Methods
     for (auto& [path, module] : analyzer.modules) {

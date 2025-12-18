@@ -186,66 +186,60 @@ bool TsString::Equals(TsString* other) {
     return *s1 == *s2;
 }
 
-extern "C" TsString* ts_string_create(const char* str) {
-    return TsString::Create(str);
-}
+extern "C" {
+    void* ts_string_create(const char* str) {
+        return TsString::Create(str);
+    }
 
-extern "C" TsString* ts_string_concat(TsString* a, TsString* b) {
-    return TsString::Concat(a, b);
-}
+    void* ts_string_concat(void* a, void* b) {
+        return TsString::Concat((TsString*)a, (TsString*)b);
+    }
 
-extern "C" int64_t ts_string_length(void* str) {
-    return ((TsString*)str)->Length();
-}
+    void* ts_string_split(void* str, void* separator) {
+        return ((TsString*)str)->Split((TsString*)separator);
+    }
 
-extern "C" int64_t ts_string_charCodeAt(void* str, int64_t index) {
-    return ((TsString*)str)->CharCodeAt(index);
-}
+    void* ts_string_trim(void* str) {
+        return ((TsString*)str)->Trim();
+    }
 
-extern "C" void* ts_string_split(void* str, void* separator) {
-    return ((TsString*)str)->Split((TsString*)separator);
-}
+    void* ts_string_substring(void* str, int64_t start, int64_t end) {
+        return ((TsString*)str)->Substring(start, end);
+    }
 
-extern "C" void* ts_string_trim(void* str) {
-    return ((TsString*)str)->Trim();
-}
+    bool ts_string_startsWith(void* str, void* prefix) {
+        return ((TsString*)str)->StartsWith((TsString*)prefix);
+    }
 
-extern "C" void* ts_string_substring(void* str, int64_t start, int64_t end) {
-    return ((TsString*)str)->Substring(start, end);
-}
+    bool ts_string_includes(void* str, void* searchString) {
+        return ((TsString*)str)->Includes((TsString*)searchString);
+    }
 
-extern "C" bool ts_string_startsWith(void* str, void* prefix) {
-    return ((TsString*)str)->StartsWith((TsString*)prefix);
-}
+    int64_t ts_string_indexOf(void* str, void* searchString) {
+        return ((TsString*)str)->IndexOf((TsString*)searchString);
+    }
 
-extern "C" bool ts_string_includes(void* str, void* searchString) {
-    return ((TsString*)str)->Includes((TsString*)searchString);
-}
+    void* ts_string_toLowerCase(void* str) {
+        return ((TsString*)str)->ToLowerCase();
+    }
 
-extern "C" int64_t ts_string_indexOf(void* str, void* searchString) {
-    return ((TsString*)str)->IndexOf((TsString*)searchString);
-}
+    void* ts_string_toUpperCase(void* str) {
+        return ((TsString*)str)->ToUpperCase();
+    }
 
-extern "C" void* ts_string_toLowerCase(void* str) {
-    return ((TsString*)str)->ToLowerCase();
-}
+    void* ts_string_from_int(int64_t value) {
+        return TsString::FromInt(value);
+    }
 
-extern "C" void* ts_string_toUpperCase(void* str) {
-    return ((TsString*)str)->ToUpperCase();
-}
+    void* ts_string_from_bool(bool value) {
+        return TsString::FromBool(value);
+    }
 
-extern "C" void* ts_string_from_int(int64_t value) {
-    return TsString::FromInt(value);
-}
+    void* ts_string_from_double(double value) {
+        return TsString::FromDouble(value);
+    }
 
-extern "C" void* ts_string_from_bool(bool value) {
-    return TsString::FromBool(value);
-}
-
-extern "C" void* ts_string_from_double(double value) {
-    return TsString::FromDouble(value);
-}
-
-extern "C" bool ts_string_eq(void* a, void* b) {
-    return ((TsString*)a)->Equals((TsString*)b);
+    bool ts_string_eq(void* a, void* b) {
+        return ((TsString*)a)->Equals((TsString*)b);
+    }
 }

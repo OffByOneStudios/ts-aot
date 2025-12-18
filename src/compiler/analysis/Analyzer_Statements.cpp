@@ -1,4 +1,5 @@
 #include "Analyzer.h"
+#include <fmt/core.h>
 
 namespace ts {
 
@@ -9,17 +10,29 @@ void Analyzer::visitExpressionStatement(ExpressionStatement* node) {
 }
 
 void Analyzer::visitVariableDeclaration(VariableDeclaration* node) {
-    // Declare first so it's in scope for the initializer (e.g. recursive functions or closures)
-    auto type = std::make_shared<Type>(TypeKind::Any);
+    std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
+    if (!node->type.empty()) {
+        type = parseType(node->type, symbols);
+    }
+
+    // Declare first so it's in scope for the initializer
     declareBindingPattern(node->name.get(), type);
 
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
-            type = lastType;
-            // Update the type in the symbol table
-            if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
-                symbols.update(id->name, type);
+            if (type->kind == TypeKind::Any) {
+                type = lastType;
+                // Update the type in the symbol table
+                if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
+                    symbols.update(id->name, type);
+                }
+            } else {
+                // Check assignability
+                if (!lastType->isAssignableTo(type)) {
+                    reportError(fmt::format("Type {} is not assignable to type {}", lastType->toString(), type->toString()));
+                }
+                node->initializer->inferredType = type;
             }
         }
     }
@@ -130,6 +143,22 @@ void Analyzer::visitForOfStatement(ForOfStatement* node) {
     // Handle initializer (VariableDeclaration)
     if (auto varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get())) {
         declareBindingPattern(varDecl->name.get(), elemType);
+    }
+
+    visit(node->body.get());
+    symbols.exitScope();
+}
+
+void Analyzer::visitForInStatement(ForInStatement* node) {
+    symbols.enterScope();
+    
+    visit(node->expression.get());
+    // For..in always yields strings (keys)
+    std::shared_ptr<Type> keyType = std::make_shared<Type>(TypeKind::String);
+
+    // Handle initializer (VariableDeclaration)
+    if (auto varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get())) {
+        declareBindingPattern(varDecl->name.get(), keyType);
     }
 
     visit(node->body.get());

@@ -9,6 +9,7 @@
 #include "../ast/AccessModifier.h"
 
 namespace ast {
+    struct Node;
     struct ClassDeclaration;
     struct InterfaceDeclaration;
     struct FunctionDeclaration;
@@ -35,7 +36,9 @@ enum class TypeKind {
     Union,
     Intersection,
     TypeParameter,
-    Namespace
+    Namespace,
+    Enum,
+    Tuple
 };
 
 struct Type : public std::enable_shared_from_this<Type> {
@@ -67,6 +70,9 @@ struct Type : public std::enable_shared_from_this<Type> {
             case TypeKind::Union: return "union";
             case TypeKind::Intersection: return "intersection";
             case TypeKind::TypeParameter: return "type-parameter";
+            case TypeKind::Namespace: return "namespace";
+            case TypeKind::Enum: return "enum";
+            case TypeKind::Tuple: return "tuple";
             default: return "unknown";
         }
     }
@@ -95,8 +101,10 @@ struct ArrayType : public Type {
 };
 
 struct FunctionType : public Type {
-    ast::FunctionDeclaration* node = nullptr;
+    ast::Node* node = nullptr;
     std::vector<std::shared_ptr<Type>> paramTypes;
+    std::vector<bool> isOptional;
+    bool hasRest = false;
     std::shared_ptr<Type> returnType;
     std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
 
@@ -215,6 +223,27 @@ struct IntersectionType : public Type {
     }
 };
 
+struct EnumType : Type {
+    std::string name;
+    std::map<std::string, int> members;
+    EnumType(const std::string& n) : Type(TypeKind::Enum), name(n) {}
+    std::string toString() const override { return "enum " + name; }
+};
+
+struct TupleType : Type {
+    std::vector<std::shared_ptr<Type>> elementTypes;
+    TupleType(const std::vector<std::shared_ptr<Type>>& types) : Type(TypeKind::Tuple), elementTypes(types) {}
+    std::string toString() const override {
+        std::string s = "[";
+        for (size_t i = 0; i < elementTypes.size(); ++i) {
+            if (i > 0) s += ", ";
+            s += elementTypes[i]->toString();
+        }
+        s += "]";
+        return s;
+    }
+};
+
 inline bool ClassType::isAssignableTo(std::shared_ptr<Type> other) {
     if (other->kind == TypeKind::Any) return true;
     if (other->kind == TypeKind::Class) {
@@ -268,6 +297,26 @@ inline bool InterfaceType::isAssignableTo(std::shared_ptr<Type> other) {
 
 inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
     if (other->kind == TypeKind::Any || kind == TypeKind::Any) return true;
+
+    // Handle Tuple
+    if (kind == TypeKind::Tuple) {
+        auto tupleThis = std::static_pointer_cast<TupleType>(shared_from_this());
+        if (other->kind == TypeKind::Tuple) {
+            auto tupleOther = std::static_pointer_cast<TupleType>(other);
+            if (tupleThis->elementTypes.size() != tupleOther->elementTypes.size()) return false;
+            for (size_t i = 0; i < tupleThis->elementTypes.size(); ++i) {
+                if (!tupleThis->elementTypes[i]->isAssignableTo(tupleOther->elementTypes[i])) return false;
+            }
+            return true;
+        }
+        if (other->kind == TypeKind::Array) {
+            auto arrayOther = std::static_pointer_cast<ArrayType>(other);
+            for (auto& t : tupleThis->elementTypes) {
+                if (!t->isAssignableTo(arrayOther->elementType)) return false;
+            }
+            return true;
+        }
+    }
 
     // Handle TypeParameter
     if (kind == TypeKind::TypeParameter) {

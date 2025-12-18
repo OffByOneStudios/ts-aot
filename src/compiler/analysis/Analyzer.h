@@ -75,11 +75,13 @@ private:
     void visitWhileStatement(ast::WhileStatement* node);
     void visitForStatement(ast::ForStatement* node);
     void visitForOfStatement(ast::ForOfStatement* node);
+    void visitForInStatement(ast::ForInStatement* node);
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitTryStatement(ast::TryStatement* node);
     void visitThrowStatement(ast::ThrowStatement* node);
     void visitImportDeclaration(ast::ImportDeclaration* node);
     void visitExportDeclaration(ast::ExportDeclaration* node);
+    void visitExportAssignment(ast::ExportAssignment* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
@@ -93,11 +95,14 @@ private:
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
+    void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node);
     void visitBindingElement(ast::BindingElement* node);
     void visitSpreadElement(ast::SpreadElement* node);
     void visitOmittedExpression(ast::OmittedExpression* node);
+    void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) override;
+    void visitEnumDeclaration(ast::EnumDeclaration* node) override;
 
     void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type);
 

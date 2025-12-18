@@ -27,6 +27,9 @@ Analyzer::Analyzer() {
     
     symbols.define("JSON", jsonType);
 
+    // Register undefined
+    symbols.define("undefined", std::make_shared<Type>(TypeKind::Any));
+
     // Register Date class
     auto dateClass = std::make_shared<ClassType>("Date");
     
@@ -102,26 +105,128 @@ Analyzer::Analyzer() {
 
     symbols.defineType("Promise", promiseClass);
 
-    // Register Timers
-    auto setTimeoutType = std::make_shared<FunctionType>();
-    auto timerCallback = std::make_shared<FunctionType>();
-    timerCallback->returnType = std::make_shared<Type>(TypeKind::Void);
-    setTimeoutType->paramTypes.push_back(timerCallback);
-    setTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
-    setTimeoutType->returnType = std::make_shared<Type>(TypeKind::Int);
-    symbols.define("setTimeout", setTimeoutType);
+    // Register Map class
+    auto mapClass = std::make_shared<ClassType>("Map");
+    auto mapSet = std::make_shared<FunctionType>();
+    mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    mapSet->returnType = std::make_shared<Type>(TypeKind::Void);
+    mapClass->methods["set"] = mapSet;
 
-    auto setIntervalType = std::make_shared<FunctionType>();
-    setIntervalType->paramTypes.push_back(timerCallback);
-    setIntervalType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
-    setIntervalType->returnType = std::make_shared<Type>(TypeKind::Int);
-    symbols.define("setInterval", setIntervalType);
+    auto mapGet = std::make_shared<FunctionType>();
+    mapGet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    mapGet->returnType = std::make_shared<Type>(TypeKind::Any);
+    mapClass->methods["get"] = mapGet;
 
-    auto clearTimeoutType = std::make_shared<FunctionType>();
-    clearTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
-    clearTimeoutType->returnType = std::make_shared<Type>(TypeKind::Void);
-    symbols.define("clearTimeout", clearTimeoutType);
-    symbols.define("clearInterval", clearTimeoutType);
+    auto mapHas = std::make_shared<FunctionType>();
+    mapHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    mapHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    mapClass->methods["has"] = mapHas;
+
+    symbols.defineType("Map", mapClass);
+    
+    // Define Map as a value (constructor)
+    auto mapCtor = std::make_shared<FunctionType>();
+    mapCtor->returnType = std::make_shared<Type>(TypeKind::Map);
+    symbols.define("Map", mapCtor);
+
+    // Register Math global
+    auto mathType = std::make_shared<ObjectType>();
+    
+    auto absType = std::make_shared<FunctionType>();
+    absType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    absType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["abs"] = absType;
+    
+    auto ceilType = std::make_shared<FunctionType>();
+    ceilType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ceilType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["ceil"] = ceilType;
+    
+    auto floorType = std::make_shared<FunctionType>();
+    floorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    floorType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["floor"] = floorType;
+    
+    auto roundType = std::make_shared<FunctionType>();
+    roundType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    roundType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["round"] = roundType;
+    
+    auto sqrtType = std::make_shared<FunctionType>();
+    sqrtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    sqrtType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["sqrt"] = sqrtType;
+    
+    auto powType = std::make_shared<FunctionType>();
+    powType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    powType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    powType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["pow"] = powType;
+    
+    auto expType = std::make_shared<FunctionType>();
+    expType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    expType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["exp"] = expType;
+    
+    auto mathLogType = std::make_shared<FunctionType>();
+    mathLogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    mathLogType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["log"] = mathLogType;
+    
+    auto sinType = std::make_shared<FunctionType>();
+    sinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    sinType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["sin"] = sinType;
+    
+    auto cosType = std::make_shared<FunctionType>();
+    cosType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    cosType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["cos"] = cosType;
+    
+    auto tanType = std::make_shared<FunctionType>();
+    tanType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    tanType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["tan"] = tanType;
+    
+    auto asinType = std::make_shared<FunctionType>();
+    asinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    asinType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["asin"] = asinType;
+    
+    auto acosType = std::make_shared<FunctionType>();
+    acosType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    acosType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["acos"] = acosType;
+    
+    auto atanType = std::make_shared<FunctionType>();
+    atanType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    atanType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["atan"] = atanType;
+    
+    auto atan2Type = std::make_shared<FunctionType>();
+    atan2Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    atan2Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    atan2Type->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["atan2"] = atan2Type;
+    
+    auto hypotType = std::make_shared<FunctionType>();
+    hypotType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    hypotType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    hypotType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["hypot"] = hypotType;
+    
+    auto degToRadType = std::make_shared<FunctionType>();
+    degToRadType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    degToRadType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["degToRad"] = degToRadType;
+    
+    auto radToDegType = std::make_shared<FunctionType>();
+    radToDegType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    radToDegType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["radToDeg"] = radToDegType;
+    
+    symbols.define("Math", mathType);
 
     // Register fs global
     auto fsType = std::make_shared<ObjectType>();
@@ -205,6 +310,68 @@ std::string Analyzer::resolveModulePath(const std::string& specifier) {
 }
 
 void Analyzer::visitProgram(Program* node) {
+    // Pass 1: Hoist declarations to support circular dependencies
+    for (auto& stmt : node->body) {
+        if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            auto funcType = std::make_shared<FunctionType>();
+            funcType->node = func;
+            symbols.define(func->name, funcType);
+            if (func->isExported && currentModule) {
+                currentModule->exports->define(func->name, funcType);
+            }
+            if (func->isDefaultExport && currentModule) {
+                currentModule->exports->define("default", funcType);
+            }
+        } else if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+            auto classType = std::make_shared<ClassType>(cls->name);
+            classType->node = cls;
+            symbols.defineType(cls->name, classType);
+            if (cls->isExported && currentModule) {
+                currentModule->exports->defineType(cls->name, classType);
+            }
+            if (cls->isDefaultExport && currentModule) {
+                currentModule->exports->defineType("default", classType);
+            }
+        } else if (auto inter = dynamic_cast<ast::InterfaceDeclaration*>(stmt.get())) {
+            auto interfaceType = std::make_shared<InterfaceType>(inter->name);
+            symbols.defineType(inter->name, interfaceType);
+            if (inter->isExported && currentModule) {
+                currentModule->exports->defineType(inter->name, interfaceType);
+            }
+            if (inter->isDefaultExport && currentModule) {
+                currentModule->exports->defineType("default", interfaceType);
+            }
+        } else if (auto alias = dynamic_cast<ast::TypeAliasDeclaration*>(stmt.get())) {
+            // We can't fully resolve the type yet because it might depend on other hoisted types,
+            // but we can register the name.
+            // For now, let's just let the second pass handle it, or do a partial registration.
+            // Actually, type aliases are often used in function signatures, so hoisting is good.
+            auto type = parseType(alias->type, symbols);
+            symbols.defineType(alias->name, type);
+            if (alias->isExported && currentModule) {
+                currentModule->exports->defineType(alias->name, type);
+            }
+        } else if (auto enm = dynamic_cast<ast::EnumDeclaration*>(stmt.get())) {
+            auto enumType = std::make_shared<EnumType>(enm->name);
+            int nextValue = 0;
+            for (const auto& member : enm->members) {
+                if (member.initializer) {
+                    if (auto num = dynamic_cast<ast::NumericLiteral*>(member.initializer.get())) {
+                        nextValue = (int)num->value;
+                    }
+                }
+                enumType->members[member.name] = nextValue++;
+            }
+            symbols.define(enm->name, enumType);
+            symbols.defineType(enm->name, enumType);
+            if (enm->isExported && currentModule) {
+                currentModule->exports->define(enm->name, enumType);
+                currentModule->exports->defineType(enm->name, enumType);
+            }
+        }
+    }
+
+    // Pass 2: Full analysis
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
@@ -333,6 +500,20 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         return std::make_shared<ArrayType>(baseType);
     }
 
+    if (typeName.starts_with("[") && typeName.ends_with("]")) {
+        std::vector<std::shared_ptr<Type>> elementTypes;
+        std::string inner = typeName.substr(1, typeName.size() - 2);
+        std::stringstream ss(inner);
+        std::string segment;
+        while (std::getline(ss, segment, ',')) {
+            // Trim whitespace
+            segment.erase(0, segment.find_first_not_of(" "));
+            segment.erase(segment.find_last_not_of(" ") + 1);
+            elementTypes.push_back(parseType(segment, symbols));
+        }
+        return std::make_shared<TupleType>(elementTypes);
+    }
+
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
     if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
@@ -349,16 +530,42 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
     if (overloads.empty()) return nullptr;
     
     for (const auto& overload : overloads) {
-        if (overload->paramTypes.size() != argTypes.size()) continue;
-        
-        bool match = true;
-        for (size_t i = 0; i < argTypes.size(); ++i) {
-            if (!argTypes[i]->isAssignableTo(overload->paramTypes[i])) {
-                match = false;
-                break;
+        size_t minArgs = 0;
+        for (size_t i = 0; i < overload->paramTypes.size(); ++i) {
+            bool optional = i < overload->isOptional.size() && overload->isOptional[i];
+            bool rest = (i == overload->paramTypes.size() - 1) && overload->hasRest;
+            if (!optional && !rest) {
+                minArgs++;
             }
         }
-        if (match) return overload;
+
+        size_t maxArgs = overload->hasRest ? std::numeric_limits<size_t>::max() : overload->paramTypes.size();
+
+        if (argTypes.size() >= minArgs && argTypes.size() <= maxArgs) {
+            bool match = true;
+            for (size_t i = 0; i < argTypes.size(); ++i) {
+                std::shared_ptr<Type> expectedType;
+                if (i < overload->paramTypes.size()) {
+                    expectedType = overload->paramTypes[i];
+                    if (i == overload->paramTypes.size() - 1 && overload->hasRest) {
+                        if (expectedType->kind == TypeKind::Array) {
+                            expectedType = std::static_pointer_cast<ArrayType>(expectedType)->elementType;
+                        }
+                    }
+                } else if (overload->hasRest) {
+                    expectedType = overload->paramTypes.back();
+                    if (expectedType->kind == TypeKind::Array) {
+                        expectedType = std::static_pointer_cast<ArrayType>(expectedType)->elementType;
+                    }
+                }
+
+                if (expectedType && !argTypes[i]->isAssignableTo(expectedType)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return overload;
+        }
     }
     
     return overloads[0]; // Fallback
@@ -443,7 +650,17 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
 
     // Import symbols
     if (!node->defaultImport.empty()) {
-        // TODO: Support default exports
+        auto sym = module->exports->lookup("default");
+        if (sym) {
+            symbols.define(node->defaultImport, sym->type);
+        } else {
+            auto type = module->exports->lookupType("default");
+            if (type) {
+                symbols.defineType(node->defaultImport, type);
+            } else {
+                reportError(fmt::format("Module {} does not have a default export", node->moduleSpecifier));
+            }
+        }
     }
 
     if (!node->namespaceImport.empty()) {
@@ -517,6 +734,25 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
             }
         }
     }
+}
+
+void Analyzer::visitExportAssignment(ast::ExportAssignment* node) {
+    visit(node->expression.get());
+    if (currentModule) {
+        currentModule->exports->define("default", lastType);
+    }
+}
+
+void Analyzer::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
+    auto type = parseType(node->type, symbols);
+    symbols.defineType(node->name, type);
+    if (node->isExported && currentModule) {
+        currentModule->exports->defineType(node->name, type);
+    }
+}
+
+void Analyzer::visitEnumDeclaration(ast::EnumDeclaration* node) {
+    // Already handled in hoisting pass
 }
 
 } // namespace ts

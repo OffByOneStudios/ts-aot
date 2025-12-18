@@ -46,5 +46,7 @@ TsValue* ts_value_make_double(double d);
 TsValue* ts_value_make_bool(bool b);
 TsValue* ts_value_make_string(void* s);
 TsValue* ts_value_make_object(void* o);
+TsValue* ts_value_make_function(void* f, void* ctx);
+void* ts_function_get_ptr(TsValue* val);
 
 }

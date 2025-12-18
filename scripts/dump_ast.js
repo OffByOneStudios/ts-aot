@@ -62,6 +62,14 @@ function isExported(node) {
     return false;
 }
 
+function isDefaultExport(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.DefaultKeyword) return true;
+    }
+    return false;
+}
+
 function isAsync(node) {
     if (!node.modifiers) return false;
     for (const mod of node.modifiers) {
@@ -120,14 +128,11 @@ function visit(node) {
                 kind: "FunctionDeclaration",
                 name: node.name ? node.name.text : "anonymous",
                 isExported: isExported(node),
+                isDefaultExport: isDefaultExport(node),
                 isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
-                parameters: node.parameters.map(p => ({
-                    kind: "Parameter",
-                    name: visit(p.name),
-                    type: p.type ? p.type.getText(currentSourceFile) : "any"
-                })),
+                parameters: node.parameters.map(visitParameter),
                 body: visitBlock(node.body)
             };
         case ts.SyntaxKind.ClassDeclaration:
@@ -146,6 +151,7 @@ function visit(node) {
                 kind: "ClassDeclaration",
                 name: node.name ? node.name.text : "anonymous",
                 isExported: isExported(node),
+                isDefaultExport: isDefaultExport(node),
                 typeParameters: getTypeParameters(node),
                 baseClass: baseClass,
                 implementsInterfaces: implementsInterfaces,
@@ -165,6 +171,7 @@ function visit(node) {
                 kind: "InterfaceDeclaration",
                 name: node.name.text,
                 isExported: isExported(node),
+                isDefaultExport: isDefaultExport(node),
                 typeParameters: getTypeParameters(node),
                 baseInterfaces: baseInterfaces,
                 members: node.members.map(visit).filter(m => m)
@@ -189,11 +196,7 @@ function visit(node) {
                 name: node.name.text,
                 isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
-                parameters: node.parameters.map(p => ({
-                    kind: "Parameter",
-                    name: visit(p.name),
-                    type: p.type ? p.type.getText(currentSourceFile) : "any"
-                })),
+                parameters: node.parameters.map(visitParameter),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 body: node.body ? visitBlock(node.body) : [],
                 hasBody: !!node.body,
@@ -207,13 +210,7 @@ function visit(node) {
              return {
                 kind: "MethodDefinition",
                 name: "constructor",
-                parameters: node.parameters.map(p => ({
-                    kind: "Parameter",
-                    name: visit(p.name),
-                    type: p.type ? p.type.getText(currentSourceFile) : "any",
-                    access: getAccessModifier(p),
-                    isReadonly: isReadonly(p)
-                })),
+                parameters: node.parameters.map(visitParameter),
                 returnType: "void",
                 body: node.body ? visitBlock(node.body) : [],
                 hasBody: !!node.body,
@@ -419,6 +416,22 @@ function visit(node) {
                 expression: visit(node.expression),
                 body: visit(node.statement)
             };
+        case ts.SyntaxKind.ForInStatement:
+            let forInInit = null;
+            if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
+                const decl = node.initializer.declarations[0];
+                forInInit = {
+                    kind: "VariableDeclaration",
+                    name: visit(decl.name),
+                    initializer: null
+                };
+            }
+            return {
+                kind: "ForInStatement",
+                initializer: forInInit,
+                expression: visit(node.expression),
+                body: visit(node.statement)
+            };
         case ts.SyntaxKind.SwitchStatement:
             return {
                 kind: "SwitchStatement",
@@ -451,11 +464,18 @@ function visit(node) {
             return {
                 kind: "ArrowFunction",
                 isAsync: isAsync(node),
-                parameters: node.parameters.map(p => ({
-                    name: visit(p.name),
-                    type: p.type ? p.type.getText(currentSourceFile) : "any"
-                })),
+                parameters: node.parameters.map(visitParameter),
                 body: visit(node.body) // Body can be Block or Expression
+            };
+        case ts.SyntaxKind.FunctionExpression:
+            return {
+                kind: "FunctionExpression",
+                name: node.name ? node.name.text : null,
+                isAsync: isAsync(node),
+                typeParameters: getTypeParameters(node),
+                returnType: node.type ? node.type.getText(currentSourceFile) : "any",
+                parameters: node.parameters.map(visitParameter),
+                body: visitBlock(node.body)
             };
         case ts.SyntaxKind.TemplateExpression:
             return {
@@ -493,6 +513,30 @@ function visit(node) {
                 kind: "ThrowStatement",
                 expression: visit(node.expression)
             };
+        case ts.SyntaxKind.ExportAssignment:
+            return {
+                kind: "ExportAssignment",
+                expression: visit(node.expression),
+                isExportEquals: !!node.isExportEquals
+            };
+        case ts.SyntaxKind.TypeAliasDeclaration:
+            return {
+                kind: "TypeAliasDeclaration",
+                name: node.name.text,
+                type: node.type.getText(currentSourceFile),
+                typeParameters: getTypeParameters(node),
+                isExported: isExported(node)
+            };
+        case ts.SyntaxKind.EnumDeclaration:
+            return {
+                kind: "EnumDeclaration",
+                name: node.name.text,
+                members: node.members.map(m => ({
+                    name: m.name.getText(currentSourceFile),
+                    initializer: m.initializer ? visit(m.initializer) : null
+                })),
+                isExported: isExported(node)
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;
@@ -508,6 +552,19 @@ function visitBlock(node) {
     });
     return stmts;
 }
+
+function visitParameter(p) {
+        return {
+            kind: "Parameter",
+            name: visit(p.name),
+            type: p.type ? p.type.getText(currentSourceFile) : "any",
+            isOptional: !!p.questionToken || !!p.initializer,
+            isRest: !!p.dotDotDotToken,
+            initializer: p.initializer ? visit(p.initializer) : null,
+            access: getAccessModifier(p),
+            isReadonly: isReadonly(p)
+        };
+    }
 
 const fileName = process.argv[2];
 if (!fileName) {

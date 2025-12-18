@@ -97,6 +97,7 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     switch (type->kind) {
         case TypeKind::Void: return llvm::Type::getInt8Ty(*context);
         case TypeKind::Int: return llvm::Type::getInt64Ty(*context);
+        case TypeKind::Enum: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
         case TypeKind::Boolean: return llvm::Type::getInt1Ty(*context);
         case TypeKind::Object: {
@@ -120,6 +121,7 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::String:
         case TypeKind::Any:
         case TypeKind::Array:
+        case TypeKind::Tuple:
         case TypeKind::Map:
         case TypeKind::Interface:
         case TypeKind::Union:
@@ -250,8 +252,8 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
 
         llvm::Function* getFn = module->getFunction("ts_array_get");
         if (!getFn) {
-             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) };
-             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), args, false);
+             std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
+             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), args, false);
              getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
         }
 
@@ -385,9 +387,16 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
     else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
-    else if (valType->isPointerTy()) {
+    else if (type && type->kind == TypeKind::Function) {
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function",
+            builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+        return builder->CreateCall(fn, { builder->CreateBitCast(val, builder->getPtrTy()), llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+    } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
         else funcName = "ts_value_make_object";
+    } else if (type && type->kind == TypeKind::Any) {
+        llvm::Function* fn = getRuntimeFunction("ts_value_make_object");
+        return builder->CreateCall(fn, { val });
     }
     
     if (funcName.empty()) return val;
@@ -445,6 +454,8 @@ void IRGenerator::visitProgram(ast::Program* node) {
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {}
 void IRGenerator::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {}
 void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {}
+void IRGenerator::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {}
+void IRGenerator::visitEnumDeclaration(ast::EnumDeclaration* node) {}
 
 void IRGenerator::emitObjectCode(const std::string& filename) {
     std::string targetTriple = llvm::sys::getDefaultTargetTriple();
@@ -511,6 +522,11 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     }
     
     return val;
+}
+
+void IRGenerator::visitExportAssignment(ast::ExportAssignment* node) {
+    // Usually just a value, but could have side effects
+    visit(node->expression.get());
 }
 
 } // namespace ts

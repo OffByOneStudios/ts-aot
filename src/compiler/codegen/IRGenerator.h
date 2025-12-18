@@ -47,6 +47,7 @@ private:
     void visitStringLiteral(ast::StringLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
+    void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node);
     void visitBindingElement(ast::BindingElement* node);
@@ -62,6 +63,7 @@ private:
     void visitWhileStatement(ast::WhileStatement* node);
     void visitForStatement(ast::ForStatement* node);
     void visitForOfStatement(ast::ForOfStatement* node);
+    void visitForInStatement(ast::ForInStatement* node);
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
@@ -72,6 +74,7 @@ private:
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node);
     void visitImportDeclaration(ast::ImportDeclaration* node);
     void visitExportDeclaration(ast::ExportDeclaration* node);
+    void visitExportAssignment(ast::ExportAssignment* node);
     void visitCallExpression(ast::CallExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
@@ -79,6 +82,8 @@ private:
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitProgram(ast::Program* node);
+    void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node);
+    void visitEnumDeclaration(ast::EnumDeclaration* node);
 
     void visit(ast::Node* node);
 

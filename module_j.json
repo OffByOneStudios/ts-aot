@@ -1,0 +1,45 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "./circ_a",
+      "importClause": {
+        "name": null,
+        "namedBindings": {
+          "kind": "NamedImports",
+          "elements": [
+            {
+              "name": "a",
+              "propertyName": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}

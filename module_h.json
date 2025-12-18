@@ -1,0 +1,56 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "./math_default",
+      "importClause": {
+        "name": "add",
+        "namedBindings": null
+      }
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "add"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 10
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 20
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}

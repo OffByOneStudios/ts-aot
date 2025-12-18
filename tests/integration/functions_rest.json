@@ -1,0 +1,198 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "sum",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "numbers"
+          },
+          "type": "number[]",
+          "isOptional": false,
+          "isRest": true,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "total"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0
+          }
+        },
+        {
+          "kind": "ForOfStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "n"
+            },
+            "initializer": null
+          },
+          "expression": {
+            "kind": "Identifier",
+            "name": "numbers"
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "BinaryExpression",
+                  "operator": "+=",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "total"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "n"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "total"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "sum"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "sum"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 10
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 20
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "sum"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}
