@@ -43,6 +43,9 @@ public:
     // Get all types defined in the global scope
     const std::unordered_map<std::string, std::shared_ptr<Type>>& getGlobalTypes() const;
 
+    // Define a type in the global scope.
+    bool defineGlobalType(const std::string& name, std::shared_ptr<Type> type);
+
     size_t getDepth() const { return scopes.size(); }
 
 private:

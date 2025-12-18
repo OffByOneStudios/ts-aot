@@ -5,23 +5,34 @@ namespace ts {
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
     if (node->expression) {
         visit(node->expression.get());
-        
-        if (lastValue) {
-            llvm::Function* func = builder->GetInsertBlock()->getParent();
-            llvm::Type* retType = func->getReturnType();
+        if (currentAsyncContext) {
+            llvm::Value* boxedVal = boxValue(lastValue, node->expression->inferredType);
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             
-            if (lastValue->getType() != retType) {
-                if (retType->isDoubleTy() && lastValue->getType()->isIntegerTy(64)) {
-                    lastValue = builder->CreateSIToFP(lastValue, retType, "casttmp");
-                } else if (retType->isIntegerTy(64) && lastValue->getType()->isDoubleTy()) {
-                    lastValue = builder->CreateFPToSI(lastValue, retType, "casttmp");
-                }
-            }
-            builder->CreateRet(lastValue);
-        } else {
-             // Error?
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
+            builder->CreateCall(resolveFn, { promise, boxedVal });
+            builder->CreateRetVoid();
+            return;
         }
+        
+        llvm::Type* retType = builder->GetInsertBlock()->getParent()->getReturnType();
+        builder->CreateRet(castValue(lastValue, retType));
     } else {
+        if (currentAsyncContext) {
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+            
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
+            
+            // Create undefined
+            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", builder->getPtrTy());
+            llvm::Value* undefined = builder->CreateCall(undefFn);
+            
+            builder->CreateCall(resolveFn, { promise, undefined });
+            builder->CreateRetVoid();
+            return;
+        }
         builder->CreateRetVoid();
     }
 }

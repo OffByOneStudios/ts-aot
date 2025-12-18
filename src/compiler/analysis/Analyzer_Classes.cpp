@@ -312,13 +312,43 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
 
     // Let's just analyze the body
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
+    std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
     for (const auto& stmt : node->body) {
         visit(stmt.get());
+        if (stmt->getKind() == "ReturnStatement") {
+            inferredReturnType = lastType;
+        }
+    }
+
+    if (node->isAsync) {
+        bool isPromise = false;
+        if (inferredReturnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(inferredReturnType);
+            if (cls->name == "Promise") isPromise = true;
+        }
+        
+        if (!isPromise) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            
+            std::string mangledName = "Promise_" + inferredReturnType->toString();
+            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
+                return !std::isalnum(c);
+            }, '_');
+
+            auto wrapped = std::make_shared<ClassType>(mangledName);
+            wrapped->methods = promiseClass->methods;
+            wrapped->staticMethods = promiseClass->staticMethods;
+            wrapped->typeArguments = { inferredReturnType };
+            inferredReturnType = wrapped;
+
+            if (!symbols.lookupType(mangledName)) {
+                symbols.defineGlobalType(mangledName, wrapped);
+            }
+        }
     }
     
-    auto result = currentReturnType;
     symbols.exitScope();
-    return result;
+    return inferredReturnType;
 }
 
 } // namespace ts

@@ -5,6 +5,7 @@
 #include <memory>
 #include <map>
 #include <set>
+#include <algorithm>
 #include "../ast/AccessModifier.h"
 
 namespace ast {
@@ -118,29 +119,30 @@ struct ObjectType : public Type {
 struct ClassType : public Type {
     std::string name;
     ast::ClassDeclaration* node = nullptr;
+    bool isAbstract = false;
     std::shared_ptr<ClassType> baseClass;
     std::vector<std::shared_ptr<InterfaceType>> implementsInterfaces;
     std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
     std::map<std::string, std::shared_ptr<Type>> fields;
+    std::map<std::string, std::shared_ptr<Type>> staticFields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
+    std::map<std::string, std::shared_ptr<FunctionType>> staticMethods;
     std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
+    std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> staticMethodOverloads;
     std::vector<std::shared_ptr<FunctionType>> constructorOverloads;
     std::map<std::string, std::shared_ptr<FunctionType>> getters;
     std::map<std::string, std::shared_ptr<FunctionType>> setters;
     std::map<std::string, AccessModifier> fieldAccess;
-    std::map<std::string, AccessModifier> methodAccess;
-    std::set<std::string> abstractMethods;
-    std::set<std::string> readonlyFields;
-    bool isAbstract = false;
-
-    std::map<std::string, std::shared_ptr<Type>> staticFields;
-    std::map<std::string, std::shared_ptr<FunctionType>> staticMethods;
-    std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> staticMethodOverloads;
     std::map<std::string, AccessModifier> staticFieldAccess;
+    std::map<std::string, AccessModifier> methodAccess;
     std::map<std::string, AccessModifier> staticMethodAccess;
+    std::set<std::string> readonlyFields;
     std::set<std::string> staticReadonlyFields;
+    std::set<std::string> abstractMethods;
+    std::vector<std::shared_ptr<Type>> typeArguments;
 
-    ClassType(std::string n) : Type(TypeKind::Class), name(n) {}
+    ClassType() : Type(TypeKind::Class) {}
+    ClassType(const std::string& name) : Type(TypeKind::Class), name(name) {}
 
     bool isSubclassOf(std::shared_ptr<ClassType> other) {
         if (this == other.get()) return true;

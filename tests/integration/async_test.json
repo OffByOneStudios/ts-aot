@@ -1,0 +1,143 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "add",
+      "isExported": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "Promise<number>",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a"
+          },
+          "type": "number"
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b"
+          },
+          "type": "number"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "test",
+      "isExported": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "sum"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "add"
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 5
+                },
+                {
+                  "kind": "NumericLiteral",
+                  "value": 10
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Sum: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "sum"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "test"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

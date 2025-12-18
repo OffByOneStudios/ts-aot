@@ -8,6 +8,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        llvm::errs() << "Global type: " << name << " kind: " << (int)type->kind << "\n";
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -109,13 +110,13 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         compute(classType);
     }
 
-    // 3. Third pass: Define struct bodies and VTables
+    // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
+        if (name == "Date" || name == "RegExp" || name.find("Promise_") == 0 || name == "Promise") continue;
+        
+        auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
-        if (!classStruct) continue;
-
-        const auto& layout = classLayouts[name];
 
         // Define VTable Type
         std::string vtableName = name + "_VTable";
