@@ -1,0 +1,317 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "InterfaceDeclaration",
+      "name": "HasLength",
+      "isExported": false,
+      "typeParameters": [],
+      "baseInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "length",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "getLength",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": "HasLength"
+        }
+      ],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg"
+          },
+          "type": "T"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "arg"
+            },
+            "name": "length"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "identity",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg"
+          },
+          "type": "T"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "arg"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "first",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "type": "T[]"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "ElementAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "arr"
+            },
+            "argumentExpression": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "hello"
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "n"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "getLength"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "s"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "s"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "n"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "x"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "identity"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 42
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "x"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "y"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "first"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "arr"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "y"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}

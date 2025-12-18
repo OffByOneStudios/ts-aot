@@ -181,10 +181,20 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     if (calleeType->kind == TypeKind::Function) {
         auto func = std::static_pointer_cast<FunctionType>(calleeType);
         
+        if (resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
+            resolvedTypeArguments = inferTypeArguments(func->typeParameters, func->paramTypes, argTypes);
+        }
+
         if (!resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
             std::map<std::string, std::shared_ptr<Type>> env;
             for (size_t i = 0; i < func->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
-                env[func->typeParameters[i]->name] = resolvedTypeArguments[i];
+                auto param = func->typeParameters[i];
+                auto arg = resolvedTypeArguments[i];
+                if (param->constraint && !arg->isAssignableTo(param->constraint)) {
+                    reportError(fmt::format("Type '{}' does not satisfy the constraint '{}' for type parameter '{}'", 
+                        arg->toString(), param->constraint->toString(), param->name));
+                }
+                env[param->name] = arg;
             }
             lastType = substitute(func->returnType, env);
         } else {
@@ -262,6 +272,15 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         if (type && type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
+                // Validate constraints
+                for (size_t i = 0; i < classType->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
+                    auto param = classType->typeParameters[i];
+                    auto arg = resolvedTypeArguments[i];
+                    if (param->constraint && !arg->isAssignableTo(param->constraint)) {
+                        reportError(fmt::format("Type '{}' does not satisfy the constraint '{}' for type parameter '{}'", 
+                            arg->toString(), param->constraint->toString(), param->name));
+                    }
+                }
                 auto specType = analyzeClassBody(classType->node, resolvedTypeArguments);
                 specType->name = Monomorphizer::generateMangledName(classType->name, {}, resolvedTypeArguments);
                 lastType = specType;
@@ -344,21 +363,28 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
 
     visit(node->expression.get());
     auto objType = lastType;
+
+    while (objType && objType->kind == TypeKind::TypeParameter) {
+        auto tp = std::static_pointer_cast<TypeParameterType>(objType);
+        if (tp->constraint) {
+            objType = tp->constraint;
+        } else {
+            objType = std::make_shared<Type>(TypeKind::Any);
+            break;
+        }
+    }
     
-    if (node->name == "length") {
-        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array) {
-            lastType = std::make_shared<Type>(TypeKind::Int);
-        } else {
-            lastType = std::make_shared<Type>(TypeKind::Any);
-        }
-    } else if (node->name == "size") {
-        if (objType->kind == TypeKind::Map) {
-            lastType = std::make_shared<Type>(TypeKind::Int);
-        } else {
-            lastType = std::make_shared<Type>(TypeKind::Any);
-        }
-    } else {
-        if (objType->kind == TypeKind::Union) {
+    if (node->name == "length" && (objType->kind == TypeKind::String || objType->kind == TypeKind::Array)) {
+        lastType = std::make_shared<Type>(TypeKind::Int);
+        return;
+    }
+
+    if (node->name == "size" && objType->kind == TypeKind::Map) {
+        lastType = std::make_shared<Type>(TypeKind::Int);
+        return;
+    }
+
+    if (objType->kind == TypeKind::Union) {
             auto unionType = std::static_pointer_cast<UnionType>(objType);
             std::vector<std::shared_ptr<Type>> memberTypes;
             for (auto& t : unionType->types) {
@@ -429,6 +455,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
                 lastType = obj->fields[node->name];
                 return;
             }
+        } else if (objType->kind == TypeKind::Interface) {
+            auto inter = std::static_pointer_cast<InterfaceType>(objType);
+            if (inter->fields.count(node->name)) {
+                lastType = inter->fields[node->name];
+                fmt::print("Found property {} on interface {} with type {}\n", node->name, inter->name, lastType->toString());
+                return;
+            } else if (inter->methods.count(node->name)) {
+                lastType = inter->methods[node->name];
+                return;
+            }
+            // TODO: Check base interfaces
         } else if (objType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(objType);
             
@@ -526,7 +563,6 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
 
         reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
-    }
 }
 
 void Analyzer::visitBinaryExpression(BinaryExpression* node) {
@@ -667,6 +703,53 @@ void Analyzer::visitAsExpression(AsExpression* node) {
     visit(node->expression.get());
     lastType = parseType(node->type, symbols);
     node->inferredType = lastType;
+}
+
+std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
+    const std::vector<std::shared_ptr<TypeParameterType>>& typeParams,
+    const std::vector<std::shared_ptr<Type>>& paramTypes,
+    const std::vector<std::shared_ptr<Type>>& argTypes) {
+    
+    std::map<std::string, std::shared_ptr<Type>> inferred;
+    
+    auto inferFromTypes = [&](auto self, std::shared_ptr<Type> paramType, std::shared_ptr<Type> argType) -> void {
+        if (!paramType || !argType) return;
+
+        // printf("Inferring from param: %s and arg: %s\n", paramType->toString().c_str(), argType->toString().c_str());
+
+        if (paramType->kind == TypeKind::TypeParameter) {
+            auto tp = std::static_pointer_cast<TypeParameterType>(paramType);
+            bool target = false;
+            for (auto& p : typeParams) {
+                if (p->name == tp->name) { target = true; break; }
+            }
+            if (target) {
+                if (inferred.find(tp->name) == inferred.end()) {
+                    inferred[tp->name] = argType;
+                }
+            }
+        } else if (paramType->kind == TypeKind::Array && argType->kind == TypeKind::Array) {
+            auto pa = std::static_pointer_cast<ArrayType>(paramType);
+            auto aa = std::static_pointer_cast<ArrayType>(argType);
+            self(self, pa->elementType, aa->elementType);
+        }
+    };
+
+    size_t count = std::min(paramTypes.size(), argTypes.size());
+    for (size_t i = 0; i < count; ++i) {
+        inferFromTypes(inferFromTypes, paramTypes[i], argTypes[i]);
+    }
+
+    std::vector<std::shared_ptr<Type>> result;
+    for (auto& tp : typeParams) {
+        if (inferred.count(tp->name)) {
+            result.push_back(inferred[tp->name]);
+        } else {
+            // Fallback to Any or constraint if not inferred
+            result.push_back(tp->constraint ? tp->constraint : std::make_shared<Type>(TypeKind::Any));
+        }
+    }
+    return result;
 }
 
 } // namespace ts

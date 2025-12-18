@@ -45,6 +45,10 @@ struct Type : public std::enable_shared_from_this<Type> {
 
     virtual bool isAssignableTo(std::shared_ptr<Type> other);
 
+    bool isNumber() const {
+        return kind == TypeKind::Int || kind == TypeKind::Double;
+    }
+
     virtual std::string toString() const {
         switch (kind) {
             case TypeKind::Void: return "void";
@@ -65,8 +69,6 @@ struct Type : public std::enable_shared_from_this<Type> {
             default: return "unknown";
         }
     }
-    
-    bool isNumber() const { return kind == TypeKind::Int || kind == TypeKind::Double; }
 };
 
 struct TypeParameterType : public Type {
@@ -256,6 +258,35 @@ inline bool InterfaceType::isAssignableTo(std::shared_ptr<Type> other) {
 
 inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
     if (other->kind == TypeKind::Any || kind == TypeKind::Any) return true;
+
+    // Handle TypeParameter
+    if (kind == TypeKind::TypeParameter) {
+        if (other->kind == TypeKind::TypeParameter) {
+            if (static_cast<const TypeParameterType*>(this)->name == static_cast<const TypeParameterType*>(other.get())->name) {
+                return true;
+            }
+        }
+        auto constraint = static_cast<const TypeParameterType*>(this)->constraint;
+        if (constraint) return constraint->isAssignableTo(other);
+        return false;
+    }
+
+    // Handle Interface (Target)
+    if (other->kind == TypeKind::Interface) {
+        auto inter = std::static_pointer_cast<InterfaceType>(other);
+        
+        // Special case for string/array length
+        if (kind == TypeKind::String || kind == TypeKind::Array) {
+            for (const auto& [name, type] : inter->fields) {
+                if (name == "length") {
+                    if (!type->isNumber()) return false;
+                } else {
+                    return false;
+                }
+            }
+            return inter->methods.empty();
+        }
+    }
 
     // Handle Union (Target)
     if (other->kind == TypeKind::Union) {
