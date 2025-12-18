@@ -100,11 +100,29 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                 } else if (prop->name == "writeFileSync") {
                     lastType = std::make_shared<Type>(TypeKind::Void);
                     return;
+                } else if (prop->name == "promises") {
+                    // Return a special type for fs.promises
+                    lastType = std::make_shared<Type>(TypeKind::Any);
+                    return;
                 }
             } else if (obj->name == "crypto") {
                 if (prop->name == "md5") {
                     lastType = std::make_shared<Type>(TypeKind::String);
                     return;
+                }
+            }
+        }
+
+        // Check for fs.promises.readFile
+        if (auto innerProp = dynamic_cast<PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (prop->name == "readFile") {
+                        auto promiseType = std::make_shared<ClassType>("Promise");
+                        promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::String));
+                        lastType = promiseType;
+                        return;
+                    }
                 }
             }
         }
@@ -194,6 +212,14 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         if (calleeName == "parseInt") {
              for (auto& arg : node->arguments) visit(arg.get());
              lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        }
+
+        if (calleeName == "fetch") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             auto promiseType = std::make_shared<ClassType>("Promise");
+             promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
+             lastType = promiseType;
              return;
         }
     }

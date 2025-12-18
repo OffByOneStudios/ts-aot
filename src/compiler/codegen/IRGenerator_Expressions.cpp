@@ -212,6 +212,20 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
 }
 
 void IRGenerator::visitCallExpression(ast::CallExpression* node) {
+    if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        if (id->name == "fetch") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* arg = lastValue;
+            
+            llvm::FunctionCallee fetchFn = module->getOrInsertFunction("ts_fetch",
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+            
+            lastValue = builder->CreateCall(fetchFn, { arg });
+            return;
+        }
+    }
+
     if (auto superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get())) {
         // super() call in constructor
         if (!currentClass || currentClass->kind != TypeKind::Class) return;
@@ -507,6 +521,22 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     
                     lastValue = builder->CreateCall(readFn, { arg });
                     return;
+                }
+            }
+        } else if (prop->name == "readFile") {
+            if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+                if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                    if (obj->name == "fs" && innerProp->name == "promises") {
+                        if (node->arguments.empty()) return;
+                        visit(node->arguments[0].get());
+                        llvm::Value* arg = lastValue;
+                        
+                        llvm::FunctionCallee readFn = module->getOrInsertFunction("ts_fs_readFile_async",
+                            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                        
+                        lastValue = builder->CreateCall(readFn, { arg });
+                        return;
+                    }
                 }
             }
         } else if (prop->name == "writeFileSync") {

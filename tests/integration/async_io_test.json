@@ -1,0 +1,167 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "test",
+      "isExported": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting async IO test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "content"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "fs"
+                  },
+                  "name": "promises"
+                },
+                "name": "readFile"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "test_write.txt"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "File content: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "content"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "response"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "fetch"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "https://adventofcode.com/2023/day/1/input"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Fetch response: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "response"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "test"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

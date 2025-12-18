@@ -25,8 +25,8 @@ Implement the compiler pass to transform `async` functions into state-machine ba
 
 ### Epic 46: Asynchronous I/O
 Expose asynchronous versions of existing APIs.
-- [ ] Implement `fs.promises.readFile`.
-- [ ] Implement a basic `fetch` using `libuv` (or a wrapper).
+- [x] Implement `fs.promises.readFile`.
+- [x] Implement a basic `fetch` using `libuv` (or a wrapper).
 
 ## Action Items
 - [x] Setup `libuv` dependency in `vcpkg.json`.
