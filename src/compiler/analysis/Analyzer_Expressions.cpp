@@ -384,6 +384,23 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
         return;
     }
 
+    if (objType->kind == TypeKind::Namespace) {
+        auto ns = std::static_pointer_cast<NamespaceType>(objType);
+        auto sym = ns->module->exports->lookup(node->name);
+        if (sym) {
+            lastType = sym->type;
+            return;
+        }
+        auto type = ns->module->exports->lookupType(node->name);
+        if (type) {
+            lastType = type;
+            return;
+        }
+        reportError(fmt::format("Module does not export {}", node->name));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
+
     if (objType->kind == TypeKind::Union) {
             auto unionType = std::static_pointer_cast<UnionType>(objType);
             std::vector<std::shared_ptr<Type>> memberTypes;

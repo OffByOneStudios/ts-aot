@@ -400,39 +400,46 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
     return type;
 }
 
-void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
-    std::string resolvedPath = resolveModulePath(node->moduleSpecifier);
+std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
+    std::string resolvedPath = resolveModulePath(specifier);
     if (resolvedPath.empty()) {
-        reportError("Could not resolve module: " + node->moduleSpecifier);
-        return;
+        reportError("Could not resolve module: " + specifier);
+        return nullptr;
     }
 
-    std::shared_ptr<Module> module;
     if (modules.count(resolvedPath)) {
-        module = modules[resolvedPath];
-    } else {
-        module = std::make_shared<Module>();
-        module->path = resolvedPath;
-        modules[resolvedPath] = module;
-
-        try {
-            if (resolvedPath.ends_with(".ts")) {
-                std::string jsonPath = resolvedPath + ".json";
-                std::string command = "node scripts/dump_ast.js \"" + resolvedPath + "\" \"" + jsonPath + "\"";
-                if (system(command.c_str()) != 0) {
-                    reportError("Failed to run dump_ast.js for " + resolvedPath);
-                    return;
-                }
-                module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
-            } else {
-                module->ast = std::shared_ptr<ast::Program>(ast::loadAst(resolvedPath).release());
-            }
-            analyzeModule(module);
-        } catch (const std::exception& e) {
-            reportError("Failed to load module " + resolvedPath + ": " + e.what());
-            return;
-        }
+        return modules[resolvedPath];
     }
+
+    fmt::print("Loading module: {} from {}\n", specifier, resolvedPath);
+    auto module = std::make_shared<Module>();
+    module->path = resolvedPath;
+    modules[resolvedPath] = module;
+
+    try {
+        if (resolvedPath.ends_with(".ts")) {
+            std::string jsonPath = resolvedPath + ".json";
+            std::string command = "node scripts/dump_ast.js \"" + resolvedPath + "\" \"" + jsonPath + "\"";
+            if (system(command.c_str()) != 0) {
+                reportError("Failed to run dump_ast.js for " + resolvedPath);
+                return nullptr;
+            }
+            module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
+        } else {
+            module->ast = std::shared_ptr<ast::Program>(ast::loadAst(resolvedPath).release());
+        }
+        analyzeModule(module);
+    } catch (const std::exception& e) {
+        reportError("Failed to load module " + resolvedPath + ": " + e.what());
+        return nullptr;
+    }
+
+    return module;
+}
+
+void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
+    auto module = loadModule(node->moduleSpecifier);
+    if (!module) return;
 
     // Import symbols
     if (!node->defaultImport.empty()) {
@@ -440,7 +447,8 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
     }
 
     if (!node->namespaceImport.empty()) {
-        // TODO: Support namespace imports
+        auto nsType = std::make_shared<NamespaceType>(module);
+        symbols.define(node->namespaceImport, nsType);
     }
 
     for (const auto& spec : node->namedImports) {
@@ -463,8 +471,35 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
 
 void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
     if (!node->moduleSpecifier.empty()) {
-        // export { ... } from '...'
-        // TODO
+        auto module = loadModule(node->moduleSpecifier);
+        if (!module) return;
+
+        if (node->isStarExport) {
+            // Re-export all from module
+            for (auto& [name, sym] : module->exports->getGlobalSymbols()) {
+                currentModule->exports->define(name, sym->type);
+            }
+            for (auto& [name, type] : module->exports->getGlobalTypes()) {
+                currentModule->exports->defineType(name, type);
+            }
+            return;
+        }
+
+        for (const auto& spec : node->namedExports) {
+            std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
+            auto sym = module->exports->lookup(name);
+            if (sym) {
+                fmt::print("Re-exporting symbol {} from {} in {}\n", name, node->moduleSpecifier, currentModule->path);
+                currentModule->exports->define(spec.name, sym->type);
+            } else {
+                auto type = module->exports->lookupType(name);
+                if (type) {
+                    currentModule->exports->defineType(spec.name, type);
+                } else {
+                    reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
+                }
+            }
+        }
         return;
     }
 

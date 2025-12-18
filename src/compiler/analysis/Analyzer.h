@@ -117,6 +117,7 @@ private:
     std::string currentFilePath;
 
     void analyzeModule(std::shared_ptr<Module> module);
+    std::shared_ptr<Module> loadModule(const std::string& specifier);
     std::string resolveModulePath(const std::string& specifier);
 
     std::shared_ptr<ClassType> currentClass;

@@ -108,13 +108,12 @@ function visit(node) {
             return {
                 kind: "ExportDeclaration",
                 moduleSpecifier: node.moduleSpecifier ? node.moduleSpecifier.text : null,
-                exportClause: node.exportClause ? {
-                    kind: "NamedExports",
-                    elements: node.exportClause.elements.map(e => ({
+                isStarExport: !node.exportClause && !!node.moduleSpecifier,
+                namedExports: node.exportClause && node.exportClause.kind === ts.SyntaxKind.NamedExports ? 
+                    node.exportClause.elements.map(e => ({
                         name: e.name.text,
                         propertyName: e.propertyName ? e.propertyName.text : null
-                    }))
-                } : null
+                    })) : []
             };
         case ts.SyntaxKind.FunctionDeclaration:
             return {

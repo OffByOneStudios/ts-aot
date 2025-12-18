@@ -34,7 +34,8 @@ enum class TypeKind {
     Interface,
     Union,
     Intersection,
-    TypeParameter
+    TypeParameter,
+    Namespace
 };
 
 struct Type : public std::enable_shared_from_this<Type> {
@@ -71,11 +72,20 @@ struct Type : public std::enable_shared_from_this<Type> {
     }
 };
 
-struct TypeParameterType : public Type {
+struct TypeParameterType : Type {
     std::string name;
     std::shared_ptr<Type> constraint;
+
     TypeParameterType(const std::string& n) : Type(TypeKind::TypeParameter), name(n) {}
     std::string toString() const override { return name; }
+};
+
+struct Module; // Forward declaration
+
+struct NamespaceType : Type {
+    std::shared_ptr<Module> module;
+    NamespaceType(std::shared_ptr<Module> m) : Type(TypeKind::Namespace), module(m) {}
+    std::string toString() const override { return "namespace"; }
 };
 
 struct ArrayType : public Type {

@@ -1,0 +1,63 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "./module_c",
+      "importClause": {
+        "name": null,
+        "namedBindings": {
+          "kind": "NamedImports",
+          "elements": [
+            {
+              "name": "add",
+              "propertyName": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "add"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}

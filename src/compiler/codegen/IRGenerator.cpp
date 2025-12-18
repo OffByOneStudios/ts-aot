@@ -17,6 +17,7 @@ IRGenerator::IRGenerator() {
 }
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
+    this->specializations = specializations;
     // Initialize target for DataLayout
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();

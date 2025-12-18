@@ -26,6 +26,7 @@ private:
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
+    std::vector<Specialization> specializations;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void generateGlobals(const Analyzer& analyzer);
