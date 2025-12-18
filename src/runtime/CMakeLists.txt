@@ -20,6 +20,7 @@ add_library(tsruntime STATIC
     src/TsJSON.cpp
     src/TsDate.cpp
     src/TsRegExp.cpp
+    src/TsPromise.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

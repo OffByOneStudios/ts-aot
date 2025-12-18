@@ -8,15 +8,22 @@
 ## Milestones
 
 ### Milestone 42.1: Export Support
-- [ ] **AST:** Support `export` keyword.
-- [ ] **Analyzer:** Track exported symbols in the `SymbolTable`.
+- [x] **AST:** Support `export` keyword.
+- [x] **Analyzer:** Track exported symbols in the `SymbolTable`.
 
 ### Milestone 42.2: Import Support
-- [ ] **AST:** Support `import` statement.
-- [ ] **Analyzer:** Resolve imported symbols from other files.
-- [ ] **CodeGen:** Implement cross-module linking.
+- [x] **AST:** Support `import` statement.
+- [x] **Analyzer:** Resolve imported symbols from other files.
+- [x] **CodeGen:** Implement cross-module linking.
 
 ## Action Items
-- [ ] **Task 1:** Implement `export` in Parser and Analyzer.
-- [ ] **Task 2:** Implement `import` in Parser and Analyzer.
-- [ ] **Task 3:** Update `test_runner.py` to handle multi-file compilation.
+- [x] **Task 1:** Implement `export` in Parser and Analyzer.
+- [x] **Task 2:** Implement `import` in Parser and Analyzer.
+- [x] **Task 3:** Update `test_runner.py` to handle multi-file compilation.
+- [x] Update AST nodes and Loader for `ImportDeclaration` and `ExportDeclaration`.
+- [x] Implement recursive module loading in `Analyzer`.
+- [x] Implement named export/import resolution.
+- [x] Refactor `Monomorphizer` to wrap top-level code in synthetic init functions.
+- [x] Implement `user_main` to call module initializers in topological order.
+- [x] Support `llvm::GlobalVariable` for exported constants and module-level variables.
+- [x] Integration test with multi-file project.

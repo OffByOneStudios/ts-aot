@@ -81,6 +81,47 @@ Analyzer::Analyzer() {
     consoleLogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     consoleLogType->returnType = std::make_shared<Type>(TypeKind::Void);
     symbols.define("ts_console_log", consoleLogType);
+
+    // Register Promise class
+    auto promiseClass = std::make_shared<ClassType>("Promise");
+    auto tParam = std::make_shared<TypeParameterType>("T");
+    promiseClass->typeParameters.push_back(tParam);
+
+    auto thenType = std::make_shared<FunctionType>();
+    auto thenCallback = std::make_shared<FunctionType>();
+    thenCallback->paramTypes.push_back(tParam);
+    thenCallback->returnType = std::make_shared<Type>(TypeKind::Any); // Simplified
+    thenType->paramTypes.push_back(thenCallback);
+    thenType->returnType = promiseClass; // Returns Promise<any> for now
+    promiseClass->methods["then"] = thenType;
+
+    auto resolveType = std::make_shared<FunctionType>();
+    resolveType->paramTypes.push_back(tParam);
+    resolveType->returnType = promiseClass;
+    promiseClass->staticMethods["resolve"] = resolveType;
+
+    symbols.defineType("Promise", promiseClass);
+
+    // Register Timers
+    auto setTimeoutType = std::make_shared<FunctionType>();
+    auto timerCallback = std::make_shared<FunctionType>();
+    timerCallback->returnType = std::make_shared<Type>(TypeKind::Void);
+    setTimeoutType->paramTypes.push_back(timerCallback);
+    setTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setTimeoutType->returnType = std::make_shared<Type>(TypeKind::Int);
+    symbols.define("setTimeout", setTimeoutType);
+
+    auto setIntervalType = std::make_shared<FunctionType>();
+    setIntervalType->paramTypes.push_back(timerCallback);
+    setIntervalType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setIntervalType->returnType = std::make_shared<Type>(TypeKind::Int);
+    symbols.define("setInterval", setIntervalType);
+
+    auto clearTimeoutType = std::make_shared<FunctionType>();
+    clearTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    clearTimeoutType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("clearTimeout", clearTimeoutType);
+    symbols.define("clearInterval", clearTimeoutType);
 }
 
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
@@ -170,6 +211,11 @@ void Analyzer::visit(Node* node) {
     else if (auto sl = dynamic_cast<StringLiteral*>(node)) visitStringLiteral(sl);
     else if (auto nl = dynamic_cast<NumericLiteral*>(node)) visitNumericLiteral(nl);
     else if (auto bl = dynamic_cast<BooleanLiteral*>(node)) visitBooleanLiteral(bl);
+    else if (auto awaitExpr = dynamic_cast<AwaitExpression*>(node)) visitAwaitExpression(awaitExpr);
+    else if (auto arrow = dynamic_cast<ArrowFunction*>(node)) visitArrowFunction(arrow);
+    else if (auto tmpl = dynamic_cast<TemplateExpression*>(node)) visitTemplateExpression(tmpl);
+    else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
+    else if (auto post = dynamic_cast<PostfixUnaryExpression*>(node)) visitPostfixUnaryExpression(post);
     else if (auto arrow = dynamic_cast<ArrowFunction*>(node)) visitArrowFunction(arrow);
     else if (auto tmpl = dynamic_cast<TemplateExpression*>(node)) visitTemplateExpression(tmpl);
     else if (auto pre = dynamic_cast<PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);

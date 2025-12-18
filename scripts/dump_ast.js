@@ -62,6 +62,14 @@ function isExported(node) {
     return false;
 }
 
+function isAsync(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.AsyncKeyword) return true;
+    }
+    return false;
+}
+
 function getTypeParameters(node) {
     if (!node.typeParameters) return [];
     return node.typeParameters.map(tp => ({
@@ -113,6 +121,7 @@ function visit(node) {
                 kind: "FunctionDeclaration",
                 name: node.name ? node.name.text : "anonymous",
                 isExported: isExported(node),
+                isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 parameters: node.parameters.map(p => ({
@@ -285,6 +294,11 @@ function visit(node) {
                 left: visit(node.left),
                 right: visit(node.right)
             };
+        case ts.SyntaxKind.AwaitExpression:
+            return {
+                kind: "AwaitExpression",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.StringLiteral:
             return {
                 kind: "StringLiteral",
@@ -339,6 +353,12 @@ function visit(node) {
                 kind: "PrefixUnaryExpression",
                 operator: node.kind === ts.SyntaxKind.TypeOfExpression ? "typeof" : ts.tokenToString(node.operator),
                 operand: visit(node.kind === ts.SyntaxKind.TypeOfExpression ? node.expression : node.operand)
+            };
+        case ts.SyntaxKind.PostfixUnaryExpression:
+            return {
+                kind: "PostfixUnaryExpression",
+                operator: ts.tokenToString(node.operator),
+                operand: visit(node.operand)
             };
         case ts.SyntaxKind.PropertyAccessExpression:
             return {

@@ -152,8 +152,17 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<BooleanLiteral>();
         node->value = j["value"];
         return node;
+    } else if (kind == "AwaitExpression") {
+        auto node = std::make_unique<AwaitExpression>();
+        node->expression = parseExpression(j["expression"]);
+        return node;
     } else if (kind == "PrefixUnaryExpression") {
         auto node = std::make_unique<PrefixUnaryExpression>();
+        node->op = j["operator"];
+        node->operand = parseExpression(j["operand"]);
+        return node;
+    } else if (kind == "PostfixUnaryExpression") {
+        auto node = std::make_unique<PostfixUnaryExpression>();
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
@@ -334,6 +343,9 @@ StmtPtr parseStatement(const json& j) {
         node->name = j["name"].get<std::string>();
         if (j.contains("isExported")) {
             node->isExported = j["isExported"];
+        }
+        if (j.contains("isAsync")) {
+            node->isAsync = j["isAsync"];
         }
         if (j.contains("typeParameters")) {
             for (const auto& tp : j["typeParameters"]) {

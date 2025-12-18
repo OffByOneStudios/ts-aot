@@ -9,15 +9,22 @@ void Analyzer::visitExpressionStatement(ExpressionStatement* node) {
 }
 
 void Analyzer::visitVariableDeclaration(VariableDeclaration* node) {
+    // Declare first so it's in scope for the initializer (e.g. recursive functions or closures)
     auto type = std::make_shared<Type>(TypeKind::Any);
+    declareBindingPattern(node->name.get(), type);
+
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
             type = lastType;
+            // Update the type in the symbol table
+            if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
+                symbols.update(id->name, type);
+            }
         }
     }
     node->resolvedType = type;
-    declareBindingPattern(node->name.get(), type);
+    
     if (node->isExported && currentModule) {
         if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
             currentModule->exports->define(id->name, type);

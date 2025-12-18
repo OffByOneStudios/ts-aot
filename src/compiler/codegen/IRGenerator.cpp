@@ -121,6 +121,7 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::Array:
         case TypeKind::Union:
         case TypeKind::Intersection:
+        case TypeKind::TypeParameter:
             return llvm::PointerType::getUnqual(*context);
         default: return llvm::Type::getVoidTy(*context);
     }
@@ -129,6 +130,13 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
 void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern) {
     if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
         llvm::errs() << "Defining identifier: " << id->name << "\n";
+        
+        // Check if it's a global variable
+        if (auto gv = module->getGlobalVariable(id->name)) {
+            builder->CreateStore(value, gv);
+            return;
+        }
+
         llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, value->getType());
         builder->CreateStore(value, alloca);
         namedValues[id->name] = alloca;
@@ -358,7 +366,15 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
     else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto pre = dynamic_cast<ast::PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
-    else if (auto sup = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(sup);
+    else if (auto postfix = dynamic_cast<ast::PostfixUnaryExpression*>(node)) visitPostfixUnaryExpression(postfix);
+    else if (auto super = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(super);
+    else if (auto awaitExpr = dynamic_cast<ast::AwaitExpression*>(node)) visitAwaitExpression(awaitExpr);
+    else if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node)) visitArrowFunction(arrow);
+    else if (auto temp = dynamic_cast<ast::TemplateExpression*>(node)) visitTemplateExpression(temp);
+    else if (auto prog = dynamic_cast<ast::Program*>(node)) visitProgram(prog);
+    else if (auto cls = dynamic_cast<ast::ClassDeclaration*>(node)) visitClassDeclaration(cls);
+    else if (auto inter = dynamic_cast<ast::InterfaceDeclaration*>(node)) visitInterfaceDeclaration(inter);
+    else if (auto func = dynamic_cast<ast::FunctionDeclaration*>(node)) visitFunctionDeclaration(func);
     else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(node)) visitObjectBindingPattern(obp);
     else if (auto abp = dynamic_cast<ast::ArrayBindingPattern*>(node)) visitArrayBindingPattern(abp);
     else if (auto be = dynamic_cast<ast::BindingElement*>(node)) visitBindingElement(be);
@@ -445,6 +461,52 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     return builder->CreateBitCast(val, expectedType);
 }
 
+llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
+    if (!val) return nullptr;
+    
+    llvm::Type* valType = val->getType();
+    std::string funcName;
+    
+    if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
+    else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
+    else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
+    else if (valType->isPointerTy()) {
+        if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
+        else funcName = "ts_value_make_object";
+    }
+    
+    if (funcName.empty()) return val;
+    
+    llvm::FunctionCallee boxFn = module->getOrInsertFunction(funcName,
+        builder->getPtrTy(), valType);
+    
+    return builder->CreateCall(boxFn, { val });
+}
+
+llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> type) {
+    if (!type) return val;
+    
+    if (type->kind == TypeKind::Int) {
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int",
+            llvm::Type::getInt64Ty(*context), builder->getPtrTy());
+        return builder->CreateCall(unboxFn, { val });
+    } else if (type->kind == TypeKind::Double) {
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double",
+            llvm::Type::getDoubleTy(*context), builder->getPtrTy());
+        return builder->CreateCall(unboxFn, { val });
+    } else if (type->kind == TypeKind::Boolean) {
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool",
+            llvm::Type::getInt1Ty(*context), builder->getPtrTy());
+        return builder->CreateCall(unboxFn, { val });
+    } else if (type->kind == TypeKind::String) {
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_string",
+            builder->getPtrTy(), builder->getPtrTy());
+        return builder->CreateCall(unboxFn, { val });
+    }
+    
+    return val;
+}
+
 void IRGenerator::visitObjectBindingPattern(ast::ObjectBindingPattern* node) {}
 void IRGenerator::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {}
 void IRGenerator::visitBindingElement(ast::BindingElement* node) {}
@@ -458,5 +520,15 @@ void IRGenerator::visitImportDeclaration(ast::ImportDeclaration* node) {
 void IRGenerator::visitExportDeclaration(ast::ExportDeclaration* node) {
     // Handled during module resolution
 }
+
+void IRGenerator::visitProgram(ast::Program* node) {
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+}
+
+void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {}
+void IRGenerator::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {}
+void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {}
 
 } // namespace ts

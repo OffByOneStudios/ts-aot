@@ -599,6 +599,20 @@ void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Boolean);
 }
 
+void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
+    visit(node->expression.get());
+    auto type = lastType;
+    if (type->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(type);
+        if (cls->name == "Promise" && !cls->typeParameters.empty()) {
+            // For now, just assume the first type parameter is the result type
+            // In a real implementation, we'd need to handle substitution
+            lastType = std::make_shared<Type>(TypeKind::Any); 
+        }
+    }
+    // If it's not a promise, await just returns the value (simplified)
+}
+
 void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
     for (auto& span : node->spans) {
         visit(span.expression.get());
@@ -608,11 +622,10 @@ void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
 
 void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
     visit(node->operand.get());
-    if (node->op == "!") {
-         lastType = std::make_shared<Type>(TypeKind::Boolean);
-    } else if (node->op == "typeof") {
-         lastType = std::make_shared<Type>(TypeKind::String);
-    }
+}
+
+void Analyzer::visitPostfixUnaryExpression(PostfixUnaryExpression* node) {
+    visit(node->operand.get());
 }
 
 void Analyzer::visitSuperExpression(SuperExpression* node) {

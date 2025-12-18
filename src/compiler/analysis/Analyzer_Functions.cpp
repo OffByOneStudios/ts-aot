@@ -214,8 +214,26 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 }
 
 void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
-    // For now, just return a generic function type
-    lastType = std::make_shared<FunctionType>();
+    auto funcType = std::make_shared<FunctionType>();
+    
+    symbols.enterScope();
+    
+    for (auto& param : node->parameters) {
+        std::shared_ptr<Type> paramType = parseType(param->type, symbols);
+        funcType->paramTypes.push_back(paramType);
+        
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            symbols.define(id->name, paramType);
+        }
+    }
+    
+    visit(node->body.get());
+    funcType->returnType = lastType;
+    
+    symbols.exitScope();
+    
+    node->inferredType = funcType;
+    lastType = funcType;
 }
 
 } // namespace ts

@@ -72,6 +72,17 @@ std::shared_ptr<Type> SymbolTable::lookupType(const std::string& name) const {
     return nullptr;
 }
 
+bool SymbolTable::update(const std::string& name, std::shared_ptr<Type> type) {
+    for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+        auto found = it->find(name);
+        if (found != it->end()) {
+            found->second->type = type;
+            return true;
+        }
+    }
+    return false;
+}
+
 const std::unordered_map<std::string, std::shared_ptr<Type>>& SymbolTable::getGlobalTypes() const {
     static const std::unordered_map<std::string, std::shared_ptr<Type>> empty;
     if (typeScopes.empty()) return empty;

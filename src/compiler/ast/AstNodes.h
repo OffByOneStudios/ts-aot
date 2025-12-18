@@ -61,6 +61,8 @@ struct ArrowFunction;
 struct TemplateExpression;
 struct AsExpression;
 struct PrefixUnaryExpression;
+struct PostfixUnaryExpression;
+struct AwaitExpression;
 struct ClassDeclaration;
 struct MethodDefinition;
 struct PropertyDefinition;
@@ -98,10 +100,12 @@ struct Visitor {
     virtual void visitStringLiteral(StringLiteral* node) = 0;
     virtual void visitNumericLiteral(NumericLiteral* node) = 0;
     virtual void visitBooleanLiteral(BooleanLiteral* node) = 0;
+    virtual void visitAwaitExpression(AwaitExpression* node) = 0;
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
     virtual void visitAsExpression(AsExpression* node) = 0;
     virtual void visitPrefixUnaryExpression(PrefixUnaryExpression* node) = 0;
+    virtual void visitPostfixUnaryExpression(PostfixUnaryExpression* node) = 0;
     virtual void visitClassDeclaration(ClassDeclaration* node) = 0;
     virtual void visitInterfaceDeclaration(InterfaceDeclaration* node) = 0;
     virtual void visitObjectBindingPattern(ObjectBindingPattern* node) = 0;
@@ -154,6 +158,7 @@ struct TypeParameter : Node {
 struct FunctionDeclaration : Statement {
     std::string name;
     bool isExported = false;
+    bool isAsync = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;
@@ -387,6 +392,13 @@ struct PrefixUnaryExpression : Expression {
     void accept(Visitor* visitor) override { visitor->visitPrefixUnaryExpression(this); }
 };
 
+struct PostfixUnaryExpression : Expression {
+    std::string op;
+    ExprPtr operand;
+    std::string getKind() const override { return "PostfixUnaryExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitPostfixUnaryExpression(this); }
+};
+
 struct AssignmentExpression : Expression {
     ExprPtr left; // Usually Identifier
     ExprPtr right;
@@ -483,6 +495,12 @@ struct BooleanLiteral : Expression {
     bool value;
     std::string getKind() const override { return "BooleanLiteral"; }
     void accept(Visitor* visitor) override { visitor->visitBooleanLiteral(this); }
+};
+
+struct AwaitExpression : Expression {
+    ExprPtr expression;
+    std::string getKind() const override { return "AwaitExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitAwaitExpression(this); }
 };
 
 struct ArrowFunction : Expression {
