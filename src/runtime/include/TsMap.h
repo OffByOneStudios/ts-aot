@@ -5,15 +5,18 @@
 
 class TsMap {
 public:
+    static constexpr uint32_t MAGIC = 0x4D415053; // "MAPS"
     static TsMap* Create();
 
     void Set(TsString* key, int64_t value);
     int64_t Get(TsString* key);
     bool Has(TsString* key);
     int64_t Size();
+    void* GetKeys();
 
 private:
     TsMap();
+    uint32_t magic = MAGIC;
     void* impl; // Pointer to std::unordered_map
 };
 

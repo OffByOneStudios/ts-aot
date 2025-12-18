@@ -51,6 +51,10 @@ TsString* TsString::FromInt(int64_t value) {
     return Create(str.c_str());
 }
 
+TsString* TsString::FromBool(bool value) {
+    return Create(value ? "true" : "false");
+}
+
 TsString* TsString::FromDouble(double value) {
     std::string str = std::to_string(value);
     // Remove trailing zeros? std::to_string(double) produces 6 decimal places.
@@ -144,6 +148,36 @@ bool TsString::StartsWith(TsString* prefix) {
     return s->startsWith(*p);
 }
 
+bool TsString::Includes(TsString* searchString) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* search = static_cast<icu::UnicodeString*>(searchString->impl);
+    return s->indexOf(*search) != -1;
+}
+
+int64_t TsString::IndexOf(TsString* searchString) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* search = static_cast<icu::UnicodeString*>(searchString->impl);
+    return s->indexOf(*search);
+}
+
+TsString* TsString::ToLowerCase() {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString result = *s;
+    result.toLower();
+    std::string str;
+    result.toUTF8String(str);
+    return Create(str.c_str());
+}
+
+TsString* TsString::ToUpperCase() {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString result = *s;
+    result.toUpper();
+    std::string str;
+    result.toUTF8String(str);
+    return Create(str.c_str());
+}
+
 bool TsString::Equals(TsString* other) {
     if (this == other) return true;
     if (!other) return false;
@@ -184,8 +218,28 @@ extern "C" bool ts_string_startsWith(void* str, void* prefix) {
     return ((TsString*)str)->StartsWith((TsString*)prefix);
 }
 
+extern "C" bool ts_string_includes(void* str, void* searchString) {
+    return ((TsString*)str)->Includes((TsString*)searchString);
+}
+
+extern "C" int64_t ts_string_indexOf(void* str, void* searchString) {
+    return ((TsString*)str)->IndexOf((TsString*)searchString);
+}
+
+extern "C" void* ts_string_toLowerCase(void* str) {
+    return ((TsString*)str)->ToLowerCase();
+}
+
+extern "C" void* ts_string_toUpperCase(void* str) {
+    return ((TsString*)str)->ToUpperCase();
+}
+
 extern "C" void* ts_string_from_int(int64_t value) {
     return TsString::FromInt(value);
+}
+
+extern "C" void* ts_string_from_bool(bool value) {
+    return TsString::FromBool(value);
 }
 
 extern "C" void* ts_string_from_double(double value) {

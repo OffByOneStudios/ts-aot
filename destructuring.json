@@ -3,7 +3,7 @@
   "body": [
     {
       "kind": "ClassDeclaration",
-      "name": "Point3D",
+      "name": "Point",
       "baseClass": "",
       "implementsInterfaces": [],
       "members": [
@@ -164,7 +164,7 @@
               }
             ]
           },
-          "type": "Point3D"
+          "type": "Point"
         }
       ],
       "body": [
@@ -235,7 +235,7 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "Point3D"
+              "name": "Point"
             },
             "arguments": [
               {
@@ -730,6 +730,91 @@
                 "right": {
                   "kind": "Identifier",
                   "name": "z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "other"
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 4
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 5
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "combined"
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 3
+              },
+              {
+                "kind": "SpreadElement",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "other"
+                }
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 6
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "combined length: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "combined"
+                  },
+                  "name": "length"
                 }
               }
             ]

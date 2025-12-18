@@ -1,4 +1,4 @@
-class Point3D {
+class Point {
     x: number;
     y: number;
     z: number;
@@ -9,13 +9,13 @@ class Point3D {
     }
 }
 
-function printPoint({ x, y }: Point3D) {
+function printPoint({ x, y }: Point) {
     ts_console_log("printPoint x: " + x);
     ts_console_log("printPoint y: " + y);
 }
 
 function test() {
-    const p = new Point3D(10, 20, 30);
+    const p = new Point(10, 20, 30);
     printPoint(p);
 
     const { x, y } = p;
@@ -37,6 +37,10 @@ function test() {
     ts_console_log("x2: " + x2);
     ts_console_log("y2: " + y2);
     ts_console_log("z: " + z);
+
+    const other = [4, 5];
+    const combined = [1, 2, 3, ...other, 6];
+    ts_console_log("combined length: " + combined.length);
 }
 
 test();

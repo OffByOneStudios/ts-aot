@@ -322,6 +322,7 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto n = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(n);
     else if (auto obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
     else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
+    else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
     else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
     else if (auto as = dynamic_cast<ast::AsExpression*>(node)) visitAsExpression(as);
     else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);

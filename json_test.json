@@ -1,0 +1,146 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "jsonStr"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "{\"name\": \"John\", \"age\": 30, \"isStudent\": false}"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "obj"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "JSON"
+          },
+          "name": "parse"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "jsonStr"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Name: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "obj"
+              },
+              "name": "name"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "backToStr"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "JSON"
+          },
+          "name": "stringify"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "obj"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Stringified: "
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "backToStr"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "simpleObj"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "ObjectLiteralExpression",
+        "properties": [
+          {
+            "name": "a",
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 1
+            }
+          },
+          {
+            "name": "b",
+            "initializer": {
+              "kind": "StringLiteral",
+              "value": "hello"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

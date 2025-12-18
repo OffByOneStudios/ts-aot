@@ -209,6 +209,58 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
         std::string className = classType->name;
+
+        if (className == "Date") {
+            if (node->arguments.empty()) {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+                lastValue = builder->CreateCall(fn);
+            } else {
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (arg->getType()->isIntegerTy() || arg->getType()->isDoubleTy()) {
+                    if (arg->getType()->isDoubleTy()) {
+                        arg = builder->CreateFPToSI(arg, llvm::Type::getInt64Ty(*context));
+                    }
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::Type::getInt64Ty(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                } else {
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::PointerType::getUnqual(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                }
+            }
+            return;
+        } else if (className == "RegExp") {
+            llvm::Value* pattern = nullptr;
+            llvm::Value* flags = nullptr;
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                pattern = lastValue;
+            } else {
+                llvm::Constant* emptyStr = builder->CreateGlobalStringPtr("");
+                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
+                pattern = builder->CreateCall(createFn, { emptyStr });
+            }
+            
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                flags = lastValue;
+            } else {
+                flags = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+            }
+            
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            lastValue = builder->CreateCall(fn, { pattern, flags });
+            return;
+        }
         
         // 1. Get Struct Type
         llvm::StructType* structType = llvm::StructType::getTypeByName(*context, className);
@@ -296,6 +348,56 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 lastValue = builder->CreateCall(fn);
                 return;
             }
+        } else if (id->name == "Date") {
+            if (node->arguments.empty()) {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+                lastValue = builder->CreateCall(fn);
+            } else {
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (arg->getType()->isIntegerTy() || arg->getType()->isDoubleTy()) {
+                    if (arg->getType()->isDoubleTy()) {
+                        arg = builder->CreateFPToSI(arg, llvm::Type::getInt64Ty(*context));
+                    }
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::Type::getInt64Ty(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                } else {
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str",
+                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::PointerType::getUnqual(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                }
+            }
+            return;
+        } else if (id->name == "RegExp") {
+            llvm::Value* pattern = nullptr;
+            llvm::Value* flags = nullptr;
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                pattern = lastValue;
+            } else {
+                llvm::Constant* emptyStr = builder->CreateGlobalStringPtr("");
+                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
+                pattern = builder->CreateCall(createFn, { emptyStr });
+            }
+            
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                flags = lastValue;
+            } else {
+                flags = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+            }
+            
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            lastValue = builder->CreateCall(fn, { pattern, flags });
+            return;
         }
     }
     lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));

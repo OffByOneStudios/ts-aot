@@ -1,0 +1,560 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "s"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "Hello World"
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Includes 'World': "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "s"
+                },
+                "name": "includes"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "World"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Includes 'world': "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "s"
+                },
+                "name": "includes"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "world"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "IndexOf 'World': "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "s"
+                },
+                "name": "indexOf"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "World"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Lower: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "s"
+                },
+                "name": "toLowerCase"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Upper: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "s"
+                },
+                "name": "toUpperCase"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "arr"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "NumericLiteral",
+            "value": 10
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 20
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 30
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 40
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 50
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Array IndexOf 30: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "arr"
+                },
+                "name": "indexOf"
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 30
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Array IndexOf 60: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "arr"
+                },
+                "name": "indexOf"
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 60
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "sliced"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "name": "slice"
+        },
+        "arguments": [
+          {
+            "kind": "NumericLiteral",
+            "value": 1
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 4
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Sliced length: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "sliced"
+              },
+              "name": "length"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Sliced[0]: "
+            },
+            "right": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "sliced"
+              },
+              "argumentExpression": {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Sliced[1]: "
+            },
+            "right": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "sliced"
+              },
+              "argumentExpression": {
+                "kind": "NumericLiteral",
+                "value": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Sliced[2]: "
+            },
+            "right": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "sliced"
+              },
+              "argumentExpression": {
+                "kind": "NumericLiteral",
+                "value": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "joined"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "name": "join"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "-"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Joined: "
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "joined"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "strArr"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "StringLiteral",
+            "value": "a"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "b"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "c"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Joined strings: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "strArr"
+                },
+                "name": "join"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "|"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

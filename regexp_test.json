@@ -1,0 +1,237 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "re"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "RegExp"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "abc"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "i"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "str"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "ABC"
+      }
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "re"
+          },
+          "name": "test"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "str"
+          }
+        ]
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "Match found!"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "elseStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "No match."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "re2"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "RegExp"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "(\\d+)"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "str2"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "The answer is 42"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "match"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "re2"
+          },
+          "name": "exec"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "str2"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "Identifier",
+        "name": "match"
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Found: "
+                  },
+                  "right": {
+                    "kind": "ElementAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "match"
+                    },
+                    "argumentExpression": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Group 1: "
+                  },
+                  "right": {
+                    "kind": "ElementAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "match"
+                    },
+                    "argumentExpression": {
+                      "kind": "NumericLiteral",
+                      "value": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "elseStatement": null
+    }
+  ]
+}

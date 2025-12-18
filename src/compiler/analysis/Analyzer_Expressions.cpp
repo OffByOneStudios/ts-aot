@@ -34,8 +34,27 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "startsWith") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
+        } else if (prop->name == "includes") {
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
+             return;
+        } else if (prop->name == "indexOf") {
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "toLowerCase") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "toUpperCase") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         } else if (prop->name == "sort") {
              lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "slice") {
+             visit(prop->expression.get());
+             // lastType is now the type of the array, which is what slice returns
+             return;
+        } else if (prop->name == "join") {
+             lastType = std::make_shared<Type>(TypeKind::String);
              return;
         } else if (prop->name == "set") {
              lastType = std::make_shared<Type>(TypeKind::Void);
@@ -51,13 +70,27 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         // Check for Math methods
         if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
             if (obj->name == "Math") {
-                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor") {
+                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round") {
                     lastType = std::make_shared<Type>(TypeKind::Int);
+                    return;
+                } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random") {
+                    lastType = std::make_shared<Type>(TypeKind::Double);
+                    return;
+                }
+            } else if (obj->name == "JSON") {
+                if (prop->name == "parse") {
+                    lastType = std::make_shared<Type>(TypeKind::Any);
+                    return;
+                } else if (prop->name == "stringify") {
+                    lastType = std::make_shared<Type>(TypeKind::String);
                     return;
                 }
             } else if (obj->name == "fs") {
                 if (prop->name == "readFileSync") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    return;
+                } else if (prop->name == "writeFileSync") {
+                    lastType = std::make_shared<Type>(TypeKind::Void);
                     return;
                 }
             } else if (obj->name == "crypto") {
@@ -244,6 +277,13 @@ void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
 }
 
 void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
+    if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
+        if (id->name == "Math" && node->name == "PI") {
+            lastType = std::make_shared<Type>(TypeKind::Double);
+            return;
+        }
+    }
+
     visit(node->expression.get());
     auto objType = lastType;
     
@@ -419,6 +459,13 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             lastType = std::make_shared<Type>(TypeKind::Any);
             return;
         }
+
+        // Built-in methods fallback
+        if (node->name == "includes" || node->name == "indexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
+            lastType = std::make_shared<Type>(TypeKind::Any); // Or more specific function type
+            return;
+        }
+
         reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
@@ -490,7 +537,11 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     } else {
         // Check if it's a class name
         auto type = symbols.lookupType(node->name);
-        if (type) {
+        if (type && type->kind == TypeKind::Class) {
+            auto ctorType = std::make_shared<FunctionType>();
+            ctorType->returnType = type;
+            lastType = ctorType;
+        } else if (type) {
             lastType = type;
         } else {
             lastType = std::make_shared<Type>(TypeKind::Any);
