@@ -492,12 +492,23 @@ void IRGenerator::dumpIR() {
 
 llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) {
     if (val->getType() == expectedType) return val;
+    
     if (val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
         return builder->CreateIntCast(val, expectedType, true);
     }
+    
+    if (val->getType()->isIntegerTy() && expectedType->isDoubleTy()) {
+        return builder->CreateSIToFP(val, expectedType);
+    }
+    
+    if (val->getType()->isDoubleTy() && expectedType->isIntegerTy()) {
+        return builder->CreateFPToSI(val, expectedType);
+    }
+
     if (val->getType()->isPointerTy() && expectedType->isPointerTy()) {
         return builder->CreateBitCast(val, expectedType);
     }
+    
     return val;
 }
 

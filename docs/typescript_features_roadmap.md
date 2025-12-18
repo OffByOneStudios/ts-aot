@@ -81,7 +81,7 @@ This document tracks the implementation status of TypeScript language features i
 | Destructuring | ✅ | Phase 8 | `const { x } = obj`. |
 | Spread / Rest | ✅ | Phase 8 | `...obj`, `...arr`. |
 | Modules (`import`/`export`) | 📅 | Phase 9 | Multi-file compilation. |
-| Async / Await | 📅 | Phase 10 | Promises and Event Loop integration. |
+| Async / Await | ✅ | Phase 10 | Promises and Event Loop integration. |
 
 ## 6. Standard Library
 
@@ -115,10 +115,12 @@ This document tracks the implementation status of TypeScript language features i
 - **Status:** ⚠️ PARTIAL (Union/Intersection, Type Guards, try/catch done)
 - **Features:** Union/Intersection Types, Type Guards, `try/catch`, Destructuring, `Date`, `RegExp`, `JSON`.
 
-### Phase 10: Modules & Build
-- **Goal:** Large scale project support.
-- **Features:** `import`/`export`, Multi-file linking.
-
-### Phase 11: Asynchronous Programming
+### Phase 10: Async / Await & Event Loop
 - **Goal:** Non-blocking I/O.
-- **Features:** `Promise`, `async`/`await`.
+- **Status:** ✅ COMPLETED
+- **Features:** `Promise`, `async`/`await`, `setTimeout`, `fs.promises`, `fetch`.
+
+### Phase 11: Language Parity & Generics
+- **Goal:** Reach full feature parity with core TypeScript.
+- **Status:** 📅 PLANNED
+- **Features:** Generics, Modules (ESM), Tuples, Enums, Optional/Default/Rest Parameters, `unknown`, `never`, `for..in`.
