@@ -26,6 +26,25 @@ void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
     } else {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
+
+    if (node->isAsync) {
+        // Wrap return type in Promise if it's not already a Promise
+        bool isPromise = false;
+        if (funcType->returnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+            if (cls->name == "Promise") isPromise = true;
+        }
+        
+        if (!isPromise) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            auto wrapped = std::make_shared<ClassType>("Promise");
+            wrapped->typeParameters = promiseClass->typeParameters;
+            wrapped->methods = promiseClass->methods;
+            wrapped->staticMethods = promiseClass->staticMethods;
+            wrapped->typeArguments = { funcType->returnType };
+            funcType->returnType = wrapped;
+        }
+    }
     
     for (const auto& param : node->parameters) {
         if (!param->type.empty()) {
@@ -229,6 +248,25 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
     
     visit(node->body.get());
     funcType->returnType = lastType;
+
+    if (node->isAsync) {
+        // Wrap return type in Promise if it's not already a Promise
+        bool isPromise = false;
+        if (funcType->returnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+            if (cls->name == "Promise") isPromise = true;
+        }
+        
+        if (!isPromise) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            auto wrapped = std::make_shared<ClassType>("Promise");
+            wrapped->typeParameters = promiseClass->typeParameters;
+            wrapped->methods = promiseClass->methods;
+            wrapped->staticMethods = promiseClass->staticMethods;
+            wrapped->typeArguments = { funcType->returnType };
+            funcType->returnType = wrapped;
+        }
+    }
     
     symbols.exitScope();
     

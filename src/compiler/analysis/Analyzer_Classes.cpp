@@ -98,6 +98,26 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
             } else {
                 methodType->returnType = std::make_shared<Type>(TypeKind::Void);
             }
+
+            if (method->isAsync) {
+                // Wrap return type in Promise if it's not already a Promise
+                bool isPromise = false;
+                if (methodType->returnType->kind == TypeKind::Class) {
+                    auto cls = std::static_pointer_cast<ClassType>(methodType->returnType);
+                    if (cls->name == "Promise") isPromise = true;
+                }
+                
+                if (!isPromise) {
+                    auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+                    auto wrapped = std::make_shared<ClassType>("Promise");
+                    wrapped->typeParameters = promiseClass->typeParameters;
+                    wrapped->methods = promiseClass->methods;
+                    wrapped->staticMethods = promiseClass->staticMethods;
+                    wrapped->typeArguments = { methodType->returnType };
+                    methodType->returnType = wrapped;
+                }
+            }
+
             for (const auto& param : method->parameters) {
                 if (!param->type.empty()) {
                     methodType->paramTypes.push_back(parseType(param->type, symbols));
