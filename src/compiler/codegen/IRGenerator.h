@@ -56,6 +56,8 @@ private:
     void visitForStatement(ast::ForStatement* node);
     void visitForOfStatement(ast::ForOfStatement* node);
     void visitSwitchStatement(ast::SwitchStatement* node);
+    void visitTryStatement(ast::TryStatement* node);
+    void visitThrowStatement(ast::ThrowStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
@@ -63,8 +65,6 @@ private:
     void visit(ast::Node* node);
 
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
-
-    void visitMethodDefinition(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
@@ -85,6 +85,8 @@ private:
         llvm::BasicBlock* breakBlock;
     };
     std::vector<LoopInfo> loopStack;
+
+    llvm::Function* getRuntimeFunction(const std::string& name);
 };
 
 } // namespace ts

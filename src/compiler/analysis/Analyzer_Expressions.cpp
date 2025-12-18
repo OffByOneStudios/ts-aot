@@ -1,0 +1,542 @@
+#include "Analyzer.h"
+#include <fmt/core.h>
+
+namespace ts {
+
+using namespace ast;
+
+void Analyzer::visitCallExpression(CallExpression* node) {
+    // 1. Evaluate arguments first to get their types for overload resolution
+    std::vector<std::shared_ptr<Type>> argTypes;
+    for (auto& arg : node->arguments) {
+        visit(arg.get());
+        argTypes.push_back(lastType);
+    }
+
+    // 2. Evaluate callee
+    visit(node->callee.get());
+    auto calleeType = lastType;
+    
+    // Check for property access calls (methods)
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->name == "charCodeAt") {
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "split") {
+             lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+             return;
+        } else if (prop->name == "trim") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "substring") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "startsWith") {
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
+             return;
+        } else if (prop->name == "sort") {
+             lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "set") {
+             lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "get") {
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "has") {
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
+             return;
+        }
+        
+        // Check for Math methods
+        if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
+            if (obj->name == "Math") {
+                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor") {
+                    lastType = std::make_shared<Type>(TypeKind::Int);
+                    return;
+                }
+            } else if (obj->name == "fs") {
+                if (prop->name == "readFileSync") {
+                    lastType = std::make_shared<Type>(TypeKind::String);
+                    return;
+                }
+            } else if (obj->name == "crypto") {
+                if (prop->name == "md5") {
+                    lastType = std::make_shared<Type>(TypeKind::String);
+                    return;
+                }
+            }
+        }
+
+        // Check for class methods
+        visit(prop->expression.get());
+        auto objType = lastType;
+        if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            std::shared_ptr<FunctionType> methodType = nullptr;
+            
+            if (cls->methodOverloads.count(prop->name)) {
+                methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes);
+            } else if (cls->methods.count(prop->name)) {
+                methodType = cls->methods[prop->name];
+            }
+            
+            if (methodType) {
+                lastType = methodType->returnType;
+                return;
+            }
+        } else if (objType->kind == TypeKind::Interface) {
+            auto inter = std::static_pointer_cast<InterfaceType>(objType);
+            std::shared_ptr<FunctionType> methodType = nullptr;
+            
+            if (inter->methodOverloads.count(prop->name)) {
+                methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes);
+            } else if (inter->methods.count(prop->name)) {
+                methodType = inter->methods[prop->name];
+            }
+            
+            if (methodType) {
+                lastType = methodType->returnType;
+                return;
+            }
+        } else if (objType->kind == TypeKind::Function) {
+            auto func = std::static_pointer_cast<FunctionType>(objType);
+            if (func->returnType && func->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(func->returnType);
+                // Static method
+                std::shared_ptr<FunctionType> methodType = nullptr;
+                if (cls->staticMethodOverloads.count(prop->name)) {
+                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                } else if (cls->staticMethods.count(prop->name)) {
+                    methodType = cls->staticMethods[prop->name];
+                }
+                
+                if (methodType) {
+                    lastType = methodType->returnType;
+                    return;
+                }
+            }
+        }
+    }
+    
+    if (calleeType->kind == TypeKind::Function) {
+        auto func = std::static_pointer_cast<FunctionType>(calleeType);
+        lastType = func->returnType;
+        
+        if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+            functionUsages[id->name].push_back(argTypes);
+        }
+        return;
+    }
+
+    std::string calleeName;
+    if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+        calleeName = id->name;
+        
+        auto sym = symbols.lookup(calleeName);
+        if (sym) {
+             if (sym->type->kind == TypeKind::Function) {
+                 auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
+                 lastType = funcType->returnType;
+             }
+        }
+
+        if (calleeName == "parseInt") {
+             for (auto& arg : node->arguments) visit(arg.get());
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        }
+    }
+
+    if (!calleeName.empty()) {
+        functionUsages[calleeName].push_back(argTypes);
+    }
+    
+    // For now, assume calls return Any unless we know better
+    lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+void Analyzer::visitNewExpression(NewExpression* node) {
+    std::vector<std::shared_ptr<Type>> ctorArgTypes;
+    for (auto& arg : node->arguments) {
+        visit(arg.get());
+        ctorArgTypes.push_back(lastType);
+    }
+
+    visit(node->expression.get());
+    
+    if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
+        if (id->name == "Map") {
+            lastType = std::make_shared<Type>(TypeKind::Map);
+            return;
+        } else if (id->name == "Array") {
+            lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            return;
+        }
+
+        // Check for user-defined classes
+        auto sym = symbols.lookup(id->name);
+        if (sym && sym->type->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
+            if (funcType->returnType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(funcType->returnType);
+                if (classType->isAbstract) {
+                    reportError(fmt::format("Cannot create an instance of an abstract class '{}'", classType->name));
+                }
+
+                // Resolve constructor overload
+                if (!classType->constructorOverloads.empty()) {
+                    auto resolvedCtor = resolveOverload(classType->constructorOverloads, ctorArgTypes);
+                    if (!resolvedCtor) {
+                        reportError(fmt::format("No constructor overload for '{}' matches arguments", classType->name));
+                    }
+                }
+
+                lastType = classType;
+                return;
+            }
+        }
+    }
+    
+    lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {
+    auto objType = std::make_shared<ObjectType>();
+    for (auto& prop : node->properties) {
+        visit(prop->initializer.get());
+        objType->fields[prop->name] = lastType;
+    }
+    lastType = objType;
+}
+
+void Analyzer::visitArrayLiteralExpression(ArrayLiteralExpression* node) {
+    std::shared_ptr<Type> elemType = nullptr;
+    for (auto& el : node->elements) {
+        visit(el.get());
+        if (!elemType) {
+            elemType = lastType;
+        }
+        // TODO: Check for mixed types and upgrade to Any
+    }
+    if (!elemType) elemType = std::make_shared<Type>(TypeKind::Any);
+    lastType = std::make_shared<ArrayType>(elemType);
+}
+
+void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
+    visit(node->expression.get());
+    auto arrayType = std::dynamic_pointer_cast<ArrayType>(lastType);
+    
+    visit(node->argumentExpression.get());
+    // TODO: Verify index is integer
+    
+    if (arrayType) {
+        lastType = arrayType->elementType;
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
+void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
+    visit(node->expression.get());
+    auto objType = lastType;
+    
+    if (node->name == "length") {
+        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else if (node->name == "size") {
+        if (objType->kind == TypeKind::Map) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else {
+        if (objType->kind == TypeKind::Union) {
+            auto unionType = std::static_pointer_cast<UnionType>(objType);
+            std::vector<std::shared_ptr<Type>> memberTypes;
+            for (auto& t : unionType->types) {
+                // Recursively check each type in the union
+                lastType = t;
+                // We need a way to check property access without side effects or with a way to restore state
+                // For now, let's assume we can just check if it's an object/class/interface
+                std::shared_ptr<Type> foundType = nullptr;
+                if (t->kind == TypeKind::Object) {
+                    auto obj = std::static_pointer_cast<ObjectType>(t);
+                    if (obj->fields.count(node->name)) foundType = obj->fields[node->name];
+                } else if (t->kind == TypeKind::Class) {
+                    auto cls = std::static_pointer_cast<ClassType>(t);
+                    auto current = cls;
+                    while (current) {
+                        if (current->fields.count(node->name)) { foundType = current->fields[node->name]; break; }
+                        if (current->methods.count(node->name)) { foundType = current->methods[node->name]; break; }
+                        current = current->baseClass;
+                    }
+                } else if (t->kind == TypeKind::Interface) {
+                    auto inter = std::static_pointer_cast<InterfaceType>(t);
+                    if (inter->fields.count(node->name)) foundType = inter->fields[node->name];
+                    else if (inter->methods.count(node->name)) foundType = inter->methods[node->name];
+                }
+
+                if (!foundType) {
+                    // Property not found in one of the union members
+                    lastType = std::make_shared<Type>(TypeKind::Any);
+                    return;
+                }
+                memberTypes.push_back(foundType);
+            }
+            if (memberTypes.size() == 1) lastType = memberTypes[0];
+            else lastType = std::make_shared<UnionType>(memberTypes);
+            return;
+        } else if (objType->kind == TypeKind::Intersection) {
+            auto interType = std::static_pointer_cast<IntersectionType>(objType);
+            std::vector<std::shared_ptr<Type>> memberTypes;
+            for (auto& t : interType->types) {
+                std::shared_ptr<Type> foundType = nullptr;
+                if (t->kind == TypeKind::Object) {
+                    auto obj = std::static_pointer_cast<ObjectType>(t);
+                    if (obj->fields.count(node->name)) foundType = obj->fields[node->name];
+                } else if (t->kind == TypeKind::Class) {
+                    auto cls = std::static_pointer_cast<ClassType>(t);
+                    auto current = cls;
+                    while (current) {
+                        if (current->fields.count(node->name)) { foundType = current->fields[node->name]; break; }
+                        if (current->methods.count(node->name)) { foundType = current->methods[node->name]; break; }
+                        current = current->baseClass;
+                    }
+                } else if (t->kind == TypeKind::Interface) {
+                    auto inter = std::static_pointer_cast<InterfaceType>(t);
+                    if (inter->fields.count(node->name)) foundType = inter->fields[node->name];
+                    else if (inter->methods.count(node->name)) foundType = inter->methods[node->name];
+                }
+                if (foundType) memberTypes.push_back(foundType);
+            }
+            if (memberTypes.empty()) lastType = std::make_shared<Type>(TypeKind::Any);
+            else if (memberTypes.size() == 1) lastType = memberTypes[0];
+            else lastType = std::make_shared<IntersectionType>(memberTypes);
+            return;
+        }
+
+        if (objType->kind == TypeKind::Object) {
+            auto obj = std::static_pointer_cast<ObjectType>(objType);
+            if (obj->fields.count(node->name)) {
+                lastType = obj->fields[node->name];
+                return;
+            }
+        } else if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            
+            // Find defining class and access modifier
+            std::shared_ptr<ClassType> definingClass = nullptr;
+            AccessModifier access = AccessModifier::Public;
+            std::shared_ptr<Type> memberType = nullptr;
+
+            auto current = cls;
+            while (current) {
+                if (current->fields.count(node->name)) {
+                    definingClass = current;
+                    access = current->fieldAccess[node->name];
+                    memberType = current->fields[node->name];
+                    break;
+                } else if (current->methods.count(node->name)) {
+                    definingClass = current;
+                    access = current->methodAccess[node->name];
+                    memberType = current->methods[node->name];
+                    break;
+                } else if (current->getters.count(node->name)) {
+                    definingClass = current;
+                    access = current->methodAccess[node->name];
+                    memberType = current->getters[node->name]->returnType;
+                    break;
+                }
+                current = current->baseClass;
+            }
+
+            if (definingClass) {
+                // Visibility check
+                bool allowed = true;
+                if (access == AccessModifier::Private) {
+                    if (currentClass != definingClass) {
+                        reportError(fmt::format("Property {} is private and not accessible from here", node->name));
+                    }
+                } else if (access == AccessModifier::Protected) {
+                    if (!currentClass || !currentClass->isSubclassOf(definingClass)) {
+                        reportError(fmt::format("Property {} is protected and not accessible from here", node->name));
+                    }
+                }
+                lastType = memberType;
+                return;
+            }
+        } else if (objType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(objType);
+            if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+                
+                // Static access
+                std::shared_ptr<ClassType> definingClass = nullptr;
+                AccessModifier access = AccessModifier::Public;
+                std::shared_ptr<Type> memberType = nullptr;
+
+                auto current = cls;
+                while (current) {
+                    if (current->staticFields.count(node->name)) {
+                        definingClass = current;
+                        access = current->staticFieldAccess[node->name];
+                        memberType = current->staticFields[node->name];
+                        break;
+                    } else if (current->staticMethods.count(node->name)) {
+                        definingClass = current;
+                        access = current->staticMethodAccess[node->name];
+                        memberType = current->staticMethods[node->name];
+                        break;
+                    }
+                    current = current->baseClass;
+                }
+
+                if (definingClass) {
+                    if (access == AccessModifier::Private) {
+                        if (currentClass != definingClass) {
+                            reportError(fmt::format("Static property {} is private and not accessible from here", node->name));
+                        }
+                    } else if (access == AccessModifier::Protected) {
+                        if (!currentClass || !currentClass->isSubclassOf(definingClass)) {
+                            reportError(fmt::format("Static property {} is protected and not accessible from here", node->name));
+                        }
+                    }
+                    lastType = memberType;
+                    return;
+                }
+            }
+        } else if (objType->kind == TypeKind::Any) {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+            return;
+        }
+        reportError(fmt::format("Unknown property {}", node->name));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
+void Analyzer::visitBinaryExpression(BinaryExpression* node) {
+    if (node->op == "instanceof") {
+        visit(node->left.get());
+        visit(node->right.get());
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+        return;
+    }
+    visit(node->left.get());
+    auto leftType = lastType;
+    visit(node->right.get());
+    auto rightType = lastType;
+
+    // Simple type inference for binary ops
+    if (leftType && rightType) {
+        if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else if (leftType->isNumber() && rightType->isNumber()) {
+            lastType = std::make_shared<Type>(TypeKind::Double);
+        } else if (leftType->kind == TypeKind::String || rightType->kind == TypeKind::String) {
+            lastType = std::make_shared<Type>(TypeKind::String);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
+void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->left.get())) {
+        visit(prop->expression.get());
+        auto objType = lastType;
+        if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            auto current = cls;
+            while (current) {
+                if (current->fields.count(prop->name)) {
+                    if (current->readonlyFields.count(prop->name)) {
+                        // Only allowed in constructor of the same class
+                        if (currentMethodName != "constructor" || currentClass != current) {
+                            reportError(fmt::format("Cannot assign to '{}' because it is a read-only property.", prop->name));
+                        }
+                    }
+                    break;
+                } else if (current->staticFields.count(prop->name)) {
+                    if (current->staticReadonlyFields.count(prop->name)) {
+                        reportError(fmt::format("Cannot assign to static '{}' because it is a read-only property.", prop->name));
+                    }
+                    break;
+                }
+                current = current->baseClass;
+            }
+        }
+    }
+
+    visit(node->left.get());
+    visit(node->right.get());
+}
+
+void Analyzer::visitIdentifier(ast::Identifier* node) {
+    auto sym = symbols.lookup(node->name);
+    if (sym) {
+        lastType = sym->type;
+    } else {
+        // Check if it's a class name
+        auto type = symbols.lookupType(node->name);
+        if (type) {
+            lastType = type;
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    }
+}
+
+void Analyzer::visitStringLiteral(ast::StringLiteral* node) {
+    lastType = std::make_shared<Type>(TypeKind::String);
+}
+
+void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
+    if (node->value == (int)node->value) {
+        lastType = std::make_shared<Type>(TypeKind::Int);
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Double);
+    }
+}
+
+void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
+    lastType = std::make_shared<Type>(TypeKind::Boolean);
+}
+
+void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
+    for (auto& span : node->spans) {
+        visit(span.expression.get());
+    }
+    lastType = std::make_shared<Type>(TypeKind::String);
+}
+
+void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
+    visit(node->operand.get());
+    if (node->op == "!") {
+         lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "typeof") {
+         lastType = std::make_shared<Type>(TypeKind::String);
+    }
+}
+
+void Analyzer::visitSuperExpression(SuperExpression* node) {
+    if (currentClass && currentClass->baseClass) {
+        lastType = currentClass->baseClass;
+    } else {
+        reportError("'super' used outside of a derived class");
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
+void Analyzer::visitAsExpression(AsExpression* node) {
+    visit(node->expression.get());
+    lastType = parseType(node->type, symbols);
+    node->inferredType = lastType;
+}
+
+} // namespace ts

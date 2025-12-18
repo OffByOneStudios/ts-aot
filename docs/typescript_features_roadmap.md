@@ -37,8 +37,8 @@ This document tracks the implementation status of TypeScript language features i
 | `switch` | ✅ | Phase 5 | |
 | `for..of` | ✅ | Phase 5 | Iterators. |
 | `for..in` | 📅 | Phase 5 | Object key iteration. |
-| `try` / `catch` / `finally` | 📅 | Phase 8 | Exception handling (C++ exceptions or setjmp/longjmp). |
-| `throw` | 📅 | Phase 8 | |
+| `try` / `catch` / `finally` | ✅ | Phase 8 | Exception handling (setjmp/longjmp). |
+| `throw` | ✅ | Phase 8 | |
 
 ## 3. Functions
 
@@ -112,7 +112,7 @@ This document tracks the implementation status of TypeScript language features i
 
 ### Phase 8: Advanced Type System & Robustness
 - **Goal:** Implement advanced type system features and improve error handling.
-- **Status:** 📅 IN PROGRESS
+- **Status:** ⚠️ PARTIAL (Union/Intersection, Type Guards, try/catch done)
 - **Features:** Union/Intersection Types, Type Guards, `try/catch`, Destructuring, `Date`, `RegExp`, `JSON`.
 
 ### Phase 10: Modules & Build

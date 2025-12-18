@@ -13,8 +13,16 @@ add_library(tscompiler_lib STATIC
     ast/AstLoader.cpp
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
+    analysis/Analyzer_Classes.cpp
+    analysis/Analyzer_Functions.cpp
+    analysis/Analyzer_Statements.cpp
+    analysis/Analyzer_Expressions.cpp
     analysis/Monomorphizer.cpp
     codegen/IRGenerator.cpp
+    codegen/IRGenerator_Classes.cpp
+    codegen/IRGenerator_Functions.cpp
+    codegen/IRGenerator_Statements.cpp
+    codegen/IRGenerator_Expressions.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 

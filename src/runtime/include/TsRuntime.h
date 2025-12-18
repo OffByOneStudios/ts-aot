@@ -23,6 +23,12 @@ void ts_console_log_bool(bool val);
 // --- String ---
 TsString* ts_string_create(const char* str);
 
+// --- Exceptions ---
+void* ts_push_exception_handler();
+void ts_pop_exception_handler();
+void ts_throw(void* exception);
+void* ts_get_exception();
+
 // --- Entry Point ---
 int ts_main(int argc, char** argv, void (*user_main)());
 
