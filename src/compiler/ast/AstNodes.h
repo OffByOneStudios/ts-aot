@@ -31,6 +31,7 @@ struct IfStatement;
 struct WhileStatement;
 struct ForStatement;
 struct ForOfStatement;
+struct ForInStatement;
 struct BreakStatement;
 struct ContinueStatement;
 struct CaseClause;
@@ -41,6 +42,7 @@ struct CatchClause;
 struct ThrowStatement;
 struct ImportDeclaration;
 struct ExportDeclaration;
+struct ExportAssignment;
 struct BinaryExpression;
 struct AssignmentExpression;
 struct CallExpression;
@@ -58,6 +60,7 @@ struct StringLiteral;
 struct NumericLiteral;
 struct BooleanLiteral;
 struct ArrowFunction;
+struct FunctionExpression;
 struct TemplateExpression;
 struct AsExpression;
 struct PrefixUnaryExpression;
@@ -67,6 +70,9 @@ struct ClassDeclaration;
 struct MethodDefinition;
 struct PropertyDefinition;
 struct InterfaceDeclaration;
+struct TypeAliasDeclaration;
+struct EnumDeclaration;
+struct EnumMember;
 
 struct Visitor {
     virtual ~Visitor() = default;
@@ -80,6 +86,7 @@ struct Visitor {
     virtual void visitWhileStatement(WhileStatement* node) = 0;
     virtual void visitForStatement(ForStatement* node) = 0;
     virtual void visitForOfStatement(ForOfStatement* node) = 0;
+    virtual void visitForInStatement(ForInStatement* node) = 0;
     virtual void visitBreakStatement(BreakStatement* node) = 0;
     virtual void visitContinueStatement(ContinueStatement* node) = 0;
     virtual void visitSwitchStatement(SwitchStatement* node) = 0;
@@ -87,6 +94,7 @@ struct Visitor {
     virtual void visitThrowStatement(ThrowStatement* node) = 0;
     virtual void visitImportDeclaration(ImportDeclaration* node) = 0;
     virtual void visitExportDeclaration(ExportDeclaration* node) = 0;
+    virtual void visitExportAssignment(ExportAssignment* node) = 0;
     virtual void visitBinaryExpression(BinaryExpression* node) = 0;
     virtual void visitAssignmentExpression(AssignmentExpression* node) = 0;
     virtual void visitCallExpression(CallExpression* node) = 0;
@@ -102,6 +110,7 @@ struct Visitor {
     virtual void visitBooleanLiteral(BooleanLiteral* node) = 0;
     virtual void visitAwaitExpression(AwaitExpression* node) = 0;
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
+    virtual void visitFunctionExpression(FunctionExpression* node) = 0;
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
     virtual void visitAsExpression(AsExpression* node) = 0;
     virtual void visitPrefixUnaryExpression(PrefixUnaryExpression* node) = 0;
@@ -113,6 +122,8 @@ struct Visitor {
     virtual void visitBindingElement(BindingElement* node) = 0;
     virtual void visitSpreadElement(SpreadElement* node) = 0;
     virtual void visitOmittedExpression(OmittedExpression* node) = 0;
+    virtual void visitTypeAliasDeclaration(TypeAliasDeclaration* node) = 0;
+    virtual void visitEnumDeclaration(EnumDeclaration* node) = 0;
 };
 
 using NodePtr = std::unique_ptr<Node>;
@@ -141,6 +152,9 @@ struct Program : Node {
 struct Parameter : Node {
     NodePtr name;
     std::string type;
+    bool isOptional = false;
+    bool isRest = false;
+    NodePtr initializer = nullptr;
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isReadonly = false;
     bool isParameterProperty = false;
@@ -158,6 +172,7 @@ struct TypeParameter : Node {
 struct FunctionDeclaration : Statement {
     std::string name;
     bool isExported = false;
+    bool isDefaultExport = false;
     bool isAsync = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
@@ -299,6 +314,14 @@ struct ForOfStatement : Statement {
     void accept(Visitor* visitor) override { visitor->visitForOfStatement(this); }
 };
 
+struct ForInStatement : Statement {
+    StmtPtr initializer; // VariableDeclaration
+    ExprPtr expression;  // Object
+    StmtPtr body;
+    std::string getKind() const override { return "ForInStatement"; }
+    void accept(Visitor* visitor) override { visitor->visitForInStatement(this); }
+};
+
 struct PropertyDefinition : Node {
     std::string name;
     std::string type;
@@ -330,6 +353,7 @@ struct MethodDefinition : Node {
 struct ClassDeclaration : Statement {
     std::string name;
     bool isExported = false;
+    bool isDefaultExport = false;
     std::string baseClass;
     std::vector<std::string> implementsInterfaces;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
@@ -342,6 +366,7 @@ struct ClassDeclaration : Statement {
 struct InterfaceDeclaration : Statement {
     std::string name;
     bool isExported = false;
+    bool isDefaultExport = false;
     std::vector<std::string> baseInterfaces;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
@@ -374,6 +399,37 @@ struct ExportDeclaration : Statement {
     bool isStarExport = false;
     std::string getKind() const override { return "ExportDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitExportDeclaration(this); }
+};
+
+struct ExportAssignment : Statement {
+    ExprPtr expression;
+    bool isExportEquals = false;
+    std::string getKind() const override { return "ExportAssignment"; }
+    void accept(Visitor* visitor) override { visitor->visitExportAssignment(this); }
+};
+
+struct TypeAliasDeclaration : Statement {
+    std::string name;
+    std::string type;
+    std::vector<TypeParameter> typeParameters;
+    bool isExported = false;
+
+    std::string getKind() const override { return "TypeAliasDeclaration"; }
+    void accept(Visitor* v) override { v->visitTypeAliasDeclaration(this); }
+};
+
+struct EnumMember {
+    std::string name;
+    std::unique_ptr<Expression> initializer;
+};
+
+struct EnumDeclaration : Statement {
+    std::string name;
+    std::vector<EnumMember> members;
+    bool isExported = false;
+
+    std::string getKind() const override { return "EnumDeclaration"; }
+    void accept(Visitor* v) override { v->visitEnumDeclaration(this); }
 };
 
 // --- Expressions ---
@@ -510,6 +566,17 @@ struct ArrowFunction : Expression {
     NodePtr body; // BlockStatement or Expression
     std::string getKind() const override { return "ArrowFunction"; }
     void accept(Visitor* visitor) override { visitor->visitArrowFunction(this); }
+};
+
+struct FunctionExpression : Expression {
+    std::string name;
+    bool isAsync = false;
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    std::vector<std::unique_ptr<TypeParameter>> typeParameters;
+    std::string returnType;
+    std::vector<StmtPtr> body;
+    std::string getKind() const override { return "FunctionExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitFunctionExpression(this); }
 };
 
 struct TemplateSpan {

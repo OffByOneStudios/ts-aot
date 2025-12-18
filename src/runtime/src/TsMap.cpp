@@ -86,6 +86,7 @@ extern "C" {
     void* ts_map_create() {
         return TsMap::Create();
     }
+
     void ts_map_set(void* map, void* key, int64_t value) {
         ((TsMap*)map)->Set((TsString*)key, value);
     }
@@ -100,7 +101,7 @@ extern "C" {
         return static_cast<TsMap*>(map)->Size();
     }
 
-    void* ts_map_get_keys(void* map) {
+    void* ts_map_keys(void* map) {
         return static_cast<TsMap*>(map)->GetKeys();
     }
 }

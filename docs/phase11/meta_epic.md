@@ -1,31 +1,31 @@
 # Phase 11: Language Parity & Generics
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Complete the remaining core TypeScript language features to reach full feature parity with the roadmap. This includes Generics, Modules, and various "syntactic sugar" and advanced type features that were previously deferred.
 
 ## Milestones
 
 ### Epic 47: Generics
 Support parameterized types for classes, interfaces, and functions.
-- [ ] Generic classes (`class Box<T>`).
-- [ ] Generic functions (`function identity<T>(arg: T): T`).
-- [ ] Type constraints (`T extends Base`).
-- [ ] Generic interfaces.
+- [x] Generic classes (`class Box<T>`).
+- [x] Generic functions (`function identity<T>(arg: T): T`).
+- [x] Type constraints (`T extends Base`).
+- [x] Generic interfaces.
 
 ### Epic 48: Modules (ESM)
 Support multi-file compilation and code organization.
-- [ ] `export` statement.
-- [ ] `import` statement.
-- [ ] Module resolution and linking.
-- [ ] Support for `index.ts` and relative imports.
+- [x] `export` statement.
+- [x] `import` statement.
+- [x] Module resolution and linking.
+- [x] Support for `index.ts` and relative imports.
 
 ### Epic 49: Structural Types & Sugar
 Implement missing structural types and common syntactic sugar.
-- [ ] **Tuples**: Fixed-length, mixed-type arrays.
-- [ ] **Enums**: Numeric and String enums.
-- [ ] **Type Aliases**: `type ID = string`.
-- [ ] **for..in**: Object key iteration.
-- [ ] **Function Expressions**: `const foo = function() {}`.
+- [x] **Tuples**: Fixed-length, mixed-type arrays.
+- [x] **Enums**: Numeric and String enums.
+- [x] **Type Aliases**: `type ID = string`.
+- [x] **for..in**: Object key iteration.
+- [x] **Function Expressions**: `const foo = function() {}`.
 
 ### Epic 50: Advanced Function Features
 Enhance function definitions with modern flexibility.

@@ -203,6 +203,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         
         if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
             functionUsages[id->name].push_back({argTypes, resolvedTypeArguments});
+        } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
+                functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments});
+            }
         }
         return;
     }
@@ -210,7 +214,13 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
-        
+    } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
+            calleeName = prop->name;
+        }
+    }
+
+    if (!calleeName.empty()) {
         auto sym = symbols.lookup(calleeName);
         if (sym) {
              if (sym->type->kind == TypeKind::Function) {
@@ -327,25 +337,40 @@ void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {
 }
 
 void Analyzer::visitArrayLiteralExpression(ArrayLiteralExpression* node) {
-    std::shared_ptr<Type> elemType = nullptr;
+    std::vector<std::shared_ptr<Type>> elementTypes;
     for (auto& el : node->elements) {
         visit(el.get());
-        if (!elemType) {
-            elemType = lastType;
-        }
-        // TODO: Check for mixed types and upgrade to Any
+        elementTypes.push_back(lastType ? lastType : std::make_shared<Type>(TypeKind::Any));
     }
-    if (!elemType) elemType = std::make_shared<Type>(TypeKind::Any);
-    lastType = std::make_shared<ArrayType>(elemType);
+    lastType = std::make_shared<TupleType>(elementTypes);
 }
 
 void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
     visit(node->expression.get());
-    auto arrayType = std::dynamic_pointer_cast<ArrayType>(lastType);
+    auto objType = lastType;
     
     visit(node->argumentExpression.get());
-    // TODO: Verify index is integer
+    auto indexType = lastType;
     
+    if (objType->kind == TypeKind::Tuple) {
+        auto tupleType = std::static_pointer_cast<TupleType>(objType);
+        if (auto lit = dynamic_cast<NumericLiteral*>(node->argumentExpression.get())) {
+            size_t index = (size_t)lit->value;
+            if (index < tupleType->elementTypes.size()) {
+                lastType = tupleType->elementTypes[index];
+                return;
+            }
+        }
+        // If index is not a literal, we have to return a union of all element types
+        if (tupleType->elementTypes.empty()) {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        } else {
+            lastType = std::make_shared<UnionType>(tupleType->elementTypes);
+        }
+        return;
+    }
+
+    auto arrayType = std::dynamic_pointer_cast<ArrayType>(objType);
     if (arrayType) {
         lastType = arrayType->elementType;
     } else {
@@ -384,6 +409,29 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
         return;
     }
 
+    if (objType->kind == TypeKind::Map) {
+        if (node->name == "set") {
+            auto mapSet = std::make_shared<FunctionType>();
+            mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            mapSet->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = mapSet;
+            return;
+        } else if (node->name == "get") {
+            auto mapGet = std::make_shared<FunctionType>();
+            mapGet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            mapGet->returnType = std::make_shared<Type>(TypeKind::Any);
+            lastType = mapGet;
+            return;
+        } else if (node->name == "has") {
+            auto mapHas = std::make_shared<FunctionType>();
+            mapHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            mapHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = mapHas;
+            return;
+        }
+    }
+
     if (objType->kind == TypeKind::Namespace) {
         auto ns = std::static_pointer_cast<NamespaceType>(objType);
         auto sym = ns->module->exports->lookup(node->name);
@@ -397,6 +445,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             return;
         }
         reportError(fmt::format("Module does not export {}", node->name));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
+
+    if (objType->kind == TypeKind::Enum) {
+        auto enumType = std::static_pointer_cast<EnumType>(objType);
+        if (enumType->members.count(node->name)) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+            return;
+        }
+        reportError("Unknown property " + node->name + " on enum " + enumType->name);
         lastType = std::make_shared<Type>(TypeKind::Any);
         return;
     }
@@ -660,6 +719,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
     }
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitStringLiteral(ast::StringLiteral* node) {

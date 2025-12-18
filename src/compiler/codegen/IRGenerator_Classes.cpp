@@ -8,6 +8,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map") continue;
         llvm::errs() << "Global type: " << name << " kind: " << (int)type->kind << "\n";
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
@@ -217,6 +218,13 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
+    if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create",
+            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+        lastValue = builder->CreateCall(fn);
+        return;
+    }
+
     if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
         std::string className = classType->name;

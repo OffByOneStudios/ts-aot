@@ -54,12 +54,27 @@ void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
         } else {
             funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
         }
+        funcType->isOptional.push_back(param->isOptional);
+        if (param->isRest) funcType->hasRest = true;
     }
 
-    // Define function in the current scope
-    symbols.define(node->name, funcType);
-    if (node->isExported && currentModule) {
-        currentModule->exports->define(node->name, funcType);
+    // Define function in the current scope (if not already hoisted)
+    auto existing = symbols.lookup(node->name);
+    if (!existing || existing->type->kind != TypeKind::Function) {
+        symbols.define(node->name, funcType);
+        if (node->isExported && currentModule) {
+            currentModule->exports->define(node->name, funcType);
+        }
+        if (node->isDefaultExport && currentModule) {
+            currentModule->exports->define("default", funcType);
+        }
+    } else {
+        // Update the hoisted type with the real one (or just use the hoisted one)
+        auto hoisted = std::static_pointer_cast<FunctionType>(existing->type);
+        hoisted->returnType = funcType->returnType;
+        hoisted->paramTypes = funcType->paramTypes;
+        hoisted->typeParameters = funcType->typeParameters;
+        funcType = hoisted;
     }
 
     symbols.enterScope();
@@ -151,6 +166,8 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
             } else {
                 methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
+            methodType->isOptional.push_back(param->isOptional);
+            if (param->isRest) methodType->hasRest = true;
         }
     }
 
@@ -205,7 +222,15 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             declareBindingPattern(node->parameters[i]->name.get(), argTypes[i]);
         } else {
             // Handle default parameters or optional parameters
-            declareBindingPattern(node->parameters[i]->name.get(), std::make_shared<Type>(TypeKind::Any));
+            if (node->parameters[i]->initializer) {
+                visit(node->parameters[i]->initializer.get());
+                declareBindingPattern(node->parameters[i]->name.get(), lastType);
+            } else if (node->parameters[i]->isOptional) {
+                auto pType = parseType(node->parameters[i]->type, symbols);
+                declareBindingPattern(node->parameters[i]->name.get(), pType);
+            } else {
+                declareBindingPattern(node->parameters[i]->name.get(), std::make_shared<Type>(TypeKind::Any));
+            }
         }
     }
 
@@ -293,6 +318,88 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
                 symbols.defineGlobalType(mangledName, wrapped);
             }
         }
+    }
+    
+    symbols.exitScope();
+    
+    node->inferredType = funcType;
+    lastType = funcType;
+}
+
+void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
+    std::cerr << "Visiting function expression: " << (node->name.empty() ? "anonymous" : node->name) << std::endl;
+    
+    auto funcType = std::make_shared<FunctionType>();
+    funcType->node = node;
+
+    symbols.enterScope();
+
+    // Register type parameters
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        funcType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
+
+    if (!node->returnType.empty()) {
+        funcType->returnType = parseType(node->returnType, symbols);
+    } else {
+        funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
+    }
+
+    if (node->isAsync) {
+        // Wrap return type in Promise if it's not already a Promise
+        bool isPromise = false;
+        if (funcType->returnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+            if (cls->name == "Promise" || cls->name.substr(0, 8) == "Promise_") isPromise = true;
+        }
+        
+        if (!isPromise) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            
+            std::string mangledName = "Promise_" + funcType->returnType->toString();
+            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
+                return !std::isalnum(c);
+            }, '_');
+
+            auto wrapped = std::make_shared<ClassType>(mangledName);
+            wrapped->methods = promiseClass->methods;
+            wrapped->staticMethods = promiseClass->staticMethods;
+            wrapped->typeArguments = { funcType->returnType };
+            funcType->returnType = wrapped;
+
+            if (!symbols.lookupType(mangledName)) {
+                symbols.defineGlobalType(mangledName, wrapped);
+            }
+        }
+    }
+    
+    for (const auto& param : node->parameters) {
+        if (!param->type.empty()) {
+            funcType->paramTypes.push_back(parseType(param->type, symbols));
+        } else {
+            funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        }
+        funcType->isOptional.push_back(param->isOptional);
+        if (param->isRest) funcType->hasRest = true;
+    }
+
+    // If the function expression has a name, it's visible inside the function
+    if (!node->name.empty()) {
+        symbols.define(node->name, funcType);
+    }
+
+    // Define parameters in scope
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
+    }
+
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
     }
     
     symbols.exitScope();

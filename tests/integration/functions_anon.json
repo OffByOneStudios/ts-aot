@@ -1,0 +1,264 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "add"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "FunctionExpression",
+            "name": null,
+            "isAsync": false,
+            "typeParameters": [],
+            "returnType": "number",
+            "parameters": [
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "type": "number"
+              },
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b"
+                },
+                "type": "number"
+              }
+            ],
+            "body": [
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "a"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "b"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "multiply"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ArrowFunction",
+            "isAsync": false,
+            "parameters": [
+              {
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "type": "number"
+              },
+              {
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b"
+                },
+                "type": "number"
+              }
+            ],
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ReturnStatement",
+                  "expression": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "a"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "add"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 5
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "multiply"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 4
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "ops"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "Identifier",
+                "name": "add"
+              },
+              {
+                "kind": "Identifier",
+                "name": "multiply"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ForOfStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "op"
+            },
+            "initializer": null
+          },
+          "expression": {
+            "kind": "Identifier",
+            "name": "ops"
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "Identifier",
+                        "name": "op"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "NumericLiteral",
+                          "value": 10
+                        },
+                        {
+                          "kind": "NumericLiteral",
+                          "value": 20
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

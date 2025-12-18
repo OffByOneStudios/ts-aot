@@ -1,0 +1,292 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "greet",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "name"
+          },
+          "type": "string",
+          "isOptional": false,
+          "initializer": null
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "greeting"
+          },
+          "type": "string",
+          "isOptional": true,
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "Hello"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "+",
+              "left": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "greeting"
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": ", "
+                }
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "name"
+              }
+            },
+            "right": {
+              "kind": "StringLiteral",
+              "value": "!"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "add",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a"
+          },
+          "type": "number",
+          "isOptional": false,
+          "initializer": null
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b"
+          },
+          "type": "number",
+          "isOptional": true,
+          "initializer": null
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "===",
+            "left": {
+              "kind": "Identifier",
+              "name": "b"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "undefined"
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "a"
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "a"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "greet"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "World"
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "greet"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "Copilot"
+                  },
+                  {
+                    "kind": "StringLiteral",
+                    "value": "Hi"
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "add"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 10
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "add"
+                },
+                "arguments": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 10
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 20
+                  }
+                ],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}

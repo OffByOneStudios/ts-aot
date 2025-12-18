@@ -10,9 +10,17 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
     classType->isAbstract = node->isAbstract;
     classType->node = node;
     
-    symbols.defineType(node->name, classType);
-    if (node->isExported && currentModule) {
-        currentModule->exports->defineType(node->name, classType);
+    auto existing = symbols.lookupType(node->name);
+    if (!existing || existing->kind != TypeKind::Class) {
+        symbols.defineType(node->name, classType);
+        if (node->isExported && currentModule) {
+            currentModule->exports->defineType(node->name, classType);
+        }
+        if (node->isDefaultExport && currentModule) {
+            currentModule->exports->defineType("default", classType);
+        }
+    } else {
+        classType = std::static_pointer_cast<ClassType>(existing);
     }
 
     symbols.enterScope();
@@ -124,6 +132,8 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
                 } else {
                     methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
                 }
+                methodType->isOptional.push_back(param->isOptional);
+                if (param->isRest) methodType->hasRest = true;
             }
             if (method->isStatic) {
                 if (method->hasBody) {
@@ -227,9 +237,17 @@ void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr
 
 void Analyzer::visitInterfaceDeclaration(InterfaceDeclaration* node) {
     auto interfaceType = std::make_shared<InterfaceType>(node->name);
-    symbols.defineType(node->name, interfaceType);
-    if (node->isExported && currentModule) {
-        currentModule->exports->defineType(node->name, interfaceType);
+    auto existing = symbols.lookupType(node->name);
+    if (!existing || existing->kind != TypeKind::Interface) {
+        symbols.defineType(node->name, interfaceType);
+        if (node->isExported && currentModule) {
+            currentModule->exports->defineType(node->name, interfaceType);
+        }
+        if (node->isDefaultExport && currentModule) {
+            currentModule->exports->defineType("default", interfaceType);
+        }
+    } else {
+        interfaceType = std::static_pointer_cast<InterfaceType>(existing);
     }
 
     symbols.enterScope();
@@ -306,7 +324,12 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     // Define parameters
     for (const auto& p : node->parameters) {
         if (auto id = dynamic_cast<ast::Identifier*>(p->name.get())) {
-            symbols.define(id->name, parseType(p->type, symbols));
+            if (p->initializer) {
+                visit(p->initializer.get());
+                symbols.define(id->name, lastType);
+            } else {
+                symbols.define(id->name, parseType(p->type, symbols));
+            }
         }
     }
 

@@ -130,16 +130,16 @@ extern "C" {
         return TsArray::CreateSized((size_t)size);
     }
 
-    void ts_array_push(void* arr, int64_t value) {
-        ((TsArray*)arr)->Push(value);
+    void ts_array_push(void* arr, void* value) {
+        ((TsArray*)arr)->Push((int64_t)value);
     }
 
-    int64_t ts_array_get(void* arr, int64_t index) {
-        return ((TsArray*)arr)->Get(index);
+    void* ts_array_get(void* arr, int64_t index) {
+        return (void*)((TsArray*)arr)->Get(index);
     }
 
-    void ts_array_set(void* arr, int64_t index, int64_t value) {
-        ((TsArray*)arr)->Set(index, value);
+    void ts_array_set(void* arr, int64_t index, void* value) {
+        ((TsArray*)arr)->Set(index, (int64_t)value);
     }
 
     int64_t ts_array_length(void* arr) {

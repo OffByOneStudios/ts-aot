@@ -35,3 +35,10 @@ class TsObject {
 public:
     virtual ~TsObject() = default;
 };
+
+class TsFunction : public TsObject {
+public:
+    void* funcPtr;
+    void* context;
+    TsFunction(void* fp, void* ctx = nullptr) : funcPtr(fp), context(ctx) {}
+};

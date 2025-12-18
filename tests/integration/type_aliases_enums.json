@@ -1,0 +1,417 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "TypeAliasDeclaration",
+      "name": "MyNumber",
+      "type": "number",
+      "typeParameters": [],
+      "isExported": false
+    },
+    {
+      "kind": "TypeAliasDeclaration",
+      "name": "MyString",
+      "type": "string",
+      "typeParameters": [],
+      "isExported": false
+    },
+    {
+      "kind": "EnumDeclaration",
+      "name": "Color",
+      "members": [
+        {
+          "name": "Red",
+          "initializer": null
+        },
+        {
+          "name": "Green",
+          "initializer": null
+        },
+        {
+          "name": "Blue",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 10
+          }
+        },
+        {
+          "name": "Yellow",
+          "initializer": null
+        }
+      ],
+      "isExported": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "printColor",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "c"
+          },
+          "type": "Color"
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "===",
+            "left": {
+              "kind": "Identifier",
+              "name": "c"
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Color"
+              },
+              "name": "Red"
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Red"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": {
+            "kind": "IfStatement",
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": "===",
+              "left": {
+                "kind": "Identifier",
+                "name": "c"
+              },
+              "right": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Color"
+                },
+                "name": "Green"
+              }
+            },
+            "thenStatement": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Green"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              ]
+            },
+            "elseStatement": {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "BinaryExpression",
+                "operator": "===",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "c"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Color"
+                  },
+                  "name": "Blue"
+                }
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "statements": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "console"
+                        },
+                        "name": "log"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "StringLiteral",
+                          "value": "Blue"
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "IfStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "===",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "c"
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Color"
+                    },
+                    "name": "Yellow"
+                  }
+                },
+                "thenStatement": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "Yellow"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                },
+                "elseStatement": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "r"
+      },
+      "isExported": false,
+      "type": "MyNumber",
+      "initializer": {
+        "kind": "PropertyAccessExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Color"
+        },
+        "name": "Red"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "g"
+      },
+      "isExported": false,
+      "type": "MyNumber",
+      "initializer": {
+        "kind": "PropertyAccessExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Color"
+        },
+        "name": "Green"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "b"
+      },
+      "isExported": false,
+      "type": "MyNumber",
+      "initializer": {
+        "kind": "PropertyAccessExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Color"
+        },
+        "name": "Blue"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "y"
+      },
+      "isExported": false,
+      "type": "MyNumber",
+      "initializer": {
+        "kind": "PropertyAccessExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Color"
+        },
+        "name": "Yellow"
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "printColor"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "r"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "printColor"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "g"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "printColor"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "b"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "printColor"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "y"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "s"
+      },
+      "isExported": false,
+      "type": "MyString",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "Hello Aliases"
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "s"
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

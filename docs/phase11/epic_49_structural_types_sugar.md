@@ -1,6 +1,6 @@
 # Epic 49: Structural Types & Sugar
 
-**Status:** Not Started
+**Status:** In Progress
 **Parent:** [Phase 11 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -9,18 +9,19 @@ Implement the remaining "syntactic sugar" and structural types that make TypeScr
 ## Milestones
 
 ### Milestone 49.1: Tuples & Enums
-- **Tuples:** Implement as fixed-size arrays or anonymous structs.
-- **Enums:** Implement as constant integer or string mappings.
+- [x] **Tuples:** Implement as fixed-size arrays or anonymous structs.
+- [x] **Enums:** Implement as constant integer or string mappings.
 
 ### Milestone 49.2: Type Aliases
-- **Analysis:** Resolve `type` declarations to their underlying types.
+- [x] **Analysis:** Resolve `type` declarations to their underlying types.
 
 ### Milestone 49.3: for..in & Function Expressions
-- **for..in:** Implement object key iteration (requires runtime support for object keys).
-- **Function Expressions:** Support anonymous functions assigned to variables.
+- [x] **for..in:** Implement object key iteration (requires runtime support for object keys).
+- [x] **Function Expressions:** Support anonymous functions assigned to variables.
 
 ## Action Items
-- [ ] Implement `EnumDeclaration` in `Analyzer` and `IRGenerator`.
-- [ ] Implement `TupleType` in the type system.
-- [ ] Implement `TypeAliasDeclaration`.
-- [ ] Implement `for..in` loop codegen.
+- [x] Implement `EnumDeclaration` in `Analyzer` and `IRGenerator`.
+- [x] Implement `TupleType` in the type system.
+- [x] Implement `TypeAliasDeclaration`.
+- [x] Implement `for..in` loop codegen.
+- [x] Implement Function Expressions and Arrow Functions.
