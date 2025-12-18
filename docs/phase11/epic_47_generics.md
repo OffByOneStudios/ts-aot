@@ -26,5 +26,6 @@ Generics allow for reusable components that work with a variety of types rather 
 - [x] Update `Analyzer` to handle `TypeParameter` symbols.
 - [x] Implement monomorphization logic for generic functions.
 - [x] Implement monomorphization logic for generic classes.
-- [ ] Add integration tests for `Array<T>` and custom generic containers.
-- [ ] Implement generic constraints (`T extends U`).
+- [x] Implement generic constraints (`T extends U`).
+- [x] Implement basic type inference for generic function calls.
+- [x] Add integration tests for `Array<T>` and custom generic containers.

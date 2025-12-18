@@ -108,6 +108,11 @@ private:
 
     void checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_ptr<InterfaceType> interfaceType);
 
+    std::vector<std::shared_ptr<Type>> inferTypeArguments(
+        const std::vector<std::shared_ptr<TypeParameterType>>& typeParams,
+        const std::vector<std::shared_ptr<Type>>& paramTypes,
+        const std::vector<std::shared_ptr<Type>>& argTypes);
+
     std::shared_ptr<Module> currentModule;
     std::string currentFilePath;
 

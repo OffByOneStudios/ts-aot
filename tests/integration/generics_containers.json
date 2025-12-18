@@ -1,0 +1,256 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Box",
+      "isExported": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "value",
+          "type": "T",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "v"
+              },
+              "type": "T",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "value"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "v"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getValue",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "T",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this"
+                },
+                "name": "value"
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "b1"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Box"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 42
+              }
+            ],
+            "typeArguments": [
+              "number"
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "b1"
+                  },
+                  "name": "getValue"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "b2"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Box"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "hello"
+              }
+            ],
+            "typeArguments": [
+              "string"
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "b2"
+                  },
+                  "name": "getValue"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "isExported": false,
+          "type": "number[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "arr"
+                },
+                "name": "length"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}
