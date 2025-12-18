@@ -1,4 +1,5 @@
 #include "TsMap.h"
+#include "TsArray.h"
 #include "GC.h"
 #include <unordered_map>
 #include <string>
@@ -72,6 +73,15 @@ int64_t TsMap::Size() {
     return static_cast<int64_t>(map->size());
 }
 
+void* TsMap::GetKeys() {
+    MapType* map = static_cast<MapType*>(impl);
+    TsArray* keys = TsArray::Create(map->size());
+    for (auto const& [key, val] : *map) {
+        keys->Push((int64_t)key);
+    }
+    return keys;
+}
+
 extern "C" {
     void* ts_map_create() {
         return TsMap::Create();
@@ -88,5 +98,9 @@ extern "C" {
 
     int64_t ts_map_size(void* map) {
         return static_cast<TsMap*>(map)->Size();
+    }
+
+    void* ts_map_get_keys(void* map) {
+        return static_cast<TsMap*>(map)->GetKeys();
     }
 }

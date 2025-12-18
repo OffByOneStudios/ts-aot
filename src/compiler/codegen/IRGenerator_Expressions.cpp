@@ -53,9 +53,16 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         if (isString) {
              // Convert non-string operands to string
              if (!leftIsString) {
-                 if (left->getType()->isIntegerTy()) {
+                 if (left->getType()->isIntegerTy(1)) {
+                     llvm::FunctionCallee fromBool = module->getOrInsertFunction("ts_string_from_bool",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt1Ty(*context) }, false));
+                     left = builder->CreateCall(fromBool, { left });
+                 } else if (left->getType()->isIntegerTy()) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
                          llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                     if (left->getType()->isIntegerTy(32)) {
+                         left = builder->CreateSExt(left, llvm::Type::getInt64Ty(*context));
+                     }
                      left = builder->CreateCall(fromInt, { left });
                  } else if (left->getType()->isDoubleTy()) {
                      llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
@@ -64,9 +71,16 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                  }
              }
              if (!rightIsString) {
-                 if (right->getType()->isIntegerTy()) {
+                 if (right->getType()->isIntegerTy(1)) {
+                     llvm::FunctionCallee fromBool = module->getOrInsertFunction("ts_string_from_bool",
+                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt1Ty(*context) }, false));
+                     right = builder->CreateCall(fromBool, { right });
+                 } else if (right->getType()->isIntegerTy()) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
                          llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                     if (right->getType()->isIntegerTy(32)) {
+                         right = builder->CreateSExt(right, llvm::Type::getInt64Ty(*context));
+                     }
                      right = builder->CreateCall(fromInt, { right });
                  } else if (right->getType()->isDoubleTy()) {
                      llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
@@ -276,6 +290,54 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             std::string className = classType->name;
             std::string methodName = prop->name;
             
+            if (className == "Date") {
+                visit(prop->expression.get());
+                llvm::Value* dateObj = lastValue;
+                
+                std::string funcName = "Date_" + methodName;
+                llvm::Function* func = module->getFunction(funcName);
+                if (!func) {
+                    std::vector<llvm::Type*> argTypes = { llvm::PointerType::getUnqual(*context) };
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), argTypes, false);
+                    func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module.get());
+                }
+                
+                std::vector<llvm::Value*> args = { dateObj };
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    args.push_back(lastValue);
+                }
+                lastValue = builder->CreateCall(func, args);
+                return;
+            } else if (className == "RegExp") {
+                visit(prop->expression.get());
+                llvm::Value* reObj = lastValue;
+                
+                std::string funcName = "RegExp_" + methodName;
+                llvm::Function* func = module->getFunction(funcName);
+                if (!func) {
+                    llvm::Type* retType = (methodName == "test") ? (llvm::Type*)llvm::Type::getInt32Ty(*context) : (llvm::Type*)llvm::PointerType::getUnqual(*context);
+                    std::vector<llvm::Type*> argTypes = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
+                    llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
+                    func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module.get());
+                }
+                
+                std::vector<llvm::Value*> args = { reObj };
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    args.push_back(lastValue);
+                }
+                lastValue = builder->CreateCall(func, args);
+                if (methodName == "test") {
+                    if (lastValue->getType()->isIntegerTy(32)) {
+                        lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0), "re_test_bool");
+                    } else if (lastValue->getType()->isIntegerTy(1)) {
+                        // Already i1, nothing to do
+                    }
+                }
+                return;
+            }
+
             // 1. Evaluate Object
             visit(prop->expression.get());
             llvm::Value* objPtr = lastValue;
@@ -376,12 +438,38 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     if (node->arguments.empty()) return;
                     visit(node->arguments[0].get());
                     llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                    }
                     
                     llvm::FunctionCallee readFn = module->getOrInsertFunction("ts_fs_readFileSync",
                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
                             { llvm::PointerType::getUnqual(*context) }, false));
                     
                     lastValue = builder->CreateCall(readFn, { arg });
+                    return;
+                }
+            }
+        } else if (prop->name == "writeFileSync") {
+            if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                if (obj->name == "fs") {
+                    if (node->arguments.size() < 2) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* path = lastValue;
+                    if (path->getType()->isIntegerTy(64)) {
+                        path = builder->CreateIntToPtr(path, llvm::PointerType::getUnqual(*context));
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* content = lastValue;
+                    if (content->getType()->isIntegerTy(64)) {
+                        content = builder->CreateIntToPtr(content, llvm::PointerType::getUnqual(*context));
+                    }
+                    
+                    llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_writeFileSync",
+                        llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                            { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+                    
+                    builder->CreateCall(writeFn, { path, content });
                     return;
                 }
             }
@@ -426,13 +514,111 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                             { llvm::Type::getDoubleTy(*context) }, false));
                     lastValue = builder->CreateCall(fn, { arg });
                     return;
+                } else if (prop->name == "ceil") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        lastValue = arg;
+                        return;
+                    }
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_ceil",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                            { llvm::Type::getDoubleTy(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                } else if (prop->name == "round") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        lastValue = arg;
+                        return;
+                    }
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_round",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                            { llvm::Type::getDoubleTy(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                } else if (prop->name == "sqrt") {
+                    if (node->arguments.empty()) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        arg = builder->CreateSIToFP(arg, llvm::Type::getDoubleTy(*context));
+                    }
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_sqrt",
+                        llvm::FunctionType::get(llvm::Type::getDoubleTy(*context),
+                            { llvm::Type::getDoubleTy(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                } else if (prop->name == "pow") {
+                    if (node->arguments.size() < 2) return;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg1 = lastValue;
+                    visit(node->arguments[1].get());
+                    llvm::Value* arg2 = lastValue;
+                    if (arg1->getType()->isIntegerTy(64)) arg1 = builder->CreateSIToFP(arg1, llvm::Type::getDoubleTy(*context));
+                    if (arg2->getType()->isIntegerTy(64)) arg2 = builder->CreateSIToFP(arg2, llvm::Type::getDoubleTy(*context));
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_pow",
+                        llvm::FunctionType::get(llvm::Type::getDoubleTy(*context),
+                            { llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false));
+                    lastValue = builder->CreateCall(fn, { arg1, arg2 });
+                    return;
+                } else if (prop->name == "random") {
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_random",
+                        llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false));
+                    lastValue = builder->CreateCall(fn);
+                    return;
                 }
+            } else if (obj->name == "Date") {
+                if (prop->name == "now") {
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("Date_static_now",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false));
+                    lastValue = builder->CreateCall(fn);
+                    return;
+                }
+            }
+        } else if (obj->name == "JSON") {
+            if (prop->name == "parse") {
+                if (node->arguments.empty()) return;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (arg->getType()->isIntegerTy(64)) {
+                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                }
+                
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_json_parse",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                        { llvm::PointerType::getUnqual(*context) }, false));
+                lastValue = builder->CreateCall(fn, { arg });
+                return;
+            } else if (prop->name == "stringify") {
+                if (node->arguments.empty()) return;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                
+                if (!arg->getType()->isPointerTy()) {
+                    if (arg->getType()->isDoubleTy()) {
+                        arg = builder->CreateBitCast(arg, llvm::Type::getInt64Ty(*context));
+                    }
+                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                }
+
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_json_stringify",
+                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                        { llvm::PointerType::getUnqual(*context) }, false));
+                lastValue = builder->CreateCall(fn, { arg });
+                return;
             }
         }
         
         if (prop->name == "charCodeAt") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
@@ -451,11 +637,18 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "split") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* sep = lastValue;
              
+             if (sep->getType()->isIntegerTy(64)) {
+                 sep = builder->CreateIntToPtr(sep, llvm::PointerType::getUnqual(*context));
+             }
+
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_split",
                  llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
@@ -464,6 +657,9 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "trim") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_trim",
                  llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
@@ -473,19 +669,162 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "startsWith") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* prefix = lastValue;
              
+             if (prefix->getType()->isIntegerTy(64)) {
+                 prefix = builder->CreateIntToPtr(prefix, llvm::PointerType::getUnqual(*context));
+             }
+
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_startsWith",
                  llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
              lastValue = builder->CreateCall(fn, { obj, prefix });
              return;
+        } else if (prop->name == "includes") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* search = lastValue;
+             
+             if (search->getType()->isIntegerTy(64)) {
+                 search = builder->CreateIntToPtr(search, llvm::PointerType::getUnqual(*context));
+             }
+
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_includes",
+                 llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, search });
+             return;
+        } else if (prop->name == "indexOf") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             if (node->arguments.empty()) return;
+             visit(node->arguments[0].get());
+             llvm::Value* search = lastValue;
+             
+             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+                 if (search->getType()->isPointerTy()) {
+                     // If it's a pointer (string), we need to cast it to i64 for the generic array storage
+                     search = builder->CreatePtrToInt(search, llvm::Type::getInt64Ty(*context));
+                 } else if (search->getType()->isDoubleTy()) {
+                     search = builder->CreateFPToSI(search, llvm::Type::getInt64Ty(*context));
+                 }
+                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_indexOf",
+                     llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                         { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+                 lastValue = builder->CreateCall(fn, { obj, search });
+             } else {
+                 if (search->getType()->isIntegerTy(64)) {
+                     search = builder->CreateIntToPtr(search, llvm::PointerType::getUnqual(*context));
+                 }
+                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_indexOf",
+                     llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                         { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+                 lastValue = builder->CreateCall(fn, { obj, search });
+             }
+             return;
+        } else if (prop->name == "slice") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             llvm::Value* start = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+             llvm::Value* end = nullptr;
+             
+             if (node->arguments.size() >= 1) {
+                 visit(node->arguments[0].get());
+                 start = lastValue;
+                 if (start->getType()->isDoubleTy()) {
+                     start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+                 }
+             }
+             if (node->arguments.size() >= 2) {
+                 visit(node->arguments[1].get());
+                 end = lastValue;
+                 if (end->getType()->isDoubleTy()) {
+                     end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+                 }
+             } else {
+                 // Default end to length
+                 llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
+                     llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                         { llvm::PointerType::getUnqual(*context) }, false));
+                 end = builder->CreateCall(lenFn, { obj });
+             }
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_slice",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, start, end });
+             return;
+        } else if (prop->name == "join") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             llvm::Value* sep = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+             if (!node->arguments.empty()) {
+                 visit(node->arguments[0].get());
+                 sep = lastValue;
+                 if (sep->getType()->isIntegerTy(64)) {
+                     sep = builder->CreateIntToPtr(sep, llvm::PointerType::getUnqual(*context));
+                 }
+             }
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_join",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj, sep });
+             return;
+        } else if (prop->name == "toLowerCase") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_toLowerCase",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj });
+             return;
+        } else if (prop->name == "toUpperCase") {
+             visit(prop->expression.get());
+             llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
+             
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_toUpperCase",
+                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                     { llvm::PointerType::getUnqual(*context) }, false));
+             lastValue = builder->CreateCall(fn, { obj });
+             return;
         } else if (prop->name == "substring") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              
@@ -518,6 +857,9 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "sort") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
+             if (obj->getType()->isIntegerTy(64)) {
+                 obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+             }
              
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_sort",
                  llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
@@ -528,10 +870,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "set") {
              visit(prop->expression.get());
              llvm::Value* map = lastValue;
+             if (map->getType()->isIntegerTy(64)) {
+                 map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.size() < 2) return;
              visit(node->arguments[0].get());
              llvm::Value* key = lastValue;
+             if (key->getType()->isIntegerTy(64)) {
+                 key = builder->CreateIntToPtr(key, llvm::PointerType::getUnqual(*context));
+             }
              visit(node->arguments[1].get());
              llvm::Value* value = lastValue;
              
@@ -544,10 +892,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "get") {
              visit(prop->expression.get());
              llvm::Value* map = lastValue;
+             if (map->getType()->isIntegerTy(64)) {
+                 map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* key = lastValue;
+             if (key->getType()->isIntegerTy(64)) {
+                 key = builder->CreateIntToPtr(key, llvm::PointerType::getUnqual(*context));
+             }
              
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get",
                  llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
@@ -557,10 +911,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "has") {
              visit(prop->expression.get());
              llvm::Value* map = lastValue;
+             if (map->getType()->isIntegerTy(64)) {
+                 map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             }
              
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* key = lastValue;
+             if (key->getType()->isIntegerTy(64)) {
+                 key = builder->CreateIntToPtr(key, llvm::PointerType::getUnqual(*context));
+             }
              
              llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has",
                  llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
@@ -574,11 +934,23 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     if (node->arguments.empty()) return;
                     visit(node->arguments[0].get());
                     llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                    }
                     
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_crypto_md5",
                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
                             { llvm::PointerType::getUnqual(*context) }, false));
                     lastValue = builder->CreateCall(fn, { arg });
+                    return;
+                }
+            }
+        } else if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "Date") {
+                if (prop->name == "now") {
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("Date_static_now",
+                        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false));
+                    lastValue = builder->CreateCall(fn);
                     return;
                 }
             }
@@ -616,6 +988,9 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* arg = lastValue;
+             if (arg->getType()->isIntegerTy(64)) {
+                 arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+             }
 
              llvm::FunctionCallee parseFn = module->getOrInsertFunction("ts_parseInt",
                  llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
@@ -873,6 +1248,17 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
             { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
 
     for (auto& el : node->elements) {
+        if (auto spread = dynamic_cast<ast::SpreadElement*>(el.get())) {
+            visit(spread->expression.get());
+            llvm::Value* otherArr = lastValue;
+            
+            llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_array_concat",
+                llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            builder->CreateCall(concatFn, { arr, otherArr });
+            continue;
+        }
+
         visit(el.get());
         llvm::Value* val = lastValue;
         if (!val) continue;
@@ -918,6 +1304,15 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (id->name == "Math" && node->name == "PI") {
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI",
+                llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false));
+            lastValue = builder->CreateCall(fn);
+            return;
+        }
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Function) {
         auto funcType = std::static_pointer_cast<FunctionType>(node->expression->inferredType);
         if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
@@ -959,7 +1354,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                     for (const auto& param : methodType->paramTypes) {
                         paramTypes.push_back(getLLVMType(param));
                     }
-                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), paramTypes, false);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(methodType->returnType), paramTypes, false);
                     
                     lastValue = module->getOrInsertFunction(implName, ft).getCallee();
                     return;
@@ -1048,6 +1443,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        if (obj->getType()->isIntegerTy(64)) {
+            obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+        }
         
         if (!node->expression->inferredType) {
              llvm::errs() << "Warning: No type inferred for length access, assuming string\n";
@@ -1075,6 +1473,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     } else if (node->name == "size") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        if (obj->getType()->isIntegerTy(64)) {
+            obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+        }
         
         if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
              llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size",
@@ -1121,6 +1522,23 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 lastValue = builder->CreateLoad(fieldTypes[fieldIdx], fieldPtr, node->name);
                 return;
             }
+        }
+
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+            visit(node->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
+            llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
+            llvm::Value* propName = builder->CreateCall(createStrFn, { propNameStr });
+            
+            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_object_get_property",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            
+            lastValue = builder->CreateCall(getPropFn, { objPtr, propName });
+            return;
         }
         
         llvm::errs() << "Error: Unknown property " << node->name << "\n";
@@ -1202,7 +1620,7 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
     llvm::Constant* headStr = builder->CreateGlobalStringPtr(node->head);
     llvm::Value* currentStr = builder->CreateCall(createFn, { headStr });
     
-    for (auto& span : node->spans) {
+    for ( auto& span : node->spans ) {
         visit(span.expression.get());
         llvm::Value* exprVal = lastValue;
         

@@ -40,6 +40,8 @@ void IRGenerator::visitIfStatement(ast::IfStatement* node) {
         condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "ifcond");
     } else if (condValue->getType()->isDoubleTy()) {
         condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
+    } else if (condValue->getType()->isPointerTy()) {
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "ifcond");
     }
 
     llvm::Function* func = builder->GetInsertBlock()->getParent();
@@ -98,9 +100,11 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 
     // Convert condition to bool
     if (condValue->getType()->isDoubleTy()) {
-        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
-    } else if (condValue->getType()->isIntegerTy()) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(condValue->getType(), 0), "ifcond");
+        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "whilecond");
+    } else if (condValue->getType()->isIntegerTy(64)) {
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "whilecond");
+    } else if (condValue->getType()->isPointerTy()) {
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "whilecond");
     }
 
     builder->CreateCondBr(condValue, loopBB, afterBB);
@@ -155,9 +159,11 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 
         // Convert condition to bool
         if (condValue->getType()->isDoubleTy()) {
-            condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
-        } else if (condValue->getType()->isIntegerTy()) {
-            condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(condValue->getType(), 0), "ifcond");
+            condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "forcond");
+        } else if (condValue->getType()->isIntegerTy(64)) {
+            condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "forcond");
+        } else if (condValue->getType()->isPointerTy()) {
+            condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "forcond");
         }
 
         builder->CreateCondBr(condValue, loopBB, afterBB);

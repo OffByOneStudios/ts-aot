@@ -27,14 +27,14 @@ Implement exception handling.
     - `throw` statement.
     - Integration with C++ exceptions or setjmp/longjmp.
 
-### [Epic 34: Destructuring & Spread](./epic_34_destructuring_spread.md)
+### [Epic 34: Destructuring & Spread](./epic_34_destructuring_spread.md) (Completed)
 Support modern syntax for objects and arrays.
 - **Key Features:**
-    - Object destructuring (`const { x, y } = point`).
-    - Array destructuring (`const [first, second] = arr`).
-    - Spread operator (`...`).
+    - [x] Object destructuring (`const { x, y } = point`).
+    - [x] Array destructuring (`const [first, second] = arr`).
+    - [x] Spread operator (`...`).
 
-### [Epic 35: Standard Library Expansion](./epic_35_stdlib_expansion.md)
+### [Epic 35: Standard Library Expansion](./epic_35_stdlib_expansion.md) (In Progress)
 Implement remaining core built-in objects.
 - **Key Features:**
     - `Date` object.

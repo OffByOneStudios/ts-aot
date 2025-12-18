@@ -23,6 +23,21 @@ void* ts_fs_readFileSync(void* path) {
     return TsString::Create(buffer.str().c_str());
 }
 
+void ts_fs_writeFileSync(void* path, void* content) {
+    TsString* pathStr = (TsString*)path;
+    TsString* contentStr = (TsString*)content;
+    const char* pathCStr = pathStr->ToUtf8();
+    const char* contentCStr = contentStr->ToUtf8();
+
+    std::ofstream t(pathCStr);
+    if (!t.is_open()) {
+        std::cerr << "Error: Could not open file for writing " << pathCStr << std::endl;
+        return;
+    }
+
+    t << contentCStr;
+}
+
 int64_t ts_parseInt(void* str) {
     TsString* s = (TsString*)str;
     const char* cStr = s->ToUtf8();

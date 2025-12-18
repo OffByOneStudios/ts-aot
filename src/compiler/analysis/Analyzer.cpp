@@ -7,7 +7,63 @@ namespace ts {
 
 using namespace ast;
 
-Analyzer::Analyzer() {}
+Analyzer::Analyzer() {
+    // Register JSON global
+    auto jsonType = std::make_shared<ObjectType>();
+    
+    auto parseType = std::make_shared<FunctionType>();
+    parseType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    parseType->returnType = std::make_shared<Type>(TypeKind::Any);
+    jsonType->fields["parse"] = parseType;
+    
+    auto stringifyType = std::make_shared<FunctionType>();
+    stringifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    stringifyType->returnType = std::make_shared<Type>(TypeKind::String);
+    jsonType->fields["stringify"] = stringifyType;
+    
+    symbols.define("JSON", jsonType);
+
+    // Register Date class
+    auto dateClass = std::make_shared<ClassType>("Date");
+    
+    auto getTime = std::make_shared<FunctionType>();
+    getTime->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getTime"] = getTime;
+    
+    auto getFullYear = std::make_shared<FunctionType>();
+    getFullYear->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getFullYear"] = getFullYear;
+
+    auto getMonth = std::make_shared<FunctionType>();
+    getMonth->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getMonth"] = getMonth;
+
+    auto getDate = std::make_shared<FunctionType>();
+    getDate->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getDate"] = getDate;
+    
+    auto now = std::make_shared<FunctionType>();
+    now->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->staticMethods["now"] = now;
+    
+    symbols.defineType("Date", dateClass);
+
+    // Register RegExp class
+    auto regexpClass = std::make_shared<ClassType>("RegExp");
+    
+    auto testType = std::make_shared<FunctionType>();
+    testType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    testType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    regexpClass->methods["test"] = testType;
+    
+    auto execType = std::make_shared<FunctionType>();
+    execType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    auto stringArray = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    execType->returnType = stringArray; // For now, just say it returns String[]
+    regexpClass->methods["exec"] = execType;
+    
+    symbols.defineType("RegExp", regexpClass);
+}
 
 void Analyzer::analyze(Program* program) {
     visitProgram(program);

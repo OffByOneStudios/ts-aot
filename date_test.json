@@ -1,0 +1,190 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "now"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "Date"
+          },
+          "name": "now"
+        },
+        "arguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "d"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Date"
+        },
+        "arguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Year: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "d"
+                },
+                "name": "getFullYear"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Month: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "d"
+                },
+                "name": "getMonth"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Date: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "d"
+                },
+                "name": "getDate"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "d2"
+      },
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Date"
+        },
+        "arguments": [
+          {
+            "kind": "NumericLiteral",
+            "value": 1600000000000
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "D2 Year: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "d2"
+                },
+                "name": "getFullYear"
+              },
+              "arguments": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -63,6 +63,64 @@ void TsArray::Sort() {
     std::sort(elements, elements + length);
 }
 
+int64_t TsArray::IndexOf(int64_t value) {
+    for (size_t i = 0; i < length; ++i) {
+        if (elements[i] == value) return (int64_t)i;
+    }
+    return -1;
+}
+
+void* TsArray::Slice(int64_t start, int64_t end) {
+    if (start < 0) start = length + start;
+    if (start < 0) start = 0;
+    if (start > (int64_t)length) start = length;
+
+    if (end < 0) end = length + end;
+    if (end > (int64_t)length) end = length;
+    if (end < start) end = start;
+
+    size_t newLength = end - start;
+    TsArray* result = TsArray::Create(newLength);
+    for (size_t i = 0; i < newLength; ++i) {
+        result->Push(elements[start + i]);
+    }
+    return result;
+}
+
+#include "TsString.h"
+#include <sstream>
+
+void* TsArray::Join(void* separator) {
+    TsString* sep = (TsString*)separator;
+    const char* sepStr = sep ? sep->ToUtf8() : ",";
+    
+    std::stringstream ss;
+    for (size_t i = 0; i < length; ++i) {
+        if (i > 0) ss << sepStr;
+        
+        // This is tricky because elements can be anything (int, double, pointer to TsString)
+        // For now, assume they are either ints or pointers to TsString
+        // We need a way to check if it's a pointer to TsString
+        int64_t val = elements[i];
+        if (val == 0) {
+            ss << "null";
+        } else if (val > 0x1000) { // Heuristic for pointer
+            // Check magic
+            uint32_t* magicPtr = (uint32_t*)val;
+            if (*magicPtr == TsString::MAGIC) {
+                ss << ((TsString*)val)->ToUtf8();
+            } else if (*magicPtr == TsArray::MAGIC) {
+                ss << "[Array]";
+            } else {
+                ss << val;
+            }
+        } else {
+            ss << val;
+        }
+    }
+    return TsString::Create(ss.str().c_str());
+}
+
 extern "C" {
     void* ts_array_create() {
         return TsArray::Create();
@@ -92,16 +150,23 @@ extern "C" {
         ((TsArray*)arr)->Sort();
     }
 
-    void* ts_array_slice(void* arr, int64_t start) {
-        TsArray* source = (TsArray*)arr;
-        if (start < 0) start = 0;
-        if (start > (int64_t)source->Length()) start = source->Length();
-        
-        size_t newLength = source->Length() - start;
-        TsArray* result = TsArray::Create(newLength);
-        for (size_t i = 0; i < newLength; ++i) {
-            result->Push(source->Get(start + i));
+    void* ts_array_slice(void* arr, int64_t start, int64_t end) {
+        return ((TsArray*)arr)->Slice(start, end);
+    }
+
+    int64_t ts_array_indexOf(void* arr, int64_t value) {
+        return ((TsArray*)arr)->IndexOf(value);
+    }
+
+    void* ts_array_join(void* arr, void* separator) {
+        return ((TsArray*)arr)->Join(separator);
+    }
+
+    void ts_array_concat(void* arr, void* other) {
+        TsArray* target = (TsArray*)arr;
+        TsArray* source = (TsArray*)other;
+        for (size_t i = 0; i < source->Length(); ++i) {
+            target->Push(source->Get(i));
         }
-        return result;
     }
 }
