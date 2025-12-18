@@ -39,7 +39,7 @@ struct Program : Node {
 };
 
 struct Parameter : Node {
-    std::string name;
+    NodePtr name;
     std::string type;
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isReadonly = false;
@@ -56,9 +56,28 @@ struct FunctionDeclaration : Statement {
 };
 
 struct VariableDeclaration : Statement {
-    std::string name;
+    NodePtr name;
+    std::string type;
     ExprPtr initializer;
     std::string getKind() const override { return "VariableDeclaration"; }
+};
+
+struct BindingElement : Node {
+    NodePtr name;
+    std::string propertyName;
+    ExprPtr initializer;
+    bool isSpread = false;
+    std::string getKind() const override { return "BindingElement"; }
+};
+
+struct ObjectBindingPattern : Node {
+    std::vector<NodePtr> elements;
+    std::string getKind() const override { return "ObjectBindingPattern"; }
+};
+
+struct ArrayBindingPattern : Node {
+    std::vector<NodePtr> elements;
+    std::string getKind() const override { return "ArrayBindingPattern"; }
 };
 
 struct ExpressionStatement : Statement {
@@ -123,7 +142,7 @@ struct SwitchStatement : Statement {
 };
 
 struct CatchClause : Node {
-    std::string variable;
+    NodePtr variable;
     std::vector<StmtPtr> block;
     std::string getKind() const override { return "CatchClause"; }
 };
@@ -218,6 +237,15 @@ struct NewExpression : Expression {
     ExprPtr expression;
     std::vector<ExprPtr> arguments;
     std::string getKind() const override { return "NewExpression"; }
+};
+
+struct SpreadElement : Expression {
+    ExprPtr expression;
+    std::string getKind() const override { return "SpreadElement"; }
+};
+
+struct OmittedExpression : Expression {
+    std::string getKind() const override { return "OmittedExpression"; }
 };
 
 struct ArrayLiteralExpression : Expression {

@@ -284,10 +284,11 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
 
     // Bind loop variable
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
-        llvm::Type* varType = elementVal->getType();
-        llvm::AllocaInst* loopVarAlloca = createEntryBlockAlloca(function, varDecl->name, varType);
-        builder->CreateStore(elementVal, loopVarAlloca);
-        namedValues[varDecl->name] = loopVarAlloca;
+        std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+            elementType = std::static_pointer_cast<ArrayType>(node->expression->inferredType)->elementType;
+        }
+        generateDestructuring(elementVal, elementType, varDecl->name.get());
     }
 
     // Body
@@ -462,15 +463,9 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     builder->SetInsertPoint(catchBB);
     // The handler was already popped by ts_throw
     if (node->catchClause) {
-        if (!node->catchClause->variable.empty()) {
+        if (node->catchClause->variable) {
             llvm::Value* exc = builder->CreateCall(getExcFn);
-            if (namedValues.count(node->catchClause->variable)) {
-                builder->CreateStore(exc, namedValues[node->catchClause->variable]);
-            } else {
-                llvm::AllocaInst* alloca = createEntryBlockAlloca(currentFn, node->catchClause->variable, llvm::PointerType::getUnqual(*context));
-                namedValues[node->catchClause->variable] = alloca;
-                builder->CreateStore(exc, alloca);
-            }
+            generateDestructuring(exc, std::make_shared<Type>(TypeKind::Any), node->catchClause->variable.get());
         }
         for (auto& stmt : node->catchClause->block) {
             visit(stmt.get());
@@ -546,10 +541,7 @@ void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
         return;
     }
 
-    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, node->name, initVal->getType());
-    builder->CreateStore(initVal, alloca);
-
-    namedValues[node->name] = alloca;
+    generateDestructuring(initVal, node->initializer->inferredType, node->name.get());
 }
 
 } // namespace ts

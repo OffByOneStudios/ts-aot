@@ -6,6 +6,7 @@ namespace ts {
 void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyzer) {
     // 1. First pass: Create opaque structs for all classes to handle circular references
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        llvm::errs() << "Found global type: " << name << " kind: " << (int)type->kind << "\n";
         if (type->kind == TypeKind::Class) {
             llvm::StructType::create(*context, name);
         }
@@ -79,6 +80,7 @@ void IRGenerator::generateClasses(ast::Program* program, const Analyzer& analyze
         for (const auto& [fieldName, fieldType] : layout.allFields) {
             fieldTypes.push_back(getLLVMType(fieldType));
         }
+        llvm::errs() << "Setting body for class: " << name << " with " << fieldTypes.size() << " fields\n";
         classStruct->setBody(fieldTypes);
 
         // Define VTable Body: { ParentVTable*, Function Pointers... }
@@ -217,7 +219,8 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         }
         
         // 2. Allocate
-        llvm::DataLayout dl(module.get());
+        const llvm::DataLayout& dl = module->getDataLayout();
+        llvm::errs() << "Allocating class: " << className << " opaque: " << structType->isOpaque() << "\n";
         uint64_t size = dl.getTypeAllocSize(structType);
         
         llvm::Function* allocFn = module->getFunction("ts_alloc");

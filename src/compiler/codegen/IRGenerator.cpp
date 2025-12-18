@@ -17,6 +17,23 @@ IRGenerator::IRGenerator() {
 }
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
+    // Initialize target for DataLayout
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
+
+    auto targetTriple = llvm::sys::getDefaultTargetTriple();
+    module->setTargetTriple(targetTriple);
+
+    std::string error;
+    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
+    if (target) {
+        auto targetMachine = target->createTargetMachine(targetTriple, "generic", "", {}, {});
+        module->setDataLayout(targetMachine->createDataLayout());
+    }
+
     generateClasses(program, analyzer);
     generatePrototypes(specializations);
     generateBodies(specializations);
@@ -91,6 +108,171 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     }
 }
 
+void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern) {
+    if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
+        llvm::errs() << "Defining identifier: " << id->name << "\n";
+        llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, value->getType());
+        builder->CreateStore(value, alloca);
+        namedValues[id->name] = alloca;
+    } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(pattern)) {
+        llvm::errs() << "Destructuring object pattern\n";
+        if (!type) {
+            llvm::errs() << "Type is null\n";
+        } else {
+            llvm::errs() << "Type kind: " << (int)type->kind << "\n";
+        }
+        if (!type || type->kind != TypeKind::Class) {
+            // Fallback for now: just declare variables as Any/null if we can't destructure
+            for (auto& elementNode : obp->elements) {
+                if (auto element = dynamic_cast<ast::BindingElement*>(elementNode.get())) {
+                    generateDestructuring(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context)), 
+                                          std::make_shared<Type>(TypeKind::Any), element->name.get());
+                }
+            }
+            return;
+        }
+
+        auto classType = std::static_pointer_cast<ClassType>(type);
+        std::string className = classType->name;
+        llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+        if (!classStruct) return;
+
+        llvm::Value* typedObjPtr = builder->CreateBitCast(value, llvm::PointerType::getUnqual(classStruct));
+
+        for (auto& elementNode : obp->elements) {
+            auto element = dynamic_cast<ast::BindingElement*>(elementNode.get());
+            if (!element) continue;
+
+            std::string fieldName;
+            if (!element->propertyName.empty()) {
+                fieldName = element->propertyName;
+            } else if (auto nameId = dynamic_cast<ast::Identifier*>(element->name.get())) {
+                fieldName = nameId->name;
+            }
+
+            if (fieldName.empty()) continue;
+
+            if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+                int fieldIndex = classLayouts[className].fieldIndices[fieldName];
+                llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+                
+                std::shared_ptr<Type> fieldType;
+                for (const auto& f : classLayouts[className].allFields) {
+                    if (f.first == fieldName) {
+                        fieldType = f.second;
+                        break;
+                    }
+                }
+                
+                if (fieldType) {
+                    llvm::Value* fieldValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                    
+                    if (element->initializer) {
+                        // If value is null, use initializer
+                        if (fieldValue->getType()->isPointerTy()) {
+                            llvm::Value* isNull = builder->CreateICmpEQ(fieldValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(fieldValue->getType())));
+                            
+                            llvm::Function* function = builder->GetInsertBlock()->getParent();
+                            llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "destruct.default", function);
+                            llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "destruct.value", function);
+                            llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "destruct.merge", function);
+                            
+                            builder->CreateCondBr(isNull, thenBB, elseBB);
+                            
+                            builder->SetInsertPoint(thenBB);
+                            visit(element->initializer.get());
+                            llvm::Value* defaultVal = lastValue;
+                            defaultVal = castValue(defaultVal, getLLVMType(fieldType));
+                            builder->CreateBr(mergeBB);
+                            thenBB = builder->GetInsertBlock();
+                            
+                            builder->SetInsertPoint(elseBB);
+                            builder->CreateBr(mergeBB);
+                            elseBB = builder->GetInsertBlock();
+                            
+                            builder->SetInsertPoint(mergeBB);
+                            llvm::PHINode* phi = builder->CreatePHI(fieldValue->getType(), 2);
+                            phi->addIncoming(defaultVal, thenBB);
+                            phi->addIncoming(fieldValue, elseBB);
+                            fieldValue = phi;
+                        }
+                    }
+
+                    generateDestructuring(fieldValue, fieldType, element->name.get());
+                }
+            }
+        }
+    } else if (auto abp = dynamic_cast<ast::ArrayBindingPattern*>(pattern)) {
+        std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+        if (type && type->kind == TypeKind::Array) {
+            elementType = std::static_pointer_cast<ArrayType>(type)->elementType;
+        }
+
+        llvm::Function* getFn = module->getFunction("ts_array_get");
+        if (!getFn) {
+             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) };
+             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), args, false);
+             getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
+        }
+
+        for (size_t i = 0; i < abp->elements.size(); ++i) {
+            auto elementNode = abp->elements[i].get();
+            if (auto oe = dynamic_cast<ast::OmittedExpression*>(elementNode)) continue;
+            
+            auto element = dynamic_cast<ast::BindingElement*>(elementNode);
+            if (!element) continue;
+
+            llvm::Value* idxVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i);
+
+            if (element->isSpread) {
+                llvm::FunctionCallee sliceFn = module->getOrInsertFunction("ts_array_slice",
+                    llvm::PointerType::getUnqual(*context),
+                    llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context));
+                llvm::Value* restArr = builder->CreateCall(sliceFn, { value, idxVal });
+                generateDestructuring(restArr, type, element->name.get());
+                break; // Spread must be last
+            }
+
+            llvm::Value* elementVal = builder->CreateCall(getFn, { value, idxVal });
+            
+            // Cast elementVal to the correct LLVM type if needed
+            llvm::Value* castedVal = castValue(elementVal, getLLVMType(elementType));
+            
+            if (element->initializer) {
+                // If value is 0 (null/undefined for numbers/pointers), use initializer
+                // This is a bit loose but works for now
+                llvm::Value* isNull = builder->CreateICmpEQ(elementVal, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+                
+                llvm::Function* function = builder->GetInsertBlock()->getParent();
+                llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "destruct.arr.default", function);
+                llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "destruct.arr.value", function);
+                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "destruct.arr.merge", function);
+                
+                builder->CreateCondBr(isNull, thenBB, elseBB);
+                
+                builder->SetInsertPoint(thenBB);
+                visit(element->initializer.get());
+                llvm::Value* defaultVal = lastValue;
+                defaultVal = castValue(defaultVal, getLLVMType(elementType));
+                builder->CreateBr(mergeBB);
+                thenBB = builder->GetInsertBlock();
+                
+                builder->SetInsertPoint(elseBB);
+                builder->CreateBr(mergeBB);
+                elseBB = builder->GetInsertBlock();
+                
+                builder->SetInsertPoint(mergeBB);
+                llvm::PHINode* phi = builder->CreatePHI(castedVal->getType(), 2);
+                phi->addIncoming(defaultVal, thenBB);
+                phi->addIncoming(castedVal, elseBB);
+                castedVal = phi;
+            }
+
+            generateDestructuring(castedVal, elementType, element->name.get());
+        }
+    }
+}
+
 llvm::AllocaInst* IRGenerator::createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type) {
     llvm::IRBuilder<> tmpBuilder(&function->getEntryBlock(), function->getEntryBlock().begin());
     return tmpBuilder.CreateAlloca(type, nullptr, varName);
@@ -137,9 +319,12 @@ void IRGenerator::visit(ast::Node* node) {
     else if (auto boolean = dynamic_cast<ast::BooleanLiteral*>(node)) visitBooleanLiteral(boolean);
     else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
     else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
+    else if (auto n = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(n);
     else if (auto obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
+    else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
     else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
     else if (auto as = dynamic_cast<ast::AsExpression*>(node)) visitAsExpression(as);
+    else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
     else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
     else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
     else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
@@ -157,13 +342,12 @@ void IRGenerator::visit(ast::Node* node) {
         visitContinueStatement(n);
     } else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
     else if (auto pre = dynamic_cast<ast::PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
-    else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
-    else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
-    else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
-    else if (auto newExpr = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(newExpr);
     else if (auto sup = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(sup);
-    else if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node)) visitArrowFunction(arrow);
-    else if (auto tmpl = dynamic_cast<ast::TemplateExpression*>(node)) visitTemplateExpression(tmpl);
+    else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(node)) visitObjectBindingPattern(obp);
+    else if (auto abp = dynamic_cast<ast::ArrayBindingPattern*>(node)) visitArrayBindingPattern(abp);
+    else if (auto be = dynamic_cast<ast::BindingElement*>(node)) visitBindingElement(be);
+    else if (auto se = dynamic_cast<ast::SpreadElement*>(node)) visitSpreadElement(se);
+    else if (auto oe = dynamic_cast<ast::OmittedExpression*>(node)) visitOmittedExpression(oe);
 }
 
 void IRGenerator::dumpIR() {
@@ -171,16 +355,7 @@ void IRGenerator::dumpIR() {
 }
 
 void IRGenerator::emitObjectCode(const std::string& filename) {
-    // Initialize the target registry etc.
-    llvm::InitializeAllTargetInfos();
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllAsmPrinters();
-
-    auto targetTriple = llvm::sys::getDefaultTargetTriple();
-    module->setTargetTriple(targetTriple);
-
+    auto targetTriple = module->getTargetTriple();
     std::string error;
     auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
 
@@ -195,8 +370,6 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
     llvm::TargetOptions opt;
     auto rm = std::optional<llvm::Reloc::Model>();
     auto targetMachine = target->createTargetMachine(targetTriple, cpu, features, opt, rm);
-
-    module->setDataLayout(targetMachine->createDataLayout());
 
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
@@ -255,5 +428,11 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
 
     return builder->CreateBitCast(val, expectedType);
 }
+
+void IRGenerator::visitObjectBindingPattern(ast::ObjectBindingPattern* node) {}
+void IRGenerator::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {}
+void IRGenerator::visitBindingElement(ast::BindingElement* node) {}
+void IRGenerator::visitSpreadElement(ast::SpreadElement* node) {}
+void IRGenerator::visitOmittedExpression(ast::OmittedExpression* node) {}
 
 } // namespace ts

@@ -56,11 +56,14 @@ void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
             if (method->name == "constructor") {
                 for (const auto& param : method->parameters) {
                     if (param->isParameterProperty) {
-                        auto fieldType = parseType(param->type, symbols);
-                        classType->fields[param->name] = fieldType;
-                        classType->fieldAccess[param->name] = param->access;
-                        if (param->isReadonly) {
-                            classType->readonlyFields.insert(param->name);
+                        auto id = dynamic_cast<Identifier*>(param->name.get());
+                        if (id) {
+                            auto fieldType = parseType(param->type, symbols);
+                            classType->fields[id->name] = fieldType;
+                            classType->fieldAccess[id->name] = param->access;
+                            if (param->isReadonly) {
+                                classType->readonlyFields.insert(id->name);
+                            }
                         }
                     }
                 }

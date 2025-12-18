@@ -73,7 +73,9 @@ TEST_CASE("Analyzer Type Inference", "[compiler][analyzer]") {
         func->name = "test";
         
         auto param = std::make_unique<Parameter>();
-        param->name = "n";
+        auto paramId = std::make_unique<Identifier>();
+        paramId->name = "n";
+        param->name = std::move(paramId);
         param->type = "number";
         func->parameters.push_back(std::move(param));
         

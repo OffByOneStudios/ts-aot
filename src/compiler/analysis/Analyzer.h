@@ -29,6 +29,7 @@ public:
     void reportError(const std::string& message);
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
+    std::shared_ptr<Type> resolveType(const std::string& typeName);
 
 private:
     SymbolTable symbols;
@@ -72,6 +73,13 @@ private:
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitArrowFunction(ast::ArrowFunction* node);
+    void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
+    void visitArrayBindingPattern(ast::ArrayBindingPattern* node);
+    void visitBindingElement(ast::BindingElement* node);
+    void visitSpreadElement(ast::SpreadElement* node);
+    void visitOmittedExpression(ast::OmittedExpression* node);
+
+    void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type);
 
     std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
 

@@ -843,7 +843,9 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 }
                 
                 if (fieldType) {
-                    lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                    val = castValue(val, getLLVMType(fieldType));
+                    builder->CreateStore(val, fieldPtr);
+                    lastValue = val;
                 } else {
                     lastValue = nullptr;
                 }

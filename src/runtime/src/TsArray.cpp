@@ -91,4 +91,17 @@ extern "C" {
     void ts_array_sort(void* arr) {
         ((TsArray*)arr)->Sort();
     }
+
+    void* ts_array_slice(void* arr, int64_t start) {
+        TsArray* source = (TsArray*)arr;
+        if (start < 0) start = 0;
+        if (start > (int64_t)source->Length()) start = source->Length();
+        
+        size_t newLength = source->Length() - start;
+        TsArray* result = TsArray::Create(newLength);
+        for (size_t i = 0; i < newLength; ++i) {
+            result->Push(source->Get(start + i));
+        }
+        return result;
+    }
 }

@@ -175,6 +175,12 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         }
 
         // Check for user-defined classes
+        auto type = symbols.lookupType(id->name);
+        if (type && type->kind == TypeKind::Class) {
+            lastType = type;
+            return;
+        }
+
         auto sym = symbols.lookup(id->name);
         if (sym && sym->type->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(sym->type);

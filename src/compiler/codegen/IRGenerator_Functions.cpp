@@ -40,17 +40,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             unsigned idx = 0;
             for (auto& arg : function->args()) {
                 if (idx < funcNode->parameters.size()) {
-                    std::string argName = funcNode->parameters[idx]->name;
-                    arg.setName(argName);
-                    
-                    // Create an alloca for this variable.
-                    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
-
-                    // Store the initial value into the alloca.
-                    builder->CreateStore(&arg, alloca);
-
-                    // Add arguments to variable symbol table.
-                    namedValues[argName] = alloca;
+                    auto param = funcNode->parameters[idx].get();
+                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                        arg.setName(id->name);
+                    }
+                    generateDestructuring(&arg, spec.argTypes[idx], param->name.get());
                 }
                 idx++;
             }
@@ -74,12 +68,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             // Handle explicit parameters
             unsigned idx = 0;
             while (argIt != function->arg_end() && idx < methodNode->parameters.size()) {
-                std::string argName = methodNode->parameters[idx]->name;
-                argIt->setName(argName);
-                
-                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, argIt->getType());
-                builder->CreateStore(&*argIt, alloca);
-                namedValues[argName] = alloca;
+                auto param = methodNode->parameters[idx].get();
+                if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                    argIt->setName(id->name);
+                }
+                generateDestructuring(&*argIt, spec.argTypes[idx], param->name.get());
                 
                 ++argIt;
                 ++idx;
@@ -126,12 +119,14 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     namedValues.clear();
     
     unsigned idx = 0;
+    auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
     for (auto& arg : function->args()) {
-        std::string argName = node->parameters[idx]->name;
-        arg.setName(argName);
-        llvm::AllocaInst* alloca = createEntryBlockAlloca(function, argName, arg.getType());
-        builder->CreateStore(&arg, alloca);
-        namedValues[argName] = alloca;
+        auto param = node->parameters[idx].get();
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            arg.setName(id->name);
+        }
+        std::shared_ptr<Type> paramType = (funcType && idx < funcType->paramTypes.size()) ? funcType->paramTypes[idx] : std::make_shared<Type>(TypeKind::Any);
+        generateDestructuring(&arg, paramType, param->name.get());
         idx++;
     }
     

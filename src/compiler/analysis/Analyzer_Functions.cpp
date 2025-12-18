@@ -26,7 +26,7 @@ void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
     symbols.enterScope();
     // Define parameters in scope
     for (size_t i = 0; i < node->parameters.size(); ++i) {
-        symbols.define(node->parameters[i]->name, funcType->paramTypes[i]);
+        declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
     }
 
     for (auto& stmt : node->body) {
@@ -43,14 +43,17 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         std::vector<StmtPtr> injected;
         for (const auto& param : node->parameters) {
             if (param->isParameterProperty) {
+                auto id = dynamic_cast<Identifier*>(param->name.get());
+                if (!id) continue;
+
                 auto thisExpr = std::make_unique<Identifier>();
                 thisExpr->name = "this";
                 auto propAccess = std::make_unique<PropertyAccessExpression>();
                 propAccess->expression = std::move(thisExpr);
-                propAccess->name = param->name;
+                propAccess->name = id->name;
                 
                 auto rhs = std::make_unique<Identifier>();
-                rhs->name = param->name;
+                rhs->name = id->name;
                 
                 auto assign = std::make_unique<AssignmentExpression>();
                 assign->left = std::move(propAccess);
@@ -104,7 +107,7 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
 
     // Define parameters in scope
     for (size_t i = 0; i < node->parameters.size(); ++i) {
-        symbols.define(node->parameters[i]->name, methodType->paramTypes[i]);
+        declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
     }
 
     for (auto& stmt : node->body) {
@@ -127,7 +130,7 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     // Bind parameters to the provided types
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         if (i < argTypes.size()) {
-            symbols.define(node->parameters[i]->name, argTypes[i]);
+            declareBindingPattern(node->parameters[i]->name.get(), argTypes[i]);
         }
     }
 
