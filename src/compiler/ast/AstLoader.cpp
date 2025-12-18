@@ -179,6 +179,7 @@ ExprPtr parseExpression(const json& j) {
         return std::make_unique<OmittedExpression>();
     } else if (kind == "ArrowFunction") {
         auto node = std::make_unique<ArrowFunction>();
+        node->isAsync = j.value("isAsync", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 auto p = std::make_unique<Parameter>();
@@ -241,6 +242,7 @@ NodePtr parseClassMember(const json& j) {
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
         node->name = j["name"].get<std::string>();
+        node->isAsync = j.value("isAsync", false);
         if (j.contains("typeParameters")) {
             for (const auto& tp : j["typeParameters"]) {
                 node->typeParameters.push_back(parseTypeParameter(tp));

@@ -312,6 +312,7 @@ struct PropertyDefinition : Node {
 
 struct MethodDefinition : Node {
     std::string name;
+    bool isAsync = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;
@@ -504,6 +505,7 @@ struct AwaitExpression : Expression {
 };
 
 struct ArrowFunction : Expression {
+    bool isAsync = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     NodePtr body; // BlockStatement or Expression
     std::string getKind() const override { return "ArrowFunction"; }

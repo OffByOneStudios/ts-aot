@@ -188,6 +188,7 @@ function visit(node) {
             return {
                 kind: "MethodDefinition",
                 name: node.name.text,
+                isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
@@ -450,6 +451,7 @@ function visit(node) {
         case ts.SyntaxKind.ArrowFunction:
             return {
                 kind: "ArrowFunction",
+                isAsync: isAsync(node),
                 parameters: node.parameters.map(p => ({
                     name: visit(p.name),
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
