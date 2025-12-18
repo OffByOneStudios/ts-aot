@@ -1,0 +1,157 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "test",
+      "isExported": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "add"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ArrowFunction",
+            "isAsync": true,
+            "parameters": [
+              {
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "type": "number"
+              },
+              {
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b"
+                },
+                "type": "number"
+              }
+            ],
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ReturnStatement",
+                  "expression": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "a"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting arrow test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "sum"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "add"
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 10
+                },
+                {
+                  "kind": "NumericLiteral",
+                  "value": 20
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Sum: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "sum"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "test"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

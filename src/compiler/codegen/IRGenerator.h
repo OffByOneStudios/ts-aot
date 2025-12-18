@@ -10,10 +10,11 @@
 
 #include "../analysis/Analyzer.h"
 #include "../analysis/Monomorphizer.h"
+#include "../ast/AstNodes.h"
 
 namespace ts {
 
-class IRGenerator {
+class IRGenerator : public ast::Visitor {
 public:
     IRGenerator();
 
@@ -31,6 +32,7 @@ private:
     void generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations);
     void generatePrototypes(const std::vector<Specialization>& specializations);
     void generateBodies(const std::vector<Specialization>& specializations);
+    void generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node* node, const std::vector<std::shared_ptr<Type>>& argTypes, std::shared_ptr<Type> classType, const std::string& specializedName);
     void generateEntryPoint();
 
     void visitBlockStatement(ast::BlockStatement* node);
@@ -87,10 +89,27 @@ private:
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
+    struct VariableInfo {
+        std::string name;
+        std::shared_ptr<Type> type;
+        llvm::Type* llvmType;
+    };
+    void collectVariables(ast::Node* node, std::vector<VariableInfo>& vars);
+
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
+
+    // Async support
+    llvm::Value* currentAsyncContext = nullptr;
+    llvm::Value* currentAsyncResumedValue = nullptr;
+    llvm::Value* currentAsyncFrame = nullptr;
+    llvm::StructType* currentAsyncFrameType = nullptr;
+    llvm::StructType* asyncContextType = nullptr;
+    std::map<std::string, int> currentAsyncFrameMap;
+    llvm::BasicBlock* asyncDispatcherBB = nullptr;
+    std::vector<llvm::BasicBlock*> asyncStateBlocks;
 
     struct ClassLayout {
         std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;

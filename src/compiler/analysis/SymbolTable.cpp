@@ -49,6 +49,13 @@ std::shared_ptr<Symbol> SymbolTable::lookup(const std::string& name) {
     return nullptr;
 }
 
+bool SymbolTable::defineGlobalType(const std::string& name, std::shared_ptr<Type> type) {
+    if (typeScopes.empty()) return false;
+    fmt::print("Defining global type: {}\n", name);
+    typeScopes.front()[name] = type;
+    return true;
+}
+
 bool SymbolTable::defineType(const std::string& name, std::shared_ptr<Type> type) {
     if (typeScopes.empty()) return false;
 

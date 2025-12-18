@@ -1,11 +1,13 @@
 #include "Analyzer.h"
 #include <fmt/core.h>
+#include <iostream>
 
 namespace ts {
 
 using namespace ast;
 
 void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
+    std::cerr << "Visiting function declaration: " << node->name << std::endl;
     symbols.enterScope();
 
     auto funcType = std::make_shared<FunctionType>();
@@ -227,12 +229,40 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             inferredReturnType = lastType;
         }
     }
+
+    if (node->isAsync) {
+        bool isPromise = false;
+        if (inferredReturnType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(inferredReturnType);
+            if (cls->name == "Promise") isPromise = true;
+        }
+        
+        if (!isPromise) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            
+            std::string mangledName = "Promise_" + inferredReturnType->toString();
+            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
+                return !std::isalnum(c);
+            }, '_');
+
+            auto wrapped = std::make_shared<ClassType>(mangledName);
+            wrapped->methods = promiseClass->methods;
+            wrapped->staticMethods = promiseClass->staticMethods;
+            wrapped->typeArguments = { inferredReturnType };
+            inferredReturnType = wrapped;
+
+            if (!symbols.lookupType(mangledName)) {
+                symbols.defineGlobalType(mangledName, wrapped);
+            }
+        }
+    }
     
     symbols.exitScope();
     return inferredReturnType;
 }
 
 void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
+    std::cerr << "Visiting arrow function, async: " << node->isAsync << std::endl;
     auto funcType = std::make_shared<FunctionType>();
     
     symbols.enterScope();
@@ -254,17 +284,26 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
         bool isPromise = false;
         if (funcType->returnType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
-            if (cls->name == "Promise") isPromise = true;
+            if (cls->name == "Promise" || cls->name.substr(0, 8) == "Promise_") isPromise = true;
         }
         
         if (!isPromise) {
             auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
-            auto wrapped = std::make_shared<ClassType>("Promise");
-            wrapped->typeParameters = promiseClass->typeParameters;
+            
+            std::string mangledName = "Promise_" + funcType->returnType->toString();
+            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
+                return !std::isalnum(c);
+            }, '_');
+
+            auto wrapped = std::make_shared<ClassType>(mangledName);
             wrapped->methods = promiseClass->methods;
             wrapped->staticMethods = promiseClass->staticMethods;
             wrapped->typeArguments = { funcType->returnType };
             funcType->returnType = wrapped;
+
+            if (!symbols.lookupType(mangledName)) {
+                symbols.defineGlobalType(mangledName, wrapped);
+            }
         }
     }
     

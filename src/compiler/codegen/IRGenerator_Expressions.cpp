@@ -159,11 +159,17 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
 void IRGenerator::visitIdentifier(ast::Identifier* node) {
     if (namedValues.count(node->name)) {
         llvm::Value* val = namedValues[node->name];
+        llvm::Type* type = nullptr;
         if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
-            lastValue = builder->CreateLoad(alloca->getAllocatedType(), alloca, node->name.c_str());
+            type = alloca->getAllocatedType();
+        } else if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(val)) {
+            type = gep->getResultElementType();
+        }
+        
+        if (type) {
+            lastValue = builder->CreateLoad(type, val, node->name.c_str());
         } else {
-            llvm::errs() << "Error: Variable " << node->name << " is not an alloca\n";
-            lastValue = nullptr;
+            lastValue = val;
         }
         return;
     }
@@ -1054,23 +1060,30 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (namedValues.count(id->name)) {
             llvm::Value* val = namedValues[id->name];
+            llvm::Type* varType = nullptr;
             if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
-                llvm::Value* funcPtr = builder->CreateLoad(alloca->getAllocatedType(), alloca, id->name.c_str());
+                varType = alloca->getAllocatedType();
+            } else if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(val)) {
+                varType = gep->getResultElementType();
+            }
+
+            if (varType && varType->isPointerTy()) {
+                llvm::Value* funcPtr = builder->CreateLoad(varType, val, id->name.c_str());
                 
                 std::vector<llvm::Value*> args;
                 std::vector<llvm::Type*> argTypes;
                 for (auto& arg : node->arguments) {
                     visit(arg.get());
                     llvm::Value* v = lastValue;
-                    // Hack: Convert int to double for arrow functions
-                    if (v->getType()->isIntegerTy(64)) {
-                        v = builder->CreateSIToFP(v, llvm::Type::getDoubleTy(*context));
-                    }
+                    
+                    // Arrow functions always take TsValue* (ptr)
+                    v = boxValue(v, arg->inferredType);
+                    
                     args.push_back(v);
                     argTypes.push_back(v->getType());
                 }
                 
-                llvm::Type* retType = llvm::Type::getDoubleTy(*context);
+                llvm::Type* retType = builder->getPtrTy(); // Arrow functions always return TsValue* (ptr)
                 llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
                 lastValue = builder->CreateCall(ft, funcPtr, args);
                 return;
@@ -1209,6 +1222,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             variable = namedValues[id->name];
             if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
                 varType = alloca->getAllocatedType();
+            } else if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(variable)) {
+                varType = gep->getResultElementType();
             }
         } else {
             // Check for global variable
@@ -1837,16 +1852,41 @@ void IRGenerator::visitAsExpression(ast::AsExpression* node) {
 }
 
 void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
+    if (!currentAsyncContext) {
+        // Fallback for non-async context (should be caught by analyzer)
+        visit(node->expression.get());
+        return;
+    }
+
+    // 1. Evaluate expression
     visit(node->expression.get());
-    llvm::Value* promise = lastValue;
+    llvm::Value* promiseVal = lastValue;
     
-    // For now, await is a runtime call that suspends (or just blocks if not in async)
-    // In a real implementation, this would be part of the async state machine.
-    // For the first milestone, we'll just call a runtime helper.
-    llvm::FunctionCallee awaitFn = module->getOrInsertFunction("ts_promise_await",
-        builder->getPtrTy(), builder->getPtrTy());
+    // Box it if needed
+    promiseVal = boxValue(promiseVal, node->expression->inferredType);
+
+    // 2. Save state
+    int nextState = asyncStateBlocks.size();
+    llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "state" + std::to_string(nextState), builder->GetInsertBlock()->getParent());
+    asyncStateBlocks.push_back(nextBB);
+
+    // Update ctx->state
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 1);
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), statePtr);
+
+    // 3. Call ts_async_await
+    llvm::FunctionCallee awaitFn = module->getOrInsertFunction("ts_async_await", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
+    builder->CreateCall(awaitFn, { promiseVal, currentAsyncContext });
+
+    // 4. Return from SM function
+    builder->CreateRetVoid();
+
+    // 5. Start next state
+    builder->SetInsertPoint(nextBB);
     
-    lastValue = builder->CreateCall(awaitFn, { promise });
+    // The resumed value is in currentAsyncResumedValue
+    // Unbox it to the expected type
+    lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
 }
 
 } // namespace ts

@@ -19,9 +19,9 @@ Integrate `libuv` into the runtime to handle asynchronous I/O and timers.
 
 ### Epic 45: Async/Await Transformation
 Implement the compiler pass to transform `async` functions into state-machine based generators.
-- [ ] Update AST to support `AsyncKeyword` and `AwaitExpression`.
-- [ ] Implement the "Async-to-Generator" transformation in the `Monomorphizer`.
-- [ ] Generate state machine IR that can suspend and resume execution.
+- [x] Update AST to support `AsyncKeyword` and `AwaitExpression`.
+- [x] Implement the "Async-to-Generator" transformation in the `Monomorphizer`.
+- [x] Generate state machine IR that can suspend and resume execution.
 
 ### Epic 46: Asynchronous I/O
 Expose asynchronous versions of existing APIs.

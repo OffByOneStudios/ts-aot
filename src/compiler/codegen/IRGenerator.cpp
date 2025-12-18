@@ -94,7 +94,7 @@ void IRGenerator::generateEntryPoint() {
 
 llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     switch (type->kind) {
-        case TypeKind::Void: return llvm::Type::getVoidTy(*context);
+        case TypeKind::Void: return llvm::Type::getInt8Ty(*context);
         case TypeKind::Int: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
         case TypeKind::Boolean: return llvm::Type::getInt1Ty(*context);
@@ -119,11 +119,14 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::String:
         case TypeKind::Any:
         case TypeKind::Array:
+        case TypeKind::Map:
+        case TypeKind::Interface:
         case TypeKind::Union:
         case TypeKind::Intersection:
         case TypeKind::TypeParameter:
+        case TypeKind::Function:
             return llvm::PointerType::getUnqual(*context);
-        default: return llvm::Type::getVoidTy(*context);
+        default: return llvm::Type::getInt8Ty(*context);
     }
 }
 
@@ -135,6 +138,16 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         if (auto gv = module->getGlobalVariable(id->name)) {
             builder->CreateStore(value, gv);
             return;
+        }
+
+        if (currentAsyncFrame) {
+            auto it = currentAsyncFrameMap.find(id->name);
+            if (it != currentAsyncFrameMap.end()) {
+                llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+                builder->CreateStore(value, ptr);
+                namedValues[id->name] = ptr;
+                return;
+            }
         }
 
         llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, value->getType());
@@ -336,129 +349,30 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 }
 
 void IRGenerator::visit(ast::Node* node) {
+    if (node) node->accept(this);
+}
+
+void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& vars) {
     if (!node) return;
-    if (auto ret = dynamic_cast<ast::ReturnStatement*>(node)) visitReturnStatement(ret);
-    else if (auto bin = dynamic_cast<ast::BinaryExpression*>(node)) visitBinaryExpression(bin);
-    else if (auto assign = dynamic_cast<ast::AssignmentExpression*>(node)) visitAssignmentExpression(assign);
-    else if (auto id = dynamic_cast<ast::Identifier*>(node)) visitIdentifier(id);
-    else if (auto num = dynamic_cast<ast::NumericLiteral*>(node)) visitNumericLiteral(num);
-    else if (auto boolean = dynamic_cast<ast::BooleanLiteral*>(node)) visitBooleanLiteral(boolean);
-    else if (auto str = dynamic_cast<ast::StringLiteral*>(node)) visitStringLiteral(str);
-    else if (auto call = dynamic_cast<ast::CallExpression*>(node)) visitCallExpression(call);
-    else if (auto n = dynamic_cast<ast::NewExpression*>(node)) visitNewExpression(n);
-    else if (auto obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) visitObjectLiteralExpression(obj);
-    else if (auto arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) visitArrayLiteralExpression(arr);
-    else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node)) visitElementAccessExpression(elem);
-    else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) visitPropertyAccessExpression(prop);
-    else if (auto as = dynamic_cast<ast::AsExpression*>(node)) visitAsExpression(as);
-    else if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) visitVariableDeclaration(varDecl);
-    else if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node)) visitExpressionStatement(exprStmt);
-    else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) visitIfStatement(ifStmt);
-    else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) visitWhileStatement(whileStmt);
-    else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) visitForStatement(forStmt);
-    else if (auto forOfStmt = dynamic_cast<ast::ForOfStatement*>(node)) visitForOfStatement(forOfStmt);
-    else if (auto sw = dynamic_cast<ast::SwitchStatement*>(node)) visitSwitchStatement(sw);
-    else if (auto tryStmt = dynamic_cast<ast::TryStatement*>(node)) visitTryStatement(tryStmt);
-    else if (auto throwStmt = dynamic_cast<ast::ThrowStatement*>(node)) visitThrowStatement(throwStmt);
-    else if (auto imp = dynamic_cast<ast::ImportDeclaration*>(node)) visitImportDeclaration(imp);
-    else if (auto exp = dynamic_cast<ast::ExportDeclaration*>(node)) visitExportDeclaration(exp);
-    else if (auto br = dynamic_cast<ast::BreakStatement*>(node)) visitBreakStatement(br);
-    else if (auto cont = dynamic_cast<ast::ContinueStatement*>(node)) visitContinueStatement(cont);
-    else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) visitBlockStatement(block);
-    else if (auto pre = dynamic_cast<ast::PrefixUnaryExpression*>(node)) visitPrefixUnaryExpression(pre);
-    else if (auto postfix = dynamic_cast<ast::PostfixUnaryExpression*>(node)) visitPostfixUnaryExpression(postfix);
-    else if (auto super = dynamic_cast<ast::SuperExpression*>(node)) visitSuperExpression(super);
-    else if (auto awaitExpr = dynamic_cast<ast::AwaitExpression*>(node)) visitAwaitExpression(awaitExpr);
-    else if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node)) visitArrowFunction(arrow);
-    else if (auto temp = dynamic_cast<ast::TemplateExpression*>(node)) visitTemplateExpression(temp);
-    else if (auto prog = dynamic_cast<ast::Program*>(node)) visitProgram(prog);
-    else if (auto cls = dynamic_cast<ast::ClassDeclaration*>(node)) visitClassDeclaration(cls);
-    else if (auto inter = dynamic_cast<ast::InterfaceDeclaration*>(node)) visitInterfaceDeclaration(inter);
-    else if (auto func = dynamic_cast<ast::FunctionDeclaration*>(node)) visitFunctionDeclaration(func);
-    else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(node)) visitObjectBindingPattern(obp);
-    else if (auto abp = dynamic_cast<ast::ArrayBindingPattern*>(node)) visitArrayBindingPattern(abp);
-    else if (auto be = dynamic_cast<ast::BindingElement*>(node)) visitBindingElement(be);
-    else if (auto se = dynamic_cast<ast::SpreadElement*>(node)) visitSpreadElement(se);
-    else if (auto oe = dynamic_cast<ast::OmittedExpression*>(node)) visitOmittedExpression(oe);
-}
 
-void IRGenerator::dumpIR() {
-    module->print(llvm::outs(), nullptr);
-}
-
-void IRGenerator::emitObjectCode(const std::string& filename) {
-    auto targetTriple = module->getTargetTriple();
-    std::string error;
-    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
-
-    if (!target) {
-        llvm::errs() << error;
-        return;
-    }
-
-    auto cpu = "generic";
-    auto features = "";
-
-    llvm::TargetOptions opt;
-    auto rm = std::optional<llvm::Reloc::Model>();
-    auto targetMachine = target->createTargetMachine(targetTriple, cpu, features, opt, rm);
-
-    std::error_code ec;
-    llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
-
-    if (ec) {
-        llvm::errs() << "Could not open file: " << ec.message();
-        return;
-    }
-
-    llvm::legacy::PassManager pass;
-    auto fileType = llvm::CodeGenFileType::ObjectFile;
-
-    if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
-        llvm::errs() << "TargetMachine can't emit a file of this type";
-        return;
-    }
-
-    pass.run(*module);
-    dest.flush();
-}
-
-llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) {
-    if (!val) return nullptr;
-    llvm::Type* valType = val->getType();
-    if (valType == expectedType) return val;
-
-    if (expectedType->isDoubleTy() && valType->isIntegerTy()) {
-        return builder->CreateSIToFP(val, expectedType);
-    }
-    if (expectedType->isIntegerTy() && valType->isDoubleTy()) {
-        return builder->CreateFPToSI(val, expectedType);
-    }
-
-    // Handle 'any' (pointers)
-    if (expectedType->isPointerTy()) {
-        if (valType->isDoubleTy()) {
-            // Bitcast double to i64 then inttoptr
-            llvm::Value* i64Val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
-            return builder->CreateIntToPtr(i64Val, expectedType);
+    if (auto decl = dynamic_cast<ast::VariableDeclaration*>(node)) {
+        if (auto id = dynamic_cast<ast::Identifier*>(decl->name.get())) {
+            vars.push_back({id->name, decl->resolvedType, getLLVMType(decl->resolvedType)});
         }
-        if (valType->isIntegerTy()) {
-            return builder->CreateIntToPtr(val, expectedType);
-        }
+    } else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) {
+        for (auto& stmt : block->statements) collectVariables(stmt.get(), vars);
+    } else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
+        collectVariables(ifStmt->thenStatement.get(), vars);
+        collectVariables(ifStmt->elseStatement.get(), vars);
+    } else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
+        collectVariables(whileStmt->body.get(), vars);
+    } else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) {
+        collectVariables(forStmt->initializer.get(), vars);
+        collectVariables(forStmt->body.get(), vars);
+    } else if (auto forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
+        collectVariables(forOf->initializer.get(), vars);
+        collectVariables(forOf->body.get(), vars);
     }
-
-    if (valType->isPointerTy()) {
-        if (expectedType->isDoubleTy()) {
-            // ptrtoint then bitcast to double
-            llvm::Value* i64Val = builder->CreatePtrToInt(val, llvm::Type::getInt64Ty(*context));
-            return builder->CreateBitCast(i64Val, expectedType);
-        }
-        if (expectedType->isIntegerTy()) {
-            return builder->CreatePtrToInt(val, expectedType);
-        }
-    }
-
-    return builder->CreateBitCast(val, expectedType);
 }
 
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
@@ -530,5 +444,61 @@ void IRGenerator::visitProgram(ast::Program* node) {
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {}
 void IRGenerator::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {}
 void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {}
+
+void IRGenerator::emitObjectCode(const std::string& filename) {
+    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
+    module->setTargetTriple(targetTriple);
+
+    std::string error;
+    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
+
+    if (!target) {
+        llvm::errs() << error;
+        return;
+    }
+
+    auto cpu = "generic";
+    auto features = "";
+
+    llvm::TargetOptions opt;
+    auto rm = llvm::Reloc::Model::PIC_;
+    auto targetMachine = target->createTargetMachine(targetTriple, cpu, features, opt, rm);
+
+    module->setDataLayout(targetMachine->createDataLayout());
+
+    std::error_code ec;
+    llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
+
+    if (ec) {
+        llvm::errs() << "Could not open file: " << ec.message();
+        return;
+    }
+
+    llvm::legacy::PassManager pass;
+    auto fileType = llvm::CodeGenFileType::ObjectFile;
+
+    if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
+        llvm::errs() << "TargetMachine can't emit a file of this type";
+        return;
+    }
+
+    pass.run(*module);
+    dest.flush();
+}
+
+void IRGenerator::dumpIR() {
+    module->print(llvm::errs(), nullptr);
+}
+
+llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) {
+    if (val->getType() == expectedType) return val;
+    if (val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
+        return builder->CreateIntCast(val, expectedType, true);
+    }
+    if (val->getType()->isPointerTy() && expectedType->isPointerTy()) {
+        return builder->CreateBitCast(val, expectedType);
+    }
+    return val;
+}
 
 } // namespace ts
