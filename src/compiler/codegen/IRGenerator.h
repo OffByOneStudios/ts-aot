@@ -41,6 +41,11 @@ private:
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitArrowFunction(ast::ArrowFunction* node);
+    void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
+    void visitArrayBindingPattern(ast::ArrayBindingPattern* node);
+    void visitBindingElement(ast::BindingElement* node);
+    void visitSpreadElement(ast::SpreadElement* node);
+    void visitOmittedExpression(ast::OmittedExpression* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitCallExpression(ast::CallExpression* node);
@@ -63,6 +68,8 @@ private:
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitSuperExpression(ast::SuperExpression* node);
     void visit(ast::Node* node);
+
+    void generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern);
 
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
 

@@ -1,0 +1,752 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Point3D",
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "x",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "y",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "z",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "x"
+              },
+              "type": "number",
+              "access": null,
+              "isReadonly": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "y"
+              },
+              "type": "number",
+              "access": null,
+              "isReadonly": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "z"
+              },
+              "type": "number",
+              "access": null,
+              "isReadonly": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "x"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "x"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "y"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "y"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "z"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "z"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "printPoint",
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "ObjectBindingPattern",
+            "elements": [
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "x"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "y"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              }
+            ]
+          },
+          "type": "Point3D"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "printPoint x: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "x"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "printPoint y: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "y"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "test",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p"
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Point3D"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 20
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 30
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "printPoint"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "p"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "ObjectBindingPattern",
+            "elements": [
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "x"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "y"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              }
+            ]
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "Identifier",
+            "name": "p"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "x: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "x"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "y: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "y"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "ArrayBindingPattern",
+            "elements": [
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "c"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              }
+            ]
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "Identifier",
+            "name": "arr"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "a: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "a"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "b: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "b"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "c: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "c"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "ArrayBindingPattern",
+            "elements": [
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "d"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "e"
+                },
+                "propertyName": null,
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 42
+                },
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "rest"
+                },
+                "propertyName": null,
+                "initializer": null,
+                "isSpread": true
+              }
+            ]
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "d: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "d"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "e: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "e"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "rest length: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "rest"
+                  },
+                  "name": "length"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "ObjectBindingPattern",
+            "elements": [
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "x2"
+                },
+                "propertyName": "x",
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "y2"
+                },
+                "propertyName": "y",
+                "initializer": null,
+                "isSpread": false
+              },
+              {
+                "kind": "BindingElement",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "z"
+                },
+                "propertyName": null,
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 100
+                },
+                "isSpread": false
+              }
+            ]
+          },
+          "type": "any",
+          "initializer": {
+            "kind": "Identifier",
+            "name": "p"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "x2: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "x2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "y2: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "y2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "z: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "z"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "test"
+        },
+        "arguments": []
+      }
+    }
+  ]
+}

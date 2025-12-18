@@ -63,7 +63,7 @@ function visit(node) {
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
-                    name: p.name.text,
+                    name: visit(p.name),
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 body: visitBlock(node.body)
@@ -123,7 +123,7 @@ function visit(node) {
                 name: node.name.text,
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
-                    name: p.name.text,
+                    name: visit(p.name),
                     type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "any",
@@ -141,7 +141,7 @@ function visit(node) {
                 name: "constructor",
                 parameters: node.parameters.map(p => ({
                     kind: "Parameter",
-                    name: p.name.text,
+                    name: visit(p.name),
                     type: p.type ? p.type.getText(currentSourceFile) : "any",
                     access: getAccessModifier(p),
                     isReadonly: isReadonly(p)
@@ -156,10 +156,26 @@ function visit(node) {
             const decl = node.declarationList.declarations[0];
             return {
                 kind: "VariableDeclaration",
-                name: decl.name.text,
-                type: decl.type ? decl.type.getText() : "any",
+                name: visit(decl.name),
+                type: decl.type ? decl.type.getText(currentSourceFile) : "any",
                 initializer: decl.initializer ? visit(decl.initializer) : null
             };
+        case ts.SyntaxKind.ObjectBindingPattern:
+        case ts.SyntaxKind.ArrayBindingPattern:
+            return {
+                kind: node.kind === ts.SyntaxKind.ObjectBindingPattern ? "ObjectBindingPattern" : "ArrayBindingPattern",
+                elements: node.elements.map(visit)
+            };
+        case ts.SyntaxKind.BindingElement:
+            return {
+                kind: "BindingElement",
+                name: visit(node.name),
+                propertyName: node.propertyName ? node.propertyName.text : null,
+                initializer: node.initializer ? visit(node.initializer) : null,
+                isSpread: !!node.dotDotDotToken
+            };
+        case ts.SyntaxKind.OmittedExpression:
+            return { kind: "OmittedExpression" };
         case ts.SyntaxKind.ExpressionStatement:
             return {
                 kind: "ExpressionStatement",
@@ -249,6 +265,12 @@ function visit(node) {
             return {
                 kind: "SuperExpression"
             };
+        case ts.SyntaxKind.SpreadElement:
+        case ts.SyntaxKind.SpreadAssignment:
+            return {
+                kind: "SpreadElement",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.PrefixUnaryExpression:
         case ts.SyntaxKind.TypeOfExpression:
             return {
@@ -282,7 +304,7 @@ function visit(node) {
                     const decl = node.initializer.declarations[0];
                     init = {
                         kind: "VariableDeclaration",
-                        name: decl.name.text,
+                        name: visit(decl.name),
                         initializer: decl.initializer ? visit(decl.initializer) : null
                     };
                 } else {
@@ -305,7 +327,7 @@ function visit(node) {
                 const decl = node.initializer.declarations[0];
                 forOfInit = {
                     kind: "VariableDeclaration",
-                    name: decl.name.text,
+                    name: visit(decl.name),
                     initializer: null // No initializer in for-of
                 };
             }
@@ -347,8 +369,8 @@ function visit(node) {
             return {
                 kind: "ArrowFunction",
                 parameters: node.parameters.map(p => ({
-                    name: p.name.text,
-                    type: p.type ? p.type.getText() : "any"
+                    name: visit(p.name),
+                    type: p.type ? p.type.getText(currentSourceFile) : "any"
                 })),
                 body: visit(node.body) // Body can be Block or Expression
             };
@@ -370,7 +392,7 @@ function visit(node) {
             return {
                 kind: "AsExpression",
                 expression: visit(node.expression),
-                type: node.type.getText()
+                type: node.type.getText(currentSourceFile)
             };
         case ts.SyntaxKind.TryStatement:
             return {
@@ -378,7 +400,7 @@ function visit(node) {
                 tryBlock: visitBlock(node.tryBlock),
                 catchClause: node.catchClause ? {
                     kind: "CatchClause",
-                    variable: node.catchClause.variableDeclaration ? node.catchClause.variableDeclaration.name.text : null,
+                    variable: node.catchClause.variableDeclaration ? visit(node.catchClause.variableDeclaration.name) : null,
                     block: visitBlock(node.catchClause.block)
                 } : null,
                 finallyBlock: node.finallyBlock ? visitBlock(node.finallyBlock) : null

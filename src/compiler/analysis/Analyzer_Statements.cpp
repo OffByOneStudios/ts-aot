@@ -16,7 +16,7 @@ void Analyzer::visitVariableDeclaration(VariableDeclaration* node) {
             type = lastType;
         }
     }
-    symbols.define(node->name, type);
+    declareBindingPattern(node->name.get(), type);
 }
 
 void Analyzer::visitReturnStatement(ast::ReturnStatement* node) {
@@ -116,7 +116,7 @@ void Analyzer::visitForOfStatement(ForOfStatement* node) {
 
     // Handle initializer (VariableDeclaration)
     if (auto varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get())) {
-        symbols.define(varDecl->name, elemType);
+        declareBindingPattern(varDecl->name.get(), elemType);
     }
 
     visit(node->body.get());
@@ -136,33 +136,21 @@ void Analyzer::visitSwitchStatement(SwitchStatement* node) {
 }
 
 void Analyzer::visitTryStatement(ast::TryStatement* node) {
-    // Try block
-    symbols.enterScope();
     for (auto& stmt : node->tryBlock) {
         visit(stmt.get());
     }
-    symbols.exitScope();
-
-    // Catch block
     if (node->catchClause) {
         symbols.enterScope();
-        if (!node->catchClause->variable.empty()) {
-            // For now, catch variable is 'any' or 'Error'
-            symbols.define(node->catchClause->variable, std::make_shared<Type>(TypeKind::Any));
+        if (node->catchClause->variable) {
+            declareBindingPattern(node->catchClause->variable.get(), std::make_shared<Type>(TypeKind::Any));
         }
         for (auto& stmt : node->catchClause->block) {
             visit(stmt.get());
         }
         symbols.exitScope();
     }
-
-    // Finally block
-    if (!node->finallyBlock.empty()) {
-        symbols.enterScope();
-        for (auto& stmt : node->finallyBlock) {
-            visit(stmt.get());
-        }
-        symbols.exitScope();
+    for (auto& stmt : node->finallyBlock) {
+        visit(stmt.get());
     }
 }
 

@@ -30,4 +30,5 @@ extern "C" {
     void ts_array_set(void* arr, int64_t index, int64_t value);
     int64_t ts_array_length(void* arr);
     void ts_array_sort(void* arr);
+    void* ts_array_slice(void* arr, int64_t start);
 }

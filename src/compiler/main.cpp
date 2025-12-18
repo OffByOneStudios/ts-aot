@@ -20,7 +20,12 @@ void printAst(const ast::Node* node, int indent = 0) {
         fmt::print("{}  Name: {}\n", padding, func->name);
         for (const auto& stmt : func->body) printAst(stmt.get(), indent + 1);
     } else if (auto var = dynamic_cast<const ast::VariableDeclaration*>(node)) {
-        fmt::print("{}  Name: {}\n", padding, var->name);
+        if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+            fmt::print("{}  Name: {}\n", padding, id->name);
+        } else {
+            fmt::print("{}  Name: <pattern>\n", padding);
+            printAst(var->name.get(), indent + 1);
+        }
         if (var->initializer) printAst(var->initializer.get(), indent + 1);
     } else if (auto exprStmt = dynamic_cast<const ast::ExpressionStatement*>(node)) {
         printAst(exprStmt->expression.get(), indent + 1);

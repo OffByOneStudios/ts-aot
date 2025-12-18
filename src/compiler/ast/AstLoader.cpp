@@ -11,6 +11,49 @@ namespace ast {
 ExprPtr parseExpression(const json& j);
 StmtPtr parseStatement(const json& j);
 NodePtr parseClassMember(const json& j);
+NodePtr parseNode(const json& j);
+
+NodePtr parseNode(const json& j) {
+    if (j.is_null()) return nullptr;
+    if (j.is_string()) {
+        auto node = std::make_unique<Identifier>();
+        node->name = j.get<std::string>();
+        return node;
+    }
+    
+    std::string kind = j["kind"];
+    if (kind == "Identifier") {
+        auto node = std::make_unique<Identifier>();
+        node->name = j["name"].get<std::string>();
+        return node;
+    } else if (kind == "ObjectBindingPattern") {
+        auto node = std::make_unique<ObjectBindingPattern>();
+        for (const auto& el : j["elements"]) {
+            node->elements.push_back(parseNode(el));
+        }
+        return node;
+    } else if (kind == "ArrayBindingPattern") {
+        auto node = std::make_unique<ArrayBindingPattern>();
+        for (const auto& el : j["elements"]) {
+            node->elements.push_back(parseNode(el));
+        }
+        return node;
+    } else if (kind == "BindingElement") {
+        auto node = std::make_unique<BindingElement>();
+        node->name = parseNode(j["name"]);
+        if (j.contains("propertyName") && !j["propertyName"].is_null()) {
+            node->propertyName = j["propertyName"];
+        }
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseExpression(j["initializer"]);
+        }
+        node->isSpread = j.value("isSpread", false);
+        return node;
+    } else if (kind == "OmittedExpression") {
+        return std::make_unique<OmittedExpression>();
+    }
+    return nullptr;
+}
 
 ExprPtr parseExpression(const json& j) {
     if (j.is_null()) throw std::runtime_error("parseExpression called with null");
@@ -100,12 +143,18 @@ ExprPtr parseExpression(const json& j) {
         node->expression = parseExpression(j["expression"]);
         node->type = j["type"];
         return node;
+    } else if (kind == "SpreadElement") {
+        auto node = std::make_unique<SpreadElement>();
+        node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "OmittedExpression") {
+        return std::make_unique<OmittedExpression>();
     } else if (kind == "ArrowFunction") {
         auto node = std::make_unique<ArrowFunction>();
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 auto p = std::make_unique<Parameter>();
-                p->name = param["name"];
+                p->name = parseNode(param["name"]);
                 if (param.contains("type")) p->type = param["type"];
                 node->parameters.push_back(std::move(p));
             }
@@ -146,7 +195,7 @@ NodePtr parseClassMember(const json& j) {
     std::string kind = j["kind"];
     if (kind == "PropertyDefinition") {
         auto node = std::make_unique<PropertyDefinition>();
-        node->name = j["name"];
+        node->name = j["name"].get<std::string>();
         node->type = j["type"];
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseExpression(j["initializer"]);
@@ -163,8 +212,24 @@ NodePtr parseClassMember(const json& j) {
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
-        node->name = j["name"];
-        node->returnType = j["returnType"];
+        node->name = j["name"].get<std::string>();
+        if (j.contains("parameters")) {
+            for (const auto& param : j["parameters"]) {
+                auto p = std::make_unique<Parameter>();
+                p->name = parseNode(param["name"]);
+                if (param.contains("type")) p->type = param["type"];
+                if (param.contains("access")) {
+                    p->access = parseAccessModifier(param["access"]);
+                }
+                if (param.contains("isReadonly")) {
+                    p->isReadonly = param["isReadonly"];
+                }
+                node->parameters.push_back(std::move(p));
+            }
+        }
+        if (j.contains("returnType")) {
+            node->returnType = j["returnType"];
+        }
         if (j.contains("access")) {
             node->access = parseAccessModifier(j["access"]);
         }
@@ -183,20 +248,6 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("hasBody")) {
             node->hasBody = j["hasBody"];
         }
-        for (const auto& p : j["parameters"]) {
-            auto param = std::make_unique<Parameter>();
-            param->name = p["name"];
-            param->type = p["type"];
-            if (p.contains("access")) {
-                param->access = parseAccessModifier(p["access"]);
-                if (!p["access"].is_null()) param->isParameterProperty = true;
-            }
-            if (p.contains("isReadonly") && p["isReadonly"]) {
-                param->isReadonly = p["isReadonly"];
-                param->isParameterProperty = true;
-            }
-            node->parameters.push_back(std::move(param));
-        }
         for (const auto& stmt : j["body"]) {
             node->body.push_back(parseStatement(stmt));
         }
@@ -210,7 +261,7 @@ StmtPtr parseStatement(const json& j) {
 
     if (kind == "ClassDeclaration") {
         auto node = std::make_unique<ClassDeclaration>();
-        node->name = j["name"];
+        node->name = j["name"].get<std::string>();
         if (j.contains("baseClass")) {
             node->baseClass = j["baseClass"];
         }
@@ -228,7 +279,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "InterfaceDeclaration") {
         auto node = std::make_unique<InterfaceDeclaration>();
-        node->name = j["name"];
+        node->name = j["name"].get<std::string>();
         if (j.contains("baseInterfaces")) {
             for (const auto& i : j["baseInterfaces"]) {
                 node->baseInterfaces.push_back(i);
@@ -240,12 +291,12 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "FunctionDeclaration") {
         auto node = std::make_unique<FunctionDeclaration>();
-        node->name = j["name"];
+        node->name = j["name"].get<std::string>();
         if (j.contains("returnType")) node->returnType = j["returnType"];
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 auto p = std::make_unique<Parameter>();
-                p->name = param["name"];
+                p->name = parseNode(param["name"]);
                 if (param.contains("type")) p->type = param["type"];
                 if (param.contains("access")) {
                     p->access = parseAccessModifier(param["access"]);
@@ -264,7 +315,8 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "VariableDeclaration") {
         auto node = std::make_unique<VariableDeclaration>();
-        node->name = j["name"];
+        node->name = parseNode(j["name"]);
+        if (j.contains("type")) node->type = j["type"];
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseExpression(j["initializer"]);
         }
@@ -313,7 +365,9 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ForOfStatement") {
         auto node = std::make_unique<ForOfStatement>();
-        node->initializer = parseStatement(j["initializer"]);
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseStatement(j["initializer"]);
+        }
         node->expression = parseExpression(j["expression"]);
         node->body = parseStatement(j["body"]);
         return node;
@@ -343,14 +397,13 @@ StmtPtr parseStatement(const json& j) {
             node->tryBlock.push_back(parseStatement(stmt));
         }
         if (j.contains("catchClause") && !j["catchClause"].is_null()) {
-            auto cc = std::make_unique<CatchClause>();
+            node->catchClause = std::make_unique<CatchClause>();
             if (j["catchClause"].contains("variable") && !j["catchClause"]["variable"].is_null()) {
-                cc->variable = j["catchClause"]["variable"];
+                node->catchClause->variable = parseNode(j["catchClause"]["variable"]);
             }
             for (const auto& stmt : j["catchClause"]["block"]) {
-                cc->block.push_back(parseStatement(stmt));
+                node->catchClause->block.push_back(parseStatement(stmt));
             }
-            node->catchClause = std::move(cc);
         }
         if (j.contains("finallyBlock") && !j["finallyBlock"].is_null()) {
             for (const auto& stmt : j["finallyBlock"]) {
