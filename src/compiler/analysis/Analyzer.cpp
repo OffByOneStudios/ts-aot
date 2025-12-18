@@ -122,6 +122,39 @@ Analyzer::Analyzer() {
     clearTimeoutType->returnType = std::make_shared<Type>(TypeKind::Void);
     symbols.define("clearTimeout", clearTimeoutType);
     symbols.define("clearInterval", clearTimeoutType);
+
+    // Register fs global
+    auto fsType = std::make_shared<ObjectType>();
+    
+    auto readFileSyncType = std::make_shared<FunctionType>();
+    readFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readFileSyncType->returnType = std::make_shared<Type>(TypeKind::String);
+    fsType->fields["readFileSync"] = readFileSyncType;
+    
+    auto writeFileSyncType = std::make_shared<FunctionType>();
+    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeFileSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["writeFileSync"] = writeFileSyncType;
+    
+    auto promisesType = std::make_shared<ObjectType>();
+    auto readFileAsyncType = std::make_shared<FunctionType>();
+    readFileAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    auto stringPromise = std::make_shared<ClassType>("Promise");
+    stringPromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::String));
+    readFileAsyncType->returnType = stringPromise;
+    promisesType->fields["readFile"] = readFileAsyncType;
+    fsType->fields["promises"] = promisesType;
+    
+    symbols.define("fs", fsType);
+
+    // Register fetch global
+    auto fetchType = std::make_shared<FunctionType>();
+    fetchType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    auto anyPromise = std::make_shared<ClassType>("Promise");
+    anyPromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
+    fetchType->returnType = anyPromise;
+    symbols.define("fetch", fetchType);
 }
 
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
