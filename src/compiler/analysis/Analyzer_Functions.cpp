@@ -56,12 +56,12 @@ void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
         }
     }
 
-    // Define function in the OUTER scope
-    symbols.exitScope();
+    // Define function in the current scope
     symbols.define(node->name, funcType);
     if (node->isExported && currentModule) {
         currentModule->exports->define(node->name, funcType);
     }
+
     symbols.enterScope();
 
     // Re-define type parameters in the new scope for the body
@@ -155,9 +155,13 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     }
 
     // Define method in the class scope (which is the current scope before we entered a new one for type params)
-    // Wait, we are already in a scope for the method.
     // Actually, method definitions are added to the ClassType, not just the symbol table.
     
+    // Define 'this' (only for instance methods)
+    if (!node->isStatic) {
+        symbols.define("this", classType);
+    }
+
     // Define parameters in scope
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
@@ -179,22 +183,6 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
     }
 
-    symbols.enterScope();
-    // Define 'this' (only for instance methods)
-    if (!node->isStatic) {
-        symbols.define("this", classType);
-    }
-
-    // Define parameters in scope
-    for (size_t i = 0; i < node->parameters.size(); ++i) {
-        declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
-    }
-
-    for (auto& stmt : node->body) {
-        visit(stmt.get());
-    }
-
-    symbols.exitScope();
     currentMethodName = oldMethod;
 }
 

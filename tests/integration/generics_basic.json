@@ -1,0 +1,132 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "identity",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg"
+          },
+          "type": "T"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "arg"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "x"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "identity"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 42
+              }
+            ],
+            "typeArguments": [
+              "number"
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "x"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "y"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "identity"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "hello"
+              }
+            ],
+            "typeArguments": [
+              "string"
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "y"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    }
+  ]
+}
