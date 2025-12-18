@@ -31,6 +31,9 @@ public:
     // Lookup a symbol in the current scope and parent scopes.
     std::shared_ptr<Symbol> lookup(const std::string& name);
 
+    // Update a symbol's type in the scope where it was defined.
+    bool update(const std::string& name, std::shared_ptr<Type> type);
+
     // Define a type in the current scope. Returns false if already defined.
     bool defineType(const std::string& name, std::shared_ptr<Type> type);
 

@@ -1,0 +1,142 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "test",
+      "isExported": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Start"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Promise"
+              },
+              "name": "resolve"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 42
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "val"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "p"
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Promise resolved with: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "val"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "test"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "End of script"
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

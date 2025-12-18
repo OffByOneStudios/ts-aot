@@ -83,13 +83,15 @@ private:
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
-    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
-    void visitSuperExpression(ast::SuperExpression* node);
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override;
+    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
     void visitBlockStatement(ast::BlockStatement* node);
     void visitIdentifier(ast::Identifier* node);
+    void visitSuperExpression(ast::SuperExpression* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
+    void visitAwaitExpression(ast::AwaitExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node);

@@ -1,0 +1,43 @@
+#pragma once
+
+#include "TsRuntime.h"
+#include "TsObject.h"
+#include <vector>
+#include <functional>
+
+namespace ts {
+
+enum class PromiseState {
+    Pending,
+    Fulfilled,
+    Rejected
+};
+
+struct TsPromise : public TsObject {
+    PromiseState state = PromiseState::Pending;
+    TsValue value; // Result or Error
+    
+    // Callbacks
+    struct Callback {
+        TsValue onFulfilled;
+        TsValue onRejected;
+        TsPromise* nextPromise;
+    };
+    std::vector<Callback> callbacks;
+
+    TsPromise();
+    void then(TsValue onFulfilled, TsValue onRejected = nullptr);
+};
+
+extern "C" {
+    TsPromise* ts_promise_create();
+    void ts_promise_resolve_internal(TsPromise* promise, TsValue value);
+    void ts_promise_reject_internal(TsPromise* promise, TsValue reason);
+    TsValue* ts_promise_resolve(TsValue* value);
+    TsValue* ts_promise_then(TsValue* promise, TsValue* callback);
+    TsValue* ts_promise_await(TsValue* promise);
+
+#ifdef __cplusplus
+}
+#endif
+} // namespace ts

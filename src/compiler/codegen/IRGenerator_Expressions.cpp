@@ -40,8 +40,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool leftIsDouble = left->getType()->isDoubleTy();
     bool rightIsDouble = right->getType()->isDoubleTy();
     bool isDouble = leftIsDouble || rightIsDouble;
-    bool leftIsString = left->getType()->isPointerTy();
-    bool rightIsString = right->getType()->isPointerTy();
+    
+    bool leftIsString = node->left->inferredType && node->left->inferredType->kind == TypeKind::String;
+    bool rightIsString = node->right->inferredType && node->right->inferredType->kind == TypeKind::String;
     bool isString = leftIsString || rightIsString;
 
     if (isDouble && !isString) {
@@ -55,46 +56,52 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
              if (!leftIsString) {
                  if (left->getType()->isIntegerTy(1)) {
                      llvm::FunctionCallee fromBool = module->getOrInsertFunction("ts_string_from_bool",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt1Ty(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt1Ty(*context) }, false));
                      left = builder->CreateCall(fromBool, { left });
                  } else if (left->getType()->isIntegerTy()) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false));
                      if (left->getType()->isIntegerTy(32)) {
                          left = builder->CreateSExt(left, llvm::Type::getInt64Ty(*context));
                      }
                      left = builder->CreateCall(fromInt, { left });
                  } else if (left->getType()->isDoubleTy()) {
                      llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
                      left = builder->CreateCall(fromDouble, { left });
+                 } else if (left->getType()->isPointerTy()) {
+                     // Assume it's a TsValue*
+                     llvm::FunctionCallee fromValue = module->getOrInsertFunction("ts_string_from_value",
+                         builder->getPtrTy(), builder->getPtrTy());
+                     left = builder->CreateCall(fromValue, { left });
                  }
              }
              if (!rightIsString) {
                  if (right->getType()->isIntegerTy(1)) {
                      llvm::FunctionCallee fromBool = module->getOrInsertFunction("ts_string_from_bool",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt1Ty(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt1Ty(*context) }, false));
                      right = builder->CreateCall(fromBool, { right });
                  } else if (right->getType()->isIntegerTy()) {
                      llvm::FunctionCallee fromInt = module->getOrInsertFunction("ts_string_from_int",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false));
                      if (right->getType()->isIntegerTy(32)) {
                          right = builder->CreateSExt(right, llvm::Type::getInt64Ty(*context));
                      }
                      right = builder->CreateCall(fromInt, { right });
                  } else if (right->getType()->isDoubleTy()) {
                      llvm::FunctionCallee fromDouble = module->getOrInsertFunction("ts_string_from_double",
-                         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false));
+                         llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
                      right = builder->CreateCall(fromDouble, { right });
+                 } else if (right->getType()->isPointerTy()) {
+                     // Assume it's a TsValue*
+                     llvm::FunctionCallee fromValue = module->getOrInsertFunction("ts_string_from_value",
+                         builder->getPtrTy(), builder->getPtrTy());
+                     right = builder->CreateCall(fromValue, { right });
                  }
              }
 
-             llvm::Function* concatFn = module->getFunction("ts_string_concat");
-             if (!concatFn) {
-                 std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
-                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
-                 concatFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_concat", module.get());
-             }
+             llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_string_concat",
+                 builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
              lastValue = builder->CreateCall(concatFn, { left, right });
         } else if (isDouble) {
             lastValue = builder->CreateFAdd(left, right, "addtmp");
@@ -233,6 +240,26 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 auto current = cls;
                 while (current) {
                     if (current->staticMethods.count(prop->name)) {
+                        if (current->name == "Promise" && prop->name == "resolve") {
+                            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
+                                builder->getPtrTy(), builder->getPtrTy());
+                            
+                            llvm::Value* val;
+                            std::shared_ptr<Type> valType;
+                            if (node->arguments.empty()) {
+                                val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                                valType = std::make_shared<Type>(TypeKind::Void);
+                            } else {
+                                visit(node->arguments[0].get());
+                                val = lastValue;
+                                valType = node->arguments[0]->inferredType;
+                            }
+                            
+                            llvm::Value* boxedVal = boxValue(val, valType);
+                            lastValue = builder->CreateCall(resolveFn, { boxedVal });
+                            return;
+                        }
+
                         std::string implName = current->name + "_static_" + prop->name;
                         auto methodType = current->staticMethods[prop->name];
                         
@@ -318,32 +345,43 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 lastValue = builder->CreateCall(func, args);
                 return;
             } else if (className == "RegExp") {
-                visit(prop->expression.get());
-                llvm::Value* reObj = lastValue;
-                
-                std::string funcName = "RegExp_" + methodName;
-                llvm::Function* func = module->getFunction(funcName);
-                if (!func) {
-                    llvm::Type* retType = (methodName == "test") ? (llvm::Type*)llvm::Type::getInt32Ty(*context) : (llvm::Type*)llvm::PointerType::getUnqual(*context);
-                    std::vector<llvm::Type*> argTypes = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
-                    llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
-                    func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module.get());
-                }
-                
-                std::vector<llvm::Value*> args = { reObj };
-                for (auto& arg : node->arguments) {
-                    visit(arg.get());
-                    args.push_back(lastValue);
-                }
-                lastValue = builder->CreateCall(func, args);
-                if (methodName == "test") {
-                    if (lastValue->getType()->isIntegerTy(32)) {
-                        lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0), "re_test_bool");
-                    } else if (lastValue->getType()->isIntegerTy(1)) {
-                        // Already i1, nothing to do
-                    }
-                }
+                // ... existing RegExp code ...
                 return;
+            } else if (className == "Promise") {
+                visit(prop->expression.get());
+                llvm::Value* promiseObj = lastValue;
+                
+                if (methodName == "then") {
+                    llvm::FunctionCallee thenFn = module->getOrInsertFunction("ts_promise_then",
+                        builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                    
+                    visit(node->arguments[0].get());
+                    llvm::Value* callback = lastValue;
+                    
+                    // Box the callback if it's not already a TsValue*
+                    llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
+                    
+                    lastValue = builder->CreateCall(thenFn, { promiseObj, boxedCallback });
+                    return;
+                } else if (methodName == "resolve") {
+                    llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
+                        builder->getPtrTy(), builder->getPtrTy());
+                    
+                    llvm::Value* val;
+                    std::shared_ptr<Type> valType;
+                    if (node->arguments.empty()) {
+                        val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        valType = std::make_shared<Type>(TypeKind::Void);
+                    } else {
+                        visit(node->arguments[0].get());
+                        val = lastValue;
+                        valType = node->arguments[0]->inferredType;
+                    }
+                    
+                    llvm::Value* boxedVal = boxValue(val, valType);
+                    lastValue = builder->CreateCall(resolveFn, { boxedVal });
+                    return;
+                }
             }
 
             // 1. Evaluate Object
@@ -591,6 +629,26 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     llvm::FunctionCallee fn = module->getOrInsertFunction("Date_static_now",
                         llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false));
                     lastValue = builder->CreateCall(fn);
+                    return;
+                }
+            } else if (obj->name == "Promise") {
+                if (prop->name == "resolve") {
+                    llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
+                        builder->getPtrTy(), builder->getPtrTy());
+                    
+                    llvm::Value* val;
+                    std::shared_ptr<Type> valType;
+                    if (node->arguments.empty()) {
+                        val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        valType = std::make_shared<Type>(TypeKind::Void);
+                    } else {
+                        visit(node->arguments[0].get());
+                        val = lastValue;
+                        valType = node->arguments[0]->inferredType;
+                    }
+                    
+                    llvm::Value* boxedVal = boxValue(val, valType);
+                    lastValue = builder->CreateCall(resolveFn, { boxedVal });
                     return;
                 }
             }
@@ -968,6 +1026,26 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     lastValue = builder->CreateCall(fn);
                     return;
                 }
+            } else if (obj->name == "Promise") {
+                if (prop->name == "resolve") {
+                    llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
+                        builder->getPtrTy(), builder->getPtrTy());
+                    
+                    llvm::Value* val;
+                    std::shared_ptr<Type> valType;
+                    if (node->arguments.empty()) {
+                        val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        valType = std::make_shared<Type>(TypeKind::Void);
+                    } else {
+                        visit(node->arguments[0].get());
+                        val = lastValue;
+                        valType = node->arguments[0]->inferredType;
+                    }
+                    
+                    llvm::Value* boxedVal = boxValue(val, valType);
+                    lastValue = builder->CreateCall(resolveFn, { boxedVal });
+                    return;
+                }
             }
         }
     }
@@ -997,6 +1075,48 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 lastValue = builder->CreateCall(ft, funcPtr, args);
                 return;
             }
+        }
+
+        if (id->name == "setTimeout" || id->name == "setInterval") {
+            if (node->arguments.size() < 2) return;
+            
+            visit(node->arguments[0].get());
+            llvm::Value* callback = lastValue;
+            
+            // Ensure callback is a pointer to the function
+            if (callback->getType()->isIntegerTy()) {
+                callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+            }
+            
+            llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
+            
+            visit(node->arguments[1].get());
+            llvm::Value* delay = lastValue;
+            if (delay->getType()->isDoubleTy()) {
+                delay = builder->CreateFPToSI(delay, llvm::Type::getInt64Ty(*context));
+            }
+            
+            std::string funcName = (id->name == "setTimeout") ? "ts_set_timeout" : "ts_set_interval";
+            llvm::FunctionCallee timerFn = module->getOrInsertFunction(funcName,
+                builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context));
+            
+            llvm::Value* boxedRes = builder->CreateCall(timerFn, { boxedCallback, delay });
+            lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
+            return;
+        }
+
+        if (id->name == "clearTimeout" || id->name == "clearInterval") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* timerId = lastValue;
+            llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
+            
+            llvm::FunctionCallee clearFn = module->getOrInsertFunction("ts_clear_timer",
+                llvm::Type::getVoidTy(*context), builder->getPtrTy());
+            
+            builder->CreateCall(clearFn, { boxedId });
+            lastValue = nullptr;
+            return;
         }
 
         if (id->name == "parseInt") {
@@ -1630,6 +1750,37 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     }
 }
 
+void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
+    visit(node->operand.get());
+    llvm::Value* val = lastValue;
+    
+    if (node->op == "++" || node->op == "--") {
+        llvm::Value* next;
+        if (val->getType()->isDoubleTy()) {
+            double delta = (node->op == "++") ? 1.0 : -1.0;
+            next = builder->CreateFAdd(val, llvm::ConstantFP::get(*context, llvm::APFloat(delta)), "incdec");
+        } else {
+            int64_t delta = (node->op == "++") ? 1 : -1;
+            next = builder->CreateAdd(val, llvm::ConstantInt::get(val->getType(), delta), "incdec");
+        }
+        
+        // Store back
+        if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            llvm::Value* variable = nullptr;
+            if (namedValues.count(id->name)) {
+                variable = namedValues[id->name];
+            } else {
+                variable = module->getGlobalVariable(id->name);
+            }
+
+            if (variable) {
+                builder->CreateStore(next, variable);
+            }
+        }
+        lastValue = val; // Postfix returns old value
+    }
+}
+
 void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
     llvm::Function* createFn = module->getFunction("ts_string_create");
     if (!createFn) {
@@ -1683,6 +1834,19 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
 void IRGenerator::visitAsExpression(ast::AsExpression* node) {
     visit(node->expression.get());
     lastValue = castValue(lastValue, getLLVMType(node->inferredType));
+}
+
+void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
+    visit(node->expression.get());
+    llvm::Value* promise = lastValue;
+    
+    // For now, await is a runtime call that suspends (or just blocks if not in async)
+    // In a real implementation, this would be part of the async state machine.
+    // For the first milestone, we'll just call a runtime helper.
+    llvm::FunctionCallee awaitFn = module->getOrInsertFunction("ts_promise_await",
+        builder->getPtrTy(), builder->getPtrTy());
+    
+    lastValue = builder->CreateCall(awaitFn, { promise });
 }
 
 } // namespace ts

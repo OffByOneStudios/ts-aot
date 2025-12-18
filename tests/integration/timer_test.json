@@ -1,0 +1,285 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Start"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "setTimeout"
+        },
+        "arguments": [
+          {
+            "kind": "ArrowFunction",
+            "parameters": [],
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Timeout 1 (100ms)"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 100
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "setTimeout"
+        },
+        "arguments": [
+          {
+            "kind": "ArrowFunction",
+            "parameters": [],
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Timeout 2 (50ms)"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 50
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "count"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "NumericLiteral",
+        "value": 0
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "interval"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "setInterval"
+        },
+        "arguments": [
+          {
+            "kind": "ArrowFunction",
+            "parameters": [],
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "PostfixUnaryExpression",
+                    "operator": "++",
+                    "operand": {
+                      "kind": "Identifier",
+                      "name": "count"
+                    }
+                  }
+                },
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console"
+                      },
+                      "name": "log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "StringLiteral",
+                          "value": "Interval "
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "count"
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                },
+                {
+                  "kind": "IfStatement",
+                  "condition": {
+                    "kind": "BinaryExpression",
+                    "operator": "===",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "count"
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 3
+                    }
+                  },
+                  "thenStatement": {
+                    "kind": "BlockStatement",
+                    "statements": [
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "clearInterval"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "interval"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      },
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "console"
+                            },
+                            "name": "log"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "StringLiteral",
+                              "value": "Interval cleared"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    ]
+                  },
+                  "elseStatement": null
+                }
+              ]
+            }
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 30
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "End of script"
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

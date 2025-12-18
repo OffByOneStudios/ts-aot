@@ -112,12 +112,10 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     
     std::vector<llvm::Type*> argTypes;
     for (auto& param : node->parameters) {
-        if (param->type == "number") argTypes.push_back(llvm::Type::getDoubleTy(*context));
-        else if (param->type == "string") argTypes.push_back(llvm::PointerType::getUnqual(*context));
-        else argTypes.push_back(llvm::Type::getDoubleTy(*context));
+        argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
     
-    llvm::Type* retType = llvm::Type::getDoubleTy(*context); // Default to double
+    llvm::Type* retType = builder->getPtrTy(); // TsValue*
     
     llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
     llvm::Function* function = llvm::Function::Create(ft, llvm::Function::InternalLinkage, name, module.get());
@@ -138,22 +136,22 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
             arg.setName(id->name);
         }
         std::shared_ptr<Type> paramType = (funcType && idx < funcType->paramTypes.size()) ? funcType->paramTypes[idx] : std::make_shared<Type>(TypeKind::Any);
-        generateDestructuring(&arg, paramType, param->name.get());
+        
+        // Unbox the argument
+        llvm::Value* unboxedArg = unboxValue(&arg, paramType);
+        generateDestructuring(unboxedArg, paramType, param->name.get());
         idx++;
     }
     
     visit(node->body.get());
     
     if (lastValue) {
-        builder->CreateRet(lastValue);
+        // Box the return value
+        std::shared_ptr<Type> returnType = funcType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
+        llvm::Value* boxedRet = boxValue(lastValue, returnType);
+        builder->CreateRet(boxedRet);
     } else {
-        if (dynamic_cast<ast::Expression*>(node->body.get())) {
-             builder->CreateRet(lastValue);
-        } else {
-             if (!builder->GetInsertBlock()->getTerminator()) {
-                 builder->CreateRet(llvm::ConstantFP::get(*context, llvm::APFloat(0.0)));
-             }
-        }
+        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
     }
     
     builder->SetInsertPoint(oldBB);
