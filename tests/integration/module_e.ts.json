@@ -1,0 +1,11 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./module_a",
+      "isStarExport": true,
+      "namedExports": []
+    }
+  ]
+}

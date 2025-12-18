@@ -251,6 +251,41 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     }
 
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
+            // Namespace call: math.add(1, 2)
+            std::vector<std::shared_ptr<Type>> argTypes;
+            for (auto& arg : node->arguments) {
+                argTypes.push_back(arg->inferredType);
+            }
+            std::string specializedName = Monomorphizer::generateMangledName(prop->name, argTypes, node->resolvedTypeArguments);
+            
+            // Find the specialization to get the return type
+            std::shared_ptr<Type> returnType = std::make_shared<Type>(TypeKind::Any);
+            for (const auto& spec : specializations) {
+                if (spec.specializedName == specializedName) {
+                    returnType = spec.returnType;
+                    break;
+                }
+            }
+
+            std::vector<llvm::Type*> paramTypes;
+            for (const auto& argType : argTypes) {
+                paramTypes.push_back(getLLVMType(argType));
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(returnType), paramTypes, false);
+            llvm::FunctionCallee func = module->getOrInsertFunction(specializedName, ft);
+            
+            std::vector<llvm::Value*> args;
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                args.push_back(lastValue);
+            }
+            
+            lastValue = builder->CreateCall(ft, func.getCallee(), args);
+            return;
+        }
+
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(prop->expression->inferredType);
             if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
@@ -688,41 +723,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     return;
                 }
             }
-        } else if (obj->name == "JSON") {
-            if (prop->name == "parse") {
-                if (node->arguments.empty()) return;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (arg->getType()->isIntegerTy(64)) {
-                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
-                }
-                
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_json_parse",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                        { llvm::PointerType::getUnqual(*context) }, false));
-                lastValue = builder->CreateCall(fn, { arg });
-                return;
-            } else if (prop->name == "stringify") {
-                if (node->arguments.empty()) return;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                
-                if (!arg->getType()->isPointerTy()) {
-                    if (arg->getType()->isDoubleTy()) {
-                        arg = builder->CreateBitCast(arg, llvm::Type::getInt64Ty(*context));
-                    }
-                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
-                }
-
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_json_stringify",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                        { llvm::PointerType::getUnqual(*context) }, false));
-                lastValue = builder->CreateCall(fn, { arg });
-                return;
-            }
-        }
-        
-        if (prop->name == "charCodeAt") {
+        } else if (prop->name == "charCodeAt") {
              visit(prop->expression.get());
              llvm::Value* obj = lastValue;
              if (obj->getType()->isIntegerTy(64)) {
@@ -1499,6 +1500,21 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Namespace) {
+        // Namespace property access: math.x
+        // This refers to a global variable in another module
+        // For now, we assume global variables are not mangled by module
+        auto* gVar = module->getGlobalVariable(node->name);
+        if (gVar) {
+            lastValue = builder->CreateLoad(gVar->getValueType(), gVar);
+        } else {
+            // If not found, it might be a function reference (not a call)
+            // TODO: Handle function references
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+        return;
+    }
+
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Math" && node->name == "PI") {
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI",

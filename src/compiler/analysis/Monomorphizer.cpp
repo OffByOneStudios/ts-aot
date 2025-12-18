@@ -123,31 +123,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     // Always ensure main is monomorphized
     ast::FunctionDeclaration* mainFunc = findFunction(analyzer, "main");
     if (mainFunc) {
-        bool processed = false;
-        for (const auto& spec : specializations) {
-            if (spec.originalName == "main") {
-                processed = true;
-                break;
-            }
-        }
+        // Add call to main in user_main
+        auto call = std::make_unique<ast::CallExpression>();
+        auto callId = std::make_unique<ast::Identifier>();
+        callId->name = "__ts_main";
+        call->callee = std::move(callId);
+        
+        auto stmt = std::make_unique<ast::ExpressionStatement>();
+        stmt->expression = std::move(call);
+        userMain->body.push_back(std::move(stmt));
 
-        if (!processed) {
-            Specialization spec;
-            spec.originalName = "main";
-            spec.specializedName = "user_main";
-            spec.argTypes = {};
-            spec.node = mainFunc;
-            
-            spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
-            
-            // Force main to return Void if it was inferred as Any (default from parser)
-            // This ensures we generate a ret void instruction.
-            if (spec.returnType->kind == TypeKind::Any) {
-                spec.returnType = std::make_shared<Type>(TypeKind::Void);
-            }
-            
-            specializations.push_back(spec);
+        // Now specialize main itself (with a mangled name so it doesn't clash with user_main)
+        Specialization spec;
+        spec.originalName = "main";
+        spec.specializedName = "__ts_main"; // Use a name that doesn't clash
+        spec.argTypes = {};
+        spec.node = mainFunc;
+        
+        spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
+        
+        if (spec.returnType->kind == TypeKind::Any) {
+            spec.returnType = std::make_shared<Type>(TypeKind::Void);
         }
+        
+        specializations.push_back(spec);
     }
 
     // Process Class Methods

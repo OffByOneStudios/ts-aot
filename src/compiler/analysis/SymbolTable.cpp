@@ -49,6 +49,14 @@ std::shared_ptr<Symbol> SymbolTable::lookup(const std::string& name) {
     return nullptr;
 }
 
+const std::unordered_map<std::string, std::shared_ptr<Type>>& SymbolTable::getGlobalTypes() const {
+    return typeScopes.front();
+}
+
+const std::unordered_map<std::string, std::shared_ptr<Symbol>>& SymbolTable::getGlobalSymbols() const {
+    return scopes.front();
+}
+
 bool SymbolTable::defineGlobalType(const std::string& name, std::shared_ptr<Type> type) {
     if (typeScopes.empty()) return false;
     fmt::print("Defining global type: {}\n", name);
@@ -88,12 +96,6 @@ bool SymbolTable::update(const std::string& name, std::shared_ptr<Type> type) {
         }
     }
     return false;
-}
-
-const std::unordered_map<std::string, std::shared_ptr<Type>>& SymbolTable::getGlobalTypes() const {
-    static const std::unordered_map<std::string, std::shared_ptr<Type>> empty;
-    if (typeScopes.empty()) return empty;
-    return typeScopes.front();
 }
 
 } // namespace ts
