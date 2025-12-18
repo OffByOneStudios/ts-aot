@@ -604,13 +604,13 @@ void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
     auto type = lastType;
     if (type->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(type);
-        if (cls->name == "Promise" && !cls->typeParameters.empty()) {
-            // For now, just assume the first type parameter is the result type
-            // In a real implementation, we'd need to handle substitution
-            lastType = std::make_shared<Type>(TypeKind::Any); 
+        if (cls->name == "Promise" && !cls->typeArguments.empty()) {
+            lastType = cls->typeArguments[0];
+            return;
         }
     }
     // If it's not a promise, await just returns the value (simplified)
+    lastType = type;
 }
 
 void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
