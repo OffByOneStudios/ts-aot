@@ -317,31 +317,55 @@ StmtPtr parseStatement(const json& j) {
         node->expression = parseExpression(j["expression"]);
         node->body = parseStatement(j["body"]);
         return node;
-    } else if (kind == "BreakStatement") {
-        return std::make_unique<BreakStatement>();
-    } else if (kind == "ContinueStatement") {
-        return std::make_unique<ContinueStatement>();
     } else if (kind == "SwitchStatement") {
         auto node = std::make_unique<SwitchStatement>();
         node->expression = parseExpression(j["expression"]);
         for (const auto& clause : j["clauses"]) {
-            std::string clauseKind = clause["kind"];
-            if (clauseKind == "CaseClause") {
-                auto c = std::make_unique<CaseClause>();
-                c->expression = parseExpression(clause["expression"]);
+            if (clause["kind"] == "CaseClause") {
+                auto cc = std::make_unique<CaseClause>();
+                cc->expression = parseExpression(clause["expression"]);
                 for (const auto& stmt : clause["statements"]) {
-                    c->statements.push_back(parseStatement(stmt));
+                    cc->statements.push_back(parseStatement(stmt));
                 }
-                node->clauses.push_back(std::move(c));
-            } else if (clauseKind == "DefaultClause") {
-                auto c = std::make_unique<DefaultClause>();
+                node->clauses.push_back(std::move(cc));
+            } else {
+                auto dc = std::make_unique<DefaultClause>();
                 for (const auto& stmt : clause["statements"]) {
-                    c->statements.push_back(parseStatement(stmt));
+                    dc->statements.push_back(parseStatement(stmt));
                 }
-                node->clauses.push_back(std::move(c));
+                node->clauses.push_back(std::move(dc));
             }
         }
         return node;
+    } else if (kind == "TryStatement") {
+        auto node = std::make_unique<TryStatement>();
+        for (const auto& stmt : j["tryBlock"]) {
+            node->tryBlock.push_back(parseStatement(stmt));
+        }
+        if (j.contains("catchClause") && !j["catchClause"].is_null()) {
+            auto cc = std::make_unique<CatchClause>();
+            if (j["catchClause"].contains("variable") && !j["catchClause"]["variable"].is_null()) {
+                cc->variable = j["catchClause"]["variable"];
+            }
+            for (const auto& stmt : j["catchClause"]["block"]) {
+                cc->block.push_back(parseStatement(stmt));
+            }
+            node->catchClause = std::move(cc);
+        }
+        if (j.contains("finallyBlock") && !j["finallyBlock"].is_null()) {
+            for (const auto& stmt : j["finallyBlock"]) {
+                node->finallyBlock.push_back(parseStatement(stmt));
+            }
+        }
+        return node;
+    } else if (kind == "ThrowStatement") {
+        auto node = std::make_unique<ThrowStatement>();
+        node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "BreakStatement") {
+        return std::make_unique<BreakStatement>();
+    } else if (kind == "ContinueStatement") {
+        return std::make_unique<ContinueStatement>();
     }
 
     throw std::runtime_error("Unknown statement kind: " + kind);

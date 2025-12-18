@@ -122,6 +122,24 @@ struct SwitchStatement : Statement {
     std::string getKind() const override { return "SwitchStatement"; }
 };
 
+struct CatchClause : Node {
+    std::string variable;
+    std::vector<StmtPtr> block;
+    std::string getKind() const override { return "CatchClause"; }
+};
+
+struct TryStatement : Statement {
+    std::vector<StmtPtr> tryBlock;
+    std::unique_ptr<CatchClause> catchClause;
+    std::vector<StmtPtr> finallyBlock;
+    std::string getKind() const override { return "TryStatement"; }
+};
+
+struct ThrowStatement : Statement {
+    ExprPtr expression;
+    std::string getKind() const override { return "ThrowStatement"; }
+};
+
 struct ForOfStatement : Statement {
     StmtPtr initializer; // VariableDeclaration
     ExprPtr expression;  // Iterable

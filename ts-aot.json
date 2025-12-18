@@ -1,0 +1,12 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "Identifier",
+        "name": "MZ"
+      }
+    }
+  ]
+}

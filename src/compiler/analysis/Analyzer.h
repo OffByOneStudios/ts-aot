@@ -28,6 +28,8 @@ public:
 
     void reportError(const std::string& message);
 
+    std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
+
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
@@ -57,6 +59,8 @@ private:
     void visitForStatement(ast::ForStatement* node);
     void visitForOfStatement(ast::ForOfStatement* node);
     void visitSwitchStatement(ast::SwitchStatement* node);
+    void visitTryStatement(ast::TryStatement* node);
+    void visitThrowStatement(ast::ThrowStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
     void visitTemplateExpression(ast::TemplateExpression* node);

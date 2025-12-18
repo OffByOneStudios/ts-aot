@@ -1,0 +1,190 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "throwError",
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": "msg",
+          "type": "string"
+        }
+      ],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Throwing error..."
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ThrowStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "msg"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testTryCatch",
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "TryStatement",
+          "tryBlock": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "ts_console_log"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "In try block"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "throwError"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "Something went wrong"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "ts_console_log"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "This should not be printed"
+                  }
+                ]
+              }
+            }
+          ],
+          "catchClause": {
+            "kind": "CatchClause",
+            "variable": "e",
+            "block": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "ts_console_log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Caught error:"
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "ts_console_log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "AsExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "e"
+                      },
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "finallyBlock": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "ts_console_log"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "In finally block"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "After try-catch-finally"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "testTryCatch"
+        },
+        "arguments": []
+      }
+    }
+  ]
+}

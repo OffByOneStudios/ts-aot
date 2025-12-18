@@ -372,6 +372,22 @@ function visit(node) {
                 expression: visit(node.expression),
                 type: node.type.getText()
             };
+        case ts.SyntaxKind.TryStatement:
+            return {
+                kind: "TryStatement",
+                tryBlock: visitBlock(node.tryBlock),
+                catchClause: node.catchClause ? {
+                    kind: "CatchClause",
+                    variable: node.catchClause.variableDeclaration ? node.catchClause.variableDeclaration.name.text : null,
+                    block: visitBlock(node.catchClause.block)
+                } : null,
+                finallyBlock: node.finallyBlock ? visitBlock(node.finallyBlock) : null
+            };
+        case ts.SyntaxKind.ThrowStatement:
+            return {
+                kind: "ThrowStatement",
+                expression: visit(node.expression)
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;
