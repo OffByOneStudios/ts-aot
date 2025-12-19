@@ -13,51 +13,55 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     std::vector<std::string> moduleInitFunctions;
 
     for (const auto& path : analyzer.moduleOrder) {
+        fmt::print("Processing module: {}\n", path);
         auto module = analyzer.modules[path];
-        if (!module->ast) continue; // Main program might not be in module->ast if passed separately
+        if (!module) {
+            fmt::print("Module not found in analyzer.modules!\n");
+            continue;
+        }
+        if (!module->ast) {
+            fmt::print("Module has no AST!\n");
+            continue;
+        }
 
         auto moduleInit = std::make_unique<ast::FunctionDeclaration>();
-        // Use a simpler name for the main module init if possible, or just hash it
         std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
         moduleInit->name = initName;
         moduleInitFunctions.push_back(initName);
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
         for (auto& stmt : module->ast->body) {
-            if (stmt->getKind() == "FunctionDeclaration" || 
-                stmt->getKind() == "ClassDeclaration" ||
-                stmt->getKind() == "InterfaceDeclaration" ||
-                stmt->getKind() == "ImportDeclaration" ||
-                stmt->getKind() == "ExportDeclaration") {
-                newBody.push_back(std::move(stmt));
-            } else if (stmt->getKind() == "VariableDeclaration") {
-                auto var = static_cast<ast::VariableDeclaration*>(stmt.get());
-                if (var->initializer) {
-                    if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
-                        // Create an assignment for the initializer
-                        auto assign = std::make_unique<ast::AssignmentExpression>();
-                        auto leftId = std::make_unique<ast::Identifier>();
-                        leftId->name = id->name;
-                        assign->left = std::move(leftId);
-                        assign->right = std::move(var->initializer);
-                        
-                        auto exprStmt = std::make_unique<ast::ExpressionStatement>();
-                        exprStmt->expression = std::move(assign);
-                        moduleInit->body.push_back(std::move(exprStmt));
-                    }
-                }
+            std::string kind = stmt->getKind();
+            if (kind == "FunctionDeclaration" || 
+                kind == "ClassDeclaration" ||
+                kind == "InterfaceDeclaration" ||
+                kind == "ImportDeclaration" ||
+                kind == "ExportDeclaration") {
                 newBody.push_back(std::move(stmt));
             } else {
+                // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
+                fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
             }
         }
+
+        // If the last statement is an expression, turn it into a return
+        if (!moduleInit->body.empty()) {
+            if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(moduleInit->body.back().get())) {
+                auto retStmt = std::make_unique<ast::ReturnStatement>();
+                retStmt->expression = std::move(exprStmt->expression);
+                moduleInit->body.back() = std::move(retStmt);
+            }
+        }
+
+        fmt::print("Module init now has {} statements\n", moduleInit->body.size());
         module->ast->body = std::move(newBody);
 
         Specialization spec;
         spec.originalName = initName;
         spec.specializedName = initName;
         spec.argTypes = {};
-        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+        spec.returnType = std::make_shared<Type>(TypeKind::Any);
         spec.node = moduleInit.get();
         specializations.push_back(spec);
         syntheticFunctions.push_back(std::move(moduleInit));
@@ -69,26 +73,34 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     // Create user_main that calls all module inits
     auto userMain = std::make_unique<ast::FunctionDeclaration>();
     userMain->name = "user_main";
-    for (const auto& initName : moduleInitFunctions) {
+    for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
+        const auto& initName = moduleInitFunctions[i];
         auto call = std::make_unique<ast::CallExpression>();
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = initName;
         call->callee = std::move(callId);
         
-        auto stmt = std::make_unique<ast::ExpressionStatement>();
-        stmt->expression = std::move(call);
-        userMain->body.push_back(std::move(stmt));
+        if (i == moduleInitFunctions.size() - 1) {
+            auto stmt = std::make_unique<ast::ReturnStatement>();
+            stmt->expression = std::move(call);
+            userMain->body.push_back(std::move(stmt));
+        } else {
+            auto stmt = std::make_unique<ast::ExpressionStatement>();
+            stmt->expression = std::move(call);
+            userMain->body.push_back(std::move(stmt));
+        }
     }
 
     Specialization mainSpec;
     mainSpec.originalName = "user_main";
     mainSpec.specializedName = "user_main";
     mainSpec.argTypes = {};
-    mainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+    mainSpec.returnType = std::make_shared<Type>(TypeKind::Any);
     mainSpec.node = userMain.get();
     specializations.push_back(mainSpec);
 
     for (const auto& [name, calls] : usages) {
+        fmt::print("Monomorphizing function: {}\n", name);
         ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
         if (!funcNode) continue; // Skip if not a user-defined function (e.g. console.log)
 
@@ -108,6 +120,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             Specialization spec;
             spec.originalName = name;
             spec.specializedName = mangled;
+            
+            // Rename main to avoid conflict with C main
+            if (spec.specializedName == "main") {
+                spec.specializedName = "__ts_main";
+            }
+
             spec.argTypes = sig.argTypes;
             spec.typeArguments = sig.typeArguments;
             spec.node = funcNode;
@@ -119,36 +137,27 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
-    // Always ensure main is monomorphized
+    // Always ensure main is monomorphized if it exists
     ast::FunctionDeclaration* mainFunc = findFunction(analyzer, "main");
     if (mainFunc) {
-        // Add call to main in user_main
-        auto call = std::make_unique<ast::CallExpression>();
-        auto callId = std::make_unique<ast::Identifier>();
-        callId->name = "__ts_main";
-        call->callee = std::move(callId);
-        
-        auto stmt = std::make_unique<ast::ExpressionStatement>();
-        stmt->expression = std::move(call);
-        userMain->body.push_back(std::move(stmt));
-
-        // Now specialize main itself (with a mangled name so it doesn't clash with user_main)
-        Specialization spec;
-        spec.originalName = "main";
-        spec.specializedName = "__ts_main"; // Use a name that doesn't clash
-        spec.argTypes = {};
-        spec.node = mainFunc;
-        
-        spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
-        
-        if (spec.returnType->kind == TypeKind::Any) {
-            spec.returnType = std::make_shared<Type>(TypeKind::Void);
+        bool alreadyMonomorphized = false;
+        for (const auto& spec : specializations) {
+            if (spec.originalName == "main" && spec.argTypes.empty()) {
+                alreadyMonomorphized = true;
+                break;
+            }
         }
-        
-        specializations.push_back(spec);
-    }
 
-    syntheticFunctions.push_back(std::move(userMain));
+        if (!alreadyMonomorphized) {
+            Specialization spec;
+            spec.originalName = "main";
+            spec.specializedName = "__ts_main";
+            spec.argTypes = {};
+            spec.node = mainFunc;
+            spec.returnType = analyzer.analyzeFunctionBody(mainFunc, {});
+            specializations.push_back(spec);
+        }
+    }
 
     // Process Class Methods
     for (auto& [path, module] : analyzer.modules) {
@@ -193,7 +202,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             // Construct argTypes: [ClassType, explicitParams...]
                             spec.argTypes.push_back(ct);
                             
-                            if (ct->methods.count(method->name)) {
+                            if (method->name == "constructor" && !ct->constructorOverloads.empty()) {
+                                auto ctorType = ct->constructorOverloads[0];
+                                fmt::print("Monomorphizer: Adding {} params to constructor {}\n", ctorType->paramTypes.size(), spec.specializedName);
+                                spec.argTypes.insert(spec.argTypes.end(), 
+                                    ctorType->paramTypes.begin(), ctorType->paramTypes.end());
+                                spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                            } else if (ct->methods.count(method->name)) {
                                 auto methodType = ct->methods[method->name];
                                 spec.argTypes.insert(spec.argTypes.end(), 
                                     methodType->paramTypes.begin(), methodType->paramTypes.end());
@@ -271,9 +286,14 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
     }
+
+    syntheticFunctions.push_back(std::move(userMain));
 }
 
 std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+    if (originalName == "main" && argTypes.empty()) {
+        return "__ts_main";
+    }
     std::string name = originalName;
     
     if (!typeArguments.empty()) {

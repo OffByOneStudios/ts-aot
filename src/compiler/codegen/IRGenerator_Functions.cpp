@@ -6,7 +6,13 @@ using namespace ast;
 
 void IRGenerator::generatePrototypes(const std::vector<Specialization>& specializations) {
     for (const auto& spec : specializations) {
+        if (module->getFunction(spec.specializedName)) continue;
+
         std::vector<llvm::Type*> argTypes;
+        
+        // Always add context argument first
+        argTypes.push_back(builder->getPtrTy());
+
         for (const auto& argType : spec.argTypes) {
             argTypes.push_back(getLLVMType(argType));
         }
@@ -14,6 +20,7 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         llvm::Type* returnType = getLLVMType(spec.returnType);
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
+        llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
         llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
     }
 }
@@ -36,6 +43,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             isAsync = methodNode->isAsync;
         }
 
+        llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << "\n";
+
         if (isAsync) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);
             continue;
@@ -45,12 +54,20 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         builder->SetInsertPoint(bb);
 
         namedValues.clear();
+        lastValue = nullptr;
+
         currentClass = spec.classType;
+        currentReturnType = spec.returnType;
         typeEnvironment.clear();
         currentAsyncFrame = nullptr;
         currentAsyncContext = nullptr;
+        currentContext = nullptr;
 
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+            if (funcNode->isAsync) {
+                generateAsyncFunctionBody(function, funcNode, spec.argTypes, nullptr, spec.specializedName);
+                continue;
+            }
             // Populate type environment
             for (size_t i = 0; i < funcNode->typeParameters.size(); ++i) {
                 if (i < spec.typeArguments.size()) {
@@ -58,8 +75,15 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 }
             }
 
-            unsigned idx = 0;
             auto argIt = function->arg_begin();
+            // Skip context argument
+            if (argIt != function->arg_end()) {
+                argIt->setName("context");
+                currentContext = &*argIt;
+                ++argIt;
+            }
+
+            unsigned idx = 1; // Start from 1 because 0 is context
 
             for (size_t pIdx = 0; pIdx < funcNode->parameters.size(); ++pIdx) {
                 auto param = funcNode->parameters[pIdx].get();
@@ -93,7 +117,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
-                        generateDestructuring(argVal, spec.argTypes[idx], param->name.get());
+                        generateDestructuring(argVal, (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr, param->name.get());
                         ++argIt;
                         ++idx;
                     } else {
@@ -115,20 +139,34 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 visit(stmt.get());
             }
         } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            if (methodNode->isAsync) {
+                generateAsyncFunctionBody(function, methodNode, spec.argTypes, spec.classType, spec.specializedName);
+                continue;
+            }
             auto argIt = function->arg_begin();
+            
+            // Skip context argument
+            if (argIt != function->arg_end()) {
+                argIt->setName("context");
+                currentContext = &*argIt;
+                ++argIt;
+            }
+
+            unsigned idx = 1;
+
             if (!methodNode->isStatic) {
-                // Handle 'this' parameter (first argument)
+                // Handle 'this' parameter
                 if (argIt != function->arg_end()) {
                     argIt->setName("this");
                     llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", argIt->getType());
                     builder->CreateStore(&*argIt, alloca);
                     namedValues["this"] = alloca;
                     ++argIt;
+                    idx++;
                 }
             }
 
             // Handle explicit parameters
-            unsigned idx = 0;
             for (size_t pIdx = 0; pIdx < methodNode->parameters.size(); ++pIdx) {
                 auto param = methodNode->parameters[pIdx].get();
 
@@ -145,8 +183,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     // Collect all remaining arguments into the array
                     while (argIt != function->arg_end()) {
                         llvm::Value* argVal = &*argIt;
-                        unsigned argTypeIdx = methodNode->isStatic ? idx : idx + 1;
-                        std::shared_ptr<Type> argType = (argTypeIdx < spec.argTypes.size()) ? spec.argTypes[argTypeIdx] : nullptr;
+                        std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         llvm::Value* boxedVal = boxValue(argVal, argType);
                         builder->CreateCall(pushFn, { arr, boxedVal });
                         ++argIt;
@@ -161,8 +198,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
-                        unsigned argTypeIdx = methodNode->isStatic ? idx : idx + 1;
-                        generateDestructuring(argVal, (argTypeIdx < spec.argTypes.size()) ? spec.argTypes[argTypeIdx] : nullptr, param->name.get());
+                        generateDestructuring(argVal, (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr, param->name.get());
                         ++argIt;
                         ++idx;
                     } else {
@@ -200,6 +236,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     std::string name = "lambda_" + std::to_string(lambdaCounter++);
     
     std::vector<llvm::Type*> argTypes;
+    argTypes.push_back(builder->getPtrTy()); // context first
     for (auto& param : node->parameters) {
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
@@ -233,11 +270,24 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     builder->SetInsertPoint(bb);
     
     namedValues.clear();
+    lastValue = nullptr;
     
+    // Force return type to Any for arrow functions to ensure compatibility with runtime handlers
+    auto oldReturnType = currentReturnType;
+    currentReturnType = std::make_shared<Type>(TypeKind::Any);
+    
+    auto argIt = function->arg_begin();
+    if (argIt != function->arg_end()) {
+        argIt->setName("context");
+        currentAsyncContext = &*argIt;
+        ++argIt;
+    }
+
     unsigned idx = 0;
     auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
-    for (auto& arg : function->args()) {
+    while (argIt != function->arg_end() && idx < node->parameters.size()) {
         auto param = node->parameters[idx].get();
+        auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
         }
@@ -246,12 +296,19 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         // Unbox the argument
         llvm::Value* unboxedArg = unboxValue(&arg, paramType);
         generateDestructuring(unboxedArg, paramType, param->name.get());
-        idx++;
+        
+        ++argIt;
+        ++idx;
     }
     
-    visit(node->body.get());
+    if (node->body) {
+        llvm::errs() << "Visiting arrow function body: " << node->body->getKind() << " at " << node->body.get() << "\n";
+        visit(node->body.get());
+    } else {
+        llvm::errs() << "Arrow function body is NULL! Node at " << node << "\n";
+    }
     
-    if (lastValue && !builder->GetInsertBlock()->getTerminator()) {
+    if (node->body && node->body->getKind() != "BlockStatement" && lastValue && !builder->GetInsertBlock()->getTerminator()) {
         // Box the return value
         std::shared_ptr<Type> returnType = funcType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
         llvm::Value* boxedRet = boxValue(lastValue, returnType);
@@ -260,10 +317,11 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
     }
     
+    currentReturnType = oldReturnType;
     builder->SetInsertPoint(oldBB);
     namedValues = oldNamedValues;
     
-    lastValue = boxValue(function, node->inferredType);
+    lastValue = function;
 }
 
 void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
@@ -274,6 +332,7 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     for (auto& param : node->parameters) {
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
+    argTypes.push_back(builder->getPtrTy()); // context
     
     llvm::Type* retType = builder->getPtrTy(); // TsValue*
     
@@ -304,20 +363,29 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     builder->SetInsertPoint(bb);
     
     namedValues.clear();
+    lastValue = nullptr;
     
+    // Force return type to Any for function expressions to ensure compatibility with runtime handlers
+    auto oldReturnType = currentReturnType;
+    currentReturnType = std::make_shared<Type>(TypeKind::Any);
+    
+    auto argIt = function->arg_begin();
+    if (argIt != function->arg_end()) {
+        argIt->setName("context");
+        currentAsyncContext = &*argIt;
+        ++argIt;
+    }
+
     unsigned idx = 0;
-    auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
-    for (auto& arg : function->args()) {
-        auto param = node->parameters[idx].get();
+    while (argIt != function->arg_end() && idx < node->parameters.size()) {
+        auto& param = node->parameters[idx];
+        auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
+            generateDestructuring(&arg, std::make_shared<Type>(TypeKind::Any), param->name.get());
         }
-        std::shared_ptr<Type> paramType = (funcType && idx < funcType->paramTypes.size()) ? funcType->paramTypes[idx] : std::make_shared<Type>(TypeKind::Any);
-        
-        // Unbox the argument
-        llvm::Value* unboxedArg = unboxValue(&arg, paramType);
-        generateDestructuring(unboxedArg, paramType, param->name.get());
-        idx++;
+        ++argIt;
+        ++idx;
     }
     
     for (auto& stmt : node->body) {
@@ -325,29 +393,14 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     }
     
     if (!builder->GetInsertBlock()->getTerminator()) {
-        if (lastValue) {
-            std::shared_ptr<Type> returnType = funcType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
-            llvm::Value* boxedRet = boxValue(lastValue, returnType);
-            builder->CreateRet(boxedRet);
-        } else {
-            builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
-        }
+        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
     }
     
+    currentReturnType = oldReturnType;
     builder->SetInsertPoint(oldBB);
     namedValues = oldNamedValues;
     
-    lastValue = boxValue(function, node->inferredType);
-}
-
-void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node* node, const std::vector<std::shared_ptr<Type>>& argTypes, std::shared_ptr<Type> classType, const std::string& specializedName) {
-    // Implementation for generating the body of async functions
-    // This is a placeholder, actual implementation will vary
-    llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", entryFunc);
-    builder->SetInsertPoint(bb);
-
-    // Example: Create a dummy return for async functions
-    builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    lastValue = function;
 }
 
 } // namespace ts

@@ -33,6 +33,20 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 }
 
 void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* node) {
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Object) {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+        visit(node->argumentExpression.get());
+        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
+            llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+        
+        llvm::Value* res = builder->CreateCall(getFn, { obj, key });
+        lastValue = unboxValue(builder->CreateIntToPtr(res, builder->getPtrTy()), std::make_shared<Type>(TypeKind::Any));
+        return;
+    }
+
     visit(node->expression.get());
     llvm::Value* arr = lastValue;
     
@@ -42,25 +56,89 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     if (index->getType()->isDoubleTy()) {
         index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
     }
+
+    if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_element", ft);
+        lastValue = builder->CreateCall(getFn, { arr, index });
+        return;
+    }
     
     llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get",
-        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+        llvm::FunctionType::get(builder->getPtrTy(),
             { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
             
     llvm::Value* val = builder->CreateCall(getFn, { arr, index });
 
+    std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
-        auto arrayType = std::static_pointer_cast<ts::ArrayType>(node->expression->inferredType);
-        if (arrayType->elementType->kind == TypeKind::String || arrayType->elementType->kind == TypeKind::Object) {
-             lastValue = builder->CreateIntToPtr(val, llvm::PointerType::getUnqual(*context));
-             return;
-        }
+        elementType = std::static_pointer_cast<ArrayType>(node->expression->inferredType)->elementType;
+    } else if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Tuple) {
+        elementType = std::static_pointer_cast<TupleType>(node->expression->inferredType)->elementTypes[0]; // Simplified
     }
-    
-    lastValue = val;
+
+    lastValue = unboxValue(val, elementType);
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (id->name == "process" && node->name == "argv") {
+            llvm::FunctionCallee getArgvFn = module->getOrInsertFunction("ts_get_process_argv",
+                llvm::FunctionType::get(builder->getPtrTy(), {}, false));
+            lastValue = builder->CreateCall(getArgvFn, {});
+            return;
+        }
+    }
+
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+        if (cls->name == "RegExp") {
+            visit(node->expression.get());
+            llvm::Value* re = lastValue;
+            
+            if (node->name == "lastIndex") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_lastIndex",
+                    llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                return;
+            } else if (node->name == "source") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_source",
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                return;
+            } else if (node->name == "flags") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_flags",
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                return;
+            } else if (node->name == "global") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_global",
+                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+                return;
+            } else if (node->name == "sticky") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_sticky",
+                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+                return;
+            } else if (node->name == "ignoreCase") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_ignoreCase",
+                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+                return;
+            } else if (node->name == "multiline") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_multiline",
+                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { re });
+                lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+                return;
+            }
+        }
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Namespace) {
         // Namespace property access: math.x
         // This refers to a global variable in another module
@@ -215,17 +293,17 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        
+        if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length",
+                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { builder->getPtrTy() }, false));
+             lastValue = builder->CreateCall(lenFn, { boxValue(obj, node->expression->inferredType) });
+             return;
+        }
+
         if (obj->getType()->isIntegerTy(64)) {
             obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
-        }
-        
-        if (!node->expression->inferredType) {
-             llvm::errs() << "Warning: No type inferred for length access, assuming string\n";
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { llvm::PointerType::getUnqual(*context) }, false));
-             lastValue = builder->CreateCall(lenFn, { obj });
-             return;
         }
         
         if (node->expression->inferredType->kind == TypeKind::String) {
@@ -233,7 +311,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                  llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { llvm::PointerType::getUnqual(*context) }, false));
              lastValue = builder->CreateCall(lenFn, { obj });
-        } else if (node->expression->inferredType->kind == TypeKind::Array) {
+        } else if (node->expression->inferredType->kind == TypeKind::Array || node->expression->inferredType->kind == TypeKind::Tuple) {
              llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
                  llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { llvm::PointerType::getUnqual(*context) }, false));
@@ -263,37 +341,24 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
             
-            std::map<std::string, std::shared_ptr<Type>> allFields;
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+            llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(node->name) });
+            
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
+                llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+            
+            llvm::Value* res = builder->CreateCall(getFn, { objPtr, keyStr });
+            
+            // Find the field type to unbox correctly
+            std::shared_ptr<Type> fieldType = std::make_shared<Type>(TypeKind::Any);
             if (node->expression->inferredType->kind == TypeKind::Object) {
-                allFields = std::static_pointer_cast<ObjectType>(node->expression->inferredType)->fields;
-            } else {
-                auto inter = std::static_pointer_cast<IntersectionType>(node->expression->inferredType);
-                for (auto& t : inter->types) {
-                    if (t->kind == TypeKind::Object) {
-                        for (auto& [name, type] : std::static_pointer_cast<ObjectType>(t)->fields) {
-                            allFields[name] = type;
-                        }
-                    }
-                }
+                auto obj = std::static_pointer_cast<ObjectType>(node->expression->inferredType);
+                if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
             }
             
-            std::vector<llvm::Type*> fieldTypes;
-            int fieldIdx = -1;
-            int idx = 0;
-            for (auto& [name, type] : allFields) {
-                fieldTypes.push_back(getLLVMType(type));
-                if (name == node->name) {
-                    fieldIdx = idx;
-                }
-                idx++;
-            }
-            
-            if (fieldIdx != -1) {
-                llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
-                llvm::Value* fieldPtr = builder->CreateStructGEP(structType, objPtr, fieldIdx);
-                lastValue = builder->CreateLoad(fieldTypes[fieldIdx], fieldPtr, node->name);
-                return;
-            }
+            lastValue = unboxValue(builder->CreateIntToPtr(res, builder->getPtrTy()), fieldType);
+            return;
         }
 
         if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
@@ -305,7 +370,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
             llvm::Value* propName = builder->CreateCall(createStrFn, { propNameStr });
             
-            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_object_get_property",
+            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property",
                 llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
             

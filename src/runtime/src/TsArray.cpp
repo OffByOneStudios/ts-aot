@@ -1,4 +1,6 @@
 #include "TsArray.h"
+#include "TsObject.h"
+#include "TsRuntime.h"
 #include "GC.h"
 #include <cstring>
 #include <iostream>
@@ -99,6 +101,174 @@ int64_t TsArray::IndexOf(int64_t value) {
 
 bool TsArray::Includes(int64_t value) {
     return IndexOf(value) != -1;
+}
+
+void* TsArray::Flat(int64_t depth) {
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < length; ++i) {
+        int64_t val = elements[i];
+        if (depth > 0 && val > 0x1000 && !((val & 0xFFFF000000000000) == 0x7FF8000000000000)) {
+            // Heuristic for pointer, and not a NaN-boxed double
+            uint32_t* magicPtr = (uint32_t*)val;
+            if (*magicPtr == TsArray::MAGIC) {
+                TsArray* sub = (TsArray*)val;
+                TsArray* flattenedSub = (TsArray*)sub->Flat(depth - 1);
+                for (size_t j = 0; j < flattenedSub->length; ++j) {
+                    result->Push(flattenedSub->elements[j]);
+                }
+                continue;
+            }
+        }
+        result->Push(val);
+    }
+    return result;
+}
+
+void* TsArray::FlatMap(void* callback, void* thisArg) {
+    TsArray* mapped = (TsArray*)Map(callback, thisArg);
+    return mapped->Flat(1);
+}
+
+void TsArray::ForEach(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        fp(v, idx, arr);
+    }
+}
+
+void* TsArray::Map(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return nullptr;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    TsArray* result = TsArray::Create(length);
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        
+        if (res->type == ValueType::NUMBER_INT) result->Push(res->i_val);
+        else if (res->type == ValueType::NUMBER_DBL) result->Push(*(int64_t*)&res->d_val);
+        else result->Push((int64_t)res->ptr_val);
+    }
+    return result;
+}
+
+void* TsArray::Filter(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return nullptr;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        
+        if (res->type == ValueType::BOOLEAN && res->b_val) {
+            result->Push(elements[i]);
+        }
+    }
+    return result;
+}
+
+void* TsArray::Reduce(void* callback, void* initialValue) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return nullptr;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    TsValue* accumulator = (TsValue*)initialValue;
+    size_t startIdx = 0;
+    if (!accumulator && length > 0) {
+        accumulator = (elements[0] > 0xFFFFFFFF || elements[0] < 0) ? ts_value_make_object((void*)elements[0]) : ts_value_make_int(elements[0]);
+        startIdx = 1;
+    }
+
+    for (size_t i = startIdx; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        accumulator = fp(accumulator, v, idx, arr);
+    }
+    return accumulator;
+}
+
+bool TsArray::Some(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return false;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        if (res->type == ValueType::BOOLEAN && res->b_val) return true;
+    }
+    return false;
+}
+
+bool TsArray::Every(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return false;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        if (res->type == ValueType::BOOLEAN && !res->b_val) return false;
+    }
+    return true;
+}
+
+TsValue* TsArray::Find(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        if (res->type == ValueType::BOOLEAN && res->b_val) {
+            return (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        }
+    }
+    return ts_value_make_undefined();
+}
+
+int64_t TsArray::FindIndex(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return -1;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*))func->funcPtr;
+
+    for (size_t i = 0; i < length; ++i) {
+        TsValue* v = (elements[i] > 0xFFFFFFFF || elements[i] < 0) ? ts_value_make_object((void*)elements[i]) : ts_value_make_int(elements[i]);
+        TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = fp(v, idx, arr);
+        if (res->type == ValueType::BOOLEAN && res->b_val) return (int64_t)i;
+    }
+    return -1;
 }
 
 int64_t TsArray::At(int64_t index) {
@@ -207,6 +377,14 @@ extern "C" {
         return ((TsArray*)arr)->IndexOf(value);
     }
 
+    void* ts_array_flat(void* arr, int64_t depth) {
+        return ((TsArray*)arr)->Flat(depth);
+    }
+
+    void* ts_array_flatMap(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->FlatMap(callback, thisArg);
+    }
+
     bool ts_array_includes(void* arr, int64_t value) {
         return ((TsArray*)arr)->Includes(value);
     }
@@ -217,6 +395,38 @@ extern "C" {
 
     void* ts_array_join(void* arr, void* separator) {
         return ((TsArray*)arr)->Join(separator);
+    }
+
+    void ts_array_forEach(void* arr, void* callback, void* thisArg) {
+        ((TsArray*)arr)->ForEach(callback, thisArg);
+    }
+
+    void* ts_array_map(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->Map(callback, thisArg);
+    }
+
+    void* ts_array_filter(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->Filter(callback, thisArg);
+    }
+
+    void* ts_array_reduce(void* arr, void* callback, void* initialValue) {
+        return ((TsArray*)arr)->Reduce(callback, initialValue);
+    }
+
+    bool ts_array_some(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->Some(callback, thisArg);
+    }
+
+    bool ts_array_every(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->Every(callback, thisArg);
+    }
+
+    TsValue* ts_array_find(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->Find(callback, thisArg);
+    }
+
+    int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->FindIndex(callback, thisArg);
     }
 
     void ts_array_concat(void* arr, void* other) {

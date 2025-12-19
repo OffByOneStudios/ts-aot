@@ -56,27 +56,12 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             auto current = cls;
             while (current) {
                 if (current->staticMethods.count(prop->name)) {
-                    if (current->name == "Promise" && prop->name == "resolve") {
-                        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
-                            builder->getPtrTy(), builder->getPtrTy());
-                        
-                        llvm::Value* val;
-                        std::shared_ptr<Type> valType;
-                        if (node->arguments.empty()) {
-                            val = llvm::ConstantPointerNull::get(builder->getPtrTy());
-                            valType = std::make_shared<Type>(TypeKind::Void);
-                        } else {
-                            visit(node->arguments[0].get());
-                            val = lastValue;
-                            valType = node->arguments[0]->inferredType;
-                        }
-                        
-                        llvm::Value* boxedVal = boxValue(val, valType);
-                        lastValue = builder->CreateCall(resolveFn, { boxedVal });
-                        return true;
-                    }
-
                     std::string implName = current->name + "_static_" + prop->name;
+                    if (current->name == "Promise" && prop->name == "reject") {
+                        implName = "ts_promise_reject";
+                    } else if (current->name == "Promise" && prop->name == "resolve") {
+                        implName = "ts_promise_resolve";
+                    }
                     auto methodType = current->staticMethods[prop->name];
                     
                     std::vector<llvm::Type*> paramTypes;
@@ -141,26 +126,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         std::string className = classType->name;
         std::string methodName = prop->name;
         
-        if (className == "Date") {
-            visit(prop->expression.get());
-            llvm::Value* dateObj = lastValue;
-            
-            std::string funcName = "Date_" + methodName;
-            llvm::Function* func = module->getFunction(funcName);
-            if (!func) {
-                std::vector<llvm::Type*> argTypes = { llvm::PointerType::getUnqual(*context) };
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), argTypes, false);
-                func = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module.get());
-            }
-            
-            std::vector<llvm::Value*> args = { dateObj };
-            for (auto& arg : node->arguments) {
-                visit(arg.get());
-                args.push_back(lastValue);
-            }
-            lastValue = builder->CreateCall(func, args);
-            return true;
-        } else if (className == "RegExp") {
+        if (className == "RegExp") {
             // ... existing RegExp code ...
             return true;
         } else if (className == "Promise") {
@@ -169,15 +135,38 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             
             if (methodName == "then") {
                 llvm::FunctionCallee thenFn = module->getOrInsertFunction("ts_promise_then",
+                    builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                
+                visit(node->arguments[0].get());
+                llvm::Value* onFulfilled = boxValue(lastValue, node->arguments[0]->inferredType);
+                
+                llvm::Value* onRejected;
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    onRejected = boxValue(lastValue, node->arguments[1]->inferredType);
+                } else {
+                    onRejected = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                }
+                
+                lastValue = builder->CreateCall(thenFn, { promiseObj, onFulfilled, onRejected });
+                return true;
+            } else if (methodName == "catch") {
+                llvm::FunctionCallee catchFn = module->getOrInsertFunction("ts_promise_catch",
                     builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
                 
                 visit(node->arguments[0].get());
-                llvm::Value* callback = lastValue;
+                llvm::Value* onRejected = boxValue(lastValue, node->arguments[0]->inferredType);
                 
-                // Box the callback if it's not already a TsValue*
-                llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
+                lastValue = builder->CreateCall(catchFn, { promiseObj, onRejected });
+                return true;
+            } else if (methodName == "finally") {
+                llvm::FunctionCallee finallyFn = module->getOrInsertFunction("ts_promise_finally",
+                    builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
                 
-                lastValue = builder->CreateCall(thenFn, { promiseObj, boxedCallback });
+                visit(node->arguments[0].get());
+                llvm::Value* onFinally = boxValue(lastValue, node->arguments[0]->inferredType);
+                
+                lastValue = builder->CreateCall(finallyFn, { promiseObj, onFinally });
                 return true;
             } else if (methodName == "resolve") {
                 llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
@@ -196,6 +185,24 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 
                 llvm::Value* boxedVal = boxValue(val, valType);
                 lastValue = builder->CreateCall(resolveFn, { boxedVal });
+                return true;
+            } else if (methodName == "reject") {
+                llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject",
+                    builder->getPtrTy(), builder->getPtrTy());
+                
+                llvm::Value* val;
+                std::shared_ptr<Type> valType;
+                if (node->arguments.empty()) {
+                    val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    valType = std::make_shared<Type>(TypeKind::Void);
+                } else {
+                    visit(node->arguments[0].get());
+                    val = lastValue;
+                    valType = node->arguments[0]->inferredType;
+                }
+                
+                llvm::Value* boxedVal = boxValue(val, valType);
+                lastValue = builder->CreateCall(rejectFn, { boxedVal });
                 return true;
             }
         }
@@ -229,6 +236,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         
         auto methodType = layout.allMethods[methodIndex].second;
         std::vector<llvm::Type*> paramTypes;
+        paramTypes.push_back(builder->getPtrTy()); // context
         paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this
         for (const auto& param : methodType->paramTypes) {
             paramTypes.push_back(getLLVMType(param));
@@ -239,6 +247,11 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         
         // 5. Call
         std::vector<llvm::Value*> args;
+        if (currentAsyncContext) {
+            args.push_back(currentAsyncContext);
+        } else {
+            args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+        }
         args.push_back(objPtr); // this
         
         int argIdx = 0;
@@ -246,9 +259,9 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             visit(arg.get());
             llvm::Value* val = lastValue;
             
-            // Cast if necessary
-            if (argIdx + 1 < (int)ft->getNumParams()) {
-                val = castValue(val, ft->getParamType(argIdx + 1));
+            // Cast if necessary (index + 2 because of context and this)
+            if (argIdx + 2 < (int)ft->getNumParams()) {
+                val = castValue(val, ft->getParamType(argIdx + 2));
             }
             
             args.push_back(val);

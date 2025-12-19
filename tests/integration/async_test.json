@@ -5,6 +5,7 @@
       "kind": "FunctionDeclaration",
       "name": "add",
       "isExported": false,
+      "isDefaultExport": false,
       "isAsync": true,
       "typeParameters": [],
       "returnType": "Promise<number>",
@@ -15,7 +16,12 @@
             "kind": "Identifier",
             "name": "a"
           },
-          "type": "number"
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false
         },
         {
           "kind": "Parameter",
@@ -23,7 +29,12 @@
             "kind": "Identifier",
             "name": "b"
           },
-          "type": "number"
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false
         }
       ],
       "body": [
@@ -48,6 +59,7 @@
       "kind": "FunctionDeclaration",
       "name": "test",
       "isExported": false,
+      "isDefaultExport": false,
       "isAsync": true,
       "typeParameters": [],
       "returnType": "any",

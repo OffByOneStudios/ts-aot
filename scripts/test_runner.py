@@ -36,8 +36,15 @@ def main():
     
     # Paths
     dump_ast_script = os.path.abspath("scripts/dump_ast.js")
+    
+    # Try Debug then Release
     compiler_exe = os.path.join(build_dir, "src", "compiler", "Debug", "ts-aot.exe")
+    if not os.path.exists(compiler_exe):
+        compiler_exe = os.path.join(build_dir, "src", "compiler", "Release", "ts-aot.exe")
+        
     runtime_lib = os.path.join(build_dir, "src", "runtime", "Debug", "tsruntime.lib")
+    if not os.path.exists(runtime_lib):
+        runtime_lib = os.path.join(build_dir, "src", "runtime", "Release", "tsruntime.lib")
     vcpkg_installed = os.path.join(build_dir, "vcpkg_installed", "x64-windows")
     
     # Intermediate files
@@ -61,7 +68,7 @@ def main():
 
     # Step 2: Compile to Object Code
     print("--- Step 2: Compile ---", flush=True)
-    compiler_output = run_command([compiler_exe, json_file, "-o", obj_file, "-d"], shell=False, timeout=10)
+    compiler_output = run_command([compiler_exe, json_file, "-o", obj_file, "-d"], shell=False, timeout=60)
     print(compiler_output, flush=True)
 
     # Step 3: Link (using CMake)
@@ -89,7 +96,8 @@ def main():
     env = os.environ.copy()
     env["PATH"] = vcpkg_bin + os.pathsep + vcpkg_debug_bin + os.pathsep + env["PATH"]
     
-    output = run_command([exe_path], shell=False, env=env, timeout=5)
+    extra_args = sys.argv[2:]
+    output = run_command([exe_path] + extra_args, shell=False, env=env, timeout=5)
     print("Output:", flush=True)
     print(output, flush=True)
 

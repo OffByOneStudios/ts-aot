@@ -7,23 +7,42 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
     llvm::Function* func = builder->GetInsertBlock()->getParent();
     llvm::Type* retType = func->getReturnType();
 
+    llvm::Value* val = nullptr;
     if (node->expression) {
         visit(node->expression.get());
-        llvm::Value* val = lastValue;
+        val = lastValue;
         
-        if (retType->isPointerTy() && !val->getType()->isPointerTy()) {
+        if (currentReturnType && currentReturnType->kind == TypeKind::Any) {
             val = boxValue(val, node->expression->inferredType);
         } else {
             val = castValue(val, retType);
         }
-        builder->CreateRet(val);
     } else {
         if (retType->isVoidTy()) {
-            builder->CreateRetVoid();
+            // val remains nullptr
         } else if (retType->isPointerTy()) {
-            builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+            val = llvm::ConstantPointerNull::get(builder->getPtrTy());
         } else {
-            builder->CreateRet(llvm::ConstantInt::get(retType, 0));
+            val = llvm::ConstantInt::get(retType, 0);
+        }
+    }
+
+    if (currentAsyncContext) {
+        // Resolve promise and return void
+        llvm::Value* boxedVal = val;
+        if (!boxedVal) boxedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        else boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
+
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+        llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
+        builder->CreateCall(resolveFn, { promise, boxedVal });
+        builder->CreateRetVoid();
+    } else {
+        if (val) {
+            builder->CreateRet(val);
+        } else {
+            builder->CreateRetVoid();
         }
     }
 }

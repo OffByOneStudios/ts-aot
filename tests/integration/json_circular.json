@@ -1,0 +1,138 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "a"
+      },
+      "isExported": false,
+      "type": "any[]",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "NumericLiteral",
+            "value": 1
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "a"
+          },
+          "name": "push"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "a"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "s"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "JSON"
+          },
+          "name": "stringify"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "a"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "BinaryExpression",
+        "operator": "===",
+        "left": {
+          "kind": "Identifier",
+          "name": "s"
+        },
+        "right": {
+          "kind": "StringLiteral",
+          "value": "null"
+        }
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "Caught expected circular reference"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ]
+      },
+      "elseStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Stringify success: "
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "s"
+                  }
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

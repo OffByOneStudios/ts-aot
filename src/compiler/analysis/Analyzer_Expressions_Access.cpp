@@ -172,6 +172,13 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             sliceFn->returnType = objType;
             lastType = sliceFn;
             return;
+        } else if (node->name == "forEach" || node->name == "map" || node->name == "filter" || 
+                   node->name == "reduce" || node->name == "some" || node->name == "every" || 
+                   node->name == "find" || node->name == "findIndex") {
+            auto fn = std::make_shared<FunctionType>();
+            fn->returnType = std::make_shared<Type>(TypeKind::Any);
+            lastType = fn;
+            return;
         }
     }
 
@@ -182,9 +189,39 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             charAtFn->returnType = std::make_shared<Type>(TypeKind::Int);
             lastType = charAtFn;
             return;
+        } else if (node->name == "match") {
+            auto matchFn = std::make_shared<FunctionType>();
+            auto regExpType = symbols.lookupType("RegExp");
+            if (regExpType) {
+                matchFn->paramTypes.push_back(regExpType);
+            } else {
+                matchFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+            matchFn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+            lastType = matchFn;
+            return;
+        } else if (node->name == "search") {
+            auto searchFn = std::make_shared<FunctionType>();
+            auto regExpType = symbols.lookupType("RegExp");
+            if (regExpType) {
+                searchFn->paramTypes.push_back(regExpType);
+            } else {
+                searchFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+            searchFn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = searchFn;
+            return;
         } else if (node->name == "split") {
             auto splitFn = std::make_shared<FunctionType>();
-            splitFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            auto regExpType = symbols.lookupType("RegExp");
+            auto stringType = std::make_shared<Type>(TypeKind::String);
+            auto unionType = std::make_shared<UnionType>(std::vector<std::shared_ptr<Type>>{stringType});
+            if (regExpType) {
+                unionType->types.push_back(regExpType);
+            } else {
+                unionType->types.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+            splitFn->paramTypes.push_back(unionType);
             splitFn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
             lastType = splitFn;
             return;
@@ -212,6 +249,21 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             padFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
             padFn->returnType = std::make_shared<Type>(TypeKind::String);
             lastType = padFn;
+            return;
+        } else if (node->name == "replace" || node->name == "replaceAll") {
+            auto repFn = std::make_shared<FunctionType>();
+            auto regExpType = symbols.lookupType("RegExp");
+            auto stringType = std::make_shared<Type>(TypeKind::String);
+            auto unionType = std::make_shared<UnionType>(std::vector<std::shared_ptr<Type>>{stringType});
+            if (regExpType) {
+                unionType->types.push_back(regExpType);
+            } else {
+                unionType->types.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+            repFn->paramTypes.push_back(unionType);
+            repFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            repFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = repFn;
             return;
         }
     }
@@ -251,6 +303,16 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             auto mapClear = std::make_shared<FunctionType>();
             mapClear->returnType = std::make_shared<Type>(TypeKind::Void);
             lastType = mapClear;
+            return;
+        } else if (node->name == "forEach") {
+            auto mapForEach = std::make_shared<FunctionType>();
+            mapForEach->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = mapForEach;
+            return;
+        } else if (node->name == "keys" || node->name == "values" || node->name == "entries") {
+            auto mapIter = std::make_shared<FunctionType>();
+            mapIter->returnType = std::make_shared<Type>(TypeKind::Any);
+            lastType = mapIter;
             return;
         }
     }

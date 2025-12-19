@@ -4,6 +4,7 @@ add_executable(unit_tests
     unit/RuntimeTests.cpp
     unit/TsStringTests.cpp
     unit/TsArrayTests.cpp
+    unit/TsDateTest.cpp
     unit/AnalyzerTests.cpp
 )
 

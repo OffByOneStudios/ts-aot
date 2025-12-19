@@ -91,6 +91,7 @@ private:
     void visitIdentifier(ast::Identifier* node);
     void visitSuperExpression(ast::SuperExpression* node);
     void visitStringLiteral(ast::StringLiteral* node);
+    void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);

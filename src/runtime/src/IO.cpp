@@ -40,6 +40,13 @@ void ts_fs_writeFileSync(void* path, void* content) {
     t << contentCStr;
 }
 
+bool ts_fs_existsSync(void* path) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    std::ifstream f(pathCStr);
+    return f.good();
+}
+
 struct ReadFileWork {
     ts::TsPromise* promise;
     std::string path;
@@ -88,7 +95,56 @@ void* ts_fs_readFile_async(void* path) {
     
     uv_queue_work(uv_default_loop(), req, read_file_worker, read_file_after_worker);
     
-    return promise;
+    return ts_value_make_promise(promise);
+}
+
+struct WriteFileWork {
+    ts::TsPromise* promise;
+    std::string path;
+    std::string content;
+    bool success;
+};
+
+static void write_file_worker(uv_work_t* req) {
+    WriteFileWork* work = (WriteFileWork*)req->data;
+    std::ofstream t(work->path);
+    if (!t.is_open()) {
+        work->success = false;
+        return;
+    }
+    t << work->content;
+    work->success = true;
+}
+
+static void write_file_after_worker(uv_work_t* req, int status) {
+    WriteFileWork* work = (WriteFileWork*)req->data;
+    if (work->success) {
+        ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
+    } else {
+        void* tsStr = ts_string_create("Could not open file for writing");
+        TsValue* reason = ts_value_make_string(tsStr);
+        ts::ts_promise_reject_internal(work->promise, reason);
+    }
+    delete work;
+    free(req);
+}
+
+void* ts_fs_writeFile_async(void* path, void* content) {
+    TsString* pathStr = (TsString*)path;
+    TsString* contentStr = (TsString*)content;
+    ts::TsPromise* promise = ts::ts_promise_create();
+    
+    WriteFileWork* work = new WriteFileWork();
+    work->promise = promise;
+    work->path = pathStr->ToUtf8();
+    work->content = contentStr->ToUtf8();
+    
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    
+    uv_queue_work(uv_default_loop(), req, write_file_worker, write_file_after_worker);
+    
+    return ts_value_make_promise(promise);
 }
 
 struct FetchWork {
@@ -133,7 +189,7 @@ void* ts_fetch(void* url) {
     
     uv_queue_work(uv_default_loop(), req, fetch_worker, fetch_after_worker);
     
-    return promise;
+    return ts_value_make_promise(promise);
 }
 
 int64_t ts_parseInt(void* str) {

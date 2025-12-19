@@ -62,6 +62,15 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 
                 std::vector<llvm::Value*> args;
                 std::vector<llvm::Type*> argTypes;
+                
+                // Add context first
+                if (currentAsyncContext) {
+                    args.push_back(currentAsyncContext);
+                } else {
+                    args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+                }
+                argTypes.push_back(builder->getPtrTy());
+
                 for (auto& arg : node->arguments) {
                     visit(arg.get());
                     llvm::Value* v = lastValue;
@@ -74,6 +83,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 }
                 
                 llvm::Type* retType = builder->getPtrTy(); // Arrow functions always return TsValue* (ptr)
+                
                 llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
                 lastValue = builder->CreateCall(ft, funcPtr, args);
                 return;
@@ -187,7 +197,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {
-            lastValue = builder->CreateCall(func, args);
+            // Add context as first argument
+            std::vector<llvm::Value*> callArgs;
+            if (currentAsyncContext) {
+                callArgs.push_back(currentAsyncContext);
+            } else {
+                callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+            }
+            for (auto arg : args) callArgs.push_back(arg);
+            
+            lastValue = builder->CreateCall(func, callArgs);
         } else {
             llvm::errs() << "Function not found: " << mangledName << "\n";
             // TODO: Error handling

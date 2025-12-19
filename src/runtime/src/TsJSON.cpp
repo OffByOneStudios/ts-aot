@@ -2,10 +2,16 @@
 #include "TsString.h"
 #include "TsMap.h"
 #include "TsArray.h"
+#include "TsObject.h"
+#include "TsDate.h"
+#include "TsRegExp.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <cstring>
+
+#include <set>
+#include <stdexcept>
 
 using json = nlohmann::json;
 
@@ -46,49 +52,96 @@ static int64_t json_to_ts(const json& j) {
     return 0;
 }
 
-static json ts_to_json(int64_t val) {
-    if (val == 0) return nullptr;
+static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, bool is_object_value = false) {
+    if (!p) return nullptr;
+    if ((uintptr_t)p < 4096) return (int64_t)p;
 
     // Check if it's a bit-casted double
-    uintptr_t ptr = (uintptr_t)val;
-    if (ptr > 0x00007FFFFFFFFFFF) {
+    uint64_t val = (uint64_t)p;
+    if (val > 0x00007FFFFFFFFFFF) {
         double d;
         std::memcpy(&d, &val, sizeof(double));
         return d;
     }
 
-    // Check magic numbers
-    // Safety: we should probably check if ptr is valid, but for now assume it is if it's in the pointer range
-    if (ptr < 0x1000) return val; // Small integers
+    // Check magic numbers first
+    uint32_t magic = *(uint32_t*)p;
+    if (magic == TsString::MAGIC) {
+        return ((TsString*)p)->ToUtf8();
+    }
 
-    try {
-        uint32_t magic = *(uint32_t*)val;
-        if (magic == TsString::MAGIC) {
-            return ((TsString*)val)->ToUtf8();
+    if (magic == TsDate::MAGIC) {
+        return ((TsDate*)p)->ToISOString()->ToUtf8();
+    }
+
+    if (magic == TsRegExp::MAGIC) {
+        return nlohmann::json::object();
+    }
+
+    // For objects (Arrays and Maps), check for circular references
+    if (magic == TsArray::MAGIC || magic == TsMap::MAGIC) {
+        if (visited.find(p) != visited.end()) {
+            throw std::runtime_error("Circular reference in JSON.stringify");
         }
+        visited.insert(p);
+
+        nlohmann::json j;
         if (magic == TsArray::MAGIC) {
-            TsArray* arr = (TsArray*)val;
-            json j = json::array();
+            TsArray* arr = (TsArray*)p;
+            j = nlohmann::json::array();
             for (int64_t i = 0; i < arr->Length(); ++i) {
-                j.push_back(ts_to_json(arr->Get(i)));
+                j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
             }
-            return j;
-        }
-        if (magic == TsMap::MAGIC) {
-            TsMap* map = (TsMap*)val;
-            json j = json::object();
+        } else {
+            TsMap* map = (TsMap*)p;
+            j = nlohmann::json::object();
             TsArray* keys = (TsArray*)map->GetKeys();
             for (int64_t i = 0; i < keys->Length(); ++i) {
                 TsString* key = (TsString*)keys->Get(i);
-                j[key->ToUtf8()] = ts_to_json(map->Get(key));
+                void* val_ptr = (void*)map->Get(key);
+                
+                // In JS, undefined values in objects are omitted
+                if (val_ptr == nullptr) continue;
+                
+                // Check if it's a TsValue with UNDEFINED type
+                bool is_undefined = false;
+                if ((uintptr_t)val_ptr >= 4096) {
+                    uint8_t type_byte = *(uint8_t*)val_ptr;
+                    if (type_byte == (uint8_t)ValueType::UNDEFINED) {
+                        is_undefined = true;
+                    }
+                }
+                
+                if (is_undefined) continue;
+
+                j[key->ToUtf8()] = ts_to_json_internal(val_ptr, visited, true);
             }
-            return j;
         }
-    } catch (...) {
-        // Not a pointer to our objects
+
+        visited.erase(p);
+        return j;
     }
 
-    return val;
+    // Check if it's a TsValue
+    uint8_t type_byte = *(uint8_t*)p;
+    if (type_byte <= 5) {
+        TsValue* v = (TsValue*)p;
+        switch (v->type) {
+            case ValueType::UNDEFINED: return nullptr;
+            case ValueType::NUMBER_INT: return v->i_val;
+            case ValueType::NUMBER_DBL: return v->d_val;
+            case ValueType::BOOLEAN: return v->b_val;
+            case ValueType::STRING_PTR: return ts_to_json_internal(v->ptr_val, visited);
+            case ValueType::OBJECT_PTR: return ts_to_json_internal(v->ptr_val, visited);
+        }
+    }
+
+    return (int64_t)p;
+}
+
+static nlohmann::json ts_to_json(void* p) {
+    std::set<void*> visited;
+    return ts_to_json_internal(p, visited, false);
 }
 
 extern "C" {
@@ -96,28 +149,47 @@ extern "C" {
         if (!json_str) return nullptr;
         TsString* s = (TsString*)json_str;
         try {
-            json j = json::parse(s->ToUtf8());
+            nlohmann::json j = nlohmann::json::parse(s->ToUtf8());
             return (void*)json_to_ts(j);
         } catch (...) {
             return nullptr;
         }
     }
 
-    void* ts_json_stringify(void* obj) {
+    void* ts_json_stringify(void* obj, void* replacer, void* space) {
         try {
-            json j = ts_to_json((int64_t)obj);
-            return TsString::Create(j.dump().c_str());
-        } catch (...) {
-            return TsString::Create("");
-        }
-    }
+            nlohmann::json j = ts_to_json(obj);
 
-    void* ts_object_get_property(void* obj, void* key) {
-        if (!obj || !key) return nullptr;
-        uint32_t magic = *(uint32_t*)obj;
-        if (magic == TsMap::MAGIC) {
-            return (void*)((TsMap*)obj)->Get((TsString*)key);
+            int indent = -1;
+            if (space) {
+                nlohmann::json s = ts_to_json(space);
+                if (s.is_number()) {
+                    indent = s.get<int>();
+                } else if (s.is_string()) {
+                    indent = (int)s.get<std::string>().length();
+                }
+            }
+
+            if (replacer) {
+                nlohmann::json r = ts_to_json(replacer);
+                if (r.is_array() && j.is_object()) {
+                    nlohmann::json filtered = nlohmann::json::object();
+                    for (auto& key : r) {
+                        if (key.is_string()) {
+                            std::string k = key.get<std::string>();
+                            if (j.contains(k)) {
+                                filtered[k] = j[k];
+                            }
+                        }
+                    }
+                    j = filtered;
+                }
+            }
+
+            std::string s = (indent >= 0) ? j.dump(indent) : j.dump();
+            return TsString::Create(s.c_str());
+        } catch (...) {
+            return TsString::Create("null");
         }
-        return nullptr;
     }
 }

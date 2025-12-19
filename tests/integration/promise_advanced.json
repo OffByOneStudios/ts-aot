@@ -1,0 +1,475 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testPromise",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting promise test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "Promise"
+                      },
+                      "name": "reject"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Error 1"
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  "name": "catch"
+                },
+                "arguments": [
+                  {
+                    "kind": "ArrowFunction",
+                    "isAsync": false,
+                    "parameters": [
+                      {
+                        "kind": "Parameter",
+                        "name": {
+                          "kind": "Identifier",
+                          "name": "err"
+                        },
+                        "type": "any",
+                        "isOptional": false,
+                        "isRest": false,
+                        "initializer": null,
+                        "access": null,
+                        "isReadonly": false
+                      }
+                    ],
+                    "body": {
+                      "kind": "BlockStatement",
+                      "statements": [
+                        {
+                          "kind": "ExpressionStatement",
+                          "expression": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "console"
+                              },
+                              "name": "log"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "StringLiteral",
+                                  "value": "Caught error: "
+                                },
+                                "right": {
+                                  "kind": "Identifier",
+                                  "name": "err"
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        },
+                        {
+                          "kind": "ReturnStatement",
+                          "expression": {
+                            "kind": "StringLiteral",
+                            "value": "Recovered"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "typeArguments": []
+              },
+              "name": "then"
+            },
+            "arguments": [
+              {
+                "kind": "ArrowFunction",
+                "isAsync": false,
+                "parameters": [
+                  {
+                    "kind": "Parameter",
+                    "name": {
+                      "kind": "Identifier",
+                      "name": "val"
+                    },
+                    "type": "any",
+                    "isOptional": false,
+                    "isRest": false,
+                    "initializer": null,
+                    "access": null,
+                    "isReadonly": false
+                  }
+                ],
+                "body": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "StringLiteral",
+                              "value": "Then after catch: "
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "val"
+                            }
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "Promise"
+                      },
+                      "name": "resolve"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Success"
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  "name": "finally"
+                },
+                "arguments": [
+                  {
+                    "kind": "ArrowFunction",
+                    "isAsync": false,
+                    "parameters": [],
+                    "body": {
+                      "kind": "BlockStatement",
+                      "statements": [
+                        {
+                          "kind": "ExpressionStatement",
+                          "expression": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "console"
+                              },
+                              "name": "log"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "StringLiteral",
+                                "value": "Finally called for success"
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "typeArguments": []
+              },
+              "name": "then"
+            },
+            "arguments": [
+              {
+                "kind": "ArrowFunction",
+                "isAsync": false,
+                "parameters": [
+                  {
+                    "kind": "Parameter",
+                    "name": {
+                      "kind": "Identifier",
+                      "name": "val"
+                    },
+                    "type": "any",
+                    "isOptional": false,
+                    "isRest": false,
+                    "initializer": null,
+                    "access": null,
+                    "isReadonly": false
+                  }
+                ],
+                "body": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "StringLiteral",
+                              "value": "Value after finally: "
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "val"
+                            }
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "Promise"
+                      },
+                      "name": "reject"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "Failure"
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  "name": "catch"
+                },
+                "arguments": [
+                  {
+                    "kind": "ArrowFunction",
+                    "isAsync": false,
+                    "parameters": [
+                      {
+                        "kind": "Parameter",
+                        "name": {
+                          "kind": "Identifier",
+                          "name": "err"
+                        },
+                        "type": "any",
+                        "isOptional": false,
+                        "isRest": false,
+                        "initializer": null,
+                        "access": null,
+                        "isReadonly": false
+                      }
+                    ],
+                    "body": {
+                      "kind": "BlockStatement",
+                      "statements": [
+                        {
+                          "kind": "ExpressionStatement",
+                          "expression": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "console"
+                              },
+                              "name": "log"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "StringLiteral",
+                                  "value": "Caught for finally test: "
+                                },
+                                "right": {
+                                  "kind": "Identifier",
+                                  "name": "err"
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "typeArguments": []
+              },
+              "name": "finally"
+            },
+            "arguments": [
+              {
+                "kind": "ArrowFunction",
+                "isAsync": false,
+                "parameters": [],
+                "body": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "Finally called for failure"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Promise test complete."
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "testPromise"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

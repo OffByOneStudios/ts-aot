@@ -83,8 +83,16 @@ NodePtr parseNode(const json& j) {
         return node;
     } else if (kind == "OmittedExpression") {
         return std::make_unique<OmittedExpression>();
+    } else if (kind == "BlockStatement") {
+        return parseStatement(j);
     }
-    return nullptr;
+    
+    // Fallback to expression for ArrowFunction body and others
+    try {
+        return parseExpression(j);
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 ts::AccessModifier parseAccessModifier(const json& j) {
@@ -117,6 +125,7 @@ NodePtr parseClassMember(const json& j) {
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
         node->name = j["name"];
+        node->isAsync = j.value("isAsync", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 node->parameters.push_back(parseParameter(param));
@@ -166,8 +175,14 @@ std::unique_ptr<Program> loadAst(const std::string& jsonPath) {
     i >> j;
     
     auto program = std::make_unique<Program>();
-    for (const auto& stmt : j["statements"]) {
-        program->body.push_back(parseStatement(stmt));
+    if (j.contains("body")) {
+        for (const auto& stmt : j["body"]) {
+            program->body.push_back(parseStatement(stmt));
+        }
+    } else if (j.contains("statements")) {
+        for (const auto& stmt : j["statements"]) {
+            program->body.push_back(parseStatement(stmt));
+        }
     }
     
     return program;

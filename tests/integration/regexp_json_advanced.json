@@ -1,0 +1,708 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "re"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "RegExp"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "a"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "g"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "str"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "aba"
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Test 1: Global RegExp"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex before 1: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "test 1: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "re"
+                },
+                "name": "test"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "str"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex after 1: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "test 2: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "re"
+                },
+                "name": "test"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "str"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex after 2: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "test 3: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "re"
+                },
+                "name": "test"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "str"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex after 3: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "AssignmentExpression",
+        "left": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "re"
+          },
+          "name": "lastIndex"
+        },
+        "right": {
+          "kind": "NumericLiteral",
+          "value": 0
+        }
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex reset: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "exec1"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "re"
+          },
+          "name": "exec"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "str"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "exec 1: "
+            },
+            "right": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "exec1"
+              },
+              "argumentExpression": {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "lastIndex after exec 1: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "lastIndex"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Test 2: RegExp properties"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "source: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "source"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "flags: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "re"
+              },
+              "name": "flags"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "obj"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "StringLiteral",
+            "value": "a"
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 2
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Test 3: JSON stringify with space"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Normal: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "JSON"
+                },
+                "name": "stringify"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "obj"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Space 2:\n"
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "JSON"
+                },
+                "name": "stringify"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "obj"
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "null"
+                },
+                {
+                  "kind": "NumericLiteral",
+                  "value": 2
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Test 4: JSON stringify with replacer array"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "replacer"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "StringLiteral",
+            "value": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Replacer ['a']: "
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "JSON"
+                },
+                "name": "stringify"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "obj"
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "replacer"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

@@ -37,6 +37,16 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     }
 
     generateGlobals(analyzer);
+    
+    asyncContextType = llvm::StructType::create(*context, "AsyncContext");
+    asyncContextType->setBody({
+        builder->getPtrTy(), // vtable
+        llvm::Type::getInt32Ty(*context), // state
+        builder->getPtrTy(), // promise
+        builder->getPtrTy(), // resumeFn
+        builder->getPtrTy()  // data
+    });
+
     generateClasses(analyzer, specializations);
     generatePrototypes(specializations);
     generateBodies(specializations);
@@ -44,19 +54,19 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
-    for (auto& [path, modulePtr] : analyzer.modules) {
-        if (!modulePtr->ast) continue;
-        for (auto& stmt : modulePtr->ast->body) {
-            if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
-                    if (module->getGlobalVariable(id->name)) continue;
+    const auto& globals = analyzer.getSymbolTable().getGlobalSymbols();
+    for (auto& [name, symbol] : globals) {
+        if (module->getGlobalVariable(name)) continue;
+        
+        // Skip functions, they are handled by generatePrototypes
+        if (symbol->type->kind == TypeKind::Function) continue;
+        
+        // Skip classes and interfaces
+        if (symbol->type->kind == TypeKind::Class || symbol->type->kind == TypeKind::Interface) continue;
 
-                    llvm::Type* type = getLLVMType(var->resolvedType);
-                    new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
-                        llvm::Constant::getNullValue(type), id->name);
-                }
-            }
-        }
+        llvm::Type* type = getLLVMType(symbol->type);
+        new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::Constant::getNullValue(type), name);
     }
 }
 
@@ -64,7 +74,7 @@ void IRGenerator::generateEntryPoint() {
     llvm::Function* userMain = module->getFunction("user_main");
     if (!userMain) return;
 
-    // Declare ts_main
+    // Declare ts_main: int ts_main(int argc, char** argv, TsValue* (*user_main)(void*))
     std::vector<llvm::Type*> args = {
         llvm::Type::getInt32Ty(*context),
         llvm::PointerType::getUnqual(*context),
@@ -74,7 +84,7 @@ void IRGenerator::generateEntryPoint() {
         llvm::Type::getInt32Ty(*context), args, false);
     llvm::Function* tsMain = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_main", module.get());
 
-    // Define main
+    // Define main: int main(int argc, char** argv)
     std::vector<llvm::Type*> mainArgs = {
         llvm::Type::getInt32Ty(*context),
         llvm::PointerType::getUnqual(*context)
@@ -368,24 +378,62 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
     if (!val) return nullptr;
     
+    // If it's already a pointer and we expect a primitive or Any, it's likely already a TsValue*
+    if (val->getType()->isPointerTy()) {
+        if (!type || type->kind == TypeKind::Any || type->kind == TypeKind::Int || 
+            type->kind == TypeKind::Double || type->kind == TypeKind::Boolean ||
+            (type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0)) {
+            return val;
+        }
+    }
+
+    if (type && type->kind == TypeKind::Void) {
+        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", builder->getPtrTy());
+        return builder->CreateCall(undefFn);
+    }
+    
     llvm::Type* valType = val->getType();
     std::string funcName;
     
     if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
     else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
+    else if (valType->isIntegerTy(8)) {
+        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", builder->getPtrTy());
+        return builder->CreateCall(undefFn);
+    }
     else if (type && type->kind == TypeKind::Function) {
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function",
             builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
-        return builder->CreateCall(fn, { builder->CreateBitCast(val, builder->getPtrTy()), llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+        
+        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+        llvm::Value* currentContext = nullptr;
+        if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
+            currentContext = currentFunc->getArg(0);
+        } else {
+            currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        return builder->CreateCall(fn, { builder->CreateBitCast(val, builder->getPtrTy()), currentContext });
     } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
+        else if (type && type->kind == TypeKind::Array) funcName = "ts_value_make_array";
+        else if (type && type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0) {
+            // Promises are already returned as boxed TsValue* from async functions
+            return val;
+        }
         else funcName = "ts_value_make_object";
-    } else if (type && type->kind == TypeKind::Any) {
-        llvm::Function* fn = getRuntimeFunction("ts_value_make_object");
-        return builder->CreateCall(fn, { val });
     }
     
+    if (funcName.empty()) {
+        if (type && type->kind == TypeKind::Any && !val->getType()->isPointerTy()) {
+             // Fallback for Any that isn't a pointer yet
+             if (val->getType()->isIntegerTy(64)) funcName = "ts_value_make_int";
+             else if (val->getType()->isDoubleTy()) funcName = "ts_value_make_double";
+             else if (val->getType()->isIntegerTy(1)) funcName = "ts_value_make_bool";
+        }
+    }
+
     if (funcName.empty()) return val;
     
     llvm::FunctionCallee boxFn = module->getOrInsertFunction(funcName,
@@ -487,6 +535,38 @@ void IRGenerator::dumpIR() {
 llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) {
     if (val->getType() == expectedType) return val;
     
+    // Boxing: primitive -> ptr
+    if (!val->getType()->isPointerTy() && expectedType->isPointerTy()) {
+        if (val->getType()->isIntegerTy(64)) {
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", builder->getPtrTy(), builder->getInt64Ty());
+            return builder->CreateCall(boxFn, { val });
+        } else if (val->getType()->isDoubleTy()) {
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_double", builder->getPtrTy(), builder->getDoubleTy());
+            return builder->CreateCall(boxFn, { val });
+        } else if (val->getType()->isIntegerTy(1)) {
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_bool", builder->getPtrTy(), builder->getInt1Ty());
+            return builder->CreateCall(boxFn, { val });
+        } else if (val->getType()->isIntegerTy(8)) {
+            // Void/bool8 -> undefined
+            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", builder->getPtrTy());
+            return builder->CreateCall(undefFn);
+        }
+    }
+
+    // Unboxing: ptr -> primitive
+    if (val->getType()->isPointerTy() && !expectedType->isPointerTy()) {
+        if (expectedType->isIntegerTy(64)) {
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", builder->getInt64Ty(), builder->getPtrTy());
+            return builder->CreateCall(unboxFn, { val });
+        } else if (expectedType->isDoubleTy()) {
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", builder->getDoubleTy(), builder->getPtrTy());
+            return builder->CreateCall(unboxFn, { val });
+        } else if (expectedType->isIntegerTy(1)) {
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", builder->getInt1Ty(), builder->getPtrTy());
+            return builder->CreateCall(unboxFn, { val });
+        }
+    }
+
     if (val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
         return builder->CreateIntCast(val, expectedType, true);
     }

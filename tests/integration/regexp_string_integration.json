@@ -1,0 +1,634 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "s"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "StringLiteral",
+        "value": "hello world 123"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "re"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "RegularExpressionLiteral",
+        "text": "/[a-z]+/g"
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "matches"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "name": "match"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "re"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "Identifier",
+        "name": "matches"
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Matches found: "
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "matches"
+                    },
+                    "name": "length"
+                  }
+                }
+              ],
+              "typeArguments": []
+            }
+          },
+          {
+            "kind": "ForStatement",
+            "initializer": {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "i"
+              },
+              "initializer": {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            },
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": "<",
+              "left": {
+                "kind": "Identifier",
+                "name": "i"
+              },
+              "right": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "matches"
+                },
+                "name": "length"
+              }
+            },
+            "incrementor": {
+              "kind": "PostfixUnaryExpression",
+              "operator": "++",
+              "operand": {
+                "kind": "Identifier",
+                "name": "i"
+              }
+            },
+            "body": {
+              "kind": "BlockStatement",
+              "statements": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "ts_console_log"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "StringLiteral",
+                              "value": "Match "
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "i"
+                            }
+                          },
+                          "right": {
+                            "kind": "StringLiteral",
+                            "value": ": "
+                          }
+                        },
+                        "right": {
+                          "kind": "ElementAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "matches"
+                          },
+                          "argumentExpression": {
+                            "kind": "Identifier",
+                            "name": "i"
+                          }
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "elseStatement": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "No matches found"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "replaced"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "name": "replace"
+        },
+        "arguments": [
+          {
+            "kind": "RegularExpressionLiteral",
+            "text": "/[0-9]+/"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "numbers"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Replaced: "
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "replaced"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "replacedAll"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "name": "replace"
+        },
+        "arguments": [
+          {
+            "kind": "RegularExpressionLiteral",
+            "text": "/[a-z]/g"
+          },
+          {
+            "kind": "StringLiteral",
+            "value": "X"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Replaced All: "
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "replacedAll"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "parts"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "name": "split"
+        },
+        "arguments": [
+          {
+            "kind": "RegularExpressionLiteral",
+            "text": "/\\s+/"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Parts length: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "parts"
+              },
+              "name": "length"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ForStatement",
+      "initializer": {
+        "kind": "VariableDeclaration",
+        "name": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "initializer": {
+          "kind": "NumericLiteral",
+          "value": 0
+        }
+      },
+      "condition": {
+        "kind": "BinaryExpression",
+        "operator": "<",
+        "left": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "right": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "parts"
+          },
+          "name": "length"
+        }
+      },
+      "incrementor": {
+        "kind": "PostfixUnaryExpression",
+        "operator": "++",
+        "operand": {
+          "kind": "Identifier",
+          "name": "i"
+        }
+      },
+      "body": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "+",
+                      "left": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "StringLiteral",
+                          "value": "Part "
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        }
+                      },
+                      "right": {
+                        "kind": "StringLiteral",
+                        "value": ": '"
+                      }
+                    },
+                    "right": {
+                      "kind": "ElementAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "parts"
+                      },
+                      "argumentExpression": {
+                        "kind": "Identifier",
+                        "name": "i"
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "StringLiteral",
+                    "value": "'"
+                  }
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "partsWithGroups"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "StringLiteral",
+            "value": "a,b;c"
+          },
+          "name": "split"
+        },
+        "arguments": [
+          {
+            "kind": "RegularExpressionLiteral",
+            "text": "/[,;]/"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "ts_console_log"
+        },
+        "arguments": [
+          {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "StringLiteral",
+              "value": "Parts with groups length: "
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "partsWithGroups"
+              },
+              "name": "length"
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ForStatement",
+      "initializer": {
+        "kind": "VariableDeclaration",
+        "name": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "initializer": {
+          "kind": "NumericLiteral",
+          "value": 0
+        }
+      },
+      "condition": {
+        "kind": "BinaryExpression",
+        "operator": "<",
+        "left": {
+          "kind": "Identifier",
+          "name": "i"
+        },
+        "right": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "partsWithGroups"
+          },
+          "name": "length"
+        }
+      },
+      "incrementor": {
+        "kind": "PostfixUnaryExpression",
+        "operator": "++",
+        "operand": {
+          "kind": "Identifier",
+          "name": "i"
+        }
+      },
+      "body": {
+        "kind": "BlockStatement",
+        "statements": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "ts_console_log"
+              },
+              "arguments": [
+                {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "+",
+                      "left": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "StringLiteral",
+                          "value": "Part "
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        }
+                      },
+                      "right": {
+                        "kind": "StringLiteral",
+                        "value": ": '"
+                      }
+                    },
+                    "right": {
+                      "kind": "ElementAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "partsWithGroups"
+                      },
+                      "argumentExpression": {
+                        "kind": "Identifier",
+                        "name": "i"
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "StringLiteral",
+                    "value": "'"
+                  }
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

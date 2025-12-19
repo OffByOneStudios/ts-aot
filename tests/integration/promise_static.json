@@ -1,0 +1,357 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testPromiseStatic",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting Promise.all test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p1"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Promise"
+              },
+              "name": "resolve"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 1
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p2"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Promise"
+              },
+              "name": "resolve"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p3"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Promise"
+              },
+              "name": "resolve"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Promise"
+                  },
+                  "name": "all"
+                },
+                "arguments": [
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "Identifier",
+                        "name": "p1"
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "p2"
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "p3"
+                      }
+                    ]
+                  }
+                ],
+                "typeArguments": []
+              },
+              "name": "then"
+            },
+            "arguments": [
+              {
+                "kind": "ArrowFunction",
+                "isAsync": false,
+                "parameters": [
+                  {
+                    "kind": "Parameter",
+                    "name": {
+                      "kind": "Identifier",
+                      "name": "results"
+                    },
+                    "type": "any",
+                    "isOptional": false,
+                    "isRest": false,
+                    "initializer": null,
+                    "access": null,
+                    "isReadonly": false
+                  }
+                ],
+                "body": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "Promise.all resolved"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting Promise.race test..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "r1"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Promise"
+              },
+              "name": "resolve"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "race win"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Promise"
+                  },
+                  "name": "race"
+                },
+                "arguments": [
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "Identifier",
+                        "name": "r1"
+                      }
+                    ]
+                  }
+                ],
+                "typeArguments": []
+              },
+              "name": "then"
+            },
+            "arguments": [
+              {
+                "kind": "ArrowFunction",
+                "isAsync": false,
+                "parameters": [
+                  {
+                    "kind": "Parameter",
+                    "name": {
+                      "kind": "Identifier",
+                      "name": "winner"
+                    },
+                    "type": "any",
+                    "isOptional": false,
+                    "isRest": false,
+                    "initializer": null,
+                    "access": null,
+                    "isReadonly": false
+                  }
+                ],
+                "body": {
+                  "kind": "BlockStatement",
+                  "statements": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console"
+                          },
+                          "name": "log"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "StringLiteral",
+                              "value": "Promise.race resolved with: "
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "winner"
+                            }
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "testPromiseStatic"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

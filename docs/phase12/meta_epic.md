@@ -1,6 +1,6 @@
 # Phase 12: Runtime Feature Parity
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Achieve feature parity for the TypeScript/JavaScript standard library in the `ts-aot` runtime. This phase focuses on filling the gaps identified in the runtime audit, ensuring that common built-in methods and global objects behave as expected.
 
 ## Milestones
@@ -16,8 +16,8 @@ Implement missing functional and utility methods for core collection types.
 Complete the implementation of temporal and mathematical utilities.
 - [x] **Date**: Setters (`setFullYear`, `setMonth`, etc.).
 - [x] **Date**: UTC methods (`getUTCFullYear`, `setUTCFullYear`, etc.).
-- [ ] **Date**: Parsing improvements (ICU-based).
-- [x] **Math**: Missing trigonometric and logarithmic functions if any (e.g., `log10`, `exp`).
+- [x] **Date**: Parsing improvements (ICU-based).
+- [x] **Math**: Missing trigonometric and logarithmic functions (e.g., `log10`, `exp`).
 
 ### Epic 54: RegExp & JSON Parity
 Enhance regular expression support and JSON serialization.

@@ -1,5 +1,7 @@
 #include "TsMap.h"
 #include "TsArray.h"
+#include "TsObject.h"
+#include "TsRuntime.h"
 #include "GC.h"
 #include <unordered_map>
 #include <string>
@@ -38,7 +40,7 @@ struct TsStringEqual {
     }
 };
 
-using MapType = std::unordered_map<TsString*, int64_t, TsStringHash, TsStringEqual, TsAllocator<std::pair<TsString* const, int64_t>>>;
+using MapType = std::unordered_map<TsString*, TsValue, TsStringHash, TsStringEqual, TsAllocator<std::pair<TsString* const, TsValue>>>;
 
 TsMap* TsMap::Create() {
     void* mem = ts_alloc(sizeof(TsMap));
@@ -50,17 +52,17 @@ TsMap::TsMap() {
     impl = new(mem) MapType();
 }
 
-void TsMap::Set(TsString* key, int64_t value) {
+void TsMap::Set(TsString* key, TsValue value) {
     ((MapType*)impl)->insert_or_assign(key, value);
 }
 
-int64_t TsMap::Get(TsString* key) {
+TsValue TsMap::Get(TsString* key) {
     auto* map = (MapType*)impl;
     auto it = map->find(key);
     if (it != map->end()) {
         return it->second;
     }
-    return 0;
+    return TsValue();
 }
 
 bool TsMap::Has(TsString* key) {
@@ -92,16 +94,60 @@ void* TsMap::GetKeys() {
     return keys;
 }
 
+void* TsMap::GetValues() {
+    MapType* map = static_cast<MapType*>(impl);
+    TsArray* values = TsArray::Create(map->size());
+    for (auto const& [key, val] : *map) {
+        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        *v = val;
+        values->Push((int64_t)v);
+    }
+    return values;
+}
+
+void* TsMap::GetEntries() {
+    MapType* map = static_cast<MapType*>(impl);
+    TsArray* entries = TsArray::Create(map->size());
+    for (auto const& [key, val] : *map) {
+        TsArray* entry = TsArray::Create(2);
+        entry->Push((int64_t)key);
+        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        *v = val;
+        entry->Push((int64_t)v);
+        entries->Push((int64_t)entry);
+    }
+    return entries;
+}
+
+void TsMap::ForEach(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return;
+    TsFunction* func = (TsFunction*)cbVal->ptr_val;
+    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*, void*))func->funcPtr;
+
+    MapType* map = (MapType*)impl;
+    for (auto const& [key, val] : *map) {
+        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        *v = val;
+        TsValue* k = ts_value_make_string(key);
+        TsValue* m = ts_value_make_object(this);
+        fp(v, k, m, func->context);
+    }
+}
+
 extern "C" {
     void* ts_map_create() {
         return TsMap::Create();
     }
 
-    void ts_map_set(void* map, void* key, int64_t value) {
-        ((TsMap*)map)->Set((TsString*)key, value);
+    void ts_map_set(void* map, void* key, TsValue* value) {
+        ((TsMap*)map)->Set((TsString*)key, *value);
     }
-    int64_t ts_map_get(void* map, void* key) {
-        return ((TsMap*)map)->Get((TsString*)key);
+    TsValue* ts_map_get(void* map, void* key) {
+        TsValue val = ((TsMap*)map)->Get((TsString*)key);
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        *res = val;
+        return res;
     }
     bool ts_map_has(void* map, void* key) {
         return static_cast<TsMap*>(map)->Has(static_cast<TsString*>(key));
@@ -121,5 +167,17 @@ extern "C" {
 
     void* ts_map_keys(void* map) {
         return static_cast<TsMap*>(map)->GetKeys();
+    }
+
+    void* ts_map_values(void* map) {
+        return static_cast<TsMap*>(map)->GetValues();
+    }
+
+    void* ts_map_entries(void* map) {
+        return static_cast<TsMap*>(map)->GetEntries();
+    }
+
+    void ts_map_forEach(void* map, void* callback, void* thisArg) {
+        static_cast<TsMap*>(map)->ForEach(callback, thisArg);
     }
 }
