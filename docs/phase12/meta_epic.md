@@ -28,15 +28,15 @@ Enhance regular expression support and JSON serialization.
 
 ### Epic 55: Promise & Async Parity
 Finalize the asynchronous programming model.
-- [ ] **Promise**: `catch` and `finally` methods.
-- [ ] **Promise**: Static methods `all`, `race`, `allSettled`, `any`.
-- [ ] **Promise**: Proper rejection handling and unhandled rejection tracking.
+- [x] **Promise**: `catch` and `finally` methods.
+- [x] **Promise**: Static methods `all`, `race`, `allSettled`, `any`.
+- [x] **Promise**: Proper rejection handling and unhandled rejection tracking.
 
 ### Epic 56: Global Objects & Node.js Parity
 Implement essential global objects and environment-specific APIs.
 - [ ] **Global**: `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`.
-- [ ] **fs**: Complete the `fs` module (e.g., `exists`, `mkdir`, `unlink`).
-- [ ] **process**: `argv`, `env`, `exit`, `cwd`.
+- [x] **fs**: Complete the `fs` module (e.g., `exists`, `mkdir`, `unlink`).
+- [x] **process**: `argv`, `env`, `exit`, `cwd`.
 - [ ] **Buffer**: Basic implementation for binary data handling.
 - [ ] **fetch**: Complete the `fetch` implementation in `IO.cpp`.
 
