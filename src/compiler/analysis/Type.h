@@ -38,7 +38,11 @@ enum class TypeKind {
     TypeParameter,
     Namespace,
     Enum,
-    Tuple
+    Tuple,
+    Null,
+    Undefined,
+    Unknown,
+    Never
 };
 
 struct Type : public std::enable_shared_from_this<Type> {
