@@ -6,7 +6,7 @@ namespace ts {
 
 using namespace ast;
 
-void Analyzer::visitFunctionDeclaration(FunctionDeclaration* node) {
+void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     std::cerr << "Visiting function declaration: " << node->name << std::endl;
     symbols.enterScope();
 
@@ -409,3 +409,4 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
 }
 
 } // namespace ts
+

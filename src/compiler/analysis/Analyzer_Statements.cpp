@@ -5,11 +5,11 @@ namespace ts {
 
 using namespace ast;
 
-void Analyzer::visitExpressionStatement(ExpressionStatement* node) {
+void Analyzer::visitExpressionStatement(ast::ExpressionStatement* node) {
     visit(node->expression.get());
 }
 
-void Analyzer::visitVariableDeclaration(VariableDeclaration* node) {
+void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
     if (!node->type.empty()) {
         type = parseType(node->type, symbols);
@@ -52,7 +52,7 @@ void Analyzer::visitReturnStatement(ast::ReturnStatement* node) {
     }
 }
 
-void Analyzer::visitIfStatement(IfStatement* node) {
+void Analyzer::visitIfStatement(ast::IfStatement* node) {
     visit(node->condition.get());
     
     // Basic type narrowing
@@ -167,12 +167,12 @@ void Analyzer::visitIfStatement(IfStatement* node) {
     }
 }
 
-void Analyzer::visitWhileStatement(WhileStatement* node) {
+void Analyzer::visitWhileStatement(ast::WhileStatement* node) {
     visit(node->condition.get());
     visit(node->body.get());
 }
 
-void Analyzer::visitForStatement(ForStatement* node) {
+void Analyzer::visitForStatement(ast::ForStatement* node) {
     symbols.enterScope();
     if (node->initializer) visit(node->initializer.get());
     if (node->condition) visit(node->condition.get());
@@ -181,7 +181,7 @@ void Analyzer::visitForStatement(ForStatement* node) {
     symbols.exitScope();
 }
 
-void Analyzer::visitForOfStatement(ForOfStatement* node) {
+void Analyzer::visitForOfStatement(ast::ForOfStatement* node) {
     symbols.enterScope();
     
     visit(node->expression.get());
@@ -205,7 +205,7 @@ void Analyzer::visitForOfStatement(ForOfStatement* node) {
     symbols.exitScope();
 }
 
-void Analyzer::visitForInStatement(ForInStatement* node) {
+void Analyzer::visitForInStatement(ast::ForInStatement* node) {
     symbols.enterScope();
     
     visit(node->expression.get());
@@ -221,7 +221,7 @@ void Analyzer::visitForInStatement(ForInStatement* node) {
     symbols.exitScope();
 }
 
-void Analyzer::visitSwitchStatement(SwitchStatement* node) {
+void Analyzer::visitSwitchStatement(ast::SwitchStatement* node) {
     visit(node->expression.get());
     for (auto& clause : node->clauses) {
         if (auto cc = dynamic_cast<CaseClause*>(clause.get())) {
@@ -275,3 +275,4 @@ void Analyzer::visitBlockStatement(ast::BlockStatement* node) {
 }
 
 } // namespace ts
+

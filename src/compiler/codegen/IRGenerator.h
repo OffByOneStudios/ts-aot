@@ -76,6 +76,8 @@ private:
     void visitExportDeclaration(ast::ExportDeclaration* node);
     void visitExportAssignment(ast::ExportAssignment* node);
     void visitCallExpression(ast::CallExpression* node) override;
+    bool tryGenerateMemberCall(ast::CallExpression* node);
+    bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

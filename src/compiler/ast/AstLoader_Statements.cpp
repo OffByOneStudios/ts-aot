@@ -1,0 +1,282 @@
+#include "AstLoader.h"
+#include <nlohmann/json.hpp>
+#include <stdexcept>
+
+using json = nlohmann::json;
+
+namespace ast {
+
+StmtPtr parseStatement(const json& j) {
+    std::string kind = j["kind"];
+
+    if (kind == "ClassDeclaration") {
+        auto node = std::make_unique<ClassDeclaration>();
+        node->name = j["name"].get<std::string>();
+        if (j.contains("isExported")) {
+            node->isExported = j["isExported"];
+        }
+        if (j.contains("isDefaultExport")) {
+            node->isDefaultExport = j["isDefaultExport"];
+        }
+        if (j.contains("typeParameters")) {
+            for (const auto& tp : j["typeParameters"]) {
+                node->typeParameters.push_back(parseTypeParameter(tp));
+            }
+        }
+        if (j.contains("baseClass")) {
+            node->baseClass = j["baseClass"];
+        }
+        if (j.contains("implementsInterfaces")) {
+            for (const auto& i : j["implementsInterfaces"]) {
+                node->implementsInterfaces.push_back(i);
+            }
+        }
+        for (const auto& member : j["members"]) {
+            node->members.push_back(parseClassMember(member));
+        }
+        if (j.contains("isAbstract")) {
+            node->isAbstract = j["isAbstract"];
+        }
+        return node;
+    } else if (kind == "InterfaceDeclaration") {
+        auto node = std::make_unique<InterfaceDeclaration>();
+        node->name = j["name"].get<std::string>();
+        if (j.contains("isExported")) {
+            node->isExported = j["isExported"];
+        }
+        if (j.contains("isDefaultExport")) {
+            node->isDefaultExport = j["isDefaultExport"];
+        }
+        if (j.contains("typeParameters")) {
+            for (const auto& tp : j["typeParameters"]) {
+                node->typeParameters.push_back(parseTypeParameter(tp));
+            }
+        }
+        if (j.contains("baseInterfaces")) {
+            for (const auto& i : j["baseInterfaces"]) {
+                node->baseInterfaces.push_back(i);
+            }
+        }
+        for (const auto& member : j["members"]) {
+            node->members.push_back(parseClassMember(member));
+        }
+        return node;
+    } else if (kind == "FunctionDeclaration") {
+        auto node = std::make_unique<FunctionDeclaration>();
+        node->name = j["name"];
+        node->isExported = j.value("isExported", false);
+        node->isDefaultExport = j.value("isDefaultExport", false);
+        node->isAsync = j.value("isAsync", false);
+        if (j.contains("parameters")) {
+            for (const auto& param : j["parameters"]) {
+                node->parameters.push_back(parseParameter(param));
+            }
+        }
+        if (j.contains("typeParameters")) {
+            for (const auto& tp : j["typeParameters"]) {
+                node->typeParameters.push_back(parseTypeParameter(tp));
+            }
+        }
+        if (j.contains("returnType")) node->returnType = j["returnType"];
+        for (const auto& stmt : j["body"]) {
+            node->body.push_back(parseStatement(stmt));
+        }
+        return node;
+    } else if (kind == "VariableDeclaration") {
+        auto node = std::make_unique<VariableDeclaration>();
+        node->name = parseNode(j["name"]);
+        if (j.contains("isExported")) {
+            node->isExported = j["isExported"];
+        }
+        if (j.contains("type")) node->type = j["type"];
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseExpression(j["initializer"]);
+        }
+        return node;
+    } else if (kind == "ExpressionStatement") {
+        auto node = std::make_unique<ExpressionStatement>();
+        node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "BlockStatement") {
+        auto node = std::make_unique<BlockStatement>();
+        for (const auto& stmt : j["statements"]) {
+            node->statements.push_back(parseStatement(stmt));
+        }
+        return node;
+    } else if (kind == "ReturnStatement") {
+        auto node = std::make_unique<ReturnStatement>();
+        if (j.contains("expression") && !j["expression"].is_null()) {
+            node->expression = parseExpression(j["expression"]);
+        }
+        return node;
+    } else if (kind == "IfStatement") {
+        auto node = std::make_unique<IfStatement>();
+        node->condition = parseExpression(j["condition"]);
+        node->thenStatement = parseStatement(j["thenStatement"]);
+        if (j.contains("elseStatement") && !j["elseStatement"].is_null()) {
+            node->elseStatement = parseStatement(j["elseStatement"]);
+        }
+        return node;
+    } else if (kind == "WhileStatement") {
+        auto node = std::make_unique<WhileStatement>();
+        node->condition = parseExpression(j["condition"]);
+        node->body = parseStatement(j["statement"]);
+        return node;
+    } else if (kind == "ForStatement") {
+        auto node = std::make_unique<ForStatement>();
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseStatement(j["initializer"]);
+        }
+        if (j.contains("condition") && !j["condition"].is_null()) {
+            node->condition = parseExpression(j["condition"]);
+        }
+        if (j.contains("incrementor") && !j["incrementor"].is_null()) {
+            node->incrementor = parseExpression(j["incrementor"]);
+        }
+        node->body = parseStatement(j["body"]);
+        return node;
+    } else if (kind == "ForOfStatement") {
+        auto node = std::make_unique<ForOfStatement>();
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseStatement(j["initializer"]);
+        }
+        node->expression = parseExpression(j["expression"]);
+        node->body = parseStatement(j["body"]);
+        return node;
+    } else if (kind == "ForInStatement") {
+        auto node = std::make_unique<ForInStatement>();
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseStatement(j["initializer"]);
+        }
+        node->expression = parseExpression(j["expression"]);
+        node->body = parseStatement(j["body"]);
+        return node;
+    } else if (kind == "SwitchStatement") {
+        auto node = std::make_unique<SwitchStatement>();
+        node->expression = parseExpression(j["expression"]);
+        for (const auto& clause : j["clauses"]) {
+            if (clause["kind"] == "CaseClause") {
+                auto cc = std::make_unique<CaseClause>();
+                cc->expression = parseExpression(clause["expression"]);
+                for (const auto& stmt : clause["statements"]) {
+                    cc->statements.push_back(parseStatement(stmt));
+                }
+                node->clauses.push_back(std::move(cc));
+            } else {
+                auto dc = std::make_unique<DefaultClause>();
+                for (const auto& stmt : clause["statements"]) {
+                    dc->statements.push_back(parseStatement(stmt));
+                }
+                node->clauses.push_back(std::move(dc));
+            }
+        }
+        return node;
+    } else if (kind == "TryStatement") {
+        auto node = std::make_unique<TryStatement>();
+        for (const auto& stmt : j["tryBlock"]) {
+            node->tryBlock.push_back(parseStatement(stmt));
+        }
+        if (j.contains("catchClause") && !j["catchClause"].is_null()) {
+            node->catchClause = std::make_unique<CatchClause>();
+            if (j["catchClause"].contains("variable") && !j["catchClause"]["variable"].is_null()) {
+                node->catchClause->variable = parseNode(j["catchClause"]["variable"]);
+            }
+            for (const auto& stmt : j["catchClause"]["block"]) {
+                node->catchClause->block.push_back(parseStatement(stmt));
+            }
+        }
+        if (j.contains("finallyBlock") && !j["finallyBlock"].is_null()) {
+            for (const auto& stmt : j["finallyBlock"]) {
+                node->finallyBlock.push_back(parseStatement(stmt));
+            }
+        }
+        return node;
+    } else if (kind == "ThrowStatement") {
+        auto node = std::make_unique<ThrowStatement>();
+        node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "BreakStatement") {
+        return std::make_unique<BreakStatement>();
+    } else if (kind == "ContinueStatement") {
+        return std::make_unique<ContinueStatement>();
+    } else if (kind == "ImportDeclaration") {
+        auto node = std::make_unique<ImportDeclaration>();
+        node->moduleSpecifier = j["moduleSpecifier"].get<std::string>();
+        
+        if (j.contains("importClause") && !j["importClause"].is_null()) {
+            const auto& clause = j["importClause"];
+            if (clause.contains("name") && !clause["name"].is_null()) {
+                node->defaultImport = clause["name"].get<std::string>();
+            }
+            
+            if (clause.contains("namedBindings") && !clause["namedBindings"].is_null()) {
+                const auto& bindings = clause["namedBindings"];
+                if (bindings["kind"] == "NamespaceImport") {
+                    node->namespaceImport = bindings["name"].get<std::string>();
+                } else if (bindings["kind"] == "NamedImports") {
+                    for (const auto& element : bindings["elements"]) {
+                        ImportSpecifier spec;
+                        spec.name = element["name"].get<std::string>();
+                        if (element.contains("propertyName") && !element["propertyName"].is_null()) {
+                            spec.propertyName = element["propertyName"].get<std::string>();
+                        }
+                        node->namedImports.push_back(spec);
+                    }
+                }
+            }
+        }
+        return node;
+    } else if (kind == "ExportDeclaration") {
+        auto node = std::make_unique<ExportDeclaration>();
+        if (j.contains("moduleSpecifier") && !j["moduleSpecifier"].is_null()) {
+            node->moduleSpecifier = j["moduleSpecifier"].get<std::string>();
+        }
+        if (j.contains("isStarExport")) {
+            node->isStarExport = j["isStarExport"];
+        }
+        if (j.contains("namedExports")) {
+            for (const auto& spec : j["namedExports"]) {
+                ExportSpecifier es;
+                es.name = spec["name"].get<std::string>();
+                if (spec.contains("propertyName") && !spec["propertyName"].is_null()) {
+                    es.propertyName = spec["propertyName"].get<std::string>();
+                }
+                node->namedExports.push_back(es);
+            }
+        }
+        return node;
+    } else if (kind == "ExportAssignment") {
+        auto node = std::make_unique<ExportAssignment>();
+        node->expression = parseExpression(j["expression"]);
+        node->isExportEquals = j.value("isExportEquals", false);
+        return node;
+    } else if (kind == "TypeAliasDeclaration") {
+        auto node = std::make_unique<TypeAliasDeclaration>();
+        node->name = j["name"];
+        node->type = j["type"];
+        if (j.contains("typeParameters")) {
+            for (const auto& tp : j["typeParameters"]) {
+                node->typeParameters.push_back(*parseTypeParameter(tp));
+            }
+        }
+        node->isExported = j.value("isExported", false);
+        return node;
+    } else if (kind == "EnumDeclaration") {
+        auto node = std::make_unique<EnumDeclaration>();
+        node->name = j["name"];
+        for (const auto& m : j["members"]) {
+            EnumMember member;
+            member.name = m["name"];
+            if (m.contains("initializer") && !m["initializer"].is_null()) {
+                member.initializer = parseExpression(m["initializer"]);
+            }
+            node->members.push_back(std::move(member));
+        }
+        node->isExported = j.value("isExported", false);
+        return node;
+    }
+
+    throw std::runtime_error("Unknown statement kind: " + kind);
+}
+
+} // namespace ast

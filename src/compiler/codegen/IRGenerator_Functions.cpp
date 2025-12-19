@@ -2,6 +2,7 @@
 #include "../analysis/Monomorphizer.h"
 
 namespace ts {
+using namespace ast;
 
 void IRGenerator::generatePrototypes(const std::vector<Specialization>& specializations) {
     for (const auto& spec : specializations) {
@@ -350,3 +351,5 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 }
 
 } // namespace ts
+
+

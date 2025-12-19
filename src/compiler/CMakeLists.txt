@@ -10,19 +10,39 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codegen x86asmparser)
 
 add_library(tscompiler_lib STATIC
-    ast/AstLoader.cpp
+    ast/AstLoader_Core.cpp
+    ast/AstLoader_Expressions.cpp
+    ast/AstLoader_Statements.cpp
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
+    analysis/Analyzer_Core.cpp
+    analysis/Analyzer_StdLib.cpp
+    analysis/Analyzer_Declarations.cpp
+    analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
     analysis/Analyzer_Functions.cpp
     analysis/Analyzer_Statements.cpp
-    analysis/Analyzer_Expressions.cpp
+    analysis/Analyzer_Expressions_Binary.cpp
+    analysis/Analyzer_Expressions_Unary.cpp
+    analysis/Analyzer_Expressions_Calls.cpp
+    analysis/Analyzer_Expressions_Literals.cpp
+    analysis/Analyzer_Expressions_Access.cpp
+    analysis/Analyzer_Expressions_Async.cpp
     analysis/Monomorphizer.cpp
     codegen/IRGenerator.cpp
+    codegen/IRGenerator_Core.cpp
     codegen/IRGenerator_Classes.cpp
     codegen/IRGenerator_Functions.cpp
     codegen/IRGenerator_Statements.cpp
-    codegen/IRGenerator_Expressions.cpp
+    codegen/IRGenerator_Statements_Loops.cpp
+    codegen/IRGenerator_Expressions_Binary.cpp
+    codegen/IRGenerator_Expressions_Unary.cpp
+    codegen/IRGenerator_Expressions_Calls.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin.cpp
+    codegen/IRGenerator_Expressions_Calls_Member.cpp
+    codegen/IRGenerator_Expressions_Literals.cpp
+    codegen/IRGenerator_Expressions_Access.cpp
+    codegen/IRGenerator_Expressions_Async.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 

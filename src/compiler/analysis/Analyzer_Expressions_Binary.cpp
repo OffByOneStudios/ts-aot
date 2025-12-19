@@ -1,0 +1,72 @@
+#include "Analyzer.h"
+#include "../ast/AstNodes.h"
+#include <fmt/core.h>
+
+namespace ts {
+using namespace ast;
+
+void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
+    if (node->op == "instanceof") {
+        visit(node->left.get());
+        visit(node->right.get());
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+        return;
+    }
+    visit(node->left.get());
+    auto leftType = lastType;
+    visit(node->right.get());
+    auto rightType = lastType;
+
+    // Simple type inference for binary ops
+    if (node->op == "==" || node->op == "===" || node->op == "!=" || node->op == "!==" ||
+        node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=" ||
+        node->op == "&&" || node->op == "||") {
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (leftType && rightType) {
+        if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else if (leftType->isNumber() && rightType->isNumber()) {
+            lastType = std::make_shared<Type>(TypeKind::Double);
+        } else if (leftType->kind == TypeKind::String || rightType->kind == TypeKind::String) {
+            lastType = std::make_shared<Type>(TypeKind::String);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
+void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->left.get())) {
+        visit(prop->expression.get());
+        auto objType = lastType;
+        if (objType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(objType);
+            auto current = cls;
+            while (current) {
+                if (current->fields.count(prop->name)) {
+                    if (current->readonlyFields.count(prop->name)) {
+                        // Only allowed in constructor of the same class
+                        if (currentMethodName != "constructor" || currentClass != current) {
+                            reportError(fmt::format("Cannot assign to '{}' because it is a read-only property.", prop->name));
+                        }
+                    }
+                    break;
+                } else if (current->staticFields.count(prop->name)) {
+                    if (current->staticReadonlyFields.count(prop->name)) {
+                        reportError(fmt::format("Cannot assign to static '{}' because it is a read-only property.", prop->name));
+                    }
+                    break;
+                }
+                current = current->baseClass;
+            }
+        }
+    }
+
+    visit(node->left.get());
+    visit(node->right.get());
+}
+
+} // namespace ts
+

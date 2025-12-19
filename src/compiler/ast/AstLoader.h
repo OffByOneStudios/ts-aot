@@ -3,6 +3,16 @@
 #include <string>
 #include <memory>
 
+#include <nlohmann/json.hpp>
+
 namespace ast {
     std::unique_ptr<Program> loadAst(const std::string& jsonPath);
+
+    // Internal parsing functions used across split files
+    ExprPtr parseExpression(const nlohmann::json& j);
+    StmtPtr parseStatement(const nlohmann::json& j);
+    NodePtr parseClassMember(const nlohmann::json& j);
+    NodePtr parseNode(const nlohmann::json& j);
+    std::unique_ptr<Parameter> parseParameter(const nlohmann::json& j);
+    std::unique_ptr<TypeParameter> parseTypeParameter(const nlohmann::json& j);
 }
