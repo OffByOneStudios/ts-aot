@@ -421,9 +421,107 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
         }
     }
     
-    if (node->name == "length" && (objType->kind == TypeKind::String || objType->kind == TypeKind::Array)) {
+    if (node->name == "length" && (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple)) {
         lastType = std::make_shared<Type>(TypeKind::Int);
         return;
+    }
+
+    if (objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
+        if (node->name == "push") {
+            auto pushFn = std::make_shared<FunctionType>();
+            pushFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            pushFn->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = pushFn;
+            return;
+        } else if (node->name == "pop" || node->name == "shift") {
+            auto popFn = std::make_shared<FunctionType>();
+            popFn->returnType = std::make_shared<Type>(TypeKind::Any);
+            lastType = popFn;
+            return;
+        } else if (node->name == "unshift") {
+            auto unshiftFn = std::make_shared<FunctionType>();
+            unshiftFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            unshiftFn->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = unshiftFn;
+            return;
+        } else if (node->name == "sort") {
+            auto sortFn = std::make_shared<FunctionType>();
+            sortFn->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = sortFn;
+            return;
+        } else if (node->name == "indexOf") {
+            auto idxFn = std::make_shared<FunctionType>();
+            idxFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            idxFn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = idxFn;
+            return;
+        } else if (node->name == "includes") {
+            auto incFn = std::make_shared<FunctionType>();
+            incFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            incFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = incFn;
+            return;
+        } else if (node->name == "at") {
+            auto atFn = std::make_shared<FunctionType>();
+            atFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            atFn->returnType = std::make_shared<Type>(TypeKind::Any);
+            lastType = atFn;
+            return;
+        } else if (node->name == "join") {
+            auto joinFn = std::make_shared<FunctionType>();
+            joinFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            joinFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = joinFn;
+            return;
+        } else if (node->name == "slice") {
+            auto sliceFn = std::make_shared<FunctionType>();
+            sliceFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            sliceFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            sliceFn->returnType = objType;
+            lastType = sliceFn;
+            return;
+        }
+    }
+
+    if (objType->kind == TypeKind::String) {
+        if (node->name == "charCodeAt") {
+            auto charAtFn = std::make_shared<FunctionType>();
+            charAtFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            charAtFn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = charAtFn;
+            return;
+        } else if (node->name == "split") {
+            auto splitFn = std::make_shared<FunctionType>();
+            splitFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            splitFn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+            lastType = splitFn;
+            return;
+        } else if (node->name == "trim" || node->name == "toLowerCase" || node->name == "toUpperCase") {
+            auto strFn = std::make_shared<FunctionType>();
+            strFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = strFn;
+            return;
+        } else if (node->name == "substring" || node->name == "slice") {
+            auto subFn = std::make_shared<FunctionType>();
+            subFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            subFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            subFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = subFn;
+            return;
+        } else if (node->name == "repeat") {
+            auto repeatFn = std::make_shared<FunctionType>();
+            repeatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            repeatFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = repeatFn;
+            return;
+        } else if (node->name == "padStart" || node->name == "padEnd") {
+            auto padFn = std::make_shared<FunctionType>();
+            padFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            padFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            padFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = padFn;
+            return;
+        }
     }
 
     if (node->name == "size" && objType->kind == TypeKind::Map) {
@@ -450,6 +548,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             mapHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             mapHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
             lastType = mapHas;
+            return;
+        } else if (node->name == "delete") {
+            auto mapDel = std::make_shared<FunctionType>();
+            mapDel->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            mapDel->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = mapDel;
+            return;
+        } else if (node->name == "clear") {
+            auto mapClear = std::make_shared<FunctionType>();
+            mapClear->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = mapClear;
             return;
         }
     }

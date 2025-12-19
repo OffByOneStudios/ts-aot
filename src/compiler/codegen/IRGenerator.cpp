@@ -352,7 +352,10 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 }
 
 void IRGenerator::visit(ast::Node* node) {
-    if (node) node->accept(this);
+    if (node) {
+        llvm::errs() << "Visiting node kind: " << node->getKind() << "\n";
+        node->accept(this);
+    }
 }
 
 void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& vars) {

@@ -35,6 +35,33 @@ void TsArray::Push(int64_t value) {
     elements[length++] = value;
 }
 
+int64_t TsArray::Pop() {
+    if (length == 0) return 0;
+    return elements[--length];
+}
+
+void TsArray::Unshift(int64_t value) {
+    if (length >= capacity) {
+        size_t newCapacity = capacity * 2;
+        int64_t* newElements = (int64_t*)ts_alloc(newCapacity * sizeof(int64_t));
+        std::memcpy(newElements + 1, elements, length * sizeof(int64_t));
+        elements = newElements;
+        capacity = newCapacity;
+    } else {
+        std::memmove(elements + 1, elements, length * sizeof(int64_t));
+    }
+    elements[0] = value;
+    length++;
+}
+
+int64_t TsArray::Shift() {
+    if (length == 0) return 0;
+    int64_t result = elements[0];
+    std::memmove(elements, elements + 1, (length - 1) * sizeof(int64_t));
+    length--;
+    return result;
+}
+
 int64_t TsArray::Get(size_t index) {
     if (index >= length) {
         std::cerr << "Array index out of bounds: " << index << std::endl;
@@ -68,6 +95,16 @@ int64_t TsArray::IndexOf(int64_t value) {
         if (elements[i] == value) return (int64_t)i;
     }
     return -1;
+}
+
+bool TsArray::Includes(int64_t value) {
+    return IndexOf(value) != -1;
+}
+
+int64_t TsArray::At(int64_t index) {
+    if (index < 0) index = length + index;
+    if (index < 0 || index >= (int64_t)length) return 0;
+    return elements[index];
 }
 
 void* TsArray::Slice(int64_t start, int64_t end) {
@@ -134,6 +171,18 @@ extern "C" {
         ((TsArray*)arr)->Push((int64_t)value);
     }
 
+    void* ts_array_pop(void* arr) {
+        return (void*)((TsArray*)arr)->Pop();
+    }
+
+    void ts_array_unshift(void* arr, void* value) {
+        ((TsArray*)arr)->Unshift((int64_t)value);
+    }
+
+    void* ts_array_shift(void* arr) {
+        return (void*)((TsArray*)arr)->Shift();
+    }
+
     void* ts_array_get(void* arr, int64_t index) {
         return (void*)((TsArray*)arr)->Get(index);
     }
@@ -156,6 +205,14 @@ extern "C" {
 
     int64_t ts_array_indexOf(void* arr, int64_t value) {
         return ((TsArray*)arr)->IndexOf(value);
+    }
+
+    bool ts_array_includes(void* arr, int64_t value) {
+        return ((TsArray*)arr)->Includes(value);
+    }
+
+    void* ts_array_at(void* arr, int64_t index) {
+        return (void*)((TsArray*)arr)->At(index);
     }
 
     void* ts_array_join(void* arr, void* separator) {

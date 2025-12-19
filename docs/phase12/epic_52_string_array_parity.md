@@ -1,6 +1,6 @@
 # Epic 52: Collection Parity (String, Array, Map)
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Implement missing functional and utility methods for `String`, `Array`, and `Map` types in the runtime.
 
 ## Background
@@ -9,10 +9,10 @@ The current runtime has basic support for strings, arrays, and maps, but lacks m
 ## Action Items
 
 ### String Methods
-- [ ] Implement `String.prototype.slice(start, end)` in `TsString.cpp`.
+- [x] Implement `String.prototype.slice(start, end)` in `TsString.cpp`.
 - [ ] Implement `String.prototype.concat(...strings)` in `TsString.cpp`.
-- [ ] Implement `String.prototype.padStart(targetLength, padString)` and `padEnd`.
-- [ ] Implement `String.prototype.repeat(count)`.
+- [x] Implement `String.prototype.padStart(targetLength, padString)` and `padEnd`.
+- [x] Implement `String.prototype.repeat(count)`.
 - [ ] Implement `String.prototype.replace(pattern, replacement)` (Basic string replacement).
 - [ ] Implement `String.prototype.replaceAll(pattern, replacement)`.
 
@@ -25,15 +25,17 @@ The current runtime has basic support for strings, arrays, and maps, but lacks m
 - [ ] Implement `Array.prototype.find(callback)` and `findIndex(callback)`.
 
 ### Array Methods (Utility)
-- [ ] Implement `Array.prototype.pop()`.
-- [ ] Implement `Array.prototype.shift()` and `unshift(...items)`.
-- [ ] Implement `Array.prototype.at(index)`.
-- [ ] Implement `Array.prototype.includes(searchElement, fromIndex)`.
+- [x] Implement `Array.prototype.pop()`.
+- [x] Implement `Array.prototype.shift()` and `unshift(...items)`.
+- [x] Implement `Array.prototype.at(index)`.
+- [x] Implement `Array.prototype.includes(searchElement, fromIndex)`.
 - [ ] Implement `Array.prototype.flat(depth)` and `flatMap(callback)`.
+- [x] Implement `Array.prototype.sort()`.
+- [x] Implement `Array.prototype.join(separator)`.
 
 ### Map Methods
-- [ ] Implement `Map.prototype.clear()`.
-- [ ] Implement `Map.prototype.delete(key)`.
+- [x] Implement `Map.prototype.clear()`.
+- [x] Implement `Map.prototype.delete(key)`.
 - [ ] Implement `Map.prototype.entries()`.
 - [ ] Implement `Map.prototype.values()`.
 - [ ] Implement `Map.prototype.forEach(callback)`.

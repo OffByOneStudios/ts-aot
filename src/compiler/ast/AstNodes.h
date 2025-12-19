@@ -469,7 +469,10 @@ struct CallExpression : Expression {
     std::vector<std::string> typeArguments;
     std::vector<std::shared_ptr<ts::Type>> resolvedTypeArguments;
     std::string getKind() const override { return "CallExpression"; }
-    void accept(Visitor* visitor) override { visitor->visitCallExpression(this); }
+    void accept(Visitor* visitor) override { 
+        // printf("CallExpression::accept\n");
+        visitor->visitCallExpression(this); 
+    }
 };
 
 struct NewExpression : Expression {
