@@ -75,7 +75,7 @@ private:
     void visitImportDeclaration(ast::ImportDeclaration* node);
     void visitExportDeclaration(ast::ExportDeclaration* node);
     void visitExportAssignment(ast::ExportAssignment* node);
-    void visitCallExpression(ast::CallExpression* node);
+    void visitCallExpression(ast::CallExpression* node) override;
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

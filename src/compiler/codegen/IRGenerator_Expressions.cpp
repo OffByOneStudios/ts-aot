@@ -1,4 +1,4 @@
-#include "IRGenerator.h"
+﻿#include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
 
 namespace ts {
@@ -211,7 +211,7 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
     lastValue = builder->CreateCall(createFn, { strConst });
 }
 
-void IRGenerator::visitCallExpression(ast::CallExpression* node) {
+void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;
@@ -250,7 +250,18 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
-    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) { 
+        if (prop->name == "sort") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            if (obj->getType()->isIntegerTy(64)) {
+                obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+            }
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_sort",
+                llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false));
+            builder->CreateCall(fn, { obj });
+            return;
+        }
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
             // Namespace call: math.add(1, 2)
             std::vector<std::shared_ptr<Type>> argTypes;

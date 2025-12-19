@@ -68,6 +68,16 @@ bool TsMap::Has(TsString* key) {
     return map->find(key) != map->end();
 }
 
+bool TsMap::Delete(TsString* key) {
+    MapType* map = static_cast<MapType*>(impl);
+    return map->erase(key) > 0;
+}
+
+void TsMap::Clear() {
+    MapType* map = static_cast<MapType*>(impl);
+    map->clear();
+}
+
 int64_t TsMap::Size() {
     MapType* map = static_cast<MapType*>(impl);
     return static_cast<int64_t>(map->size());
@@ -95,6 +105,14 @@ extern "C" {
     }
     bool ts_map_has(void* map, void* key) {
         return static_cast<TsMap*>(map)->Has(static_cast<TsString*>(key));
+    }
+
+    bool ts_map_delete(void* map, void* key) {
+        return static_cast<TsMap*>(map)->Delete(static_cast<TsString*>(key));
+    }
+
+    void ts_map_clear(void* map) {
+        static_cast<TsMap*>(map)->Clear();
     }
 
     int64_t ts_map_size(void* map) {

@@ -20,6 +20,10 @@ public:
     void* Split(TsString* separator);
     TsString* Trim();
     TsString* Substring(int64_t start, int64_t end);
+    TsString* Slice(int64_t start, int64_t end);
+    TsString* Repeat(int64_t count);
+    TsString* PadStart(int64_t targetLength, TsString* padString);
+    TsString* PadEnd(int64_t targetLength, TsString* padString);
     bool StartsWith(TsString* prefix);
     bool Includes(TsString* searchString);
     int64_t IndexOf(TsString* searchString);
@@ -46,6 +50,10 @@ extern "C" {
     void* ts_string_split(void* str, void* separator);
     void* ts_string_trim(void* str);
     void* ts_string_substring(void* str, int64_t start, int64_t end);
+    void* ts_string_slice(void* str, int64_t start, int64_t end);
+    void* ts_string_repeat(void* str, int64_t count);
+    void* ts_string_padStart(void* str, int64_t targetLength, void* padString);
+    void* ts_string_padEnd(void* str, int64_t targetLength, void* padString);
     bool ts_string_startsWith(void* str, void* prefix);
     bool ts_string_includes(void* str, void* searchString);
     int64_t ts_string_indexOf(void* str, void* searchString);

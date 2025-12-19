@@ -142,6 +142,83 @@ TsString* TsString::Substring(int64_t start, int64_t end) {
     return TsString::Create(utf8.c_str());
 }
 
+TsString* TsString::Slice(int64_t start, int64_t end) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    int32_t len = s->length();
+    
+    if (start < 0) start = len + start;
+    if (start < 0) start = 0;
+    if (start > len) start = len;
+    
+    if (end < 0) end = len + end;
+    if (end > len) end = len;
+    if (end < start) end = start;
+    
+    icu::UnicodeString sub = s->tempSubString((int32_t)start, (int32_t)(end - start));
+    std::string utf8;
+    sub.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
+TsString* TsString::Repeat(int64_t count) {
+    if (count <= 0) return Create("");
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString result;
+    for (int64_t i = 0; i < count; ++i) {
+        result += *s;
+    }
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
+TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    int32_t len = s->length();
+    if (targetLength <= len) return this;
+    
+    icu::UnicodeString* pad = static_cast<icu::UnicodeString*>(padString->impl);
+    if (pad->length() == 0) return this;
+    
+    icu::UnicodeString result;
+    int32_t padLen = (int32_t)targetLength - len;
+    while (result.length() < padLen) {
+        result += *pad;
+    }
+    if (result.length() > padLen) {
+        result.truncate(padLen);
+    }
+    result += *s;
+    
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
+TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    int32_t len = s->length();
+    if (targetLength <= len) return this;
+    
+    icu::UnicodeString* pad = static_cast<icu::UnicodeString*>(padString->impl);
+    if (pad->length() == 0) return this;
+    
+    icu::UnicodeString result = *s;
+    int32_t padLen = (int32_t)targetLength - len;
+    icu::UnicodeString padding;
+    while (padding.length() < padLen) {
+        padding += *pad;
+    }
+    if (padding.length() > padLen) {
+        padding.truncate(padLen);
+    }
+    result += padding;
+    
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
 bool TsString::StartsWith(TsString* prefix) {
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
     icu::UnicodeString* p = static_cast<icu::UnicodeString*>(prefix->impl);
@@ -191,6 +268,14 @@ extern "C" {
         return TsString::Create(str);
     }
 
+    int64_t ts_string_length(void* str) {
+        return ((TsString*)str)->Length();
+    }
+
+    int64_t ts_string_charCodeAt(void* str, int64_t index) {
+        return ((TsString*)str)->CharCodeAt(index);
+    }
+
     void* ts_string_concat(void* a, void* b) {
         return TsString::Concat((TsString*)a, (TsString*)b);
     }
@@ -203,8 +288,20 @@ extern "C" {
         return ((TsString*)str)->Trim();
     }
 
-    void* ts_string_substring(void* str, int64_t start, int64_t end) {
-        return ((TsString*)str)->Substring(start, end);
+    void* ts_string_slice(void* str, int64_t start, int64_t end) {
+        return ((TsString*)str)->Slice(start, end);
+    }
+
+    void* ts_string_repeat(void* str, int64_t count) {
+        return ((TsString*)str)->Repeat(count);
+    }
+
+    void* ts_string_padStart(void* str, int64_t targetLength, void* padString) {
+        return ((TsString*)str)->PadStart(targetLength, (TsString*)padString);
+    }
+
+    void* ts_string_padEnd(void* str, int64_t targetLength, void* padString) {
+        return ((TsString*)str)->PadEnd(targetLength, (TsString*)padString);
     }
 
     bool ts_string_startsWith(void* str, void* prefix) {
