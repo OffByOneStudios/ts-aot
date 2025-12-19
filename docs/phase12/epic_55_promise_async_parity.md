@@ -13,14 +13,14 @@ The current `TsPromise` is minimal, designed primarily to support the `await` ke
 - [x] Implement `Promise.prototype.finally(onFinally)`.
 
 ### Promise Static Methods
-- [ ] Implement `Promise.all(iterable)`.
-- [ ] Implement `Promise.race(iterable)`.
-- [ ] Implement `Promise.allSettled(iterable)`.
-- [ ] Implement `Promise.any(iterable)`.
+- [x] Implement `Promise.all(iterable)`.
+- [x] Implement `Promise.race(iterable)`.
+- [x] Implement `Promise.allSettled(iterable)`.
+- [x] Implement `Promise.any(iterable)`.
 - [x] Implement `Promise.reject(reason)`.
 
 ### Async Infrastructure
-- [ ] Implement unhandled rejection tracking and reporting.
+- [x] Implement unhandled rejection tracking and reporting.
 - [x] Ensure microtask queue (used by Promises) is correctly integrated with the `libuv` event loop.
 
 ## Verification Plan

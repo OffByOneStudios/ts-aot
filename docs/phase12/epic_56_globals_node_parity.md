@@ -16,19 +16,19 @@ To support real-world TypeScript applications (and AoC solutions that read from 
 
 ### File System (fs)
 - [ ] Implement synchronous operations:
-    - [ ] `fs.existsSync(path)`.
+    - [x] `fs.existsSync(path)`.
     - [ ] `fs.mkdirSync(path)` and `fs.rmdirSync(path)`.
     - [ ] `fs.unlinkSync(path)`.
     - [ ] `fs.statSync(path)` returning a basic `Stats` object.
 - [ ] Implement asynchronous operations (`fs.promises`):
     - [x] `fs.promises.readFile(path)`.
-    - [ ] `fs.promises.writeFile(path, data)`.
+    - [x] `fs.promises.writeFile(path, data)`.
     - [ ] `fs.promises.mkdir(path)`.
     - [ ] `fs.promises.stat(path)`.
     - [x] Integrate with `libuv` thread pool (`uv_fs_t`) and return `TsPromise`.
 
 ### Process
-- [ ] Implement `process.argv` (populated from `main` arguments).
+- [x] Implement `process.argv` (populated from `main` arguments).
 - [ ] Implement `process.env` (populated from environment variables).
 - [ ] Implement `process.exit(code)`.
 - [ ] Implement `process.cwd()`.
