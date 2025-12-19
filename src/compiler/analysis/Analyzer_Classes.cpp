@@ -5,7 +5,7 @@ namespace ts {
 
 using namespace ast;
 
-void Analyzer::visitClassDeclaration(ClassDeclaration* node) {
+void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
     classType->isAbstract = node->isAbstract;
     classType->node = node;
@@ -235,7 +235,7 @@ void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr
     }
 }
 
-void Analyzer::visitInterfaceDeclaration(InterfaceDeclaration* node) {
+void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
     auto interfaceType = std::make_shared<InterfaceType>(node->name);
     auto existing = symbols.lookupType(node->name);
     if (!existing || existing->kind != TypeKind::Interface) {
@@ -375,3 +375,4 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
 }
 
 } // namespace ts
+

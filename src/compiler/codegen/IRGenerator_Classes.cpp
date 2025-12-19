@@ -2,6 +2,7 @@
 #include "../analysis/Monomorphizer.h"
 
 namespace ts {
+using namespace ast;
 
 void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations) {
     std::vector<std::shared_ptr<ClassType>> allClassTypes;
@@ -486,3 +487,5 @@ void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {
 }
 
 } // namespace ts
+
+
