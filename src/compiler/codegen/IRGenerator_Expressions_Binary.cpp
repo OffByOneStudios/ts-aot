@@ -37,13 +37,55 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
 
     if (!left || !right) return;
 
+    // Unbox if one is a pointer and the other is not, and it's not a string operation
+    bool leftIsPtr = left->getType()->isPointerTy();
+    bool rightIsPtr = right->getType()->isPointerTy();
+    
+    if (leftIsPtr && !rightIsPtr && node->left->inferredType && 
+        node->left->inferredType->kind != TypeKind::String &&
+        node->left->inferredType->kind != TypeKind::Null &&
+        node->left->inferredType->kind != TypeKind::Undefined) {
+        if (right->getType()->isDoubleTy()) {
+            left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
+        } else if (right->getType()->isIntegerTy(64)) {
+            left = unboxValue(left, std::make_shared<Type>(TypeKind::Int));
+        } else if (right->getType()->isIntegerTy(1)) {
+            left = unboxValue(left, std::make_shared<Type>(TypeKind::Boolean));
+        }
+    }
+    if (rightIsPtr && !leftIsPtr && node->right->inferredType && 
+        node->right->inferredType->kind != TypeKind::String &&
+        node->right->inferredType->kind != TypeKind::Null &&
+        node->right->inferredType->kind != TypeKind::Undefined) {
+        if (left->getType()->isDoubleTy()) {
+            right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
+        } else if (left->getType()->isIntegerTy(64)) {
+            right = unboxValue(right, std::make_shared<Type>(TypeKind::Int));
+        } else if (left->getType()->isIntegerTy(1)) {
+            right = unboxValue(right, std::make_shared<Type>(TypeKind::Boolean));
+        }
+    }
+
+    bool leftIsString = node->left->inferredType && node->left->inferredType->kind == TypeKind::String;
+    bool rightIsString = node->right->inferredType && node->right->inferredType->kind == TypeKind::String;
+    bool isString = leftIsString || rightIsString;
+
+    if (leftIsPtr && rightIsPtr) {
+        // Both are pointers. If it's an arithmetic operation, we MUST unbox.
+        // EXCEPT if it's a string concatenation!
+        if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%") {
+             left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
+             right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
+        }
+    }
+
     bool leftIsDouble = left->getType()->isDoubleTy();
     bool rightIsDouble = right->getType()->isDoubleTy();
     bool isDouble = leftIsDouble || rightIsDouble;
     
-    bool leftIsString = node->left->inferredType && node->left->inferredType->kind == TypeKind::String;
-    bool rightIsString = node->right->inferredType && node->right->inferredType->kind == TypeKind::String;
-    bool isString = leftIsString || rightIsString;
+    // bool leftIsString = node->left->inferredType && node->left->inferredType->kind == TypeKind::String;
+    // bool rightIsString = node->right->inferredType && node->right->inferredType->kind == TypeKind::String;
+    // bool isString = leftIsString || rightIsString;
 
     if (isDouble && !isString) {
         if (!leftIsDouble) left = builder->CreateSIToFP(left, llvm::Type::getDoubleTy(*context), "casttmp");
@@ -128,6 +170,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         else lastValue = builder->CreateICmpSGE(left, right, "cmptmp");
     } else if (node->op == "==" || node->op == "===") {
         if (isString) {
+             if (!leftIsString) left = unboxValue(left, std::make_shared<Type>(TypeKind::String));
+             if (!rightIsString) right = unboxValue(right, std::make_shared<Type>(TypeKind::String));
+             
              llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq",
                  llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
@@ -139,6 +184,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         }
     } else if (node->op == "!=" || node->op == "!==") {
         if (isString) {
+             if (!leftIsString) left = unboxValue(left, std::make_shared<Type>(TypeKind::String));
+             if (!rightIsString) right = unboxValue(right, std::make_shared<Type>(TypeKind::String));
+
              llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq",
                  llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                      { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
@@ -193,6 +241,23 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         val = castValue(val, varType);
         builder->CreateStore(val, variable);
     } else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
+        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Object) {
+            visit(elem->expression.get());
+            llvm::Value* obj = lastValue;
+            visit(elem->argumentExpression.get());
+            llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+            
+            llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
+                llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+            
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+            llvm::Value* valInt = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
+            builder->CreateCall(setFn, { obj, key, valInt });
+            lastValue = val;
+            return;
+        }
+
         visit(elem->expression.get());
         llvm::Value* arr = lastValue;
         
@@ -216,6 +281,45 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         builder->CreateCall(setFn, { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Object) {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+            llvm::Value* key = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(prop->name) });
+            
+            llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
+                llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+            
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+            llvm::Value* valInt = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
+            builder->CreateCall(setFn, { obj, key, valInt });
+            lastValue = val;
+            return;
+        }
+
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+            if (cls->name == "RegExp" && prop->name == "lastIndex") {
+                visit(prop->expression.get());
+                llvm::Value* re = lastValue;
+                
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_set_lastIndex",
+                    llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+                
+                llvm::Value* indexVal = val;
+                if (indexVal->getType()->isDoubleTy()) {
+                    indexVal = builder->CreateFPToSI(indexVal, llvm::Type::getInt64Ty(*context));
+                }
+                
+                builder->CreateCall(fn, { re, indexVal });
+                lastValue = val;
+                return;
+            }
+        }
+
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(prop->expression->inferredType);
             if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {

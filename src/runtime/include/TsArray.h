@@ -22,6 +22,17 @@ public:
     int64_t At(int64_t index);
     void* Slice(int64_t start, int64_t end);
     void* Join(void* separator);
+    void* Flat(int64_t depth = 1);
+    void* FlatMap(void* callback, void* thisArg = nullptr);
+
+    void ForEach(void* callback, void* thisArg = nullptr);
+    void* Map(void* callback, void* thisArg = nullptr);
+    void* Filter(void* callback, void* thisArg = nullptr);
+    void* Reduce(void* callback, void* initialValue = nullptr);
+    bool Some(void* callback, void* thisArg = nullptr);
+    bool Every(void* callback, void* thisArg = nullptr);
+    struct TaggedValue* Find(void* callback, void* thisArg = nullptr);
+    int64_t FindIndex(void* callback, void* thisArg = nullptr);
 
 private:
     TsArray(size_t initialCapacity);
@@ -44,9 +55,19 @@ extern "C" {
     int64_t ts_array_length(void* arr);
     void ts_array_sort(void* arr);
     void* ts_array_slice(void* arr, int64_t start, int64_t end);
+    void* ts_array_flat(void* arr, int64_t depth);
+    void* ts_array_flatMap(void* arr, void* callback, void* thisArg);
     int64_t ts_array_indexOf(void* arr, int64_t value);
     bool ts_array_includes(void* arr, int64_t value);
     void* ts_array_at(void* arr, int64_t index);
     void* ts_array_join(void* arr, void* separator);
     void ts_array_concat(void* arr, void* other);
+    void ts_array_forEach(void* arr, void* callback, void* thisArg);
+    void* ts_array_map(void* arr, void* callback, void* thisArg);
+    void* ts_array_filter(void* arr, void* callback, void* thisArg);
+    void* ts_array_reduce(void* arr, void* callback, void* initialValue);
+    bool ts_array_some(void* arr, void* callback, void* thisArg);
+    bool ts_array_every(void* arr, void* callback, void* thisArg);
+    struct TaggedValue* ts_array_find(void* arr, void* callback, void* thisArg);
+    int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg);
 }

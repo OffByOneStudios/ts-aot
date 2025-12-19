@@ -21,6 +21,8 @@ Analyzer::Analyzer() {
     
     auto stringifyType = std::make_shared<FunctionType>();
     stringifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    stringifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // replacer
+    stringifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // space
     stringifyType->returnType = std::make_shared<Type>(TypeKind::String);
     jsonType->fields["stringify"] = stringifyType;
     
@@ -187,6 +189,10 @@ Analyzer::Analyzer() {
     auto toString = std::make_shared<FunctionType>();
     toString->returnType = std::make_shared<Type>(TypeKind::String);
     dateClass->methods["toString"] = toString;
+
+    auto toDateString = std::make_shared<FunctionType>();
+    toDateString->returnType = std::make_shared<Type>(TypeKind::String);
+    dateClass->methods["toDateString"] = toDateString;
     
     auto now = std::make_shared<FunctionType>();
     now->returnType = std::make_shared<Type>(TypeKind::Int);
@@ -207,6 +213,14 @@ Analyzer::Analyzer() {
     auto stringArray = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     execType->returnType = stringArray; // For now, just say it returns String[]
     regexpClass->methods["exec"] = execType;
+
+    regexpClass->fields["lastIndex"] = std::make_shared<Type>(TypeKind::Int);
+    regexpClass->fields["source"] = std::make_shared<Type>(TypeKind::String);
+    regexpClass->fields["flags"] = std::make_shared<Type>(TypeKind::String);
+    regexpClass->fields["global"] = std::make_shared<Type>(TypeKind::Boolean);
+    regexpClass->fields["ignoreCase"] = std::make_shared<Type>(TypeKind::Boolean);
+    regexpClass->fields["multiline"] = std::make_shared<Type>(TypeKind::Boolean);
+    regexpClass->fields["sticky"] = std::make_shared<Type>(TypeKind::Boolean);
     
     symbols.defineType("RegExp", regexpClass);
 
@@ -234,15 +248,90 @@ Analyzer::Analyzer() {
     thenCallback->paramTypes.push_back(tParam);
     thenCallback->returnType = std::make_shared<Type>(TypeKind::Any); // Simplified
     thenType->paramTypes.push_back(thenCallback);
+    
+    auto catchCallback = std::make_shared<FunctionType>();
+    catchCallback->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    catchCallback->returnType = std::make_shared<Type>(TypeKind::Any);
+    thenType->paramTypes.push_back(catchCallback);
+    
     thenType->returnType = promiseClass; // Returns Promise<any> for now
     promiseClass->methods["then"] = thenType;
+
+    auto catchType = std::make_shared<FunctionType>();
+    catchType->paramTypes.push_back(catchCallback);
+    catchType->returnType = promiseClass;
+    promiseClass->methods["catch"] = catchType;
+
+    auto finallyType = std::make_shared<FunctionType>();
+    auto finallyCallback = std::make_shared<FunctionType>();
+    finallyType->paramTypes.push_back(finallyCallback);
+    finallyType->returnType = promiseClass;
+    promiseClass->methods["finally"] = finallyType;
 
     auto resolveType = std::make_shared<FunctionType>();
     resolveType->paramTypes.push_back(tParam);
     resolveType->returnType = promiseClass;
     promiseClass->staticMethods["resolve"] = resolveType;
 
+    auto rejectStaticType = std::make_shared<FunctionType>();
+    rejectStaticType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    rejectStaticType->returnType = promiseClass;
+    promiseClass->staticMethods["reject"] = rejectStaticType;
+
+    auto allType = std::make_shared<FunctionType>();
+    allType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    allType->returnType = promiseClass;
+    promiseClass->staticMethods["all"] = allType;
+
+    auto raceType = std::make_shared<FunctionType>();
+    raceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    raceType->returnType = promiseClass;
+    promiseClass->staticMethods["race"] = raceType;
+
+    auto allSettledType = std::make_shared<FunctionType>();
+    allSettledType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    allSettledType->returnType = promiseClass;
+    promiseClass->staticMethods["allSettled"] = allSettledType;
+
+    auto anyType = std::make_shared<FunctionType>();
+    anyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    anyType->returnType = promiseClass;
+    promiseClass->staticMethods["any"] = anyType;
+
     symbols.defineType("Promise", promiseClass);
+
+    auto promiseCtor = std::make_shared<FunctionType>();
+    promiseCtor->returnType = promiseClass;
+    symbols.define("Promise", promiseCtor);
+
+    // Register fs global
+    auto fsType = std::make_shared<ObjectType>();
+    auto fsPromisesType = std::make_shared<ObjectType>();
+    
+    auto readFileType = std::make_shared<FunctionType>();
+    readFileType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readFileType->returnType = promiseClass;
+    fsPromisesType->fields["readFile"] = readFileType;
+
+    auto writeFileType = std::make_shared<FunctionType>();
+    writeFileType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeFileType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writeFileType->returnType = promiseClass;
+    fsPromisesType->fields["writeFile"] = writeFileType;
+
+    fsType->fields["promises"] = fsPromisesType;
+
+    auto existsSyncType = std::make_shared<FunctionType>();
+    existsSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    existsSyncType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    fsType->fields["existsSync"] = existsSyncType;
+
+    symbols.define("fs", fsType);
+
+    // Register process global
+    auto processType = std::make_shared<ObjectType>();
+    processType->fields["argv"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    symbols.define("process", processType);
 
     // Register Map class
     auto mapClass = std::make_shared<ClassType>("Map");
@@ -375,6 +464,63 @@ Analyzer::Analyzer() {
     log2Type->returnType = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["log2"] = log2Type;
 
+    auto log1pType = std::make_shared<FunctionType>();
+    log1pType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    log1pType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["log1p"] = log1pType;
+
+    auto expm1Type = std::make_shared<FunctionType>();
+    expm1Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    expm1Type->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["expm1"] = expm1Type;
+
+    auto coshType = std::make_shared<FunctionType>();
+    coshType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    coshType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["cosh"] = coshType;
+
+    auto sinhType = std::make_shared<FunctionType>();
+    sinhType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    sinhType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["sinh"] = sinhType;
+
+    auto tanhType = std::make_shared<FunctionType>();
+    tanhType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    tanhType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["tanh"] = tanhType;
+
+    auto acoshType = std::make_shared<FunctionType>();
+    acoshType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    acoshType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["acosh"] = acoshType;
+
+    auto asinhType = std::make_shared<FunctionType>();
+    asinhType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    asinhType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["asinh"] = asinhType;
+
+    auto atanhType = std::make_shared<FunctionType>();
+    atanhType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    atanhType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["atanh"] = atanhType;
+
+    auto froundType = std::make_shared<FunctionType>();
+    froundType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    froundType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["fround"] = froundType;
+
+    auto minType = std::make_shared<FunctionType>();
+    minType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    minType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    minType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["min"] = minType;
+
+    auto maxType = std::make_shared<FunctionType>();
+    maxType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    maxType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    maxType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["max"] = maxType;
+
     auto truncType = std::make_shared<FunctionType>();
     truncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
     truncType->returnType = std::make_shared<Type>(TypeKind::Double);
@@ -397,42 +543,14 @@ Analyzer::Analyzer() {
 
     mathType->fields["PI"] = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["E"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["LN10"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["LN2"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["LOG10E"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["LOG2E"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["SQRT1_2"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["SQRT2"] = std::make_shared<Type>(TypeKind::Double);
     
     symbols.define("Math", mathType);
 
-    // Register fs global
-    auto fsType = std::make_shared<ObjectType>();
-    
-    auto readFileSyncType = std::make_shared<FunctionType>();
-    readFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    readFileSyncType->returnType = std::make_shared<Type>(TypeKind::String);
-    fsType->fields["readFileSync"] = readFileSyncType;
-    
-    auto writeFileSyncType = std::make_shared<FunctionType>();
-    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    writeFileSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["writeFileSync"] = writeFileSyncType;
-    
-    auto promisesType = std::make_shared<ObjectType>();
-    auto readFileAsyncType = std::make_shared<FunctionType>();
-    readFileAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    auto stringPromise = std::make_shared<ClassType>("Promise");
-    stringPromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::String));
-    readFileAsyncType->returnType = stringPromise;
-    promisesType->fields["readFile"] = readFileAsyncType;
-    fsType->fields["promises"] = promisesType;
-    
-    symbols.define("fs", fsType);
-
-    // Register fetch global
-    auto fetchType = std::make_shared<FunctionType>();
-    fetchType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    auto anyPromise = std::make_shared<ClassType>("Promise");
-    anyPromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
-    fetchType->returnType = anyPromise;
-    symbols.define("fetch", fetchType);
 }
-
 } // namespace ts
-

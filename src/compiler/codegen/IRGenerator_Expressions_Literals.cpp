@@ -29,6 +29,33 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
     lastValue = builder->CreateCall(createFn, { strConst });
 }
 
+void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
+    // First create a string literal for the regex text
+    llvm::Function* createStrFn = module->getFunction("ts_string_create");
+    if (!createStrFn) {
+        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::PointerType::getUnqual(*context),
+            args, false);
+        createStrFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_create", module.get());
+    }
+
+    llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->text);
+    llvm::Value* strVal = builder->CreateCall(createStrFn, { strConst });
+
+    // Then call ts_regexp_from_literal
+    llvm::Function* createRegExpFn = module->getFunction("ts_regexp_from_literal");
+    if (!createRegExpFn) {
+        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::PointerType::getUnqual(*context),
+            args, false);
+        createRegExpFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_regexp_from_literal", module.get());
+    }
+
+    lastValue = builder->CreateCall(createRegExpFn, { strVal });
+}
+
 void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", 
         llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));

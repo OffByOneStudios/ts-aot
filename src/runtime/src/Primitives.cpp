@@ -24,23 +24,18 @@ void ts_console_log_bool(bool val) {
     std::printf("%s\n", val ? "true" : "false");
 }
 
-void ts_console_log_any(TsValue* val) {
+void ts_console_log_value(TsValue* val) {
     if (!val) {
         std::printf("undefined\n");
         return;
     }
     switch (val->type) {
+        case ValueType::UNDEFINED: std::printf("undefined\n"); break;
         case ValueType::NUMBER_INT: std::printf("%lld\n", val->i_val); break;
         case ValueType::NUMBER_DBL: std::printf("%f\n", val->d_val); break;
         case ValueType::BOOLEAN: std::printf("%s\n", val->b_val ? "true" : "false"); break;
-        case ValueType::STRING_PTR: {
-            TsString* s = (TsString*)val->ptr_val;
-            std::printf("%s\n", s ? s->ToUtf8() : "null");
-            break;
-        }
+        case ValueType::STRING_PTR: std::printf("%s\n", ((TsString*)val->ptr_val)->ToUtf8()); break;
         case ValueType::OBJECT_PTR: std::printf("[object Object]\n"); break;
-        case ValueType::UNDEFINED: std::printf("undefined\n"); break;
-        default: std::printf("[unknown]\n"); break;
     }
 }
 

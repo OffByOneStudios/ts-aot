@@ -1,4 +1,6 @@
 #include "TsRuntime.h"
+#include "TsArray.h"
+#include "TsString.h"
 #include <cstdio>
 #include <setjmp.h>
 #include <vector>
@@ -14,8 +16,14 @@ struct ExceptionContext {
 
 static std::vector<ExceptionContext*> exceptionStack;
 static void* currentException = nullptr;
+static TsValue* process_argv = nullptr;
 
 extern "C" {
+
+void* ts_get_process_argv() {
+    if (!process_argv || process_argv->type != ValueType::ARRAY_PTR) return nullptr;
+    return process_argv->ptr_val;
+}
 
 void* ts_push_exception_handler() {
     ExceptionContext* ctx = (ExceptionContext*)malloc(sizeof(ExceptionContext));
@@ -46,7 +54,7 @@ void* ts_get_exception() {
     return currentException;
 }
 
-int ts_main(int argc, char** argv, void (*user_main)()) {
+int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 #ifdef _MSC_VER
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
@@ -54,18 +62,31 @@ int ts_main(int argc, char** argv, void (*user_main)()) {
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
 #endif
 
+    printf("ts_main started\n");
+
     // 1. Initialize Garbage Collector
     ts_gc_init();
 
     // 2. Initialize Event Loop
     ts_loop_init();
 
-    // 3. Run User Code (which might schedule async work)
+    // 3. Initialize process.argv
+    TsArray* argvArray = TsArray::Create(argc);
+    for (int i = 0; i < argc; ++i) {
+        void* s = ts_string_create(argv[i]);
+        argvArray->Push((int64_t)ts_value_make_string(s));
+    }
+    process_argv = ts_value_make_array(argvArray);
+
+    // 4. Run User Code (which might schedule async work)
     if (user_main) {
-        user_main();
+        printf("Calling user_main\n");
+        TsValue* result = user_main(nullptr);
+        (void)result; // For now, we don't do anything special with the top-level promise
     }
 
-    // 4. Run Event Loop
+    // 5. Run Event Loop
+    printf("Running event loop\n");
     ts_loop_run();
 
     return 0;

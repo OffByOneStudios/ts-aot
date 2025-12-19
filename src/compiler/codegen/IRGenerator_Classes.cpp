@@ -149,8 +149,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         }
 
         for (const auto& [methodName, methodType] : layout.allMethods) {
-            // Method signature: (this: ptr, args...) -> ret
+            // Method signature: (context: ptr, this: ptr, args...) -> ret
             std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // context
             paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this (opaque ptr)
             for (const auto& param : methodType->paramTypes) {
                 paramTypes.push_back(getLLVMType(param));
@@ -321,6 +322,11 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         if (ctor) {
             llvm::errs() << "Calling constructor: " << ctorName << " with " << ctor->arg_size() << " args\n";
             std::vector<llvm::Value*> args;
+            if (currentAsyncContext) {
+                args.push_back(currentAsyncContext);
+            } else {
+                args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+            }
             args.push_back(thisPtr);
             
             int argIdx = 0;
@@ -328,10 +334,10 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 visit(arg.get());
                 llvm::Value* val = lastValue;
                 
-                // Cast if necessary
-                if (argIdx + 1 < (int)ctor->arg_size()) {
-                    llvm::errs() << "Casting arg " << argIdx << " to " << argIdx + 1 << "\n";
-                    val = castValue(val, ctor->getArg(argIdx + 1)->getType());
+                // Cast if necessary (index + 2 because of context and this)
+                if (argIdx + 2 < (int)ctor->arg_size()) {
+                    llvm::errs() << "Casting arg " << argIdx << " to " << argIdx + 2 << "\n";
+                    val = castValue(val, ctor->getArg(argIdx + 2)->getType());
                 }
                 
                 args.push_back(val);
@@ -429,56 +435,30 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 }
 
 void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
-    auto objType = std::static_pointer_cast<ObjectType>(node->inferredType);
-    if (!objType) {
-        llvm::errs() << "Error: Object literal has no inferred type\n";
-        lastValue = nullptr;
-        return;
-    }
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_map_create",
+        llvm::FunctionType::get(builder->getPtrTy(), {}, false));
+    llvm::Value* map = builder->CreateCall(createFn, {});
 
-    std::vector<llvm::Type*> fieldTypes;
-    for (auto& [name, type] : objType->fields) {
-        // getLLVMType returns pointer for Object, which is correct for field type
-        fieldTypes.push_back(getLLVMType(type));
-    }
-    llvm::StructType* structType = llvm::StructType::get(*context, fieldTypes);
+    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
 
-    llvm::DataLayout dl(module.get());
-    uint64_t size = dl.getTypeAllocSize(structType);
-    
-    llvm::Function* allocFn = module->getFunction("ts_alloc");
-    if (!allocFn) {
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            { llvm::Type::getInt64Ty(*context) }, false);
-        allocFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_alloc", module.get());
-    }
-    
-    llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
-    llvm::Value* mem = builder->CreateCall(allocFn, { sizeVal });
-    llvm::Value* ptr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
-
-    int idx = 0;
-    for (auto& [name, type] : objType->fields) {
-        ast::Expression* initExpr = nullptr;
-        for (auto& prop : node->properties) {
-            if (prop->name == name) {
-                initExpr = prop->initializer.get();
-                break;
-            }
-        }
+    for (auto& prop : node->properties) {
+        visit(prop->initializer.get());
+        llvm::Value* val = lastValue;
         
-        if (initExpr) {
-            visit(initExpr);
-            llvm::Value* val = lastValue;
-            
-            llvm::Value* fieldPtr = builder->CreateStructGEP(structType, ptr, idx);
-            builder->CreateStore(val, fieldPtr);
-        }
-        idx++;
+        // Box the value
+        llvm::Value* boxedVal = boxValue(val, prop->initializer->inferredType);
+        
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
+            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+        llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(prop->name) });
+        
+        llvm::Value* intVal = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
+        builder->CreateCall(setFn, { map, keyStr, intVal });
     }
 
-    lastValue = ptr;
+    lastValue = map;
 }
 
 void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {

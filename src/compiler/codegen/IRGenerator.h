@@ -27,6 +27,7 @@ private:
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::vector<Specialization> specializations;
+    std::shared_ptr<Type> currentReturnType;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void generateGlobals(const Analyzer& analyzer);
@@ -45,6 +46,7 @@ private:
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitStringLiteral(ast::StringLiteral* node);
+    void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);
@@ -108,6 +110,7 @@ private:
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
+    llvm::Value* currentContext = nullptr;
 
     // Async support
     llvm::Value* currentAsyncContext = nullptr;

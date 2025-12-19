@@ -87,6 +87,10 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<StringLiteral>();
         node->value = j["value"];
         return node;
+    } else if (kind == "RegularExpressionLiteral") {
+        auto node = std::make_unique<RegularExpressionLiteral>();
+        node->text = j["text"];
+        return node;
     } else if (kind == "NumericLiteral") {
         auto node = std::make_unique<NumericLiteral>();
         node->value = j["value"];

@@ -1,0 +1,443 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "obj"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "ObjectLiteralExpression",
+        "properties": [
+          {
+            "name": "a",
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 1
+            }
+          },
+          {
+            "name": "b",
+            "initializer": {
+              "kind": "StringLiteral",
+              "value": "hello"
+            }
+          },
+          {
+            "name": "c",
+            "initializer": {
+              "kind": "ArrayLiteralExpression",
+              "elements": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 1
+                },
+                {
+                  "kind": "NumericLiteral",
+                  "value": 2
+                },
+                {
+                  "kind": "NumericLiteral",
+                  "value": 3
+                }
+              ]
+            }
+          },
+          {
+            "name": "d",
+            "initializer": {
+              "kind": "ObjectLiteralExpression",
+              "properties": [
+                {
+                  "name": "e",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 4
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "f",
+            "initializer": {
+              "kind": "RegularExpressionLiteral",
+              "text": "/abc/g"
+            }
+          },
+          {
+            "name": "g",
+            "initializer": {
+              "kind": "NewExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 1600000000000
+                }
+              ],
+              "typeArguments": []
+            }
+          },
+          {
+            "name": "h",
+            "initializer": {
+              "kind": "Identifier",
+              "name": "undefined"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Full object:"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "obj"
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "\nPretty printed (2 spaces):"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "obj"
+              },
+              {
+                "kind": "Identifier",
+                "name": "null"
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 2
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "\nFiltered (only a and b):"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "obj"
+              },
+              {
+                "kind": "ArrayLiteralExpression",
+                "elements": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "a"
+                  },
+                  {
+                    "kind": "StringLiteral",
+                    "value": "b"
+                  }
+                ]
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "\nFiltered and pretty printed:"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "obj"
+              },
+              {
+                "kind": "ArrayLiteralExpression",
+                "elements": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "a"
+                  },
+                  {
+                    "kind": "StringLiteral",
+                    "value": "c"
+                  }
+                ]
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 4
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "arr"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "ArrayLiteralExpression",
+        "elements": [
+          {
+            "kind": "NumericLiteral",
+            "value": 1
+          },
+          {
+            "kind": "Identifier",
+            "name": "undefined"
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 3
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "\nArray with undefined:"
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "arr"
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 #include "TsString.h"
 #include "TsArray.h"
+#include "TsRegExp.h"
+#include "TsRuntime.h"
 #include "GC.h"
 #include <unicode/unistr.h>
 #include <new>
@@ -86,7 +88,7 @@ void* TsString::Split(TsString* separator) {
             icu::UnicodeString charStr = s->tempSubString(i, 1);
             std::string utf8;
             charStr.toUTF8String(utf8);
-            arr->Push((int64_t)TsString::Create(utf8.c_str()));
+            arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
         }
         return arr;
     }
@@ -98,7 +100,7 @@ void* TsString::Split(TsString* separator) {
         icu::UnicodeString sub = s->tempSubString(start, pos - start);
         std::string utf8;
         sub.toUTF8String(utf8);
-        arr->Push((int64_t)TsString::Create(utf8.c_str()));
+        arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
         start = pos + sep->length();
     }
     
@@ -106,7 +108,7 @@ void* TsString::Split(TsString* separator) {
     icu::UnicodeString sub = s->tempSubString(start);
     std::string utf8;
     sub.toUTF8String(utf8);
-    arr->Push((int64_t)TsString::Create(utf8.c_str()));
+    arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
     
     return arr;
 }
@@ -255,6 +257,139 @@ TsString* TsString::ToUpperCase() {
     return Create(str.c_str());
 }
 
+TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(pattern->impl);
+    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    
+    icu::UnicodeString result = *s;
+    int32_t pos = result.indexOf(*p);
+    if (pos != -1) {
+        result.replace(pos, p->length(), *r);
+    }
+    
+    std::string str;
+    result.toUTF8String(str);
+    return Create(str.c_str());
+}
+
+TsString* TsString::ReplaceAll(TsString* pattern, TsString* replacement) {
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(pattern->impl);
+    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    
+    icu::UnicodeString result = *s;
+    result.findAndReplace(*p, *r);
+    
+    std::string str;
+    result.toUTF8String(str);
+    return Create(str.c_str());
+}
+
+void* TsString::Match(TsRegExp* regexp) {
+    if (!regexp) return nullptr;
+    
+    // If not global, same as exec
+    if (regexp->GetFlags()->Includes(TsString::Create("g")) == false) {
+        return regexp->Exec(this);
+    }
+    
+    // Global match: return all full matches
+    TsArray* results = TsArray::Create();
+    regexp->SetLastIndex(0);
+    
+    while (true) {
+        void* execResult = regexp->Exec(this);
+        if (!execResult) break;
+        
+        TsArray* arr = (TsArray*)execResult;
+        // In global match, we only want the full match (index 0)
+        results->Push(arr->At(0));
+    }
+    
+    if (results->Length() == 0) return nullptr;
+    return results;
+}
+
+int64_t TsString::Search(TsRegExp* regexp) {
+    if (!regexp) return -1;
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+    matcher->reset(*s);
+    if (matcher->find()) {
+        UErrorCode status = U_ZERO_ERROR;
+        return matcher->start(status);
+    }
+    return -1;
+}
+
+TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
+    if (!regexp || !replacement) return this;
+    
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    
+    UErrorCode status = U_ZERO_ERROR;
+    icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+    matcher->reset(*s);
+    
+    icu::UnicodeString result;
+    if (regexp->GetFlags()->Includes(TsString::Create("g"))) {
+        result = matcher->replaceAll(*r, status);
+    } else {
+        result = matcher->replaceFirst(*r, status);
+    }
+    
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
+void* TsString::Split(TsRegExp* regexp) {
+    if (!regexp) return Split(TsString::Create(""));
+    
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    UErrorCode status = U_ZERO_ERROR;
+    icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+    matcher->reset(*s);
+    
+    TsArray* arr = TsArray::Create();
+    int32_t start = 0;
+    
+    while (matcher->find()) {
+        int32_t matchStart = matcher->start(status);
+        int32_t matchEnd = matcher->end(status);
+        
+        icu::UnicodeString sub = s->tempSubString(start, matchStart - start);
+        std::string utf8;
+        sub.toUTF8String(utf8);
+        arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
+        
+        // If there are capturing groups, they are included in the result
+        int32_t groupCount = matcher->groupCount();
+        for (int32_t i = 1; i <= groupCount; ++i) {
+            icu::UnicodeString group = matcher->group(i, status);
+            if (matcher->start(i, status) != -1) {
+                std::string gUtf8;
+                group.toUTF8String(gUtf8);
+                arr->Push((int64_t)ts_value_make_string(TsString::Create(gUtf8.c_str())));
+            } else {
+                arr->Push((int64_t)ts_value_make_undefined());
+            }
+        }
+        
+        start = matchEnd;
+    }
+    
+    // Last part
+    icu::UnicodeString sub = s->tempSubString(start);
+    std::string utf8;
+    sub.toUTF8String(utf8);
+    arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
+    
+    return arr;
+}
+
 bool TsString::Equals(TsString* other) {
     if (this == other) return true;
     if (!other) return false;
@@ -322,6 +457,30 @@ extern "C" {
 
     void* ts_string_toUpperCase(void* str) {
         return ((TsString*)str)->ToUpperCase();
+    }
+
+    void* ts_string_match_regexp(void* str, void* regexp) {
+        return ((TsString*)str)->Match((TsRegExp*)regexp);
+    }
+
+    int64_t ts_string_search_regexp(void* str, void* regexp) {
+        return ((TsString*)str)->Search((TsRegExp*)regexp);
+    }
+
+    void* ts_string_replace(void* str, void* pattern, void* replacement) {
+        return ((TsString*)str)->Replace((TsString*)pattern, (TsString*)replacement);
+    }
+
+    void* ts_string_replace_regexp(void* str, void* regexp, void* replacement) {
+        return ((TsString*)str)->Replace((TsRegExp*)regexp, (TsString*)replacement);
+    }
+
+    void* ts_string_replaceAll(void* str, void* pattern, void* replacement) {
+        return ((TsString*)str)->ReplaceAll((TsString*)pattern, (TsString*)replacement);
+    }
+
+    void* ts_string_split_regexp(void* str, void* regexp) {
+        return ((TsString*)str)->Split((TsRegExp*)regexp);
     }
 
     void* ts_string_from_int(int64_t value) {

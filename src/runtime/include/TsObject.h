@@ -7,7 +7,9 @@ enum class ValueType : uint8_t {
     NUMBER_DBL,
     BOOLEAN,
     STRING_PTR,
-    OBJECT_PTR
+    OBJECT_PTR,
+    PROMISE_PTR,
+    ARRAY_PTR
 };
 
 struct TaggedValue {
@@ -42,3 +44,17 @@ public:
     void* context;
     TsFunction(void* fp, void* ctx = nullptr) : funcPtr(fp), context(ctx) {}
 };
+
+typedef TaggedValue* (*TsFunctionPtr)(void* context, TaggedValue* arg);
+typedef TaggedValue* (*TsFunctionPtrNoArgs)(void* context);
+
+extern "C" {
+    TsValue* ts_value_make_int(int64_t v);
+    TsValue* ts_value_make_double(double v);
+    TsValue* ts_value_make_bool(bool v);
+    TsValue* ts_value_make_string(void* str);
+    TsValue* ts_value_make_object(void* obj);
+    TsValue* ts_value_make_promise(void* promise);
+    TsValue* ts_value_make_array(void* arr);
+    TsValue* ts_value_make_function(void* funcPtr, void* context);
+}

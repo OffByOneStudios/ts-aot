@@ -176,6 +176,7 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
         auto ctorMethod = classType->methods["constructor"];
         ctorType->paramTypes = ctorMethod->paramTypes;
     }
+    classType->constructorOverloads.push_back(ctorType);
     
     // 5. Visit method bodies
     auto oldClass = currentClass;

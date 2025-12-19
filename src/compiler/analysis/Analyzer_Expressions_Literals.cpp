@@ -20,6 +20,13 @@ void Analyzer::visitStringLiteral(ast::StringLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::String);
 }
 
+void Analyzer::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
+    lastType = symbols.lookupType("RegExp");
+    if (!lastType) {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
 void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     std::vector<std::shared_ptr<Type>> elementTypes;
     for (auto& el : node->elements) {

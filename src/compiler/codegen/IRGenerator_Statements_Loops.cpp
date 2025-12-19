@@ -200,7 +200,8 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
             elementType = std::static_pointer_cast<ArrayType>(node->expression->inferredType)->elementType;
         }
-        generateDestructuring(elementVal, elementType, varDecl->name.get());
+        llvm::Value* unboxed = unboxValue(elementVal, elementType);
+        generateDestructuring(unboxed, elementType, varDecl->name.get());
     }
 
     loopStack.push_back({incBB, afterBB});

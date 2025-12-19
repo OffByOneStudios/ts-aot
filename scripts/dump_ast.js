@@ -301,6 +301,11 @@ function visit(node) {
                 kind: "StringLiteral",
                 value: node.text
             };
+        case ts.SyntaxKind.RegularExpressionLiteral:
+            return {
+                kind: "RegularExpressionLiteral",
+                text: node.text
+            };
         case ts.SyntaxKind.NumericLiteral:
             return {
                 kind: "NumericLiteral",

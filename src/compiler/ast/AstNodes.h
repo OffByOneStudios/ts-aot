@@ -57,6 +57,7 @@ struct ObjectLiteralExpression;
 struct Identifier;
 struct SuperExpression;
 struct StringLiteral;
+struct RegularExpressionLiteral;
 struct NumericLiteral;
 struct BooleanLiteral;
 struct ArrowFunction;
@@ -106,6 +107,7 @@ struct Visitor {
     virtual void visitIdentifier(Identifier* node) = 0;
     virtual void visitSuperExpression(SuperExpression* node) = 0;
     virtual void visitStringLiteral(StringLiteral* node) = 0;
+    virtual void visitRegularExpressionLiteral(RegularExpressionLiteral* node) = 0;
     virtual void visitNumericLiteral(NumericLiteral* node) = 0;
     virtual void visitBooleanLiteral(BooleanLiteral* node) = 0;
     virtual void visitAwaitExpression(AwaitExpression* node) = 0;
@@ -543,6 +545,12 @@ struct StringLiteral : Expression {
     std::string value;
     std::string getKind() const override { return "StringLiteral"; }
     void accept(Visitor* visitor) override { visitor->visitStringLiteral(this); }
+};
+
+struct RegularExpressionLiteral : Expression {
+    std::string text;
+    std::string getKind() const override { return "RegularExpressionLiteral"; }
+    void accept(Visitor* visitor) override { visitor->visitRegularExpressionLiteral(this); }
 };
 
 struct NumericLiteral : Expression {

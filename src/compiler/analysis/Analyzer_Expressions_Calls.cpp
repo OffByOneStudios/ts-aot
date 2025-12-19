@@ -53,8 +53,47 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "toUpperCase") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
+        } else if (prop->name == "replace" || prop->name == "replaceAll") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "repeat") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "padStart" || prop->name == "padEnd") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         } else if (prop->name == "sort") {
              lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "forEach") {
+             lastType = std::make_shared<Type>(TypeKind::Void);
+             return;
+        } else if (prop->name == "map") {
+             visit(prop->expression.get());
+             // For now, assume map returns the same array type. 
+             // In a real compiler we'd check the callback return type.
+             return;
+        } else if (prop->name == "filter") {
+             visit(prop->expression.get());
+             return;
+        } else if (prop->name == "reduce") {
+             // For now, assume reduce returns the same type as the array elements or initial value
+             lastType = std::make_shared<Type>(TypeKind::Any);
+             return;
+        } else if (prop->name == "some" || prop->name == "every") {
+             lastType = std::make_shared<Type>(TypeKind::Boolean);
+             return;
+        } else if (prop->name == "find") {
+             visit(prop->expression.get());
+             if (lastType->kind == TypeKind::Array) {
+                 lastType = std::static_pointer_cast<ArrayType>(lastType)->elementType;
+             }
+             return;
+        } else if (prop->name == "findIndex") {
+             lastType = std::make_shared<Type>(TypeKind::Int);
+             return;
+        } else if (prop->name == "flat" || prop->name == "flatMap") {
+             visit(prop->expression.get());
              return;
         } else if (prop->name == "slice") {
              visit(prop->expression.get());
@@ -77,10 +116,15 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         // Check for Math methods
         if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
             if (obj->name == "Math") {
-                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round") {
+                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round" || prop->name == "clz32") {
                     lastType = std::make_shared<Type>(TypeKind::Int);
                     return;
-                } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random") {
+                } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random" ||
+                           prop->name == "log10" || prop->name == "log2" || prop->name == "log1p" ||
+                           prop->name == "expm1" || prop->name == "cosh" || prop->name == "sinh" ||
+                           prop->name == "tanh" || prop->name == "acosh" || prop->name == "asinh" ||
+                           prop->name == "atanh" || prop->name == "cbrt" || prop->name == "hypot" ||
+                           prop->name == "trunc" || prop->name == "fround") {
                     lastType = std::make_shared<Type>(TypeKind::Double);
                     return;
                 }

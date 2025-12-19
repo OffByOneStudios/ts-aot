@@ -20,9 +20,9 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     currentModule = mainModule;
     modules[currentFilePath] = mainModule;
 
-    symbols.enterScope();
+    // symbols.enterScope(); // Don't enter a new scope, use the global scope
     visitProgram(program);
-    symbols.exitScope();
+    // symbols.exitScope();
     
     mainModule->analyzed = true;
     moduleOrder.push_back(currentFilePath);
