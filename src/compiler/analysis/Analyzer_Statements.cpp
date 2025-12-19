@@ -84,6 +84,44 @@ void Analyzer::visitIfStatement(IfStatement* node) {
                     else if (typeString->value == "boolean") narrowedType = std::make_shared<Type>(TypeKind::Boolean);
                 }
             }
+        } else if (bin->op == "!==" || bin->op == "!=") {
+            // x !== null narrowing
+            Identifier* id = nullptr;
+            if (auto left = dynamic_cast<Identifier*>(bin->left.get())) {
+                if (auto right = dynamic_cast<Identifier*>(bin->right.get())) {
+                    if (right->name == "null" || right->name == "undefined") {
+                        id = left;
+                    }
+                }
+            } else if (auto right = dynamic_cast<Identifier*>(bin->right.get())) {
+                if (auto left = dynamic_cast<Identifier*>(bin->left.get())) {
+                    if (left->name == "null" || left->name == "undefined") {
+                        id = right;
+                    }
+                }
+            }
+
+            if (id) {
+                auto sym = symbols.lookup(id->name);
+                if (sym && sym->type->kind == TypeKind::Union) {
+                    auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+                    std::vector<std::shared_ptr<Type>> remaining;
+                    std::string target = (dynamic_cast<Identifier*>(bin->left.get())->name == "null" || 
+                                         dynamic_cast<Identifier*>(bin->right.get())->name == "null") ? "null" : "undefined";
+                    
+                    for (auto& t : unionType->types) {
+                        if (target == "null" && t->kind == TypeKind::Null) continue;
+                        if (target == "undefined" && t->kind == TypeKind::Undefined) continue;
+                        remaining.push_back(t);
+                    }
+                    
+                    if (remaining.size() == 1) narrowedType = remaining[0];
+                    else if (remaining.size() > 1) {
+                        narrowedType = std::make_shared<UnionType>(remaining);
+                    }
+                    narrowedVar = id->name;
+                }
+            }
         } else if (bin->op == "instanceof") {
             if (auto id = dynamic_cast<Identifier*>(bin->left.get())) {
                 if (auto rightId = dynamic_cast<Identifier*>(bin->right.get())) {
@@ -92,6 +130,24 @@ void Analyzer::visitIfStatement(IfStatement* node) {
                         narrowedVar = id->name;
                         narrowedType = type;
                     }
+                }
+            }
+        }
+    } else if (auto id = dynamic_cast<Identifier*>(node->condition.get())) {
+        // if (x) truthiness narrowing
+        auto sym = symbols.lookup(id->name);
+        if (sym && sym->type->kind == TypeKind::Union) {
+            auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+            std::vector<std::shared_ptr<Type>> remaining;
+            for (auto& t : unionType->types) {
+                if (t->kind == TypeKind::Null || t->kind == TypeKind::Undefined) continue;
+                remaining.push_back(t);
+            }
+            if (!remaining.empty()) {
+                narrowedVar = id->name;
+                if (remaining.size() == 1) narrowedType = remaining[0];
+                else {
+                    narrowedType = std::make_shared<UnionType>(remaining);
                 }
             }
         }

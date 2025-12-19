@@ -28,7 +28,8 @@ Analyzer::Analyzer() {
     symbols.define("JSON", jsonType);
 
     // Register undefined
-    symbols.define("undefined", std::make_shared<Type>(TypeKind::Any));
+    symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
+    symbols.define("null", std::make_shared<Type>(TypeKind::Null));
 
     // Register Date class
     auto dateClass = std::make_shared<ClassType>("Date");
@@ -48,6 +49,145 @@ Analyzer::Analyzer() {
     auto getDate = std::make_shared<FunctionType>();
     getDate->returnType = std::make_shared<Type>(TypeKind::Int);
     dateClass->methods["getDate"] = getDate;
+
+    auto getDay = std::make_shared<FunctionType>();
+    getDay->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getDay"] = getDay;
+
+    auto getHours = std::make_shared<FunctionType>();
+    getHours->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getHours"] = getHours;
+
+    auto getMinutes = std::make_shared<FunctionType>();
+    getMinutes->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getMinutes"] = getMinutes;
+
+    auto getSeconds = std::make_shared<FunctionType>();
+    getSeconds->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getSeconds"] = getSeconds;
+
+    auto getMilliseconds = std::make_shared<FunctionType>();
+    getMilliseconds->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getMilliseconds"] = getMilliseconds;
+
+    // UTC Getters
+    auto getUTCFullYear = std::make_shared<FunctionType>();
+    getUTCFullYear->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCFullYear"] = getUTCFullYear;
+
+    auto getUTCMonth = std::make_shared<FunctionType>();
+    getUTCMonth->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCMonth"] = getUTCMonth;
+
+    auto getUTCDate = std::make_shared<FunctionType>();
+    getUTCDate->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCDate"] = getUTCDate;
+
+    auto getUTCDay = std::make_shared<FunctionType>();
+    getUTCDay->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCDay"] = getUTCDay;
+
+    auto getUTCHours = std::make_shared<FunctionType>();
+    getUTCHours->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCHours"] = getUTCHours;
+
+    auto getUTCMinutes = std::make_shared<FunctionType>();
+    getUTCMinutes->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCMinutes"] = getUTCMinutes;
+
+    auto getUTCSeconds = std::make_shared<FunctionType>();
+    getUTCSeconds->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCSeconds"] = getUTCSeconds;
+
+    auto getUTCMilliseconds = std::make_shared<FunctionType>();
+    getUTCMilliseconds->returnType = std::make_shared<Type>(TypeKind::Int);
+    dateClass->methods["getUTCMilliseconds"] = getUTCMilliseconds;
+
+    // Setters
+    auto setTime = std::make_shared<FunctionType>();
+    setTime->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setTime->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setTime"] = setTime;
+
+    auto setFullYear = std::make_shared<FunctionType>();
+    setFullYear->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setFullYear->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setFullYear"] = setFullYear;
+
+    auto setMonth = std::make_shared<FunctionType>();
+    setMonth->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setMonth->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setMonth"] = setMonth;
+
+    auto setDate = std::make_shared<FunctionType>();
+    setDate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setDate->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setDate"] = setDate;
+
+    auto setHours = std::make_shared<FunctionType>();
+    setHours->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setHours->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setHours"] = setHours;
+
+    auto setMinutes = std::make_shared<FunctionType>();
+    setMinutes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setMinutes->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setMinutes"] = setMinutes;
+
+    auto setSeconds = std::make_shared<FunctionType>();
+    setSeconds->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setSeconds->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setSeconds"] = setSeconds;
+
+    auto setMilliseconds = std::make_shared<FunctionType>();
+    setMilliseconds->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setMilliseconds->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setMilliseconds"] = setMilliseconds;
+
+    // UTC Setters
+    auto setUTCFullYear = std::make_shared<FunctionType>();
+    setUTCFullYear->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCFullYear->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCFullYear"] = setUTCFullYear;
+
+    auto setUTCMonth = std::make_shared<FunctionType>();
+    setUTCMonth->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCMonth->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCMonth"] = setUTCMonth;
+
+    auto setUTCDate = std::make_shared<FunctionType>();
+    setUTCDate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCDate->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCDate"] = setUTCDate;
+
+    auto setUTCHours = std::make_shared<FunctionType>();
+    setUTCHours->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCHours->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCHours"] = setUTCHours;
+
+    auto setUTCMinutes = std::make_shared<FunctionType>();
+    setUTCMinutes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCMinutes->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCMinutes"] = setUTCMinutes;
+
+    auto setUTCSeconds = std::make_shared<FunctionType>();
+    setUTCSeconds->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCSeconds->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCSeconds"] = setUTCSeconds;
+
+    auto setUTCMilliseconds = std::make_shared<FunctionType>();
+    setUTCMilliseconds->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setUTCMilliseconds->returnType = std::make_shared<Type>(TypeKind::Void);
+    dateClass->methods["setUTCMilliseconds"] = setUTCMilliseconds;
+
+    // String conversions
+    auto toISOString = std::make_shared<FunctionType>();
+    toISOString->returnType = std::make_shared<Type>(TypeKind::String);
+    dateClass->methods["toISOString"] = toISOString;
+
+    auto toString = std::make_shared<FunctionType>();
+    toString->returnType = std::make_shared<Type>(TypeKind::String);
+    dateClass->methods["toString"] = toString;
     
     auto now = std::make_shared<FunctionType>();
     now->returnType = std::make_shared<Type>(TypeKind::Int);
@@ -225,6 +365,39 @@ Analyzer::Analyzer() {
     radToDegType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
     radToDegType->returnType = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["radToDeg"] = radToDegType;
+
+    auto log10Type = std::make_shared<FunctionType>();
+    log10Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    log10Type->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["log10"] = log10Type;
+
+    auto log2Type = std::make_shared<FunctionType>();
+    log2Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    log2Type->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["log2"] = log2Type;
+
+    auto truncType = std::make_shared<FunctionType>();
+    truncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    truncType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["trunc"] = truncType;
+
+    auto signType = std::make_shared<FunctionType>();
+    signType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    signType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["sign"] = signType;
+
+    auto cbrtType = std::make_shared<FunctionType>();
+    cbrtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    cbrtType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["cbrt"] = cbrtType;
+
+    auto clz32Type = std::make_shared<FunctionType>();
+    clz32Type->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    clz32Type->returnType = std::make_shared<Type>(TypeKind::Int);
+    mathType->fields["clz32"] = clz32Type;
+
+    mathType->fields["PI"] = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["E"] = std::make_shared<Type>(TypeKind::Double);
     
     symbols.define("Math", mathType);
 

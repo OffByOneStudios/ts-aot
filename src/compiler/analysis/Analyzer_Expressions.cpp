@@ -348,6 +348,17 @@ void Analyzer::visitArrayLiteralExpression(ArrayLiteralExpression* node) {
 void Analyzer::visitElementAccessExpression(ElementAccessExpression* node) {
     visit(node->expression.get());
     auto objType = lastType;
+
+    if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
+        reportError(fmt::format("Object is possibly '{}'.", objType->kind == TypeKind::Null ? "null" : "undefined"));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
+    if (objType->kind == TypeKind::Unknown) {
+        reportError("Object is of type 'unknown'.");
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
     
     visit(node->argumentExpression.get());
     auto indexType = lastType;
@@ -388,6 +399,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
 
     visit(node->expression.get());
     auto objType = lastType;
+
+    if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
+        reportError(fmt::format("Object is possibly '{}'.", objType->kind == TypeKind::Null ? "null" : "undefined"));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
+    if (objType->kind == TypeKind::Unknown) {
+        reportError("Object is of type 'unknown'.");
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
 
     while (objType && objType->kind == TypeKind::TypeParameter) {
         auto tp = std::static_pointer_cast<TypeParameterType>(objType);
@@ -654,7 +676,11 @@ void Analyzer::visitBinaryExpression(BinaryExpression* node) {
     auto rightType = lastType;
 
     // Simple type inference for binary ops
-    if (leftType && rightType) {
+    if (node->op == "==" || node->op == "===" || node->op == "!=" || node->op == "!==" ||
+        node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=" ||
+        node->op == "&&" || node->op == "||") {
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (leftType && rightType) {
         if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
             lastType = std::make_shared<Type>(TypeKind::Int);
         } else if (leftType->isNumber() && rightType->isNumber()) {
@@ -701,6 +727,17 @@ void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
 }
 
 void Analyzer::visitIdentifier(ast::Identifier* node) {
+    if (node->name == "null") {
+        lastType = std::make_shared<Type>(TypeKind::Null);
+        node->inferredType = lastType;
+        return;
+    }
+    if (node->name == "undefined") {
+        lastType = std::make_shared<Type>(TypeKind::Undefined);
+        node->inferredType = lastType;
+        return;
+    }
+
     auto sym = symbols.lookup(node->name);
     if (sym) {
         lastType = sym->type;

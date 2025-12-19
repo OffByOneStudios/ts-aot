@@ -316,6 +316,16 @@ function visit(node) {
                 kind: "BooleanLiteral",
                 value: false
             };
+        case ts.SyntaxKind.NullKeyword:
+            return {
+                kind: "Identifier",
+                name: "null"
+            };
+        case ts.SyntaxKind.UndefinedKeyword:
+            return {
+                kind: "Identifier",
+                name: "undefined"
+            };
         case ts.SyntaxKind.ObjectLiteralExpression:
             return {
                 kind: "ObjectLiteralExpression",

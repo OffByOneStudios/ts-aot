@@ -42,7 +42,7 @@ void IRGenerator::visitIfStatement(ast::IfStatement* node) {
     } else if (condValue->getType()->isDoubleTy()) {
         condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
     } else if (condValue->getType()->isPointerTy()) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "ifcond");
+        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(builder->getPtrTy()), "ifcond");
     }
 
     llvm::Function* func = builder->GetInsertBlock()->getParent();
