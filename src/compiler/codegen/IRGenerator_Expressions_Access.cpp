@@ -47,6 +47,27 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         return;
     }
 
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+        if (cls->name == "Buffer") {
+            visit(node->expression.get());
+            llvm::Value* buf = lastValue;
+            visit(node->argumentExpression.get());
+            llvm::Value* index = lastValue;
+            if (index->getType()->isPointerTy()) {
+                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int",
+                    llvm::Type::getInt64Ty(*context), builder->getPtrTy());
+                index = builder->CreateCall(unboxFn, { index });
+            }
+            
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_buffer_get",
+                llvm::Type::getInt8Ty(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context));
+            llvm::Value* byte = builder->CreateCall(getFn, { buf, index });
+            lastValue = builder->CreateZExt(byte, llvm::Type::getInt64Ty(*context));
+            return;
+        }
+    }
+
     visit(node->expression.get());
     llvm::Value* arr = lastValue;
     
@@ -58,9 +79,20 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     }
 
     if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_element", ft);
-        lastValue = builder->CreateCall(getFn, { arr, index });
+        if (index->getType()->isPointerTy()) {
+            // String index on any
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_property", ft);
+            lastValue = builder->CreateCall(ft, getFn.getCallee(), { arr, index });
+        } else {
+            // Numeric index on any
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_element", ft);
+            if (!index->getType()->isIntegerTy(64)) {
+                index = builder->CreateIntCast(index, llvm::Type::getInt64Ty(*context), true);
+            }
+            lastValue = builder->CreateCall(ft, getFn.getCallee(), { arr, index });
+        }
         return;
     }
     
@@ -225,6 +257,44 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         std::string className = classType->name;
         std::string fieldName = node->name;
         
+        if (className == "URL") {
+            visit(node->expression.get());
+            llvm::Value* url = lastValue;
+            std::string getterName = "URL_get_" + fieldName;
+            llvm::FunctionCallee fn = module->getOrInsertFunction(getterName,
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+            lastValue = builder->CreateCall(fn, { url });
+            return;
+        }
+
+        if (className == "Buffer") {
+            visit(node->expression.get());
+            llvm::Value* buf = lastValue;
+            if (fieldName == "length") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("Buffer_get_length",
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { buf });
+                return;
+            }
+        }
+
+        if (className == "Response") {
+            visit(node->expression.get());
+            llvm::Value* resp = lastValue;
+            if (fieldName == "status") {
+                llvm::FunctionCallee fn = module->getOrInsertFunction("Response_get_status",
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { resp });
+                return;
+            } else {
+                std::string getterName = "Response_get_" + fieldName;
+                llvm::FunctionCallee fn = module->getOrInsertFunction(getterName,
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                lastValue = builder->CreateCall(fn, { resp });
+                return;
+            }
+        }
+
         // Check if it's a getter
         std::string vname = "get_" + fieldName;
         if (classLayouts.count(className) && classLayouts[className].methodIndices.count(vname)) {

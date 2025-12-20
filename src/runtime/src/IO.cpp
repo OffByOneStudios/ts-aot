@@ -309,56 +309,5 @@ void* ts_fs_stat_async(void* path) {
     return ts_value_make_promise(promise);
 }
 
-struct FetchWork {
-    ts::TsPromise* promise;
-    std::string url;
-    std::string result;
-    bool success;
-};
-
-static void fetch_worker(uv_work_t* req) {
-    FetchWork* work = (FetchWork*)req->data;
-    // Simple mock fetch for now
-    work->result = "Mock response for " + work->url;
-    work->success = true;
-}
-
-static void fetch_after_worker(uv_work_t* req, int status) {
-    FetchWork* work = (FetchWork*)req->data;
-    if (work->success) {
-        void* tsStr = ts_string_create(work->result.c_str());
-        TsValue* result = ts_value_make_string(tsStr);
-        ts::ts_promise_resolve_internal(work->promise, result);
-    } else {
-        void* tsStr = ts_string_create("Fetch failed");
-        TsValue* reason = ts_value_make_string(tsStr);
-        ts::ts_promise_reject_internal(work->promise, reason);
-    }
-    delete work;
-    free(req);
-}
-
-void* ts_fetch(void* url) {
-    TsString* urlStr = (TsString*)url;
-    ts::TsPromise* promise = ts::ts_promise_create();
-    
-    FetchWork* work = new FetchWork();
-    work->promise = promise;
-    work->url = urlStr->ToUtf8();
-    
-    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
-    req->data = work;
-    
-    uv_queue_work(uv_default_loop(), req, fetch_worker, fetch_after_worker);
-    
-    return ts_value_make_promise(promise);
-}
-
-int64_t ts_parseInt(void* str) {
-    TsString* s = (TsString*)str;
-    const char* cStr = s->ToUtf8();
-    return std::strtoll(cStr, nullptr, 10);
-}
-
 } // extern "C"
 

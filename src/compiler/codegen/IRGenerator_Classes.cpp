@@ -281,6 +281,33 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
             lastValue = builder->CreateCall(fn, { pattern, flags });
             return;
+        } else if (className == "URL") {
+            llvm::Value* url = nullptr;
+            llvm::Value* base = nullptr;
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                url = lastValue;
+            }
+            
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                base = lastValue;
+            } else {
+                base = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+            }
+            
+            std::string vtableGlobalName = className + "_VTable_Global";
+            llvm::Value* vtable = module->getGlobalVariable(vtableGlobalName);
+            if (!vtable) {
+                vtable = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+            }
+
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_create",
+                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            lastValue = builder->CreateCall(fn, { vtable, url, base });
+            return;
         }
         
         // 1. Get Struct Type
@@ -441,7 +468,7 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
 
     llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
         llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-            { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
 
     for (auto& prop : node->properties) {
         visit(prop->initializer.get());
@@ -454,8 +481,7 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
         llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(prop->name) });
         
-        llvm::Value* intVal = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
-        builder->CreateCall(setFn, { map, keyStr, intVal });
+        builder->CreateCall(setFn, { map, keyStr, boxedVal });
     }
 
     lastValue = map;

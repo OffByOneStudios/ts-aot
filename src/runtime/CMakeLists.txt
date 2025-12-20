@@ -3,6 +3,8 @@ find_package(BDWgc CONFIG REQUIRED)
 find_package(ICU COMPONENTS uc i18n REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(llhttp CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(tsruntime STATIC
     src/Core.cpp
@@ -21,6 +23,9 @@ add_library(tsruntime STATIC
     src/TsDate.cpp
     src/TsRegExp.cpp
     src/TsPromise.cpp
+    src/TsBuffer.cpp
+    src/TsURL.cpp
+    src/TsFetch.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)
@@ -32,6 +37,9 @@ target_link_libraries(tsruntime PUBLIC
     ICU::i18n
     unofficial-sodium::sodium
     nlohmann_json::nlohmann_json
+    llhttp::llhttp_static
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT)

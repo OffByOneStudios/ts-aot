@@ -15,41 +15,47 @@
 
 using json = nlohmann::json;
 
-static int64_t json_to_ts(const json& j) {
-    if (j.is_null()) return 0;
-    if (j.is_boolean()) return j.get<bool>() ? 1 : 0;
+static TsValue json_to_ts(const json& j) {
+    if (j.is_null()) return TsValue(nullptr);
+    if (j.is_boolean()) return TsValue(j.get<bool>());
     if (j.is_number_integer()) {
-        // For integers, we use double representation if they are large, 
-        // but for now let's just use double for all numbers to be safe with any
-        double d = (double)j.get<int64_t>();
-        int64_t i;
-        std::memcpy(&i, &d, sizeof(double));
-        return i;
+        return TsValue((int64_t)j.get<int64_t>());
     }
     if (j.is_number_float()) {
-        double d = j.get<double>();
-        int64_t i;
-        std::memcpy(&i, &d, sizeof(double));
-        return i;
+        return TsValue(j.get<double>());
     }
     if (j.is_string()) {
-        return (int64_t)TsString::Create(j.get<std::string>().c_str());
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = TsString::Create(j.get<std::string>().c_str());
+        return v;
     }
     if (j.is_array()) {
         TsArray* arr = TsArray::Create();
         for (const auto& element : j) {
-            arr->Push(json_to_ts(element));
+            TsValue val = json_to_ts(element);
+            int64_t raw = 0;
+            if (val.type == ValueType::NUMBER_INT) raw = val.i_val;
+            else if (val.type == ValueType::NUMBER_DBL) raw = val.i_val;
+            else raw = (int64_t)val.ptr_val;
+            arr->Push(raw);
         }
-        return (int64_t)arr;
+        TsValue v;
+        v.type = ValueType::ARRAY_PTR;
+        v.ptr_val = arr;
+        return v;
     }
     if (j.is_object()) {
         TsMap* map = TsMap::Create();
         for (auto it = j.begin(); it != j.end(); ++it) {
             map->Set(TsString::Create(it.key().c_str()), json_to_ts(it.value()));
         }
-        return (int64_t)map;
+        TsValue v;
+        v.type = ValueType::OBJECT_PTR;
+        v.ptr_val = map;
+        return v;
     }
-    return 0;
+    return TsValue(nullptr);
 }
 
 static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, bool is_object_value = false) {
@@ -150,7 +156,11 @@ extern "C" {
         TsString* s = (TsString*)json_str;
         try {
             nlohmann::json j = nlohmann::json::parse(s->ToUtf8());
-            return (void*)json_to_ts(j);
+            TsValue val = json_to_ts(j);
+            
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
         } catch (...) {
             return nullptr;
         }

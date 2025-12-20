@@ -3,6 +3,7 @@ import sys
 import subprocess
 import json
 import shutil
+import argparse
 
 def run_command(cmd, shell=True, timeout=None, env=None):
     print(f"Running: {cmd}", flush=True)
@@ -26,11 +27,14 @@ def run_command(cmd, shell=True, timeout=None, env=None):
     return result.stdout
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python test_runner.py <input.ts>", flush=True)
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Compile and run a TypeScript file.")
+    parser.add_argument("input_ts", help="The input TypeScript file to compile and run.")
+    parser.add_argument("--timeout", type=int, default=5, help="Timeout for the execution step in seconds (default: 5).")
+    
+    # Use parse_known_args to allow passing extra arguments to the test app
+    args, extra_args = parser.parse_known_args()
 
-    input_ts = os.path.abspath(sys.argv[1])
+    input_ts = os.path.abspath(args.input_ts)
     base_name = os.path.splitext(os.path.basename(input_ts))[0]
     build_dir = os.path.abspath("build")
     
@@ -96,8 +100,7 @@ def main():
     env = os.environ.copy()
     env["PATH"] = vcpkg_bin + os.pathsep + vcpkg_debug_bin + os.pathsep + env["PATH"]
     
-    extra_args = sys.argv[2:]
-    output = run_command([exe_path] + extra_args, shell=False, env=env, timeout=5)
+    output = run_command([exe_path] + extra_args, shell=False, env=env, timeout=args.timeout)
     print("Output:", flush=True)
     print(output, flush=True)
 

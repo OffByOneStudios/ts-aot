@@ -1,0 +1,920 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testBuffer",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing Buffer..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "buf"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Buffer"
+              },
+              "name": "alloc"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Buffer length: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "buf"
+                  },
+                  "name": "length"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "buf"
+              },
+              "name": "length"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "ElementAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "buf"
+                    },
+                    "argumentExpression": {
+                      "kind": "Identifier",
+                      "name": "i"
+                    }
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i"
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 10
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Buffer[5]: "
+                },
+                "right": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "buf"
+                  },
+                  "argumentExpression": {
+                    "kind": "NumericLiteral",
+                    "value": 5
+                  }
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "strBuf"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Buffer"
+              },
+              "name": "from"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Hello World"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "String Buffer length: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "strBuf"
+                  },
+                  "name": "length"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "String Buffer content: "
+                },
+                "right": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "strBuf"
+                    },
+                    "name": "toString"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testURL",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing URL..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "url"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "URL"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "https://example.com:8080/path/to/resource?query=1#hash"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL href: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "href"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL protocol: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "protocol"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL host: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "host"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL hostname: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "hostname"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL port: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "port"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL pathname: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "pathname"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL search: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "search"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "URL hash: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "url"
+                  },
+                  "name": "hash"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "testFetch",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing fetch..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "TryStatement",
+          "tryBlock": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "response"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "AwaitExpression",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "fetch"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "http://www.google.com"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console"
+                  },
+                  "name": "log"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "StringLiteral",
+                      "value": "Response status: "
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "response"
+                      },
+                      "name": "status"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console"
+                  },
+                  "name": "log"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "StringLiteral",
+                      "value": "Response statusText: "
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "response"
+                      },
+                      "name": "statusText"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "text"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "AwaitExpression",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "response"
+                    },
+                    "name": "text"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console"
+                  },
+                  "name": "log"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "StringLiteral",
+                      "value": "Response body length: "
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "text"
+                      },
+                      "name": "length"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "catchClause": {
+            "kind": "CatchClause",
+            "variable": {
+              "kind": "Identifier",
+              "name": "e"
+            },
+            "block": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "BinaryExpression",
+                      "operator": "+",
+                      "left": {
+                        "kind": "StringLiteral",
+                        "value": "Fetch failed: "
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "e"
+                      }
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "finallyBlock": null
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "testBuffer"
+              },
+              "arguments": [],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "testURL"
+              },
+              "arguments": [],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "testFetch"
+              },
+              "arguments": [],
+              "typeArguments": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "main"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

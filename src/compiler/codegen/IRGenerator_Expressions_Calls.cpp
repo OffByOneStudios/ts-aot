@@ -8,12 +8,23 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;
             visit(node->arguments[0].get());
-            llvm::Value* arg = lastValue;
+            llvm::Value* url = lastValue;
             
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                options = boxValue(lastValue, node->arguments[1]->inferredType);
+            }
+            
+            llvm::Value* vtable = module->getGlobalVariable("Response_VTable_Global");
+            if (!vtable) {
+                vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            }
+
             llvm::FunctionCallee fetchFn = module->getOrInsertFunction("ts_fetch",
-                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
             
-            lastValue = builder->CreateCall(fetchFn, { arg });
+            lastValue = builder->CreateCall(fetchFn, { vtable, url, options });
             return;
         }
     }
