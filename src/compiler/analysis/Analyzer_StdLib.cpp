@@ -607,5 +607,71 @@ Analyzer::Analyzer() {
     
     symbols.define("Math", mathType);
 
+    // Register Buffer class
+    auto bufferClass = std::make_shared<ClassType>("Buffer");
+    bufferClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    
+    auto bufferToString = std::make_shared<FunctionType>();
+    bufferToString->returnType = std::make_shared<Type>(TypeKind::String);
+    bufferClass->methods["toString"] = bufferToString;
+    
+    symbols.defineType("Buffer", bufferClass);
+
+    auto bufferStatic = std::make_shared<ObjectType>();
+    bufferStatic->fields["alloc"] = std::make_shared<FunctionType>();
+    std::static_pointer_cast<FunctionType>(bufferStatic->fields["alloc"])->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    std::static_pointer_cast<FunctionType>(bufferStatic->fields["alloc"])->returnType = bufferClass;
+    
+    bufferStatic->fields["from"] = std::make_shared<FunctionType>();
+    std::static_pointer_cast<FunctionType>(bufferStatic->fields["from"])->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    std::static_pointer_cast<FunctionType>(bufferStatic->fields["from"])->returnType = bufferClass;
+    
+    symbols.define("Buffer", bufferStatic);
+
+    // Register URL class
+    auto urlClass = std::make_shared<ClassType>("URL");
+    urlClass->fields["href"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["protocol"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["host"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["hostname"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["port"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["pathname"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["search"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["hash"] = std::make_shared<Type>(TypeKind::String);
+    symbols.defineType("URL", urlClass);
+
+    // fetch
+    auto promiseClassRef = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+    auto responseClass = std::make_shared<ClassType>("Response");
+    
+    auto promiseResponse = std::make_shared<ClassType>("Promise");
+    promiseResponse->typeArguments.push_back(responseClass);
+
+    auto fetchType = std::make_shared<FunctionType>();
+    fetchType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    fetchType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options
+    fetchType->returnType = promiseResponse;
+    symbols.define("fetch", fetchType);
+
+    // Response
+    responseClass->fields["status"] = std::make_shared<Type>(TypeKind::Int);
+    responseClass->fields["statusText"] = std::make_shared<Type>(TypeKind::String);
+    responseClass->fields["ok"] = std::make_shared<Type>(TypeKind::Boolean);
+    
+    auto promiseString = std::make_shared<ClassType>("Promise");
+    promiseString->typeArguments.push_back(std::make_shared<Type>(TypeKind::String));
+
+    auto textMethod = std::make_shared<FunctionType>();
+    textMethod->returnType = promiseString;
+    responseClass->methods["text"] = textMethod;
+    
+    auto promiseAny = std::make_shared<ClassType>("Promise");
+    promiseAny->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
+
+    auto jsonMethod = std::make_shared<FunctionType>();
+    jsonMethod->returnType = promiseAny;
+    responseClass->methods["json"] = jsonMethod;
+    
+    symbols.defineType("Response", responseClass);
 }
 } // namespace ts

@@ -61,10 +61,18 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                         implName = "ts_promise_reject";
                     } else if (current->name == "Promise" && prop->name == "resolve") {
                         implName = "ts_promise_resolve";
+                    } else if (current->name == "Buffer" && prop->name == "from") {
+                        implName = "ts_buffer_from_string";
+                    } else if (current->name == "Buffer" && prop->name == "alloc") {
+                        implName = "ts_buffer_alloc";
                     }
                     auto methodType = current->staticMethods[prop->name];
                     
                     std::vector<llvm::Type*> paramTypes;
+                    // Add vtable param for Buffer static methods
+                    if (current->name == "Buffer") {
+                        paramTypes.push_back(builder->getPtrTy());
+                    }
                     for (const auto& param : methodType->paramTypes) {
                         paramTypes.push_back(getLLVMType(param));
                     }
@@ -74,6 +82,11 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                     llvm::FunctionCallee func = module->getOrInsertFunction(implName, ft);
                     
                     std::vector<llvm::Value*> args;
+                    if (current->name == "Buffer") {
+                        llvm::Value* vtable = module->getGlobalVariable("Buffer_VTable_Global");
+                        if (!vtable) vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        args.push_back(vtable);
+                    }
                     int argIdx = 0;
                     for (auto& arg : node->arguments) {
                         visit(arg.get());

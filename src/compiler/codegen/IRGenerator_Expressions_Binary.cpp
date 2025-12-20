@@ -114,7 +114,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                  } else if (left->getType()->isPointerTy()) {
                      // Assume it's a TsValue*
                      llvm::FunctionCallee fromValue = module->getOrInsertFunction("ts_string_from_value",
-                         builder->getPtrTy(), builder->getPtrTy());
+                         llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
                      left = builder->CreateCall(fromValue, { left });
                  }
              }
@@ -137,13 +137,13 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                  } else if (right->getType()->isPointerTy()) {
                      // Assume it's a TsValue*
                      llvm::FunctionCallee fromValue = module->getOrInsertFunction("ts_string_from_value",
-                         builder->getPtrTy(), builder->getPtrTy());
+                         llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
                      right = builder->CreateCall(fromValue, { right });
                  }
              }
 
              llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_string_concat",
-                 builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                 llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false));
              lastValue = builder->CreateCall(concatFn, { left, right });
         } else if (isDouble) {
             lastValue = builder->CreateFAdd(left, right, "addtmp");
@@ -249,13 +249,44 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             
             llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
                 llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
             
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            llvm::Value* valInt = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
-            builder->CreateCall(setFn, { obj, key, valInt });
+            builder->CreateCall(setFn, { obj, key, boxedVal });
             lastValue = val;
             return;
+        }
+
+        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(elem->expression->inferredType);
+            if (cls->name == "Buffer") {
+                visit(elem->expression.get());
+                llvm::Value* buf = lastValue;
+                visit(elem->argumentExpression.get());
+                llvm::Value* index = lastValue;
+                if (index->getType()->isPointerTy()) {
+                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int",
+                        llvm::Type::getInt64Ty(*context), builder->getPtrTy());
+                    index = builder->CreateCall(unboxFn, { index });
+                }
+                
+                llvm::Value* byteVal = val;
+                if (byteVal->getType()->isPointerTy()) {
+                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int",
+                        llvm::Type::getInt64Ty(*context), builder->getPtrTy());
+                    byteVal = builder->CreateCall(unboxFn, { byteVal });
+                }
+                if (byteVal->getType()->isDoubleTy()) {
+                    byteVal = builder->CreateFPToSI(byteVal, llvm::Type::getInt64Ty(*context));
+                }
+                byteVal = builder->CreateTrunc(byteVal, llvm::Type::getInt8Ty(*context));
+                
+                llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_buffer_set",
+                    llvm::Type::getVoidTy(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt8Ty(*context));
+                builder->CreateCall(setFn, { buf, index, byteVal });
+                lastValue = val;
+                return;
+            }
         }
 
         visit(elem->expression.get());
@@ -281,7 +312,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         builder->CreateCall(setFn, { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
-        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Object) {
+        if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(prop->expression.get());
             llvm::Value* obj = lastValue;
             
@@ -291,11 +322,10 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             
             llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
                 llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
             
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            llvm::Value* valInt = builder->CreatePtrToInt(boxedVal, llvm::Type::getInt64Ty(*context));
-            builder->CreateCall(setFn, { obj, key, valInt });
+            builder->CreateCall(setFn, { obj, key, boxedVal });
             lastValue = val;
             return;
         }

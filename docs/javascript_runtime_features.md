@@ -186,8 +186,9 @@ The base object type.
 | `console` | ✅ Partial | `log` implemented |
 | `fs` | ✅ Partial | `readFileSync`, `writeFileSync`, `readFile` (async) |
 | `crypto` | ✅ Partial | `md5` implemented |
-| `process` | ❌ Missing | |
-| `Buffer` | ❌ Missing | |
+| `process` | ✅ Implemented | `argv`, `env`, `cwd`, `exit` |
+| `Buffer` | ✅ Implemented | `alloc`, `from`, `toString`, `length`, indexing |
+| `URL` | ✅ Implemented | `href`, `protocol`, `host`, `hostname`, `port`, `pathname`, `search`, `hash` |
+| `fetch` | ✅ Implemented | `Response`, `Headers`, `text()`, `json()` |
 | `setTimeout` | ❌ Missing | |
 | `setInterval` | ❌ Missing | |
-| `fetch` | ❌ Missing | (Work in progress in `IO.cpp`) |

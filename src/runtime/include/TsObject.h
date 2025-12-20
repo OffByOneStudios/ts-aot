@@ -35,7 +35,7 @@ using TsValue = TaggedValue;
 
 class TsObject {
 public:
-    virtual ~TsObject() = default;
+    void* vtable;
 };
 
 class TsFunction : public TsObject {

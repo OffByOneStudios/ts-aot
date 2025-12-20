@@ -249,6 +249,8 @@ TsValue* ts_promise_await(TsValue* promise) {
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
     if (!promise || promise->type != ValueType::PROMISE_PTR || !promise->ptr_val) {
+        if (promise) printf("ts_async_await: not a promise, type=%d, ptr=%p\n", (int)promise->type, promise->ptr_val);
+        else printf("ts_async_await: null promise\n");
         ts_async_resume(ctx, promise);
         return;
     }
