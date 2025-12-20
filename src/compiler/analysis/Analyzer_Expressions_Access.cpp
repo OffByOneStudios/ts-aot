@@ -87,6 +87,16 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             lastType = std::make_shared<Type>(TypeKind::Double);
             return;
         }
+        if (id->name == "process") {
+            if (node->name == "argv") {
+                lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+                return;
+            }
+            if (node->name == "env") {
+                lastType = std::make_shared<ObjectType>();
+                return;
+            }
+        }
     }
 
     visit(node->expression.get());

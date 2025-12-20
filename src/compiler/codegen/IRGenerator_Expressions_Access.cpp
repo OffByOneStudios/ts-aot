@@ -37,13 +37,13 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         visit(node->argumentExpression.get());
-        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        llvm::Value* key = lastValue;
         
         llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
-            llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false));
         
         llvm::Value* res = builder->CreateCall(getFn, { obj, key });
-        lastValue = unboxValue(builder->CreateIntToPtr(res, builder->getPtrTy()), std::make_shared<Type>(TypeKind::Any));
+        lastValue = unboxValue(res, std::make_shared<Type>(TypeKind::Any));
         return;
     }
 
@@ -86,6 +86,12 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::FunctionCallee getArgvFn = module->getOrInsertFunction("ts_get_process_argv",
                 llvm::FunctionType::get(builder->getPtrTy(), {}, false));
             lastValue = builder->CreateCall(getArgvFn, {});
+            return;
+        }
+        if (id->name == "process" && node->name == "env") {
+            llvm::FunctionCallee envFn = module->getOrInsertFunction("ts_get_process_env",
+                llvm::FunctionType::get(builder->getPtrTy(), {}, false));
+            lastValue = unboxValue(builder->CreateCall(envFn, {}), node->inferredType);
             return;
         }
     }
@@ -320,22 +326,17 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
              llvm::errs() << "Error: length property not supported on type " << node->expression->inferredType->toString() << "\n";
              lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
         }
-    } else if (node->name == "size") {
+    } else if (node->name == "size" && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         if (obj->getType()->isIntegerTy(64)) {
             obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
         }
         
-        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
-             llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { llvm::PointerType::getUnqual(*context) }, false));
-             lastValue = builder->CreateCall(sizeFn, { obj });
-        } else {
-             llvm::errs() << "Error: size property only supported on Map\n";
-             lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
-        }
+        llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size",
+            llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { llvm::PointerType::getUnqual(*context) }, false));
+        lastValue = builder->CreateCall(sizeFn, { obj });
     } else {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
@@ -346,7 +347,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(node->name) });
             
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
-                llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false));
             
             llvm::Value* res = builder->CreateCall(getFn, { objPtr, keyStr });
             
@@ -357,7 +358,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
             }
             
-            lastValue = unboxValue(builder->CreateIntToPtr(res, builder->getPtrTy()), fieldType);
+            lastValue = unboxValue(res, fieldType);
             return;
         }
 

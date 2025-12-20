@@ -498,4 +498,19 @@ extern "C" {
     bool ts_string_eq(void* a, void* b) {
         return ((TsString*)a)->Equals((TsString*)b);
     }
+
+    void* ts_string_from_value(TsValue* val) {
+        if (!val) return TsString::Create("undefined");
+        switch (val->type) {
+            case ValueType::UNDEFINED: return TsString::Create("undefined");
+            case ValueType::NUMBER_INT: return TsString::FromInt(val->i_val);
+            case ValueType::NUMBER_DBL: return TsString::FromDouble(val->d_val);
+            case ValueType::BOOLEAN: return TsString::FromBool(val->b_val);
+            case ValueType::STRING_PTR: return val->ptr_val;
+            case ValueType::OBJECT_PTR: return TsString::Create("[object Object]");
+            case ValueType::ARRAY_PTR: return TsString::Create("[object Array]");
+            case ValueType::PROMISE_PTR: return TsString::Create("[object Promise]");
+            default: return TsString::Create("unknown");
+        }
+    }
 }

@@ -461,6 +461,10 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_string",
             builder->getPtrTy(), builder->getPtrTy());
         return builder->CreateCall(unboxFn, { val });
+    } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection) {
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object",
+            builder->getPtrTy(), builder->getPtrTy());
+        return builder->CreateCall(unboxFn, { val });
     }
     
     return val;

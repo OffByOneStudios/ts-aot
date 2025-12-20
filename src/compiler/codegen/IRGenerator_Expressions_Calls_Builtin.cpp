@@ -189,6 +189,126 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 }
             }
         }
+    } else if (prop->name == "mkdir") {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* path = lastValue;
+                    
+                    llvm::FunctionCallee mkdirFn = module->getOrInsertFunction("ts_fs_mkdir_async",
+                        llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                    
+                    lastValue = builder->CreateCall(mkdirFn, { path });
+                    return true;
+                }
+            }
+        }
+    } else if (prop->name == "stat") {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* path = lastValue;
+                    
+                    llvm::FunctionCallee statFn = module->getOrInsertFunction("ts_fs_stat_async",
+                        llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                    
+                    lastValue = builder->CreateCall(statFn, { path });
+                    return true;
+                }
+            }
+        }
+    } else if (prop->name == "mkdirSync") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "fs") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionCallee mkdirFn = module->getOrInsertFunction("ts_fs_mkdirSync",
+                    llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false));
+                
+                builder->CreateCall(mkdirFn, { path });
+                lastValue = nullptr;
+                return true;
+            }
+        }
+    } else if (prop->name == "rmdirSync") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "fs") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionCallee rmdirFn = module->getOrInsertFunction("ts_fs_rmdirSync",
+                    llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false));
+                
+                builder->CreateCall(rmdirFn, { path });
+                lastValue = nullptr;
+                return true;
+            }
+        }
+    } else if (prop->name == "unlinkSync") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "fs") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionCallee unlinkFn = module->getOrInsertFunction("ts_fs_unlinkSync",
+                    llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false));
+                
+                builder->CreateCall(unlinkFn, { path });
+                lastValue = nullptr;
+                return true;
+            }
+        }
+    } else if (prop->name == "statSync") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "fs") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionCallee statFn = module->getOrInsertFunction("ts_fs_statSync",
+                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+                
+                lastValue = unboxValue(builder->CreateCall(statFn, { path }), node->inferredType);
+                return true;
+            }
+        }
+    } else if (prop->name == "exit") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "process") {
+                llvm::Value* code = nullptr;
+                if (node->arguments.empty()) {
+                    code = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+                } else {
+                    visit(node->arguments[0].get());
+                    code = lastValue;
+                }
+                
+                llvm::FunctionCallee exitFn = module->getOrInsertFunction("ts_process_exit",
+                    llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { llvm::Type::getInt64Ty(*context) }, false));
+                
+                builder->CreateCall(exitFn, { code });
+                lastValue = nullptr;
+                return true;
+            }
+        }
+    } else if (prop->name == "cwd") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "process") {
+                llvm::FunctionCallee cwdFn = module->getOrInsertFunction("ts_process_cwd",
+                    llvm::FunctionType::get(builder->getPtrTy(), {}, false));
+                
+                lastValue = unboxValue(builder->CreateCall(cwdFn, {}), node->inferredType);
+                return true;
+            }
+        }
     } else if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (obj->name == "Math") {
             if (prop->name == "min" || prop->name == "max") {
@@ -952,8 +1072,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          }
          
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get",
-             llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                 { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+             llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false));
          lastValue = builder->CreateCall(fn, { map, key });
          return true;
     } else if (prop->name == "has") {

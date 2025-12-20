@@ -334,6 +334,640 @@
               }
             ]
           }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing mkdirSync..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "dir"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "test_dir"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "mkdirSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "dir"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "existsSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "dir"
+              }
+            ],
+            "typeArguments": []
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Directory created!"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing statSync..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "stats"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "statSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "path"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "File size: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "stats"
+                  },
+                  "name": "size"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "stats"
+              },
+              "name": "isFile"
+            },
+            "arguments": [],
+            "typeArguments": []
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Is a file!"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing unlinkSync..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "unlinkSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "path"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "PrefixUnaryExpression",
+            "operator": "!",
+            "operand": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "fs"
+                },
+                "name": "existsSync"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "path"
+                }
+              ],
+              "typeArguments": []
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "File deleted!"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing rmdirSync..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "rmdirSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "dir"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "PrefixUnaryExpression",
+            "operator": "!",
+            "operand": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "fs"
+                },
+                "name": "existsSync"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "dir"
+                }
+              ],
+              "typeArguments": []
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Directory deleted!"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing async mkdir..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "asyncDir"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "test_async_dir"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "fs"
+                  },
+                  "name": "promises"
+                },
+                "name": "mkdir"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "asyncDir"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "fs"
+              },
+              "name": "existsSync"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "asyncDir"
+              }
+            ],
+            "typeArguments": []
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Async directory created!"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "fs"
+                    },
+                    "name": "rmdirSync"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "asyncDir"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing async stat..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "asyncStats"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "fs"
+                  },
+                  "name": "promises"
+                },
+                "name": "stat"
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "CMakeLists.txt"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "CMakeLists.txt size: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "asyncStats"
+                  },
+                  "name": "size"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
         }
       ]
     },
@@ -485,6 +1119,192 @@
                 }
               }
             ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Process cwd: "
+                },
+                "right": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "process"
+                    },
+                    "name": "cwd"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Process env PATH: "
+                },
+                "right": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "process"
+                    },
+                    "name": "env"
+                  },
+                  "argumentExpression": {
+                    "kind": "StringLiteral",
+                    "value": "PATH"
+                  }
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "ElementAccessExpression",
+            "expression": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "process"
+              },
+              "name": "env"
+            },
+            "argumentExpression": {
+              "kind": "StringLiteral",
+              "value": "PATH"
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "statements": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Found PATH environment variable"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Exiting..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "process"
+              },
+              "name": "exit"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "This should not be printed"
+              }
+            ],
+            "typeArguments": []
           }
         }
       ]

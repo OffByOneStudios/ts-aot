@@ -108,14 +108,10 @@ extern "C" {
         return nullptr;
     }
 
-    void* ts_string_from_value(TsValue* v) {
-        if (!v) return ts_string_create("undefined");
-        if (v->type == ValueType::STRING_PTR) return v->ptr_val;
-        if (v->type == ValueType::NUMBER_INT) return ts_string_from_int(v->i_val);
-        if (v->type == ValueType::NUMBER_DBL) return ts_string_from_double(v->d_val);
-        if (v->type == ValueType::BOOLEAN) return ts_string_from_bool(v->b_val);
-        if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::PROMISE_PTR) return ts_string_create("[object Object]");
-        return ts_string_create("[object Object]");
+    void* ts_value_get_object(TsValue* v) {
+        if (!v) return nullptr;
+        if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) return v->ptr_val;
+        return nullptr;
     }
 
     int64_t ts_value_length(TsValue* val) {
@@ -155,6 +151,13 @@ extern "C" {
             return ts_object_get_property(val->ptr_val, propName);
         }
         return nullptr;
+    }
+
+    TsValue* ts_call_0(TsValue* boxedFunc) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunctionPtrNoArgs fn = (TsFunctionPtrNoArgs)func->funcPtr;
+        return fn(func->context);
     }
 }
 

@@ -30,6 +30,7 @@ void* ts_string_concat(void* a, void* b);
 void* ts_string_from_int(int64_t val);
 void* ts_string_from_double(double val);
 void* ts_string_from_bool(bool val);
+void* ts_string_from_value(TsValue* val);
 int64_t ts_string_length(void* str);
 
 // --- Array ---
@@ -47,6 +48,9 @@ void* ts_get_exception();
 // --- Entry Point ---
 int ts_main(int argc, char** argv, TsValue* (*user_main)(void*));
 void* ts_get_process_argv();
+void* ts_get_process_env();
+void ts_process_exit(int64_t code);
+void* ts_process_cwd();
 
 // --- Value Creation ---
 TsValue* ts_value_make_undefined();
@@ -55,6 +59,7 @@ TsValue* ts_value_make_double(double d);
 TsValue* ts_value_make_bool(bool b);
 TsValue* ts_value_make_string(void* s);
 TsValue* ts_value_make_object(void* o);
+void* ts_value_get_object(TsValue* v);
 TsValue* ts_value_make_promise(void* p);
 TsValue* ts_value_make_function(void* funcPtr, void* context);
 void* ts_function_get_ptr(TsValue* val);
@@ -65,5 +70,6 @@ TsValue* ts_promise_race(TsValue* iterable);
 TsValue* ts_promise_allSettled(TsValue* iterable);
 TsValue* ts_promise_any(TsValue* iterable);
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
+TsValue* ts_call_0(TsValue* func);
 
 }
