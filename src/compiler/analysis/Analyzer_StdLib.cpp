@@ -308,6 +308,18 @@ Analyzer::Analyzer() {
     auto fsType = std::make_shared<ObjectType>();
     auto fsPromisesType = std::make_shared<ObjectType>();
     
+    auto statsType = std::make_shared<ObjectType>();
+    statsType->fields["size"] = std::make_shared<Type>(TypeKind::Int);
+    statsType->fields["mtimeMs"] = std::make_shared<Type>(TypeKind::Double);
+    
+    auto isFileType = std::make_shared<FunctionType>();
+    isFileType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isFile"] = isFileType;
+
+    auto isDirectoryType = std::make_shared<FunctionType>();
+    isDirectoryType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isDirectory"] = isDirectoryType;
+
     auto readFileType = std::make_shared<FunctionType>();
     readFileType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     readFileType->returnType = promiseClass;
@@ -319,6 +331,16 @@ Analyzer::Analyzer() {
     writeFileType->returnType = promiseClass;
     fsPromisesType->fields["writeFile"] = writeFileType;
 
+    auto mkdirAsyncType = std::make_shared<FunctionType>();
+    mkdirAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    mkdirAsyncType->returnType = promiseClass;
+    fsPromisesType->fields["mkdir"] = mkdirAsyncType;
+
+    auto statAsyncType = std::make_shared<FunctionType>();
+    statAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    statAsyncType->returnType = promiseClass; // Promise<Stats>
+    fsPromisesType->fields["stat"] = statAsyncType;
+
     fsType->fields["promises"] = fsPromisesType;
 
     auto existsSyncType = std::make_shared<FunctionType>();
@@ -326,11 +348,44 @@ Analyzer::Analyzer() {
     existsSyncType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     fsType->fields["existsSync"] = existsSyncType;
 
+    auto mkdirSyncType = std::make_shared<FunctionType>();
+    mkdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    mkdirSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["mkdirSync"] = mkdirSyncType;
+
+    auto rmdirSyncType = std::make_shared<FunctionType>();
+    rmdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    rmdirSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["rmdirSync"] = rmdirSyncType;
+
+    auto unlinkSyncType = std::make_shared<FunctionType>();
+    unlinkSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    unlinkSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["unlinkSync"] = unlinkSyncType;
+
+    auto statSyncType = std::make_shared<FunctionType>();
+    statSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    statSyncType->returnType = statsType;
+    fsType->fields["statSync"] = statSyncType;
+
     symbols.define("fs", fsType);
 
     // Register process global
     auto processType = std::make_shared<ObjectType>();
     processType->fields["argv"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    
+    auto envType = std::make_shared<ObjectType>(); // Map-like object
+    processType->fields["env"] = envType;
+
+    auto exitType = std::make_shared<FunctionType>();
+    exitType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    exitType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["exit"] = exitType;
+
+    auto cwdType = std::make_shared<FunctionType>();
+    cwdType->returnType = std::make_shared<Type>(TypeKind::String);
+    processType->fields["cwd"] = cwdType;
+
     symbols.define("process", processType);
 
     // Register Map class

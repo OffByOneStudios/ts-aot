@@ -46,6 +46,20 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        visit(prop);
+        llvm::Value* boxedFunc = lastValue;
+        
+        if (node->arguments.empty()) {
+            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0",
+                builder->getPtrTy(), builder->getPtrTy());
+            lastValue = builder->CreateCall(callFn, { boxedFunc });
+            
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return;
+        }
+    }
+
     // User function call
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (namedValues.count(id->name)) {
