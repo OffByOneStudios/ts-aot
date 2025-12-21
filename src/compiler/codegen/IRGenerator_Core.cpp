@@ -94,8 +94,7 @@ void IRGenerator::generateEntryPoint() {
     };
     llvm::FunctionType* mainFt = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*context), mainArgs, false);
-    // Rename to ts_aot_main to allow custom drivers or standard linking
-    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "ts_aot_main", module.get());
+    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "main", module.get());
 
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", mainFn);
     builder->SetInsertPoint(bb);
@@ -111,7 +110,7 @@ void IRGenerator::generateEntryPoint() {
 llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     if (!type) return builder->getPtrTy();
     switch (type->kind) {
-        case TypeKind::Void: return llvm::Type::getInt8Ty(*context);
+        case TypeKind::Void: return builder->getPtrTy();
         case TypeKind::Int: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Enum: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
@@ -408,22 +407,15 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 }
 
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
-    if (!val) return nullptr;
-    
-    // If it's already a pointer and we expect a primitive or Any, it's likely already a TsValue*
-    if (val->getType()->isPointerTy()) {
-        if (!type || type->kind == TypeKind::Any || type->kind == TypeKind::Int || 
-            type->kind == TypeKind::Double || type->kind == TypeKind::Boolean ||
-            (type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0)) {
-            return val;
-        }
-    }
-
     if (type && type->kind == TypeKind::Void) {
         llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
         return createCall(undefFt, undefFn.getCallee(), {});
     }
+
+    if (!val) return nullptr;
+    
+    // If it's already a pointer and we expect a primitive or Any, it's likely already a TsValue*
     
     llvm::Type* valType = val->getType();
     std::string funcName;

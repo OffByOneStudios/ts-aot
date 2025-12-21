@@ -81,9 +81,10 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
         if (index->getType()->isPointerTy()) {
             // String index on any
+            llvm::Value* boxedIndex = boxValue(index, node->argumentExpression->inferredType);
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_property", ft);
-            lastValue = createCall(ft, getFn.getCallee(), { arr, index });
+            lastValue = createCall(ft, getFn.getCallee(), { arr, boxedIndex });
         } else {
             // Numeric index on any
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
@@ -264,6 +265,20 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction(getterName, ft);
             lastValue = createCall(ft, fn.getCallee(), { url });
+            return;
+        }
+
+        if (className == "IncomingMessage") {
+            visit(node->expression.get());
+            llvm::Value* msg = lastValue;
+            std::string getterName = "ts_incoming_message_" + fieldName;
+            
+            llvm::Value* contextVal = currentAsyncContext;
+            if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(getterName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { contextVal, msg });
             return;
         }
 

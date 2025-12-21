@@ -44,7 +44,12 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         if (val) {
             builder->CreateRet(val);
         } else {
-            builder->CreateRetVoid();
+            llvm::Type* retType = builder->GetInsertBlock()->getParent()->getReturnType();
+            if (retType->isVoidTy()) {
+                builder->CreateRetVoid();
+            } else {
+                builder->CreateRet(llvm::Constant::getNullValue(retType));
+            }
         }
     }
 }

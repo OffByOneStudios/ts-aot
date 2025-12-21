@@ -10,23 +10,28 @@ void ts_console_log(TsString* str) {
     } else {
         std::printf("undefined\n");
     }
+    std::fflush(stdout);
 }
 
 void ts_console_log_int(int64_t val) {
     std::printf("%lld\n", val);
+    std::fflush(stdout);
 }
 
 void ts_console_log_double(double val) {
     std::printf("%f\n", val);
+    std::fflush(stdout);
 }
 
 void ts_console_log_bool(bool val) {
     std::printf("%s\n", val ? "true" : "false");
+    std::fflush(stdout);
 }
 
 void ts_console_log_value(TsValue* val) {
     if (!val) {
         std::printf("undefined\n");
+        std::fflush(stdout);
         return;
     }
     switch (val->type) {
@@ -37,6 +42,7 @@ void ts_console_log_value(TsValue* val) {
         case ValueType::STRING_PTR: std::printf("%s\n", ((TsString*)val->ptr_val)->ToUtf8()); break;
         case ValueType::OBJECT_PTR: std::printf("[object Object]\n"); break;
     }
+    std::fflush(stdout);
 }
 
 TsString* ts_typeof(void* val) {

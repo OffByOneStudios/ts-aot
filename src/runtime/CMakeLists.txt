@@ -26,6 +26,7 @@ add_library(tsruntime STATIC
     src/TsBuffer.cpp
     src/TsURL.cpp
     src/TsFetch.cpp
+    src/TsHttp.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

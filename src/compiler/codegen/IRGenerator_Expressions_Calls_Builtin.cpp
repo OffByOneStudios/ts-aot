@@ -39,6 +39,95 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
             
             lastValue = createCall(ft, fn.getCallee(), args);
             return true;
+        } else if (classType->name == "Server") {
+            if (prop->name == "listen") {
+                visit(prop->expression.get());
+                llvm::Value* server = lastValue;
+                
+                visit(node->arguments[0].get());
+                llvm::Value* port = lastValue;
+                if (port->getType()->isPointerTy()) {
+                    llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+                    port = createCall(unboxFt, unboxFn.getCallee(), { port });
+                }
+                if (port->getType()->isDoubleTy()) {
+                    port = builder->CreateFPToSI(port, llvm::Type::getInt32Ty(*context));
+                } else {
+                    port = builder->CreateIntCast(port, llvm::Type::getInt32Ty(*context), true);
+                }
+
+                llvm::Value* vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    callback = lastValue;
+                }
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_listen", ft);
+                
+                createCall(ft, fn.getCallee(), { contextVal, server, port, vtable, callback });
+                lastValue = nullptr;
+                return true;
+            }
+        } else if (classType->name == "ServerResponse") {
+            if (prop->name == "writeHead") {
+                visit(prop->expression.get());
+                llvm::Value* res = lastValue;
+                
+                visit(node->arguments[0].get());
+                llvm::Value* status = lastValue;
+                if (status->getType()->isPointerTy()) {
+                    llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+                    status = createCall(unboxFt, unboxFn.getCallee(), { status });
+                }
+                if (status->getType()->isDoubleTy()) {
+                    status = builder->CreateFPToSI(status, llvm::Type::getInt32Ty(*context));
+                } else {
+                    status = builder->CreateIntCast(status, llvm::Type::getInt32Ty(*context), true);
+                }
+
+                llvm::Value* headers = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    headers = lastValue;
+                }
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_write_head", ft);
+                
+                createCall(ft, fn.getCallee(), { contextVal, res, status, headers });
+                lastValue = nullptr;
+                return true;
+            } else if (prop->name == "write" || prop->name == "end") {
+                visit(prop->expression.get());
+                llvm::Value* res = lastValue;
+                
+                llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (!node->arguments.empty()) {
+                    visit(node->arguments[0].get());
+                    data = boxValue(lastValue, node->arguments[0]->inferredType);
+                }
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                std::string funcName = (prop->name == "write") ? "ts_server_response_write" : "ts_server_response_end";
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+                
+                createCall(ft, fn.getCallee(), { contextVal, res, data });
+                lastValue = nullptr;
+                return true;
+            }
         }
     }
 
@@ -93,6 +182,21 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     createCall(ft, logFn.getCallee(), { arg });
                 }
                 lastValue = nullptr;
+                return true;
+            }
+        }
+    } else if (prop->name == "createServer") {
+        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (obj->name == "http") {
+                visit(node->arguments[0].get());
+                llvm::Value* callback = lastValue;
+                llvm::Value* vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_create_server", ft);
+                
+                llvm::Value* contextVal = currentAsyncContext ? currentAsyncContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { contextVal, vtable, callback });
                 return true;
             }
         }
@@ -589,41 +693,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 lastValue = createCall(anyFt, anyFn.getCallee(), { iterable });
                 return true;
             }
-        }
-    } else if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
-        auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
-        if (classType->name == "Date") {
-            visit(prop->expression.get());
-            llvm::Value* dateObj = lastValue;
-            
-            std::string methodName = prop->name;
-            std::string funcName = "Date_" + methodName;
-            
-            llvm::Type* retType = llvm::Type::getInt64Ty(*context);
-            std::vector<llvm::Type*> paramTypes = { builder->getPtrTy() };
-            
-            if (methodName == "toISOString" || methodName == "toString" || methodName == "toDateString") {
-                retType = builder->getPtrTy();
-            } else if (methodName.substr(0, 3) == "set") {
-                retType = llvm::Type::getVoidTy(*context);
-                paramTypes.push_back(llvm::Type::getInt64Ty(*context));
-            }
-            
-            llvm::FunctionType* ft = llvm::FunctionType::get(retType, paramTypes, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
-            
-            std::vector<llvm::Value*> args = { dateObj };
-            for (auto& arg : node->arguments) {
-                visit(arg.get());
-                llvm::Value* val = lastValue;
-                if (val->getType()->isDoubleTy()) {
-                    val = builder->CreateFPToSI(val, llvm::Type::getInt64Ty(*context));
-                }
-                args.push_back(val);
-            }
-            
-            lastValue = createCall(ft, fn.getCallee(), args);
-            return true;
         }
     }
 
