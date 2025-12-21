@@ -13,7 +13,12 @@
 #include <llvm/Transforms/Scalar/SROA.h>
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/IPO/Inliner.h>
+#include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Analysis/InlineCost.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Linker/Linker.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/SourceMgr.h>
 
 namespace ts {
 using namespace ast;
@@ -550,6 +555,26 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
 
     module->setDataLayout(targetMachine->createDataLayout());
 
+    if (!runtimeBitcodePath.empty()) {
+        fmt::print("Linking runtime bitcode: {}\n", runtimeBitcodePath);
+        llvm::SMDiagnostic err;
+        auto runtimeModule = llvm::parseIRFile(runtimeBitcodePath, err, *context);
+        if (!runtimeModule) {
+            err.print("ts-aot", llvm::errs());
+        } else {
+            if (llvm::Linker::linkModules(*module, std::move(runtimeModule))) {
+                fmt::print(stderr, "Error linking runtime bitcode\n");
+            } else {
+                // Internalize everything except main to allow aggressive DCE
+                for (auto& F : *module) {
+                    if (!F.isDeclaration() && F.getName() != "main") {
+                        F.setLinkage(llvm::GlobalValue::InternalLinkage);
+                    }
+                }
+            }
+        }
+    }
+
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
 
@@ -596,7 +621,32 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
         // Add default pipeline
         MPM.addPass(PB.buildPerModuleDefaultPipeline(level));
         
+        // Global DCE to remove unused runtime functions after linking
+        MPM.addPass(llvm::GlobalDCEPass());
+        
         MPM.run(*module, MAM);
+    }
+
+    if (filename.ends_with(".bc")) {
+        std::error_code ec;
+        llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
+        if (ec) {
+            llvm::errs() << "Could not open file: " << ec.message();
+            return;
+        }
+        llvm::WriteBitcodeToFile(*module, dest);
+        return;
+    }
+
+    if (filename.ends_with(".ll")) {
+        std::error_code ec;
+        llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
+        if (ec) {
+            llvm::errs() << "Could not open file: " << ec.message();
+            return;
+        }
+        module->print(dest, nullptr);
+        return;
     }
 
     // Legacy Pass Manager for CodeGen

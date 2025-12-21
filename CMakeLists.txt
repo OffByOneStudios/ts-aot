@@ -15,9 +15,53 @@ add_subdirectory(src/runtime)
 add_subdirectory(src/compiler)
 add_subdirectory(tests)
 
+# LTO Support: Build runtime bitcode
+find_package(LLVM REQUIRED CONFIG)
+find_program(CLANG_EXECUTABLE clang HINTS "${LLVM_TOOLS_BINARY_DIR}")
+find_program(LLVM_LINK_EXECUTABLE llvm-link HINTS "${LLVM_TOOLS_BINARY_DIR}")
+
+if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
+    set(RUNTIME_BC_OUTPUT "${CMAKE_BINARY_DIR}/tsruntime.bc")
+    set(RUNTIME_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/src")
+    set(RUNTIME_INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/include")
+    
+    file(GLOB RUNTIME_SOURCES "${RUNTIME_SRC_DIR}/*.cpp")
+    set(RUNTIME_BC_FILES "")
+    
+    foreach(src ${RUNTIME_SOURCES})
+        get_filename_component(name ${src} NAME_WE)
+        set(bc_file "${CMAKE_BINARY_DIR}/runtime_bc/${name}.bc")
+        list(APPEND RUNTIME_BC_FILES ${bc_file})
+        
+        add_custom_command(
+            OUTPUT ${bc_file}
+            COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 
+                    -I${RUNTIME_INC_DIR} 
+                    -I${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/include
+                    -DTS_RUNTIME_EXPORT -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
+                    ${src} -o ${bc_file}
+            DEPENDS ${src}
+            COMMENT "Compiling ${name}.cpp to bitcode"
+        )
+    endforeach()
+    
+    add_custom_command(
+        OUTPUT ${RUNTIME_BC_OUTPUT}
+        COMMAND ${LLVM_LINK_EXECUTABLE} ${RUNTIME_BC_FILES} -o ${RUNTIME_BC_OUTPUT}
+        DEPENDS ${RUNTIME_BC_FILES}
+        COMMENT "Linking runtime bitcode"
+    )
+    
+    add_custom_target(tsruntime_bc DEPENDS ${RUNTIME_BC_OUTPUT})
+endif()
+
 # Optional: Add a target for the http-server test app
 find_package(libuv CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
+find_package(BDWgc CONFIG REQUIRED)
+find_package(ICU COMPONENTS uc i18n REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.json"
@@ -34,3 +78,9 @@ add_custom_command(
 add_executable(test_app examples/http-server/http-server.obj)
 target_link_libraries(test_app PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(test_app PRIVATE src/runtime/include)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")
+    add_executable(test_app_lto http-server-lto.obj)
+    set_target_properties(test_app_lto PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(test_app_lto PRIVATE libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 BDWgc::gc ICU::uc ICU::i18n unofficial-sodium::sodium OpenSSL::SSL OpenSSL::Crypto)
+endif()

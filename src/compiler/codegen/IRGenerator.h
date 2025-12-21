@@ -22,6 +22,7 @@ public:
     void emitObjectCode(const std::string& filename);
     void dumpIR();
     void setOptLevel(int level) { optLevel = level; }
+    void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
 
 private:
     std::unique_ptr<llvm::LLVMContext> context;
@@ -30,6 +31,7 @@ private:
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
     int optLevel = 0;
+    std::string runtimeBitcodePath;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void generateGlobals(const Analyzer& analyzer);

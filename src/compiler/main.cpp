@@ -77,6 +77,7 @@ int main(int argc, char** argv) {
         ("o,output", "Output file", cxxopts::value<std::string>())
         ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
         ("O,opt", "Optimization level (0-3)", cxxopts::value<int>()->default_value("0"))
+        ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
         ("h,help", "Print usage")
         ("input", "Input file", cxxopts::value<std::string>());
 
@@ -119,6 +120,9 @@ int main(int argc, char** argv) {
 
     ts::IRGenerator irGen;
     irGen.setOptLevel(result["opt"].as<int>());
+    if (result.count("runtime-bc")) {
+        irGen.setRuntimeBitcode(result["runtime-bc"].as<std::string>());
+    }
     irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
     
     if (result.count("debug-ast")) { // Reuse debug flag for now, or add a new one

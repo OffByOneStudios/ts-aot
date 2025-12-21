@@ -14,8 +14,8 @@ The default LLVM optimization passes are good, but we can achieve better results
 - [x] Implement a "Release" build mode that enables `-O3`.
 
 ### Milestone 2: Link Time Optimization (LTO)
-- [ ] Configure the build system to generate LLVM Bitcode for the C++ runtime.
-- [ ] Use `ThinLTO` to allow the compiler to optimize across the boundary between generated TypeScript code and the C++ runtime (e.g., inlining `ts_string_create`).
+- [x] Configure the build system to generate LLVM Bitcode for the C++ runtime.
+- [x] Use `ThinLTO` to allow the compiler to optimize across the boundary between generated TypeScript code and the C++ runtime (e.g., inlining `ts_string_create`).
 
 ### Milestone 3: Binary Size Optimization
 - [ ] Implement dead code elimination for unused runtime functions.
