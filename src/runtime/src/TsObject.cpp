@@ -134,10 +134,28 @@ extern "C" {
     }
 
     void* ts_object_get_property(void* obj, void* key) {
-        if (!obj || !key) return nullptr;
-        uint32_t magic = *(uint32_t*)obj;
-        if (magic == TsMap::MAGIC) {
+        if (!obj) return nullptr;
+        
+        // Try reading magic at offset 0 (for TsMap which doesn't have a vtable)
+        uint32_t magic0 = *(uint32_t*)obj;
+        if (magic0 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsValue val = ((TsMap*)obj)->Get((TsString*)key);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
+        }
+        
+        // Try reading magic at offset 8 (for TsObjects which have a vtable)
+        uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
+        if (magic8 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
+            // TsHeaders layout: vtable (8), magic (4), padding (4), map (8)
+            struct FakeHeaders {
+                void* vtable;
+                uint32_t magic;
+                TsMap* map;
+            };
+            TsMap* map = ((FakeHeaders*)obj)->map;
+            TsValue val = map->Get((TsString*)key);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
@@ -146,9 +164,19 @@ extern "C" {
     }
 
     void* ts_value_get_property(TsValue* val, void* propName) {
-        if (!val) return nullptr;
+        if (!val || !propName) return nullptr;
+        
+        TsString* key = nullptr;
+        TsValue* propVal = (TsValue*)propName;
+        if (propVal->type == ValueType::STRING_PTR) {
+            key = (TsString*)propVal->ptr_val;
+        } else {
+            // TODO: Handle other types by converting to string
+            return nullptr;
+        }
+
         if (val->type == ValueType::OBJECT_PTR) {
-            return ts_object_get_property(val->ptr_val, propName);
+            return ts_object_get_property(val->ptr_val, key);
         }
         return nullptr;
     }

@@ -89,21 +89,13 @@ void ts_run_microtasks() {
 
 extern "C" void ts_loop_run() {
     uv_loop_t* loop = uv_default_loop();
-    fprintf(stderr, "ts_loop_run started\n");
-    fflush(stderr);
     
     while (true) {
-        fprintf(stderr, "Running microtasks\n");
-        fflush(stderr);
         ts_run_microtasks();
         
         if (uv_loop_alive(loop)) {
-            fprintf(stderr, "Running uv loop\n");
-            fflush(stderr);
             uv_run(loop, UV_RUN_ONCE);
         } else {
-            fprintf(stderr, "Loop not alive, exiting\n");
-            fflush(stderr);
             break;
         }
     }

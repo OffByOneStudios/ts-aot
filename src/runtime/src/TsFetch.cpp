@@ -424,7 +424,10 @@ TsHeaders::TsHeaders() {
 }
 
 void TsHeaders::Append(TsString* name, TsString* value) {
-    map->Set(name, TsValue(value));
+    TsValue val;
+    val.type = ValueType::STRING_PTR;
+    val.ptr_val = value;
+    map->Set(name, val);
 }
 
 TsString* TsHeaders::Get(TsString* name) {

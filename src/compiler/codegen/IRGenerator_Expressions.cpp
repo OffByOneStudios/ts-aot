@@ -933,28 +933,57 @@ void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
 }
 
 void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
+    std::vector<llvm::Type*> argTypes;
+    argTypes.push_back(builder->getPtrTy()); // context
+    for (size_t i = 0; i < node->params.size(); ++i) {
+        argTypes.push_back(builder->getPtrTy());
+    }
+
     llvm::FunctionType* funcType = llvm::FunctionType::get(
         builder->getPtrTy(), // Return type
+        argTypes,
         false // Not vararg
     );
 
     llvm::FunctionCallee funcCallee = module->getOrInsertFunction(node->id->name, funcType);
+    llvm::Function* function = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
 
     // The function body is generated in the context of the function itself
-    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", llvm::dyn_cast<llvm::Function>(funcCallee.getCallee()));
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", function);
     builder->SetInsertPoint(entry);
 
-    // Allocate space for the arguments
+    auto oldNamedValues = namedValues;
+    namedValues.clear();
+
+    auto argIt = function->arg_begin();
+    if (argIt != function->arg_end()) {
+        argIt->setName("context");
+        currentContext = &*argIt;
+        ++argIt;
+    }
+
+    // Allocate space for the arguments and store them
     for (size_t i = 0; i < node->params.size(); ++i) {
         auto param = node->params[i];
-        llvm::AllocaInst* alloca = builder->CreateAlloca(llvm::Type::getInt64Ty(*context), nullptr, param->id->name);
-        namedValues[param->id->name] = alloca;
+        if (argIt != function->arg_end()) {
+            llvm::Value* argVal = &*argIt;
+            argVal->setName(param->id->name);
+            
+            llvm::AllocaInst* alloca = builder->CreateAlloca(builder->getPtrTy(), nullptr, param->id->name);
+            builder->CreateStore(argVal, alloca);
+            namedValues[param->id->name] = alloca;
+            ++argIt;
+        }
     }
 
     visit(node->body.get());
 
     // Create the function
-    builder->CreateRetVoid();
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    }
+
+    namedValues = oldNamedValues;
 }
 
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {

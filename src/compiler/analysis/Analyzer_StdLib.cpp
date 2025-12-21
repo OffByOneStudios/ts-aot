@@ -692,5 +692,47 @@ Analyzer::Analyzer() {
     responseClass->methods["json"] = jsonMethod;
     
     symbols.defineType("Response", responseClass);
+
+    // Register http module
+    auto httpType = std::make_shared<ObjectType>();
+    
+    auto incomingMessageClass = std::make_shared<ClassType>("IncomingMessage");
+    incomingMessageClass->fields["method"] = std::make_shared<Type>(TypeKind::String);
+    incomingMessageClass->fields["url"] = std::make_shared<Type>(TypeKind::String);
+    incomingMessageClass->fields["headers"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.defineType("IncomingMessage", incomingMessageClass);
+
+    auto serverResponseClass = std::make_shared<ClassType>("ServerResponse");
+    
+    auto writeHeadMethod = std::make_shared<FunctionType>();
+    writeHeadMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    writeHeadMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // headers
+    serverResponseClass->methods["writeHead"] = writeHeadMethod;
+    
+    auto writeMethod = std::make_shared<FunctionType>();
+    writeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    serverResponseClass->methods["write"] = writeMethod;
+    
+    auto endMethod = std::make_shared<FunctionType>();
+    endMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    serverResponseClass->methods["end"] = endMethod;
+    symbols.defineType("ServerResponse", serverResponseClass);
+
+    auto serverClass = std::make_shared<ClassType>("Server");
+    auto listenMethod = std::make_shared<FunctionType>();
+    listenMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    listenMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback
+    serverClass->methods["listen"] = listenMethod;
+    symbols.defineType("Server", serverClass);
+
+    auto createServerType = std::make_shared<FunctionType>();
+    auto requestCallback = std::make_shared<FunctionType>();
+    requestCallback->paramTypes.push_back(incomingMessageClass);
+    requestCallback->paramTypes.push_back(serverResponseClass);
+    createServerType->paramTypes.push_back(requestCallback);
+    createServerType->returnType = serverClass;
+    httpType->fields["createServer"] = createServerType;
+    
+    symbols.define("http", httpType);
 }
 } // namespace ts

@@ -157,7 +157,7 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
 }
 
 std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
-    if (specifier == "fs" || specifier == "path" || specifier == "crypto" || specifier == "os") {
+    if (specifier == "fs" || specifier == "path" || specifier == "crypto" || specifier == "os" || specifier == "http") {
         if (modules.count("builtin:" + specifier)) {
             return modules["builtin:" + specifier];
         }
@@ -182,6 +182,14 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             if (pathSym) {
                 auto pathType = std::static_pointer_cast<ObjectType>(pathSym->type);
                 for (auto& [name, type] : pathType->fields) {
+                    module->exports->define(name, type);
+                }
+            }
+        } else if (specifier == "http") {
+            auto httpSym = symbols.lookup("http");
+            if (httpSym) {
+                auto httpType = std::static_pointer_cast<ObjectType>(httpSym->type);
+                for (auto& [name, type] : httpType->fields) {
                     module->exports->define(name, type);
                 }
             }

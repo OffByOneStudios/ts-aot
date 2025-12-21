@@ -288,7 +288,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     auto argIt = function->arg_begin();
     if (argIt != function->arg_end()) {
         argIt->setName("context");
-        currentAsyncContext = &*argIt;
+        currentContext = &*argIt;
         ++argIt;
     }
 
@@ -338,10 +338,10 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     std::string name = node->name.empty() ? "func_expr_" + std::to_string(funcExprCounter++) : node->name;
     
     std::vector<llvm::Type*> argTypes;
+    argTypes.push_back(builder->getPtrTy()); // context first
     for (auto& param : node->parameters) {
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
-    argTypes.push_back(builder->getPtrTy()); // context
     
     llvm::Type* retType = builder->getPtrTy(); // TsValue*
     
@@ -382,7 +382,7 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     auto argIt = function->arg_begin();
     if (argIt != function->arg_end()) {
         argIt->setName("context");
-        currentAsyncContext = &*argIt;
+        currentContext = &*argIt;
         ++argIt;
     }
 

@@ -113,15 +113,10 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
 #endif
 
-    fprintf(stderr, "ts_main started\n");
-    fflush(stderr);
-
     // 1. Initialize Garbage Collector
     ts_gc_init();
 
     // 2. Initialize Event Loop
-    fprintf(stderr, "Initializing event loop\n");
-    fflush(stderr);
     ts_loop_init();
 
     // 3. Initialize process.argv
@@ -134,15 +129,11 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 4. Run User Code (which might schedule async work)
     if (user_main) {
-        fprintf(stderr, "Calling user_main\n");
-        fflush(stderr);
         TsValue* result = user_main(nullptr);
         (void)result; // For now, we don't do anything special with the top-level promise
     }
 
     // 5. Run Event Loop
-    fprintf(stderr, "Running event loop\n");
-    fflush(stderr);
     ts_loop_run();
 
     return 0;
