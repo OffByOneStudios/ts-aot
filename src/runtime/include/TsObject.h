@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 
 enum class ValueType : uint8_t {
     UNDEFINED = 0,
