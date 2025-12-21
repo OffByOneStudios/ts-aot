@@ -1,0 +1,295 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "http",
+      "importClause": {
+        "name": null,
+        "namedBindings": {
+          "kind": "NamespaceImport",
+          "name": "http"
+        }
+      }
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "server"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "http"
+          },
+          "name": "createServer"
+        },
+        "arguments": [
+          {
+            "kind": "ArrowFunction",
+            "isAsync": false,
+            "parameters": [
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "req"
+                },
+                "type": "IncomingMessage",
+                "isOptional": false,
+                "isRest": false,
+                "initializer": null,
+                "access": null,
+                "isReadonly": false,
+                "isParameterProperty": false
+              },
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "res"
+                },
+                "type": "ServerResponse",
+                "isOptional": false,
+                "isRest": false,
+                "initializer": null,
+                "access": null,
+                "isReadonly": false,
+                "isParameterProperty": false
+              }
+            ],
+            "body": {
+              "kind": "BlockStatement",
+              "body": [
+                {
+                  "kind": "IfStatement",
+                  "condition": {
+                    "kind": "BinaryExpression",
+                    "operator": "===",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "req"
+                      },
+                      "name": "url"
+                    },
+                    "right": {
+                      "kind": "StringLiteral",
+                      "value": "/json"
+                    }
+                  },
+                  "thenStatement": {
+                    "kind": "BlockStatement",
+                    "body": [
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "res"
+                            },
+                            "name": "writeHead"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "NumericLiteral",
+                              "value": 200
+                            },
+                            {
+                              "kind": "ObjectLiteralExpression",
+                              "properties": [
+                                {
+                                  "name": "Content-Type",
+                                  "initializer": {
+                                    "kind": "StringLiteral",
+                                    "value": "application/json"
+                                  }
+                                }
+                              ]
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      },
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "res"
+                            },
+                            "name": "end"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "CallExpression",
+                              "callee": {
+                                "kind": "PropertyAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "JSON"
+                                },
+                                "name": "stringify"
+                              },
+                              "arguments": [
+                                {
+                                  "kind": "ObjectLiteralExpression",
+                                  "properties": [
+                                    {
+                                      "name": "message",
+                                      "initializer": {
+                                        "kind": "StringLiteral",
+                                        "value": "Hello, World!"
+                                      }
+                                    },
+                                    {
+                                      "name": "timestamp",
+                                      "initializer": {
+                                        "kind": "CallExpression",
+                                        "callee": {
+                                          "kind": "PropertyAccessExpression",
+                                          "expression": {
+                                            "kind": "Identifier",
+                                            "name": "Date"
+                                          },
+                                          "name": "now"
+                                        },
+                                        "arguments": [],
+                                        "typeArguments": []
+                                      }
+                                    }
+                                  ]
+                                }
+                              ],
+                              "typeArguments": []
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    ]
+                  },
+                  "elseStatement": {
+                    "kind": "BlockStatement",
+                    "body": [
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "res"
+                            },
+                            "name": "writeHead"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "NumericLiteral",
+                              "value": 404
+                            },
+                            {
+                              "kind": "ObjectLiteralExpression",
+                              "properties": [
+                                {
+                                  "name": "Content-Type",
+                                  "initializer": {
+                                    "kind": "StringLiteral",
+                                    "value": "text/plain"
+                                  }
+                                }
+                              ]
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      },
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "res"
+                            },
+                            "name": "end"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "StringLiteral",
+                              "value": "Not Found"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Server listening on port 8080..."
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "server"
+          },
+          "name": "listen"
+        },
+        "arguments": [
+          {
+            "kind": "NumericLiteral",
+            "value": 8080
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}
