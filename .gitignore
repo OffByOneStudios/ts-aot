@@ -1,10 +1,21 @@
 # Build directories
 build/
+build_*/
 out/
+bin/
 
 # vcpkg
 vcpkg_installed/
 vcpkg/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+.venv/
+*.pyc
 
 # CMake
 CMakeCache.txt
@@ -28,6 +39,34 @@ CMakeUserPresets.json
 *.obj
 *.lib
 *.exe
+*.exp
+*.recipe
+*.tlog/
+*.lastbuildstate
+
+# Temporary/Generated files
+*.tmp
+*.log
+*error.txt
+*_ir.txt
+ir_output.txt
+*.obj
+*.exe
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.json
+!vcpkg.json
+!package.json
+!src/**/*.json
+!tests/**/*.json
+!examples/**/*.json
+!vcpkg.json
+!package.json
+!src/**/*.json
+!tests/**/*.json
+!examples/**/*.json
 
 # VS Code
 .vscode/
