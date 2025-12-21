@@ -22,6 +22,8 @@ extern "C" {
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
     if (ctx->resumeFn) {
+        // fprintf(stderr, "Resuming async context with value type %d\n", (int)value->type);
+        // fflush(stderr);
         ctx->resumeFn(ctx, value);
     }
 }
@@ -51,6 +53,7 @@ struct PromiseCallbackTask {
 
 void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValue& value) {
     if (cb.asyncCtx) {
+        cb.asyncCtx->error = (promise->state == PromiseState::Rejected);
         ts_async_resume(cb.asyncCtx, &value);
         return;
     }

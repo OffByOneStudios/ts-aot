@@ -221,9 +221,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create",
-            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-        lastValue = builder->CreateCall(fn);
+        llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createFt);
+        lastValue = createCall(createFt, fn.getCallee(), {});
         return;
     }
 
@@ -233,9 +233,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 
         if (className == "Date") {
             if (node->arguments.empty()) {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-                lastValue = builder->CreateCall(fn);
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create", createFt);
+                lastValue = createCall(createFt, fn.getCallee(), {});
             } else {
                 visit(node->arguments[0].get());
                 llvm::Value* arg = lastValue;
@@ -243,15 +243,15 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     if (arg->getType()->isDoubleTy()) {
                         arg = builder->CreateFPToSI(arg, llvm::Type::getInt64Ty(*context));
                     }
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms",
-                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                            { llvm::Type::getInt64Ty(*context) }, false));
-                    lastValue = builder->CreateCall(fn, { arg });
+                    llvm::FunctionType* createMsFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms", createMsFt);
+                    lastValue = createCall(createMsFt, fn.getCallee(), { arg });
                 } else {
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str",
-                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                            { llvm::PointerType::getUnqual(*context) }, false));
-                    lastValue = builder->CreateCall(fn, { arg });
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::PointerType::getUnqual(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str", createStrFt);
+                    lastValue = createCall(createStrFt, fn.getCallee(), { arg });
                 }
             }
             return;
@@ -264,9 +264,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 pattern = lastValue;
             } else {
                 llvm::Constant* emptyStr = builder->CreateGlobalStringPtr("");
-                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
-                pattern = builder->CreateCall(createFn, { emptyStr });
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false);
+                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+                pattern = createCall(createFt, createFn.getCallee(), { emptyStr });
             }
             
             if (node->arguments.size() >= 2) {
@@ -276,10 +276,10 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 flags = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
             }
             
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
-            lastValue = builder->CreateCall(fn, { pattern, flags });
+            llvm::FunctionType* createRegExpFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create", createRegExpFt);
+            lastValue = createCall(createRegExpFt, fn.getCallee(), { pattern, flags });
             return;
         } else if (className == "URL") {
             llvm::Value* url = nullptr;
@@ -303,10 +303,10 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 vtable = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
             }
 
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_create",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
-            lastValue = builder->CreateCall(fn, { vtable, url, base });
+            llvm::FunctionType* createUrlFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_create", createUrlFt);
+            lastValue = createCall(createUrlFt, fn.getCallee(), { vtable, url, base });
             return;
         }
         
@@ -323,16 +323,13 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         llvm::errs() << "Allocating class: " << className << " opaque: " << structType->isOpaque() << "\n";
         uint64_t size = dl.getTypeAllocSize(structType);
         
-        llvm::Function* allocFn = module->getFunction("ts_alloc");
-        if (!allocFn) {
-            llvm::FunctionType* ft = llvm::FunctionType::get(
-                llvm::PointerType::getUnqual(*context),
-                { llvm::Type::getInt64Ty(*context) }, false);
-            allocFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_alloc", module.get());
-        }
+        llvm::FunctionType* allocFt = llvm::FunctionType::get(
+            llvm::PointerType::getUnqual(*context),
+            { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
         
         llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
-        llvm::Value* mem = builder->CreateCall(allocFn, { sizeVal });
+        llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
         llvm::Value* thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
         
         // 3. Initialize VPtr
@@ -371,7 +368,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 argIdx++;
             }
             
-            builder->CreateCall(ctor, args);
+            createCall(ctor->getFunctionType(), ctor, args);
         } else {
             llvm::errs() << "Constructor not found: " << ctorName << "\n";
         }
@@ -382,9 +379,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-            lastValue = builder->CreateCall(fn);
+            llvm::FunctionType* createMapFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createMapFt);
+            lastValue = createCall(createMapFt, fn.getCallee(), {});
             return;
         } else if (id->name == "Array") {
             if (!node->arguments.empty()) {
@@ -395,22 +392,22 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     size = builder->CreateFPToSI(size, llvm::Type::getInt64Ty(*context));
                 }
                 
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create_sized",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                        { llvm::Type::getInt64Ty(*context) }, false));
-                lastValue = builder->CreateCall(fn, { size });
+                llvm::FunctionType* createSizedFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                        { llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create_sized", createSizedFt);
+                lastValue = createCall(createSizedFt, fn.getCallee(), { size });
                 return;
             } else {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-                lastValue = builder->CreateCall(fn);
+                llvm::FunctionType* createArrayFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create", createArrayFt);
+                lastValue = createCall(createArrayFt, fn.getCallee(), {});
                 return;
             }
         } else if (id->name == "Date") {
             if (node->arguments.empty()) {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-                lastValue = builder->CreateCall(fn);
+                llvm::FunctionType* createDateFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create", createDateFt);
+                lastValue = createCall(createDateFt, fn.getCallee(), {});
             } else {
                 visit(node->arguments[0].get());
                 llvm::Value* arg = lastValue;
@@ -418,15 +415,15 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     if (arg->getType()->isDoubleTy()) {
                         arg = builder->CreateFPToSI(arg, llvm::Type::getInt64Ty(*context));
                     }
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms",
-                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                            { llvm::Type::getInt64Ty(*context) }, false));
-                    lastValue = builder->CreateCall(fn, { arg });
+                    llvm::FunctionType* createMsFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_ms", createMsFt);
+                    lastValue = createCall(createMsFt, fn.getCallee(), { arg });
                 } else {
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str",
-                        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                            { llvm::PointerType::getUnqual(*context) }, false));
-                    lastValue = builder->CreateCall(fn, { arg });
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                            { llvm::PointerType::getUnqual(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_date_create_str", createStrFt);
+                    lastValue = createCall(createStrFt, fn.getCallee(), { arg });
                 }
             }
             return;
@@ -439,9 +436,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 pattern = lastValue;
             } else {
                 llvm::Constant* emptyStr = builder->CreateGlobalStringPtr("");
-                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create",
-                    llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
-                pattern = builder->CreateCall(createFn, { emptyStr });
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false);
+                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                pattern = createCall(createStrFt, createFn.getCallee(), { emptyStr });
             }
             
             if (node->arguments.size() >= 2) {
@@ -451,10 +448,10 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 flags = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
             }
             
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
-            lastValue = builder->CreateCall(fn, { pattern, flags });
+            llvm::FunctionType* createRegExpFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create", createRegExpFt);
+            lastValue = createCall(createRegExpFt, fn.getCallee(), { pattern, flags });
             return;
         }
     }
@@ -462,13 +459,13 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 }
 
 void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_map_create",
-        llvm::FunctionType::get(builder->getPtrTy(), {}, false));
-    llvm::Value* map = builder->CreateCall(createFn, {});
+    llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+    llvm::Value* map = createCall(createMapFt, createFn.getCallee(), {});
 
-    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set",
-        llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
+    llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set", setMapFt);
 
     for (auto& prop : node->properties) {
         visit(prop->initializer.get());
@@ -477,11 +474,11 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
         // Box the value
         llvm::Value* boxedVal = boxValue(val, prop->initializer->inferredType);
         
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
-            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-        llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(prop->name) });
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(prop->name) });
         
-        builder->CreateCall(setFn, { map, keyStr, boxedVal });
+        createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
     }
 
     lastValue = map;

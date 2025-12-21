@@ -480,6 +480,10 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 }
                 lastType = memberType;
                 return;
+            } else {
+                fmt::print("DEBUG: Property {} not found on class {}. Available fields: ", node->name, cls->name);
+                for (auto const& [name, type] : cls->fields) fmt::print("{} ", name);
+                fmt::print("\n");
             }
         } else if (objType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(objType);

@@ -11,8 +11,15 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 *   **Runtime Rules (Strict):**
     *   **Memory:** NEVER use `new`/`malloc` directly for runtime objects. Use `ts_alloc` (wraps Boehm GC).
     *   **Strings:** NEVER use `std::string` for runtime values. Use `TsString` (ICU-based).
-    *   **Async:** Use `libuv` for the event loop.
-    *   **IO:** Use `ts_console_log`.
+*   **Async:** Use `libuv` for the event loop.
+*   **IO:** Use `ts_console_log`.
+*   **LLVM 18 (Opaque Pointers):**
+    *   **Pointers:** Use `builder->getPtrTy()` for all pointer types. NEVER use `getPointerTo()`.
+    *   **GEP:** Always provide the source element type: `builder->CreateGEP(type, ptr, indices)`.
+    *   **Load/Store:** Always provide the type to `CreateLoad(type, ptr)`.
+    *   **Calls:** Always provide the `FunctionType` to `CreateCall(ft, callee, args)`.
+    *   **Type Safety:** LLVM 18 does NOT check pointer types (they are all `ptr`), but it STRICTLY checks that the types in `args` match the `FunctionType` passed to `CreateCall`. If they don't, it will crash with "Calling a function with a bad signature!".
+    *   **Casting:** Use `CreateBitCast` for pointer-to-pointer (though often redundant), `CreateIntCast` for integers, and `CreateFPToSI`/`CreateSIToFP` for numeric conversions. Always ensure arguments match the `FunctionType` exactly.
 
 ## Development Workflow
 Follow this cycle for all development tasks:

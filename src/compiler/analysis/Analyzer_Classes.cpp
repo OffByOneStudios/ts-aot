@@ -83,6 +83,7 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
                             auto fieldType = parseType(param->type, symbols);
                             classType->fields[id->name] = fieldType;
                             classType->fieldAccess[id->name] = param->access;
+                            fmt::print("DEBUG: Registered parameter property {} on class {}\n", id->name, classType->name);
                             if (param->isReadonly) {
                                 classType->readonlyFields.insert(id->name);
                             }
@@ -303,6 +304,18 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
             auto propType = parseType(prop->type, symbols);
             classType->fields[prop->name] = substitute(propType, env);
         } else if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+            if (method->name == "constructor") {
+                for (const auto& param : method->parameters) {
+                    if (param->isParameterProperty) {
+                        auto id = dynamic_cast<ast::Identifier*>(param->name.get());
+                        if (id) {
+                            auto fieldType = parseType(param->type, symbols);
+                            classType->fields[id->name] = substitute(fieldType, env);
+                            classType->fieldAccess[id->name] = param->access;
+                        }
+                    }
+                }
+            }
             auto methodType = std::make_shared<FunctionType>();
             for (const auto& p : method->parameters) {
                 methodType->paramTypes.push_back(substitute(parseType(p->type, symbols), env));
@@ -317,6 +330,8 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
 }
 
 std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+    auto oldClass = currentClass;
+    currentClass = classType;
     symbols.enterScope();
     
     // Define 'this'
@@ -372,6 +387,7 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     }
     
     symbols.exitScope();
+    currentClass = oldClass;
     return inferredReturnType;
 }
 

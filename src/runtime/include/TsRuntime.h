@@ -43,6 +43,7 @@ int64_t ts_value_length(TsValue* val);
 void* ts_push_exception_handler();
 void ts_pop_exception_handler();
 void ts_throw(void* exception);
+void ts_set_exception(void* exception);
 void* ts_get_exception();
 
 // --- Entry Point ---

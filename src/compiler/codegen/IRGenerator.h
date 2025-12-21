@@ -41,10 +41,13 @@ private:
     void visitVariableDeclaration(ast::VariableDeclaration* node);
     void visitReturnStatement(ast::ReturnStatement* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
+    void visitConditionalExpression(ast::ConditionalExpression* node);
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIdentifier(ast::Identifier* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
+    void visitNullLiteral(ast::NullLiteral* node);
+    void visitUndefinedLiteral(ast::UndefinedLiteral* node);
     void visitStringLiteral(ast::StringLiteral* node);
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
@@ -95,6 +98,7 @@ private:
     llvm::Value* unboxValue(llvm::Value* val, std::shared_ptr<Type> type);
     void generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern);
 
+    llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
@@ -121,6 +125,7 @@ private:
     std::map<std::string, int> currentAsyncFrameMap;
     llvm::BasicBlock* asyncDispatcherBB = nullptr;
     std::vector<llvm::BasicBlock*> asyncStateBlocks;
+    std::vector<llvm::BasicBlock*> catchStack;
 
     struct ClassLayout {
         std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;
@@ -135,6 +140,8 @@ private:
         llvm::BasicBlock* breakBlock;
     };
     std::vector<LoopInfo> loopStack;
+
+    int anonVarCounter = 0;
 
     llvm::Function* getRuntimeFunction(const std::string& name);
 };

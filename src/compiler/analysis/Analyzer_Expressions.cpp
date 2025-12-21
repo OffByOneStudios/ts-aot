@@ -946,6 +946,15 @@ void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Boolean);
 }
 
+void Analyzer::visitNullLiteral(ast::NullLiteral* node) {
+    // Force rebuild
+    lastType = std::make_shared<Type>(TypeKind::Null);
+}
+
+void Analyzer::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
+    lastType = std::make_shared<Type>(TypeKind::Undefined);
+}
+
 void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
     visit(node->expression.get());
     auto type = lastType;
@@ -967,7 +976,12 @@ void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
     lastType = std::make_shared<Type>(TypeKind::String);
 }
 
-void Analyzer::visitPrefixUnaryExpression(PrefixUnaryExpression* node) {
+void Analyzer::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
+    visit(node->expression.get());
+    node->inferredType = lastType;
+}
+
+void Analyzer::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     visit(node->operand.get());
 }
 

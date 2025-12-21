@@ -1,0 +1,10 @@
+^E:\SRC\GITHUB.COM\CGRINKER\TS-AOC\DEBUG_DRIVER_CMAKE\CMAKELISTS.TXT
+setlocal
+C:\cmake\bin\cmake.exe -SE:/src/github.com/cgrinker/ts-aoc/debug_driver_cmake -BE:/src/github.com/cgrinker/ts-aoc/build_debug_driver --check-stamp-file E:/src/github.com/cgrinker/ts-aoc/build_debug_driver/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

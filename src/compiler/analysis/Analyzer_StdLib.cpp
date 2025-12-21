@@ -341,6 +341,11 @@ Analyzer::Analyzer() {
     statAsyncType->returnType = promiseClass; // Promise<Stats>
     fsPromisesType->fields["stat"] = statAsyncType;
 
+    auto readdirAsyncType = std::make_shared<FunctionType>();
+    readdirAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readdirAsyncType->returnType = promiseClass; // Promise<string[]>
+    fsPromisesType->fields["readdir"] = readdirAsyncType;
+
     fsType->fields["promises"] = fsPromisesType;
 
     auto existsSyncType = std::make_shared<FunctionType>();
@@ -368,7 +373,21 @@ Analyzer::Analyzer() {
     statSyncType->returnType = statsType;
     fsType->fields["statSync"] = statSyncType;
 
+    auto readdirSyncType = std::make_shared<FunctionType>();
+    readdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readdirSyncType->returnType = stringArray;
+    fsType->fields["readdirSync"] = readdirSyncType;
+
     symbols.define("fs", fsType);
+
+    // Register path global
+    auto pathType = std::make_shared<ObjectType>();
+    auto joinType = std::make_shared<FunctionType>();
+    joinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    joinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    joinType->returnType = std::make_shared<Type>(TypeKind::String);
+    pathType->fields["join"] = joinType;
+    symbols.define("path", pathType);
 
     // Register process global
     auto processType = std::make_shared<ObjectType>();

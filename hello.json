@@ -1,0 +1,26 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console"
+          },
+          "name": "log"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "hello"
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

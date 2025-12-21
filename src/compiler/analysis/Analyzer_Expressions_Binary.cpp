@@ -37,6 +37,20 @@ void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
     }
 }
 
+void Analyzer::visitConditionalExpression(ast::ConditionalExpression* node) {
+    visit(node->condition.get());
+    visit(node->whenTrue.get());
+    auto trueType = lastType;
+    visit(node->whenFalse.get());
+    auto falseType = lastType;
+
+    if (trueType && falseType && trueType->kind == falseType->kind) {
+        lastType = trueType;
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
+}
+
 void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->left.get())) {
         visit(prop->expression.get());

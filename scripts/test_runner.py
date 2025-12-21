@@ -17,8 +17,13 @@ def run_command(cmd, shell=True, timeout=None, env=None):
 
     if result.returncode != 0:
         print(f"Error running command: {cmd}", flush=True)
-        print(result.stdout, flush=True)
-        print(result.stderr, flush=True)
+        print(f"Return code: {result.returncode}", flush=True)
+        if result.stdout:
+            print("STDOUT:", flush=True)
+            print(result.stdout, flush=True)
+        if result.stderr:
+            print("STDERR:", flush=True)
+            print(result.stderr, flush=True)
         sys.exit(1)
     
     if result.stderr:
@@ -29,7 +34,8 @@ def run_command(cmd, shell=True, timeout=None, env=None):
 def main():
     parser = argparse.ArgumentParser(description="Compile and run a TypeScript file.")
     parser.add_argument("input_ts", help="The input TypeScript file to compile and run.")
-    parser.add_argument("--timeout", type=int, default=5, help="Timeout for the execution step in seconds (default: 5).")
+    parser.add_argument("--timeout", type=int, default=60, help="Timeout for the execution step in seconds (default: 60).")
+    parser.add_argument("--config", default="Debug", choices=["Debug", "Release"], help="Build configuration (default: Debug).")
     
     # Use parse_known_args to allow passing extra arguments to the test app
     args, extra_args = parser.parse_known_args()
@@ -37,18 +43,14 @@ def main():
     input_ts = os.path.abspath(args.input_ts)
     base_name = os.path.splitext(os.path.basename(input_ts))[0]
     build_dir = os.path.abspath("build")
+    config = args.config
     
     # Paths
     dump_ast_script = os.path.abspath("scripts/dump_ast.js")
     
-    # Try Debug then Release
-    compiler_exe = os.path.join(build_dir, "src", "compiler", "Debug", "ts-aot.exe")
-    if not os.path.exists(compiler_exe):
-        compiler_exe = os.path.join(build_dir, "src", "compiler", "Release", "ts-aot.exe")
-        
-    runtime_lib = os.path.join(build_dir, "src", "runtime", "Debug", "tsruntime.lib")
-    if not os.path.exists(runtime_lib):
-        runtime_lib = os.path.join(build_dir, "src", "runtime", "Release", "tsruntime.lib")
+    # Use specified config
+    compiler_exe = os.path.join(build_dir, "src", "compiler", config, "ts-aot.exe")
+    runtime_lib = os.path.join(build_dir, "src", "runtime", config, "tsruntime.lib")
     vcpkg_installed = os.path.join(build_dir, "vcpkg_installed", "x64-windows")
     
     # Intermediate files
@@ -83,26 +85,71 @@ def main():
                   f"-DCMAKE_PREFIX_PATH={vcpkg_installed_cmake}", 
                   f"-DTEST_OBJ={obj_file_cmake}", 
                   f"-DTSRUNTIME_LIB={runtime_lib_cmake}"]
+    
+    if "VCPKG_ROOT" in os.environ:
+        vcpkg_root = os.environ["VCPKG_ROOT"].replace(os.sep, '/')
+        toolchain = f"{vcpkg_root}/scripts/buildsystems/vcpkg.cmake"
+        config_cmd.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain}")
+        # Ensure we use the same triplet
+        config_cmd.append("-DVCPKG_TARGET_TRIPLET=x64-windows")
+
     run_command(config_cmd, shell=False, timeout=30)
     
     # Build
-    build_cmd = ["cmake", "--build", test_build_dir_cmake, "--config", "Debug"]
+    build_cmd = ["cmake", "--build", test_build_dir_cmake, "--config", config]
     run_command(build_cmd, shell=False, timeout=30)
 
-    # Step 4: Run
-    print("--- Step 4: Run ---", flush=True)
-    exe_path = os.path.join(test_build_dir, "Debug", "test_app.exe")
+    # Step 4: Copy DLLs
+    print("--- Step 4: Copy DLLs ---", flush=True)
+    exe_dir = os.path.join(test_build_dir, config)
     
-    # Add vcpkg bin to PATH for DLLs
-    vcpkg_bin = os.path.join(build_dir, "vcpkg_installed", "x64-windows", "bin")
-    vcpkg_debug_bin = os.path.join(build_dir, "vcpkg_installed", "x64-windows", "debug", "bin")
+    # Copy DLLs from vcpkg
+    # Always copy Release DLLs first (as fallback or if needed)
+    vcpkg_bin_release = os.path.join(build_dir, "vcpkg_installed", "x64-windows", "bin")
+    if os.path.exists(vcpkg_bin_release):
+        for item in os.listdir(vcpkg_bin_release):
+            if item.endswith(".dll"):
+                shutil.copy2(os.path.join(vcpkg_bin_release, item), exe_dir)
+
+    # Then copy Debug DLLs if in Debug mode (overwriting Release ones if same name)
+    if config == "Debug":
+        vcpkg_bin_debug = os.path.join(build_dir, "vcpkg_installed", "x64-windows", "debug", "bin")
+        if os.path.exists(vcpkg_bin_debug):
+            for item in os.listdir(vcpkg_bin_debug):
+                if item.endswith(".dll"):
+                    shutil.copy2(os.path.join(vcpkg_bin_debug, item), exe_dir)
+
+    # Step 5: Run
+    print("--- Step 5: Run ---", flush=True)
+    exe_path = os.path.join(exe_dir, "test_app.exe")
     
+    # Add vcpkg bin to PATH
     env = os.environ.copy()
-    env["PATH"] = vcpkg_bin + os.pathsep + vcpkg_debug_bin + os.pathsep + env["PATH"]
+    # Use the appropriate bin dir for PATH
+    vcpkg_bin_path = vcpkg_bin_release
+    if config == "Debug" and os.path.exists(os.path.join(build_dir, "vcpkg_installed", "x64-windows", "debug", "bin")):
+        vcpkg_bin_path = os.path.join(build_dir, "vcpkg_installed", "x64-windows", "debug", "bin")
     
-    output = run_command([exe_path] + extra_args, shell=False, env=env, timeout=args.timeout)
-    print("Output:", flush=True)
-    print(output, flush=True)
+    if os.path.exists(vcpkg_bin_path):
+        env["PATH"] = vcpkg_bin_path + os.pathsep + env.get("PATH", "")
+
+    try:
+        result = subprocess.run([exe_path] + extra_args, capture_output=True, text=True, timeout=args.timeout, env=env)
+        if result.returncode != 0:
+            print(f"Error running command: {exe_path}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
+            sys.exit(1)
+        print("Output:", flush=True)
+        print(result.stdout, flush=True)
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        print(f"Command timed out after {args.timeout} seconds")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     # Cleanup
     # os.remove(json_file)

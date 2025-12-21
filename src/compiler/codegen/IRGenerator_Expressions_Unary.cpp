@@ -8,33 +8,30 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         visit(node->operand.get());
         llvm::Value* val = lastValue;
         
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+
         if (val->getType()->isDoubleTy() || val->getType()->isIntegerTy(64)) {
-            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
-                builder->getPtrTy(), builder->getPtrTy());
             llvm::Value* strPtr = builder->CreateGlobalStringPtr("number");
-            lastValue = builder->CreateCall(createFn, {strPtr});
+            lastValue = createCall(createFt, createFn.getCallee(), {strPtr});
             return;
         }
         
         if (val->getType()->isIntegerTy(1)) {
-            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
-                builder->getPtrTy(), builder->getPtrTy());
             llvm::Value* strPtr = builder->CreateGlobalStringPtr("boolean");
-            lastValue = builder->CreateCall(createFn, {strPtr});
+            lastValue = createCall(createFt, createFn.getCallee(), {strPtr});
             return;
         }
 
         if (val->getType()->isPointerTy()) {
-            llvm::FunctionCallee typeofFn = module->getOrInsertFunction("ts_typeof",
-                builder->getPtrTy(), builder->getPtrTy());
-            lastValue = builder->CreateCall(typeofFn, {val});
+            llvm::FunctionType* typeofFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee typeofFn = module->getOrInsertFunction("ts_typeof", typeofFt);
+            lastValue = createCall(typeofFt, typeofFn.getCallee(), {val});
             return;
         }
 
-        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", 
-            builder->getPtrTy(), builder->getPtrTy());
         llvm::Value* strPtr = builder->CreateGlobalStringPtr("unknown");
-        lastValue = builder->CreateCall(createFn, {strPtr});
+        lastValue = createCall(createFt, createFn.getCallee(), {strPtr});
         return;
     }
 

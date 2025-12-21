@@ -14,7 +14,9 @@ void Analyzer::visitOmittedExpression(ast::OmittedExpression* node) {
     lastType = std::make_shared<Type>(TypeKind::Any);
 }
 
-std::shared_ptr<Type> Analyzer::resolveType(const std::string& typeName) {
+std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTable& symbols) {
+    if (typeName.empty()) return std::make_shared<Type>(TypeKind::Any);
+
     if (typeName.find('|') != std::string::npos) {
         std::vector<std::shared_ptr<Type>> types;
         std::stringstream ss(typeName);
@@ -38,12 +40,6 @@ std::shared_ptr<Type> Analyzer::resolveType(const std::string& typeName) {
         }
         return std::make_shared<IntersectionType>(types);
     }
-
-    return parseType(typeName, symbols);
-}
-
-std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTable& symbols) {
-    if (typeName.empty()) return std::make_shared<Type>(TypeKind::Any);
 
     if (typeName.ends_with("[]")) {
         auto baseName = typeName.substr(0, typeName.size() - 2);
@@ -70,6 +66,8 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
     if (typeName == "void") return std::make_shared<Type>(TypeKind::Void);
     if (typeName == "any") return std::make_shared<Type>(TypeKind::Any);
+    if (typeName == "null") return std::make_shared<Type>(TypeKind::Null);
+    if (typeName == "undefined") return std::make_shared<Type>(TypeKind::Undefined);
     
     auto type = symbols.lookupType(typeName);
     if (type) return type;
@@ -159,6 +157,40 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
 }
 
 std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
+    if (specifier == "fs" || specifier == "path" || specifier == "crypto" || specifier == "os") {
+        if (modules.count("builtin:" + specifier)) {
+            return modules["builtin:" + specifier];
+        }
+        auto module = std::make_shared<Module>();
+        module->path = "builtin:" + specifier;
+        module->analyzed = true;
+        
+        if (specifier == "fs") {
+            auto fsSym = symbols.lookup("fs");
+            if (fsSym) {
+                auto fsType = std::static_pointer_cast<ObjectType>(fsSym->type);
+                for (auto& [name, type] : fsType->fields) {
+                    module->exports->define(name, type);
+                }
+                // Also handle fs.promises
+                if (fsType->fields.count("promises")) {
+                    module->exports->define("promises", fsType->fields["promises"]);
+                }
+            }
+        } else if (specifier == "path") {
+            auto pathSym = symbols.lookup("path");
+            if (pathSym) {
+                auto pathType = std::static_pointer_cast<ObjectType>(pathSym->type);
+                for (auto& [name, type] : pathType->fields) {
+                    module->exports->define(name, type);
+                }
+            }
+        }
+        
+        modules["builtin:" + specifier] = module;
+        return module;
+    }
+
     std::string resolvedPath = resolveModulePath(specifier);
     if (resolvedPath.empty()) {
         reportError("Could not resolve module: " + specifier);

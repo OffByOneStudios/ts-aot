@@ -60,10 +60,13 @@ struct StringLiteral;
 struct RegularExpressionLiteral;
 struct NumericLiteral;
 struct BooleanLiteral;
+struct NullLiteral;
+struct UndefinedLiteral;
 struct ArrowFunction;
 struct FunctionExpression;
 struct TemplateExpression;
 struct AsExpression;
+struct ConditionalExpression;
 struct PrefixUnaryExpression;
 struct PostfixUnaryExpression;
 struct AwaitExpression;
@@ -97,6 +100,7 @@ struct Visitor {
     virtual void visitExportDeclaration(ExportDeclaration* node) = 0;
     virtual void visitExportAssignment(ExportAssignment* node) = 0;
     virtual void visitBinaryExpression(BinaryExpression* node) = 0;
+    virtual void visitConditionalExpression(ConditionalExpression* node) = 0;
     virtual void visitAssignmentExpression(AssignmentExpression* node) = 0;
     virtual void visitCallExpression(CallExpression* node) = 0;
     virtual void visitNewExpression(NewExpression* node) = 0;
@@ -110,6 +114,8 @@ struct Visitor {
     virtual void visitRegularExpressionLiteral(RegularExpressionLiteral* node) = 0;
     virtual void visitNumericLiteral(NumericLiteral* node) = 0;
     virtual void visitBooleanLiteral(BooleanLiteral* node) = 0;
+    virtual void visitNullLiteral(NullLiteral* node) = 0;
+    virtual void visitUndefinedLiteral(UndefinedLiteral* node) = 0;
     virtual void visitAwaitExpression(AwaitExpression* node) = 0;
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
     virtual void visitFunctionExpression(FunctionExpression* node) = 0;
@@ -444,6 +450,14 @@ struct BinaryExpression : Expression {
     void accept(Visitor* visitor) override { visitor->visitBinaryExpression(this); }
 };
 
+struct ConditionalExpression : Expression {
+    ExprPtr condition;
+    ExprPtr whenTrue;
+    ExprPtr whenFalse;
+    std::string getKind() const override { return "ConditionalExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitConditionalExpression(this); }
+};
+
 struct PrefixUnaryExpression : Expression {
     std::string op;
     ExprPtr operand;
@@ -563,6 +577,16 @@ struct BooleanLiteral : Expression {
     bool value;
     std::string getKind() const override { return "BooleanLiteral"; }
     void accept(Visitor* visitor) override { visitor->visitBooleanLiteral(this); }
+};
+
+struct NullLiteral : Expression {
+    std::string getKind() const override { return "NullLiteral"; }
+    void accept(Visitor* visitor) override { visitor->visitNullLiteral(this); }
+};
+
+struct UndefinedLiteral : Expression {
+    std::string getKind() const override { return "UndefinedLiteral"; }
+    void accept(Visitor* visitor) override { visitor->visitUndefinedLiteral(this); }
 };
 
 struct AwaitExpression : Expression {

@@ -4,7 +4,9 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitNumericLiteral(ast::NumericLiteral* node) {
-    if (node->value == (int64_t)node->value) {
+    if (node->inferredType && node->inferredType->kind == TypeKind::Double) {
+        lastValue = llvm::ConstantFP::get(*context, llvm::APFloat(node->value));
+    } else if (node->value == (int64_t)node->value) {
         lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, (int64_t)node->value));
     } else {
         lastValue = llvm::ConstantFP::get(*context, llvm::APFloat(node->value));
@@ -15,66 +17,62 @@ void IRGenerator::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastValue = llvm::ConstantInt::get(*context, llvm::APInt(1, node->value ? 1 : 0));
 }
 
+void IRGenerator::visitNullLiteral(ast::NullLiteral* node) {
+    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+}
+
+void IRGenerator::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
+    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+}
+
 void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
-    llvm::Function* createFn = module->getFunction("ts_string_create");
-    if (!createFn) {
-        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            args, false);
-        createFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_create", module.get());
-    }
+    llvm::FunctionType* createFt = llvm::FunctionType::get(
+        llvm::PointerType::getUnqual(*context),
+        { llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->value);
-    lastValue = builder->CreateCall(createFn, { strConst });
+    lastValue = createCall(createFt, createFn.getCallee(), { strConst });
 }
 
 void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
     // First create a string literal for the regex text
-    llvm::Function* createStrFn = module->getFunction("ts_string_create");
-    if (!createStrFn) {
-        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            args, false);
-        createStrFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_create", module.get());
-    }
+    llvm::FunctionType* createStrFt = llvm::FunctionType::get(
+        llvm::PointerType::getUnqual(*context),
+        { llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->text);
-    llvm::Value* strVal = builder->CreateCall(createStrFn, { strConst });
+    llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { strConst });
 
     // Then call ts_regexp_from_literal
-    llvm::Function* createRegExpFn = module->getFunction("ts_regexp_from_literal");
-    if (!createRegExpFn) {
-        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            args, false);
-        createRegExpFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_regexp_from_literal", module.get());
-    }
+    llvm::FunctionType* createRegExpFt = llvm::FunctionType::get(
+        llvm::PointerType::getUnqual(*context),
+        { llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee createRegExpFn = module->getOrInsertFunction("ts_regexp_from_literal", createRegExpFt);
 
-    lastValue = builder->CreateCall(createRegExpFn, { strVal });
+    lastValue = createCall(createRegExpFt, createRegExpFn.getCallee(), { strVal });
 }
 
 void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", 
-        llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
+    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
     
-    llvm::Value* arr = builder->CreateCall(createFn);
+    llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
-    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
-        llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
-            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
 
     for (auto& el : node->elements) {
         if (auto spread = dynamic_cast<ast::SpreadElement*>(el.get())) {
             visit(spread->expression.get());
             llvm::Value* otherArr = lastValue;
             
-            llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_array_concat",
-                llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
-            builder->CreateCall(concatFn, { arr, otherArr });
+            llvm::FunctionType* concatFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_array_concat", concatFt);
+            createCall(concatFt, concatFn.getCallee(), { arr, otherArr });
             continue;
         }
 
@@ -82,63 +80,46 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
         llvm::Value* val = lastValue;
         if (!val) continue;
 
-        if (val->getType()->isDoubleTy()) {
-             val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
-        } else if (val->getType()->isPointerTy()) {
-             val = builder->CreatePtrToInt(val, llvm::Type::getInt64Ty(*context));
-        }
+        val = boxValue(val, el->inferredType);
         
-        builder->CreateCall(pushFn, { arr, val });
+        createCall(pushFt, pushFn.getCallee(), { arr, val });
     }
     
     lastValue = arr;
 }
 
 void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
-    llvm::Function* createFn = module->getFunction("ts_string_create");
-    if (!createFn) {
-        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context) };
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            args, false);
-        createFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_create", module.get());
-    }
+    llvm::FunctionType* createFt = llvm::FunctionType::get(
+        llvm::PointerType::getUnqual(*context),
+        { llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
     
-    llvm::Function* concatFn = module->getFunction("ts_string_concat");
-    if (!concatFn) {
-        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
-        concatFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_concat", module.get());
-    }
+    llvm::FunctionType* concatFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+        { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_string_concat", concatFt);
 
     llvm::Constant* headStr = builder->CreateGlobalStringPtr(node->head);
-    llvm::Value* currentStr = builder->CreateCall(createFn, { headStr });
+    llvm::Value* currentStr = createCall(createFt, createFn.getCallee(), { headStr });
     
     for ( auto& span : node->spans ) {
         visit(span.expression.get());
         llvm::Value* exprVal = lastValue;
         
         if (exprVal->getType()->isIntegerTy()) {
-            llvm::Function* fromIntFn = module->getFunction("ts_string_from_int");
-            if (!fromIntFn) {
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false);
-                fromIntFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_from_int", module.get());
-            }
-            exprVal = builder->CreateCall(fromIntFn, { exprVal });
+            llvm::FunctionType* fromIntFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fromIntFn = module->getOrInsertFunction("ts_string_from_int", fromIntFt);
+            exprVal = createCall(fromIntFt, fromIntFn.getCallee(), { exprVal });
         } else if (exprVal->getType()->isDoubleTy()) {
-            llvm::Function* fromDoubleFn = module->getFunction("ts_string_from_double");
-            if (!fromDoubleFn) {
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false);
-                fromDoubleFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_from_double", module.get());
-            }
-            exprVal = builder->CreateCall(fromDoubleFn, { exprVal });
+            llvm::FunctionType* fromDoubleFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fromDoubleFn = module->getOrInsertFunction("ts_string_from_double", fromDoubleFt);
+            exprVal = createCall(fromDoubleFt, fromDoubleFn.getCallee(), { exprVal });
         }
         
-        currentStr = builder->CreateCall(concatFn, { currentStr, exprVal });
+        currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, exprVal });
         
         llvm::Constant* litStr = builder->CreateGlobalStringPtr(span.literal);
-        llvm::Value* litVal = builder->CreateCall(createFn, { litStr });
-        currentStr = builder->CreateCall(concatFn, { currentStr, litVal });
+        llvm::Value* litVal = createCall(createFt, createFn.getCallee(), { litStr });
+        currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, litVal });
     }
     
     lastValue = currentStr;

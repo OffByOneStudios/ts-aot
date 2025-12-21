@@ -129,37 +129,48 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     llvm::Function* function = builder->GetInsertBlock()->getParent();
     
+    // Create loop variables
+    std::string baseName = "forof_" + std::to_string(anonVarCounter++);
+    llvm::Value* indexVar = nullptr;
+    llvm::Value* iterableVar = nullptr;
+    llvm::Value* lengthVar = nullptr;
+
+    if (currentAsyncFrame) {
+        indexVar = namedValues[baseName + "_index"];
+        iterableVar = namedValues[baseName + "_iterable"];
+        lengthVar = namedValues[baseName + "_length"];
+    } else {
+        indexVar = createEntryBlockAlloca(function, baseName + "_index", llvm::Type::getInt64Ty(*context));
+        iterableVar = createEntryBlockAlloca(function, baseName + "_iterable", builder->getPtrTy());
+        lengthVar = createEntryBlockAlloca(function, baseName + "_length", llvm::Type::getInt64Ty(*context));
+    }
+
     // Evaluate iterable
     visit(node->expression.get());
     llvm::Value* iterable = lastValue;
     if (!iterable) return;
+    builder->CreateStore(iterable, iterableVar);
 
     bool isString = false;
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::String) {
         isString = true;
     }
 
-    // Create loop variables
-    llvm::AllocaInst* indexVar = createEntryBlockAlloca(function, "forof_index", llvm::Type::getInt64Ty(*context));
+    // Initialize index
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0), indexVar);
 
     // Get length
     llvm::Value* lengthVal = nullptr;
     if (isString) {
-        llvm::Function* lenFn = module->getFunction("ts_string_length");
-        if (!lenFn) {
-             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
-             lenFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_length", module.get());
-        }
-        lengthVal = builder->CreateCall(lenFn, { iterable }, "len");
+        llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+        llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length", lenFt);
+        lengthVal = createCall(lenFt, lenFn.getCallee(), { iterable });
     } else {
-        llvm::Function* lenFn = module->getFunction("ts_array_length");
-        if (!lenFn) {
-             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
-             lenFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_length", module.get());
-        }
-        lengthVal = builder->CreateCall(lenFn, { iterable }, "len");
+        llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+        llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
+        lengthVal = createCall(lenFt, lenFn.getCallee(), { iterable });
     }
+    builder->CreateStore(lengthVal, lengthVar);
 
     llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "loop.cond", function);
     llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "loop.body", function);
@@ -170,29 +181,25 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     builder->SetInsertPoint(condBB);
 
     llvm::Value* currIndex = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "idx");
-    llvm::Value* cond = builder->CreateICmpSLT(currIndex, lengthVal, "loopcond");
+    llvm::Value* currLength = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthVar, "len");
+    llvm::Value* cond = builder->CreateICmpSLT(currIndex, currLength, "loopcond");
     builder->CreateCondBr(cond, bodyBB, afterBB);
 
     builder->SetInsertPoint(bodyBB);
 
+    llvm::Value* currIterable = builder->CreateLoad(builder->getPtrTy(), iterableVar, "iter");
     llvm::Value* elementVal = nullptr;
     if (isString) {
-        llvm::Function* substrFn = module->getFunction("ts_string_substring");
-        if (!substrFn) {
-             std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) };
-             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
-             substrFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_substring", module.get());
-        }
+        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) };
+        llvm::FunctionType* substrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
+        llvm::FunctionCallee substrFn = module->getOrInsertFunction("ts_string_substring", substrFt);
         llvm::Value* nextIndex = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
-        elementVal = builder->CreateCall(substrFn, { iterable, currIndex, nextIndex }, "char");
+        elementVal = createCall(substrFt, substrFn.getCallee(), { currIterable, currIndex, nextIndex });
     } else {
-        llvm::Function* getFn = module->getFunction("ts_array_get");
-        if (!getFn) {
-             std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
-             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), args, false);
-             getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
-        }
-        elementVal = builder->CreateCall(getFn, { iterable, currIndex }, "elem");
+        std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), args, false);
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get", getFt);
+        elementVal = createCall(getFt, getFn.getCallee(), { currIterable, currIndex });
     }
 
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
@@ -213,7 +220,8 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     }
 
     builder->SetInsertPoint(incBB);
-    llvm::Value* nextIdx = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
+    llvm::Value* reloadIdx = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "idx.reload");
+    llvm::Value* nextIdx = builder->CreateAdd(reloadIdx, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
     builder->CreateStore(nextIdx, indexVar);
     builder->CreateBr(condBB);
 
@@ -223,21 +231,37 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
 void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     llvm::Function* function = builder->GetInsertBlock()->getParent();
     
+    // Create loop variables
+    std::string baseName = "forin_" + std::to_string(anonVarCounter++);
+    llvm::Value* indexVar = nullptr;
+    llvm::Value* keysVar = nullptr;
+    llvm::Value* lengthVar = nullptr;
+
+    if (currentAsyncFrame) {
+        indexVar = namedValues[baseName + "_index"];
+        keysVar = namedValues[baseName + "_keys"];
+        lengthVar = namedValues[baseName + "_length"];
+    } else {
+        indexVar = createEntryBlockAlloca(function, baseName + "_index", llvm::Type::getInt64Ty(*context));
+        keysVar = createEntryBlockAlloca(function, baseName + "_keys", builder->getPtrTy());
+        lengthVar = createEntryBlockAlloca(function, baseName + "_length", llvm::Type::getInt64Ty(*context));
+    }
+
     visit(node->expression.get());
     llvm::Value* obj = lastValue;
     if (!obj) return;
 
     llvm::Value* keys = nullptr;
     if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Class)) {
-        llvm::FunctionCallee createArrFn = module->getOrInsertFunction("ts_array_create",
-            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false));
-        keys = builder->CreateCall(createArrFn, {}, "keys_arr");
+        llvm::FunctionType* createArrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+        llvm::FunctionCallee createArrFn = module->getOrInsertFunction("ts_array_create", createArrFt);
+        keys = createCall(createArrFt, createArrFn.getCallee(), {});
 
-        llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
-            llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+        llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
         
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
-            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
 
         std::vector<std::string> fieldNames;
         if (node->expression->inferredType->kind == TypeKind::Object) {
@@ -254,21 +278,24 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
 
         for (const auto& name : fieldNames) {
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(name);
-            llvm::Value* tsStr = builder->CreateCall(createStrFn, { keyStr });
-            builder->CreateCall(pushFn, { keys, tsStr });
+            llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            createCall(pushFt, pushFn.getCallee(), { keys, tsStr });
         }
     } else {
-        llvm::FunctionCallee keysFn = module->getOrInsertFunction("ts_map_keys",
-            llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
-        keys = builder->CreateCall(keysFn, { obj }, "keys");
+        llvm::FunctionType* keysFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false);
+        llvm::FunctionCallee keysFn = module->getOrInsertFunction("ts_map_keys", keysFt);
+        keys = createCall(keysFt, keysFn.getCallee(), { obj });
     }
+    builder->CreateStore(keys, keysVar);
 
-    llvm::AllocaInst* indexVar = createEntryBlockAlloca(function, "forin_index", llvm::Type::getInt64Ty(*context));
+    // Get length
+    llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+    llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
+    llvm::Value* lengthVal = createCall(lenFt, lenFn.getCallee(), { keys });
+    builder->CreateStore(lengthVal, lengthVar);
+
+    // Initialize index
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0), indexVar);
-
-    llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
-        llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false));
-    llvm::Value* lengthVal = builder->CreateCall(lenFn, { keys }, "len");
 
     llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "forin_cond", function);
     llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "forin_loop", function);
@@ -279,15 +306,17 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     builder->SetInsertPoint(condBB);
 
     llvm::Value* index = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "index");
-    llvm::Value* cond = builder->CreateICmpSLT(index, lengthVal, "forin_cond_tmp");
+    llvm::Value* currLength = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthVar, "len");
+    llvm::Value* cond = builder->CreateICmpSLT(index, currLength, "forin_cond_tmp");
     builder->CreateCondBr(cond, loopBB, afterBB);
 
     builder->SetInsertPoint(loopBB);
 
-    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get",
-        llvm::FunctionType::get(builder->getPtrTy(),
-            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false));
-    llvm::Value* key = builder->CreateCall(getFn, { keys, index }, "key");
+    llvm::Value* currKeys = builder->CreateLoad(builder->getPtrTy(), keysVar, "keys");
+    llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get", getFt);
+    llvm::Value* key = createCall(getFt, getFn.getCallee(), { currKeys, index });
 
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
         generateDestructuring(key, std::make_shared<ts::Type>(ts::TypeKind::String), varDecl->name.get());

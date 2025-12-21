@@ -11,6 +11,7 @@ struct TsPromise;
 
 struct AsyncContext : public TsObject {
     int state = 0;
+    bool error = false;
     TsPromise* promise = nullptr;
     void (*resumeFn)(AsyncContext*, TsValue*);
     void* data = nullptr; // For local variables

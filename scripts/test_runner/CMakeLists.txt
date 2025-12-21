@@ -11,8 +11,8 @@ find_package(OpenSSL REQUIRED)
 # TEST_OBJ is passed as an absolute path
 # TSRUNTIME_LIB is passed as an absolute path
 
-add_executable(test_app ${TEST_OBJ})
-set_target_properties(test_app PROPERTIES LINKER_LANGUAGE CXX)
+add_executable(test_app main_wrapper.cpp)
+target_sources(test_app PRIVATE ${TEST_OBJ})
 
 target_link_libraries(test_app PRIVATE 
     ${TSRUNTIME_LIB}

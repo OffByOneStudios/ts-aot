@@ -21,6 +21,12 @@ ExprPtr parseExpression(const json& j) {
         node->left = parseExpression(j["left"]);
         node->right = parseExpression(j["right"]);
         return node;
+    } else if (kind == "ConditionalExpression") {
+        auto node = std::make_unique<ConditionalExpression>();
+        node->condition = parseExpression(j["condition"]);
+        node->whenTrue = parseExpression(j["whenTrue"]);
+        node->whenFalse = parseExpression(j["whenFalse"]);
+        return node;
     } else if (kind == "AssignmentExpression") {
         auto node = std::make_unique<AssignmentExpression>();
         node->left = parseExpression(j["left"]);
@@ -95,10 +101,16 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<NumericLiteral>();
         node->value = j["value"];
         return node;
+    } else if (kind == "ParenthesizedExpression") {
+        return parseExpression(j["expression"]);
     } else if (kind == "BooleanLiteral") {
         auto node = std::make_unique<BooleanLiteral>();
         node->value = j["value"];
         return node;
+    } else if (kind == "NullLiteral") {
+        return std::make_unique<NullLiteral>();
+    } else if (kind == "UndefinedLiteral") {
+        return std::make_unique<UndefinedLiteral>();
     } else if (kind == "AwaitExpression") {
         auto node = std::make_unique<AwaitExpression>();
         node->expression = parseExpression(j["expression"]);
