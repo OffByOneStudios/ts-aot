@@ -59,18 +59,29 @@ def start_server(cmd):
 
 async def main():
     aot_exe = os.path.abspath("build/Release/test_app.exe")
+    lto_exe = os.path.abspath("build/Release/test_app_lto.exe")
     node_script = os.path.abspath("examples/http-server/http-server.js")
     
-    # 1. Benchmark AOT
-    print("--- Benchmarking AOT Server ---")
+    # 1. Benchmark AOT (Non-LTO)
+    print("--- Benchmarking AOT Server (Non-LTO) ---")
     aot_proc = start_server([aot_exe])
     if not aot_proc: return
     
     aot_results = await run_load_test("http://127.0.0.1:8080/json")
     aot_proc.terminate()
     aot_proc.wait()
+
+    # 2. Benchmark AOT (LTO)
+    lto_results = None
+    if os.path.exists(lto_exe):
+        print("\n--- Benchmarking AOT Server (LTO) ---")
+        lto_proc = start_server([lto_exe])
+        if lto_proc:
+            lto_results = await run_load_test("http://127.0.0.1:8080/json")
+            lto_proc.terminate()
+            lto_proc.wait()
     
-    # 2. Benchmark Node.js
+    # 3. Benchmark Node.js
     print("\n--- Benchmarking Node.js Server ---")
     node_proc = start_server(["node", node_script])
     if not node_proc: return
@@ -79,15 +90,20 @@ async def main():
     node_proc.terminate()
     node_proc.wait()
     
-    # 3. Compare
-    print("\n" + "="*40)
-    print(f"{'Metric':<20} | {'AOT':<10} | {'Node.js':<10}")
-    print("-" * 45)
-    print(f"{'Requests/sec':<20} | {aot_results['rps']:>10.2f} | {node_results['rps']:>10.2f}")
-    print(f"{'Avg Latency (ms)':<20} | {aot_results['avg_latency']:>10.2f} | {node_results['avg_latency']:>10.2f}")
-    print(f"{'P99 Latency (ms)':<20} | {aot_results['p99_latency']:>10.2f} | {node_results['p99_latency']:>10.2f}")
-    print(f"{'Total Requests':<20} | {aot_results['total_requests']:>10} | {node_results['total_requests']:>10}")
-    print("="*40)
+    # 4. Compare
+    print("\n" + "="*60)
+    print(f"{'Metric':<20} | {'AOT':<10} | {'AOT (LTO)':<10} | {'Node.js':<10}")
+    print("-" * 60)
+    lto_rps = f"{lto_results['rps']:>10.2f}" if lto_results else "N/A"
+    lto_avg = f"{lto_results['avg_latency']:>10.2f}" if lto_results else "N/A"
+    lto_p99 = f"{lto_results['p99_latency']:>10.2f}" if lto_results else "N/A"
+    lto_total = f"{lto_results['total_requests']:>10}" if lto_results else "N/A"
+
+    print(f"{'Requests/sec':<20} | {aot_results['rps']:>10.2f} | {lto_rps} | {node_results['rps']:>10.2f}")
+    print(f"{'Avg Latency (ms)':<20} | {aot_results['avg_latency']:>10.2f} | {lto_avg} | {node_results['avg_latency']:>10.2f}")
+    print(f"{'P99 Latency (ms)':<20} | {aot_results['p99_latency']:>10.2f} | {lto_p99} | {node_results['p99_latency']:>10.2f}")
+    print(f"{'Total Requests':<20} | {aot_results['total_requests']:>10} | {lto_total} | {node_results['total_requests']:>10}")
+    print("="*60)
 
 if __name__ == "__main__":
     asyncio.run(main())

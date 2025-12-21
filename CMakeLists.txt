@@ -83,4 +83,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")
     add_executable(test_app_lto http-server-lto.obj)
     set_target_properties(test_app_lto PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(test_app_lto PRIVATE libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 BDWgc::gc ICU::uc ICU::i18n unofficial-sodium::sodium OpenSSL::SSL OpenSSL::Crypto)
+    
+    if(MSVC)
+        target_link_options(test_app_lto PRIVATE /OPT:REF /OPT:ICF)
+    endif()
 endif()
