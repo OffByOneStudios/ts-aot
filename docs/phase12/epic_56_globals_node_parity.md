@@ -1,6 +1,6 @@
 # Epic 56: Global Objects & Node.js Parity
 
-**Status:** In Progress
+**Status:** Completed
 **Goal:** Implement essential global objects and environment-specific APIs (fs, process, timers).
 
 ## Background
@@ -15,12 +15,12 @@ To support real-world TypeScript applications (and AoC solutions that read from 
 - [x] Integrate timers with the `libuv` event loop.
 
 ### File System (fs)
-- [ ] Implement synchronous operations:
+- [x] Implement synchronous operations:
     - [x] `fs.existsSync(path)`.
     - [x] `fs.mkdirSync(path)` and `fs.rmdirSync(path)`.
     - [x] `fs.unlinkSync(path)`.
     - [x] `fs.statSync(path)` returning a basic `Stats` object.
-- [ ] Implement asynchronous operations (`fs.promises`):
+- [x] Implement asynchronous operations (`fs.promises`):
     - [x] `fs.promises.readFile(path)`.
     - [x] `fs.promises.writeFile(path, data)`.
     - [x] `fs.promises.mkdir(path)`.
@@ -34,15 +34,15 @@ To support real-world TypeScript applications (and AoC solutions that read from 
 - [x] Implement `process.cwd()`.
 
 ### Networking & Buffers
-- [ ] Add `llhttp` and `openssl` to `vcpkg.json`.
-- [ ] Implement `URL` class for parsing and validation.
-- [ ] Implement `Buffer` class for binary data handling (Uint8Array-like).
-- [ ] Implement `fetch(url)` using `libuv` (TCP/DNS) and `llhttp` (parsing).
-    - [ ] Async DNS resolution via `uv_getaddrinfo`.
-    - [ ] TCP connection management via `uv_tcp_t`.
-    - [ ] TLS/SSL integration (OpenSSL) for HTTPS support.
-    - [ ] Response parsing with `llhttp` callbacks.
-- [ ] Implement `Headers`, `Request`, and `Response` classes.
+- [x] Add `llhttp` and `openssl` to `vcpkg.json`.
+- [x] Implement `URL` class for parsing and validation.
+- [x] Implement `Buffer` class for binary data handling (Uint8Array-like).
+- [x] Implement `fetch(url)` using `libuv` (TCP/DNS) and `llhttp` (parsing).
+    - [x] Async DNS resolution via `uv_getaddrinfo`.
+    - [x] TCP connection management via `uv_tcp_t`.
+    - [x] TLS/SSL integration (OpenSSL) for HTTPS support.
+    - [x] Response parsing with `llhttp` callbacks.
+- [x] Implement `Headers`, `Request`, and `Response` classes.
 
 ## Technical Architecture: Networking
 To ensure high performance and future-proofing for an HTTP server, we will avoid high-level libraries like `libcurl` and build on the following stack:

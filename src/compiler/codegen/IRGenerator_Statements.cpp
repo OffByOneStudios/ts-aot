@@ -33,10 +33,12 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         if (!boxedVal) boxedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
         else boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
 
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 3);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
-        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", builder->getVoidTy(), builder->getPtrTy(), builder->getPtrTy());
-        builder->CreateCall(resolveFn, { promise, boxedVal });
+        
+        llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+        createCall(resolveFt, resolveFn.getCallee(), { promise, boxedVal });
         builder->CreateRetVoid();
     } else {
         if (val) {
@@ -164,13 +166,9 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
                     cmp = builder->CreateFCmpOEQ(switchVal, caseVal, "cmp");
                 } else {
                     // String comparison
-                    llvm::Function* eqFn = module->getFunction("ts_string_eq");
-                    if (!eqFn) {
-                        std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) };
-                        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), args, false);
-                        eqFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_string_eq", module.get());
-                    }
-                    cmp = builder->CreateCall(eqFn, { switchVal, caseVal }, "cmp");
+                    llvm::FunctionType* eqFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+                    llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq", eqFt);
+                    cmp = createCall(eqFt, eqFn.getCallee(), { switchVal, caseVal });
                 }
                 
                 llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "next_check", function);
@@ -226,21 +224,24 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     llvm::Function* setjmpFn = getRuntimeFunction("_setjmp");
     llvm::Function* getExcFn = getRuntimeFunction("ts_get_exception");
 
-    // 1. Push exception handler and get jmp_buf
-    llvm::Value* jmpBuf = builder->CreateCall(pushFn);
-
-    // 2. Call _setjmp
-    // On Windows x64, second arg is frame pointer.
-    llvm::Value* framePtr = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
-    llvm::Value* setjmpRes = builder->CreateCall(setjmpFn, {jmpBuf, framePtr});
-
-    llvm::Value* isCatch = builder->CreateICmpNE(setjmpRes, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
-
     llvm::Function* currentFn = builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* tryBB = llvm::BasicBlock::Create(*context, "try", currentFn);
     llvm::BasicBlock* catchBB = llvm::BasicBlock::Create(*context, "catch", currentFn);
     llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "finally", currentFn);
     llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "try_merge", currentFn);
+
+    // Push catchBB to stack for async handling
+    catchStack.push_back(catchBB);
+
+    // 1. Push exception handler and get jmp_buf
+    llvm::Value* jmpBuf = createCall(pushFn->getFunctionType(), pushFn, {});
+
+    // 2. Call _setjmp
+    // On Windows x64, second arg is frame pointer.
+    llvm::Value* framePtr = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+    llvm::Value* setjmpRes = createCall(setjmpFn->getFunctionType(), setjmpFn, {jmpBuf, framePtr});
+
+    llvm::Value* isCatch = builder->CreateICmpNE(setjmpRes, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
 
     builder->CreateCondBr(isCatch, catchBB, tryBB);
 
@@ -249,8 +250,12 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     for (auto& stmt : node->tryBlock) {
         visit(stmt.get());
     }
+    
+    // Pop catchBB from stack
+    catchStack.pop_back();
+
     // If we reach here, no exception was thrown, so pop the handler
-    builder->CreateCall(popFn);
+    createCall(popFn->getFunctionType(), popFn, {});
     builder->CreateBr(finallyBB);
 
     // --- Catch Block ---
@@ -258,7 +263,7 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     // The handler was already popped by ts_throw
     if (node->catchClause) {
         if (node->catchClause->variable) {
-            llvm::Value* exc = builder->CreateCall(getExcFn);
+            llvm::Value* exc = createCall(getExcFn->getFunctionType(), getExcFn, {});
             generateDestructuring(exc, std::make_shared<Type>(TypeKind::Any), node->catchClause->variable.get());
         }
         for (auto& stmt : node->catchClause->block) {
@@ -289,7 +294,7 @@ void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
         exc = builder->CreateIntToPtr(exc, llvm::PointerType::getUnqual(*context));
     }
     
-    builder->CreateCall(throwFn, {exc});
+    createCall(throwFn->getFunctionType(), throwFn, {exc});
     builder->CreateUnreachable(); // throw never returns
 }
 

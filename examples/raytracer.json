@@ -1,0 +1,2449 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Vector3",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "x"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "y"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "z"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "add",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "Vector3",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Vector3"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "x"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "x"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "y"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "y"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "z"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "z"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "sub",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "Vector3",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Vector3"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "x"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "x"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "y"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "y"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "z"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "z"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "mul",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "Vector3",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Vector3"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "x"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "y"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "z"
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "dot",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "x"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "x"
+                    }
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      "name": "y"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "b"
+                      },
+                      "name": "y"
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "*",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "a"
+                    },
+                    "name": "z"
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "b"
+                    },
+                    "name": "z"
+                  }
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "cross",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "Vector3",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Vector3"
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "y"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "z"
+                      }
+                    },
+                    "right": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "z"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "y"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "z"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "x"
+                      }
+                    },
+                    "right": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "x"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "z"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "x"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "y"
+                      }
+                    },
+                    "right": {
+                      "kind": "BinaryExpression",
+                      "operator": "*",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "name": "y"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "b"
+                        },
+                        "name": "x"
+                      }
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "normalize",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "Vector3",
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "len"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Math"
+                  },
+                  "name": "sqrt"
+                },
+                "arguments": [
+                  {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "Vector3"
+                      },
+                      "name": "dot"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "Identifier",
+                        "name": "a"
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "a"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Vector3"
+                  },
+                  "name": "mul"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "a"
+                  },
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "/",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 1
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "len"
+                    }
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "Ray",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "origin"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "direction"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": true,
+          "access": "public"
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "Sphere",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "center"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "radius"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "color"
+              },
+              "type": "Vector3",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": "public",
+              "isReadonly": false,
+              "isParameterProperty": true
+            }
+          ],
+          "returnType": "void",
+          "body": [],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "intersect",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "ray"
+              },
+              "type": "Ray",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "oc"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Vector3"
+                  },
+                  "name": "sub"
+                },
+                "arguments": [
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "ray"
+                    },
+                    "name": "origin"
+                  },
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "center"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "a"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Vector3"
+                  },
+                  "name": "dot"
+                },
+                "arguments": [
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "ray"
+                    },
+                    "name": "direction"
+                  },
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "ray"
+                    },
+                    "name": "direction"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "b"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "BinaryExpression",
+                "operator": "*",
+                "left": {
+                  "kind": "NumericLiteral",
+                  "value": 2
+                },
+                "right": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "name": "dot"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "oc"
+                    },
+                    {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "ray"
+                      },
+                      "name": "direction"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "c"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "BinaryExpression",
+                "operator": "-",
+                "left": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "name": "dot"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "oc"
+                    },
+                    {
+                      "kind": "Identifier",
+                      "name": "oc"
+                    }
+                  ],
+                  "typeArguments": []
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "*",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "radius"
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "radius"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "discriminant"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "BinaryExpression",
+                "operator": "-",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "*",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "b"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "b"
+                  }
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "*",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "*",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 4
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "a"
+                    }
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "c"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "BinaryExpression",
+                "operator": "<",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "discriminant"
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 0
+                }
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ReturnStatement",
+                    "expression": {
+                      "kind": "PrefixUnaryExpression",
+                      "operator": "-",
+                      "operand": {
+                        "kind": "NumericLiteral",
+                        "value": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ReturnStatement",
+                    "expression": {
+                      "kind": "BinaryExpression",
+                      "operator": "/",
+                      "left": {
+                        "kind": "ParenthesizedExpression",
+                        "expression": {
+                          "kind": "BinaryExpression",
+                          "operator": "-",
+                          "left": {
+                            "kind": "PrefixUnaryExpression",
+                            "operator": "-",
+                            "operand": {
+                              "kind": "Identifier",
+                              "name": "b"
+                            }
+                          },
+                          "right": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "Math"
+                              },
+                              "name": "sqrt"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "Identifier",
+                                "name": "discriminant"
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        }
+                      },
+                      "right": {
+                        "kind": "ParenthesizedExpression",
+                        "expression": {
+                          "kind": "BinaryExpression",
+                          "operator": "*",
+                          "left": {
+                            "kind": "NumericLiteral",
+                            "value": 2
+                          },
+                          "right": {
+                            "kind": "Identifier",
+                            "name": "a"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "render",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "width"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 200
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "height"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 100
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "spheres"
+          },
+          "isExported": false,
+          "type": "Sphere[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [
+              {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Sphere"
+                },
+                "arguments": [
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 5
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 1
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                ],
+                "typeArguments": []
+              },
+              {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Sphere"
+                },
+                "arguments": [
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 2
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 5
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 1
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                ],
+                "typeArguments": []
+              },
+              {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Sphere"
+                },
+                "arguments": [
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 2
+                        }
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 5
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 1
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                ],
+                "typeArguments": []
+              },
+              {
+                "kind": "NewExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Sphere"
+                },
+                "arguments": [
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 1001
+                        }
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "-",
+                        "operand": {
+                          "kind": "NumericLiteral",
+                          "value": 5
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1000
+                  },
+                  {
+                    "kind": "NewExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Vector3"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0.5
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0.5
+                      },
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 0.5
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                ],
+                "typeArguments": []
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "origin"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Vector3"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 0
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 0
+              },
+              {
+                "kind": "NumericLiteral",
+                "value": 0
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "checksum"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "y"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "y"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "height"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "y"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ForStatement",
+                "initializer": {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "x"
+                  },
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                },
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "x"
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "width"
+                  }
+                },
+                "incrementor": {
+                  "kind": "PostfixUnaryExpression",
+                  "operator": "++",
+                  "operand": {
+                    "kind": "Identifier",
+                    "name": "x"
+                  }
+                },
+                "body": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "u"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "/",
+                        "left": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "-",
+                            "left": {
+                              "kind": "Identifier",
+                              "name": "x"
+                            },
+                            "right": {
+                              "kind": "BinaryExpression",
+                              "operator": "/",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "width"
+                              },
+                              "right": {
+                                "kind": "NumericLiteral",
+                                "value": 2
+                              }
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "width"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "v"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "/",
+                        "left": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "-",
+                            "left": {
+                              "kind": "Identifier",
+                              "name": "y"
+                            },
+                            "right": {
+                              "kind": "BinaryExpression",
+                              "operator": "/",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "height"
+                              },
+                              "right": {
+                                "kind": "NumericLiteral",
+                                "value": 2
+                              }
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "height"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "dir"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "Vector3"
+                          },
+                          "name": "normalize"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "NewExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "Vector3"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "Identifier",
+                                "name": "u"
+                              },
+                              {
+                                "kind": "Identifier",
+                                "name": "v"
+                              },
+                              {
+                                "kind": "PrefixUnaryExpression",
+                                "operator": "-",
+                                "operand": {
+                                  "kind": "NumericLiteral",
+                                  "value": 1
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "ray"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "NewExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "Ray"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "origin"
+                          },
+                          {
+                            "kind": "Identifier",
+                            "name": "dir"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "closestT"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "NumericLiteral",
+                        "value": 1000000
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "hitSphere"
+                      },
+                      "isExported": false,
+                      "type": "Sphere | null",
+                      "initializer": {
+                        "kind": "NullLiteral"
+                      }
+                    },
+                    {
+                      "kind": "ForStatement",
+                      "initializer": {
+                        "kind": "VariableDeclaration",
+                        "name": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        },
+                        "initializer": {
+                          "kind": "NumericLiteral",
+                          "value": 0
+                        }
+                      },
+                      "condition": {
+                        "kind": "BinaryExpression",
+                        "operator": "<",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        },
+                        "right": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "spheres"
+                          },
+                          "name": "length"
+                        }
+                      },
+                      "incrementor": {
+                        "kind": "PostfixUnaryExpression",
+                        "operator": "++",
+                        "operand": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        }
+                      },
+                      "body": {
+                        "kind": "BlockStatement",
+                        "body": [
+                          {
+                            "kind": "VariableDeclaration",
+                            "name": {
+                              "kind": "Identifier",
+                              "name": "t"
+                            },
+                            "isExported": false,
+                            "type": "any",
+                            "initializer": {
+                              "kind": "CallExpression",
+                              "callee": {
+                                "kind": "PropertyAccessExpression",
+                                "expression": {
+                                  "kind": "ElementAccessExpression",
+                                  "expression": {
+                                    "kind": "Identifier",
+                                    "name": "spheres"
+                                  },
+                                  "argumentExpression": {
+                                    "kind": "Identifier",
+                                    "name": "i"
+                                  }
+                                },
+                                "name": "intersect"
+                              },
+                              "arguments": [
+                                {
+                                  "kind": "Identifier",
+                                  "name": "ray"
+                                }
+                              ],
+                              "typeArguments": []
+                            }
+                          },
+                          {
+                            "kind": "IfStatement",
+                            "condition": {
+                              "kind": "BinaryExpression",
+                              "operator": "&&",
+                              "left": {
+                                "kind": "BinaryExpression",
+                                "operator": ">",
+                                "left": {
+                                  "kind": "Identifier",
+                                  "name": "t"
+                                },
+                                "right": {
+                                  "kind": "NumericLiteral",
+                                  "value": 0
+                                }
+                              },
+                              "right": {
+                                "kind": "BinaryExpression",
+                                "operator": "<",
+                                "left": {
+                                  "kind": "Identifier",
+                                  "name": "t"
+                                },
+                                "right": {
+                                  "kind": "Identifier",
+                                  "name": "closestT"
+                                }
+                              }
+                            },
+                            "thenStatement": {
+                              "kind": "BlockStatement",
+                              "body": [
+                                {
+                                  "kind": "ExpressionStatement",
+                                  "expression": {
+                                    "kind": "AssignmentExpression",
+                                    "left": {
+                                      "kind": "Identifier",
+                                      "name": "closestT"
+                                    },
+                                    "right": {
+                                      "kind": "Identifier",
+                                      "name": "t"
+                                    }
+                                  }
+                                },
+                                {
+                                  "kind": "ExpressionStatement",
+                                  "expression": {
+                                    "kind": "AssignmentExpression",
+                                    "left": {
+                                      "kind": "Identifier",
+                                      "name": "hitSphere"
+                                    },
+                                    "right": {
+                                      "kind": "ElementAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "spheres"
+                                      },
+                                      "argumentExpression": {
+                                        "kind": "Identifier",
+                                        "name": "i"
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "elseStatement": null
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "kind": "IfStatement",
+                      "condition": {
+                        "kind": "Identifier",
+                        "name": "hitSphere"
+                      },
+                      "thenStatement": {
+                        "kind": "BlockStatement",
+                        "body": [
+                          {
+                            "kind": "ExpressionStatement",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "+=",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "checksum"
+                              },
+                              "right": {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "+",
+                                  "left": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "PropertyAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "hitSphere"
+                                      },
+                                      "name": "color"
+                                    },
+                                    "name": "x"
+                                  },
+                                  "right": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "PropertyAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "hitSphere"
+                                      },
+                                      "name": "color"
+                                    },
+                                    "name": "y"
+                                  }
+                                },
+                                "right": {
+                                  "kind": "PropertyAccessExpression",
+                                  "expression": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "Identifier",
+                                      "name": "hitSphere"
+                                    },
+                                    "name": "color"
+                                  },
+                                  "name": "z"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "elseStatement": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "checksum"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "iterations"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 5
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting Ray Tracer Benchmark..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 2
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "render"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "start"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "totalChecksum"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "iterations"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "BinaryExpression",
+                  "operator": "+=",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "totalChecksum"
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "render"
+                    },
+                    "arguments": [],
+                    "typeArguments": []
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "end"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Benchmark Complete."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Total Checksum: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "totalChecksum"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Average Time: "
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "/",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "-",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "end"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "start"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "iterations"
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "ms"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "main"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

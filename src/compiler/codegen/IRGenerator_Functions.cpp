@@ -21,7 +21,14 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
         llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
-        llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
+        llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
+        
+        // Inline specialized functions for performance
+        if (spec.specializedName.find("Vector3") != std::string::npos || 
+            spec.specializedName.find("Ray") != std::string::npos ||
+            spec.specializedName.find("Sphere") != std::string::npos) {
+            func->addFnAttr(llvm::Attribute::AlwaysInline);
+        }
     }
 }
 
@@ -55,6 +62,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
         namedValues.clear();
         lastValue = nullptr;
+        anonVarCounter = 0;
 
         currentClass = spec.classType;
         currentReturnType = spec.returnType;
@@ -90,13 +98,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
                 if (param->isRest) {
                     // Create an empty array
-                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create",
-                        llvm::FunctionType::get(builder->getPtrTy(), {}, false));
-                    llvm::Value* arr = builder->CreateCall(createFn);
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+                    llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
-                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
-                        llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                            { builder->getPtrTy(), builder->getPtrTy() }, false));
+                    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                            { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
 
                     // Collect all remaining arguments into the array
                     while (argIt != function->arg_end()) {
@@ -104,7 +112,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         // Box the value if it's a primitive
                         std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         llvm::Value* boxedVal = boxValue(argVal, argType);
-                        builder->CreateCall(pushFn, { arr, boxedVal });
+                        createCall(pushFt, pushFn.getCallee(), { arr, boxedVal });
                         ++argIt;
                         ++idx;
                     }
@@ -172,20 +180,20 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
                 if (param->isRest) {
                     // Create an empty array
-                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create",
-                        llvm::FunctionType::get(builder->getPtrTy(), {}, false));
-                    llvm::Value* arr = builder->CreateCall(createFn);
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+                    llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
-                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push",
-                        llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                            { builder->getPtrTy(), builder->getPtrTy() }, false));
+                    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                            { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
 
                     // Collect all remaining arguments into the array
                     while (argIt != function->arg_end()) {
                         llvm::Value* argVal = &*argIt;
                         std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         llvm::Value* boxedVal = boxValue(argVal, argType);
-                        builder->CreateCall(pushFn, { arr, boxedVal });
+                        createCall(pushFt, pushFn.getCallee(), { arr, boxedVal });
                         ++argIt;
                         ++idx;
                     }
@@ -271,6 +279,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     
     namedValues.clear();
     lastValue = nullptr;
+    anonVarCounter = 0;
     
     // Force return type to Any for arrow functions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
@@ -364,6 +373,7 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     
     namedValues.clear();
     lastValue = nullptr;
+    anonVarCounter = 0;
     
     // Force return type to Any for function expressions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;

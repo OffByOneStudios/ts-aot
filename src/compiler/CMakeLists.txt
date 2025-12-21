@@ -7,7 +7,7 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 # Map LLVM components
-llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codegen x86asmparser)
+llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codegen x86asmparser passes ipo)
 
 add_library(tscompiler_lib STATIC
     ast/AstLoader_Core.cpp

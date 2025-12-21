@@ -17,7 +17,7 @@ A fully typed, object-oriented ray tracer.
 *   **AOT Advantage:** TypeScript classes (`Vector3`, `Ray`, `Sphere`) are compiled to C++ structs. Method calls are statically dispatched (vtable) or inlined, avoiding V8's inline caches. Floating-point math uses raw `double` instead of boxed values.
 *   **Complexity:** ~500-1000 lines of code. Heavy recursion and math.
 
-### Epic 61: "ts-grep" CLI Tool (Startup & IO)
+### Epic 61: "ts-grep" CLI Tool (Startup & IO) [COMPLETED]
 A high-performance command-line search tool.
 *   **Goal:** Recursively search a directory tree for regex patterns, respecting `.gitignore`.
 *   **AOT Advantage:** Near-instant startup time compared to Node.js. Direct integration with `libuv` for asynchronous I/O without the overhead of the JS-to-C++ bridge for every syscall.

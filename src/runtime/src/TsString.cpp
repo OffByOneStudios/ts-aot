@@ -18,9 +18,6 @@ TsString::TsString(const char* utf8Str) {
     void* mem = ts_alloc(sizeof(icu::UnicodeString));
     impl = new(mem) icu::UnicodeString(utf8Str);
     utf8Buffer = nullptr;
-    
-    // TODO: Register finalizer to clean up icu::UnicodeString's internal allocation
-    // if it allocates outside of our GC.
 }
 
 const char* TsString::ToUtf8() {

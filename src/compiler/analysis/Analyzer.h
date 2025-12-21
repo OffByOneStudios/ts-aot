@@ -39,8 +39,6 @@ public:
     void reportError(const std::string& message);
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
-    std::shared_ptr<Type> resolveType(const std::string& typeName);
-
     std::shared_ptr<Type> substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env);
 
     std::map<std::string, std::shared_ptr<Module>> modules;
@@ -70,6 +68,7 @@ private:
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitAsExpression(ast::AsExpression* node);
     void visitBinaryExpression(ast::BinaryExpression* node);
+    void visitConditionalExpression(ast::ConditionalExpression* node);
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIfStatement(ast::IfStatement* node);
     void visitWhileStatement(ast::WhileStatement* node);
@@ -94,6 +93,8 @@ private:
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
+    void visitNullLiteral(ast::NullLiteral* node);
+    void visitUndefinedLiteral(ast::UndefinedLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);

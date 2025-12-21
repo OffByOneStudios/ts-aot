@@ -291,6 +291,13 @@ function visit(node) {
                 left: visit(node.left),
                 right: visit(node.right)
             };
+        case ts.SyntaxKind.ConditionalExpression:
+            return {
+                kind: "ConditionalExpression",
+                condition: visit(node.condition),
+                whenTrue: visit(node.whenTrue),
+                whenFalse: visit(node.whenFalse)
+            };
         case ts.SyntaxKind.AwaitExpression:
             return {
                 kind: "AwaitExpression",
@@ -323,13 +330,11 @@ function visit(node) {
             };
         case ts.SyntaxKind.NullKeyword:
             return {
-                kind: "Identifier",
-                name: "null"
+                kind: "NullLiteral"
             };
         case ts.SyntaxKind.UndefinedKeyword:
             return {
-                kind: "Identifier",
-                name: "undefined"
+                kind: "UndefinedLiteral"
             };
         case ts.SyntaxKind.ObjectLiteralExpression:
             return {
@@ -339,11 +344,18 @@ function visit(node) {
                     initializer: visit(p.initializer)
                 }))
             };
+        case ts.SyntaxKind.ParenthesizedExpression:
+            return {
+                kind: "ParenthesizedExpression",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.Identifier:
             return {
                 kind: "Identifier",
                 name: node.text
             };
+        case ts.SyntaxKind.Parameter:
+            return visitParameter(node);
         case ts.SyntaxKind.ThisKeyword:
             return {
                 kind: "Identifier",
@@ -471,7 +483,7 @@ function visit(node) {
         case ts.SyntaxKind.Block:
             return {
                 kind: "BlockStatement",
-                statements: node.statements.map(visit).filter(s => s)
+                body: visitBlock(node)
             };
         case ts.SyntaxKind.EndOfFileToken:
             return null;
@@ -569,6 +581,8 @@ function visitBlock(node) {
 }
 
 function visitParameter(p) {
+        const access = getAccessModifier(p);
+        const readonly = isReadonly(p);
         return {
             kind: "Parameter",
             name: visit(p.name),
@@ -576,8 +590,9 @@ function visitParameter(p) {
             isOptional: !!p.questionToken || !!p.initializer,
             isRest: !!p.dotDotDotToken,
             initializer: p.initializer ? visit(p.initializer) : null,
-            access: getAccessModifier(p),
-            isReadonly: isReadonly(p)
+            access: access,
+            isReadonly: readonly,
+            isParameterProperty: !!access || readonly
         };
     }
 

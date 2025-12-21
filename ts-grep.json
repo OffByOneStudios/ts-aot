@@ -1,0 +1,526 @@
+﻿{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "fs",
+      "importClause": {
+        "name": null,
+        "namedBindings": {
+          "kind": "NamespaceImport",
+          "name": "fs"
+        }
+      }
+    },
+    {
+      "kind": "ImportDeclaration",
+      "moduleSpecifier": "path",
+      "importClause": {
+        "name": null,
+        "namedBindings": {
+          "kind": "NamespaceImport",
+          "name": "path"
+        }
+      }
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "search",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "dir"
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "pattern"
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "entries"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "fs"
+                  },
+                  "name": "promises"
+                },
+                "name": "readdir"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "dir"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        },
+        {
+          "kind": "ForOfStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "entry"
+            },
+            "initializer": null
+          },
+          "expression": {
+            "kind": "Identifier",
+            "name": "entries"
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "fullPath"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "path"
+                    },
+                    "name": "join"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "dir"
+                    },
+                    {
+                      "kind": "Identifier",
+                      "name": "entry"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "stats"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "AwaitExpression",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "fs"
+                        },
+                        "name": "promises"
+                      },
+                      "name": "stat"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "Identifier",
+                        "name": "fullPath"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              },
+              {
+                "kind": "IfStatement",
+                "condition": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "stats"
+                    },
+                    "name": "isDirectory"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                },
+                "thenStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AwaitExpression",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "search"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "fullPath"
+                            },
+                            {
+                              "kind": "Identifier",
+                              "name": "pattern"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    }
+                  ]
+                },
+                "elseStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "content"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "AwaitExpression",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "fs"
+                              },
+                              "name": "promises"
+                            },
+                            "name": "readFile"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "fullPath"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    },
+                    {
+                      "kind": "IfStatement",
+                      "condition": {
+                        "kind": "BinaryExpression",
+                        "operator": "!==",
+                        "left": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "content"
+                            },
+                            "name": "indexOf"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "pattern"
+                            }
+                          ],
+                          "typeArguments": []
+                        },
+                        "right": {
+                          "kind": "PrefixUnaryExpression",
+                          "operator": "-",
+                          "operand": {
+                            "kind": "NumericLiteral",
+                            "value": 1
+                          }
+                        }
+                      },
+                      "thenStatement": {
+                        "kind": "BlockStatement",
+                        "body": [
+                          {
+                            "kind": "ExpressionStatement",
+                            "expression": {
+                              "kind": "CallExpression",
+                              "callee": {
+                                "kind": "PropertyAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "console"
+                                },
+                                "name": "log"
+                              },
+                              "arguments": [
+                                {
+                                  "kind": "Identifier",
+                                  "name": "fullPath"
+                                }
+                              ],
+                              "typeArguments": []
+                            }
+                          }
+                        ]
+                      },
+                      "elseStatement": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "args"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "process"
+            },
+            "name": "argv"
+          }
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "args"
+              },
+              "name": "length"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 3
+            }
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console"
+                    },
+                    "name": "log"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Usage: ts-grep <pattern> [dir]"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "process"
+                    },
+                    "name": "exit"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "NumericLiteral",
+                      "value": 1
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          },
+          "elseStatement": null
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "pattern"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ElementAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "args"
+            },
+            "argumentExpression": {
+              "kind": "NumericLiteral",
+              "value": 2
+            }
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "dir"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "ConditionalExpression",
+            "condition": {
+              "kind": "BinaryExpression",
+              "operator": ">",
+              "left": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "args"
+                },
+                "name": "length"
+              },
+              "right": {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            },
+            "whenTrue": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "args"
+              },
+              "argumentExpression": {
+                "kind": "NumericLiteral",
+                "value": 3
+              }
+            },
+            "whenFalse": {
+              "kind": "StringLiteral",
+              "value": "."
+            }
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "search"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "dir"
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "pattern"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "main"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

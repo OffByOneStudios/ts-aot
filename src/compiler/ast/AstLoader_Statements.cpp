@@ -99,7 +99,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "BlockStatement") {
         auto node = std::make_unique<BlockStatement>();
-        for (const auto& stmt : j["statements"]) {
+        for (const auto& stmt : j["body"]) {
             node->statements.push_back(parseStatement(stmt));
         }
         return node;

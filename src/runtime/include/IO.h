@@ -14,5 +14,8 @@ extern "C" {
     void* ts_fs_statSync(void* path);
     void* ts_fs_mkdir_async(void* path);
     void* ts_fs_stat_async(void* path);
+    void* ts_fs_readdirSync(void* path);
+    void* ts_fs_readdir_async(void* path);
+    void* ts_path_join(void* path1, void* path2);
     int64_t ts_parseInt(void* str);
 }

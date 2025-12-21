@@ -39,10 +39,10 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         visit(node->argumentExpression.get());
         llvm::Value* key = lastValue;
         
-        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
-            llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false));
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
         
-        llvm::Value* res = builder->CreateCall(getFn, { obj, key });
+        llvm::Value* res = createCall(getFt, getFn.getCallee(), { obj, key });
         lastValue = unboxValue(res, std::make_shared<Type>(TypeKind::Any));
         return;
     }
@@ -55,14 +55,14 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
             visit(node->argumentExpression.get());
             llvm::Value* index = lastValue;
             if (index->getType()->isPointerTy()) {
-                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int",
-                    llvm::Type::getInt64Ty(*context), builder->getPtrTy());
-                index = builder->CreateCall(unboxFn, { index });
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+                index = createCall(unboxFt, unboxFn.getCallee(), { index });
             }
             
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_buffer_get",
-                llvm::Type::getInt8Ty(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context));
-            llvm::Value* byte = builder->CreateCall(getFn, { buf, index });
+            llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getInt8Ty(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_buffer_get", getFt);
+            llvm::Value* byte = createCall(getFt, getFn.getCallee(), { buf, index });
             lastValue = builder->CreateZExt(byte, llvm::Type::getInt64Ty(*context));
             return;
         }
@@ -83,7 +83,7 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
             // String index on any
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_property", ft);
-            lastValue = builder->CreateCall(ft, getFn.getCallee(), { arr, index });
+            lastValue = createCall(ft, getFn.getCallee(), { arr, index });
         } else {
             // Numeric index on any
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
@@ -91,16 +91,16 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
             if (!index->getType()->isIntegerTy(64)) {
                 index = builder->CreateIntCast(index, llvm::Type::getInt64Ty(*context), true);
             }
-            lastValue = builder->CreateCall(ft, getFn.getCallee(), { arr, index });
+            lastValue = createCall(ft, getFn.getCallee(), { arr, index });
         }
         return;
     }
     
-    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get",
-        llvm::FunctionType::get(builder->getPtrTy(),
-            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false));
+    llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get", getFt);
             
-    llvm::Value* val = builder->CreateCall(getFn, { arr, index });
+    llvm::Value* val = createCall(getFt, getFn.getCallee(), { arr, index });
 
     std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
@@ -115,15 +115,15 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "process" && node->name == "argv") {
-            llvm::FunctionCallee getArgvFn = module->getOrInsertFunction("ts_get_process_argv",
-                llvm::FunctionType::get(builder->getPtrTy(), {}, false));
-            lastValue = builder->CreateCall(getArgvFn, {});
+            llvm::FunctionType* getArgvFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee getArgvFn = module->getOrInsertFunction("ts_get_process_argv", getArgvFt);
+            lastValue = createCall(getArgvFt, getArgvFn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "env") {
-            llvm::FunctionCallee envFn = module->getOrInsertFunction("ts_get_process_env",
-                llvm::FunctionType::get(builder->getPtrTy(), {}, false));
-            lastValue = unboxValue(builder->CreateCall(envFn, {}), node->inferredType);
+            llvm::FunctionType* envFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee envFn = module->getOrInsertFunction("ts_get_process_env", envFt);
+            lastValue = unboxValue(createCall(envFt, envFn.getCallee(), {}), node->inferredType);
             return;
         }
     }
@@ -135,42 +135,42 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::Value* re = lastValue;
             
             if (node->name == "lastIndex") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_lastIndex",
-                    llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_lastIndex", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 return;
             } else if (node->name == "source") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_source",
-                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_source", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 return;
             } else if (node->name == "flags") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_flags",
-                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_flags", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 return;
             } else if (node->name == "global") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_global",
-                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_global", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             } else if (node->name == "sticky") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_sticky",
-                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_sticky", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             } else if (node->name == "ignoreCase") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_ignoreCase",
-                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_ignoreCase", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             } else if (node->name == "multiline") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_multiline",
-                    llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { re });
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_multiline", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             }
@@ -194,9 +194,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Math" && node->name == "PI") {
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI",
-                llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false));
-            lastValue = builder->CreateCall(fn);
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
     }
@@ -217,7 +217,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                     llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(methodType->returnType), paramTypes, false);
                     
                     llvm::FunctionCallee func = module->getOrInsertFunction(implName, ft);
-                    lastValue = builder->CreateCall(ft, func.getCallee(), {});
+                    lastValue = createCall(ft, func.getCallee(), {});
                     return;
                 }
                 current = current->baseClass;
@@ -261,9 +261,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             visit(node->expression.get());
             llvm::Value* url = lastValue;
             std::string getterName = "URL_get_" + fieldName;
-            llvm::FunctionCallee fn = module->getOrInsertFunction(getterName,
-                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-            lastValue = builder->CreateCall(fn, { url });
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(getterName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { url });
             return;
         }
 
@@ -271,9 +271,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             visit(node->expression.get());
             llvm::Value* buf = lastValue;
             if (fieldName == "length") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("Buffer_get_length",
-                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { buf });
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("Buffer_get_length", ft);
+                lastValue = createCall(ft, fn.getCallee(), { buf });
                 return;
             }
         }
@@ -282,15 +282,15 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             visit(node->expression.get());
             llvm::Value* resp = lastValue;
             if (fieldName == "status") {
-                llvm::FunctionCallee fn = module->getOrInsertFunction("Response_get_status",
-                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { resp });
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("Response_get_status", ft);
+                lastValue = createCall(ft, fn.getCallee(), { resp });
                 return;
             } else {
                 std::string getterName = "Response_get_" + fieldName;
-                llvm::FunctionCallee fn = module->getOrInsertFunction(getterName,
-                    llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-                lastValue = builder->CreateCall(fn, { resp });
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(getterName, ft);
+                lastValue = createCall(ft, fn.getCallee(), { resp });
                 return;
             }
         }
@@ -304,14 +304,13 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             int methodIdx = classLayouts[className].methodIndices[vname];
             
             // Load VTable pointer (first field of the struct)
-            llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(*context), objPtr);
+            llvm::Value* vptr = builder->CreateLoad(builder->getPtrTy(), objPtr);
             
             llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
             if (!vtableStruct) return;
             
             // Load function pointer from VTable
             llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIdx);
-            llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(*context), funcPtrPtr);
             
             // Get the getter type
             std::shared_ptr<FunctionType> getterType;
@@ -326,10 +325,11 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             
             if (getterType) {
                 std::vector<llvm::Type*> paramTypes;
-                paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this
+                paramTypes.push_back(builder->getPtrTy()); // this
                 llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(getterType->returnType), paramTypes, false);
                 
-                lastValue = builder->CreateCall(ft, funcPtr, { objPtr });
+                llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+                lastValue = createCall(ft, funcPtr, { objPtr });
                 return;
             }
         }
@@ -371,27 +371,24 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         llvm::Value* obj = lastValue;
         
         if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { builder->getPtrTy() }, false));
-             lastValue = builder->CreateCall(lenFn, { boxValue(obj, node->expression->inferredType) });
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length", lenFt);
+             lastValue = createCall(lenFt, lenFn.getCallee(), { boxValue(obj, node->expression->inferredType) });
              return;
         }
 
         if (obj->getType()->isIntegerTy(64)) {
-            obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+            obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
         }
         
         if (node->expression->inferredType->kind == TypeKind::String) {
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { llvm::PointerType::getUnqual(*context) }, false));
-             lastValue = builder->CreateCall(lenFn, { obj });
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length", lenFt);
+             lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
         } else if (node->expression->inferredType->kind == TypeKind::Array || node->expression->inferredType->kind == TypeKind::Tuple) {
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { llvm::PointerType::getUnqual(*context) }, false));
-             lastValue = builder->CreateCall(lenFn, { obj });
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
+             lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
         } else {
              llvm::errs() << "Error: length property not supported on type " << node->expression->inferredType->toString() << "\n";
              lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
@@ -400,26 +397,25 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         if (obj->getType()->isIntegerTy(64)) {
-            obj = builder->CreateIntToPtr(obj, llvm::PointerType::getUnqual(*context));
+            obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
         }
         
-        llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size",
-            llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                { llvm::PointerType::getUnqual(*context) }, false));
-        lastValue = builder->CreateCall(sizeFn, { obj });
+        llvm::FunctionType* sizeFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size", sizeFt);
+        lastValue = createCall(sizeFt, sizeFn.getCallee(), { obj });
     } else {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
             
-            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
-                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
-            llvm::Value* keyStr = builder->CreateCall(createStrFn, { builder->CreateGlobalStringPtr(node->name) });
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+            llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(node->name) });
             
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get",
-                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false));
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
             
-            llvm::Value* res = builder->CreateCall(getFn, { objPtr, keyStr });
+            lastValue = createCall(getFt, getFn.getCallee(), { objPtr, keyStr });
             
             // Find the field type to unbox correctly
             std::shared_ptr<Type> fieldType = std::make_shared<Type>(TypeKind::Any);
@@ -428,7 +424,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
             }
             
-            lastValue = unboxValue(res, fieldType);
+            lastValue = unboxValue(lastValue, fieldType);
             return;
         }
 
@@ -436,16 +432,16 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
             
-            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false));
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
             llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
-            llvm::Value* propName = builder->CreateCall(createStrFn, { propNameStr });
+            llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
             
-            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property",
-                llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                    { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false));
+            llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
             
-            lastValue = builder->CreateCall(getPropFn, { objPtr, propName });
+            lastValue = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
             return;
         }
         

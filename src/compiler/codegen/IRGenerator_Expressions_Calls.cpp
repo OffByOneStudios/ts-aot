@@ -21,10 +21,10 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
             }
 
-            llvm::FunctionCallee fetchFn = module->getOrInsertFunction("ts_fetch",
-                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false));
+            llvm::FunctionType* fetchFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fetchFn = module->getOrInsertFunction("ts_fetch", fetchFt);
             
-            lastValue = builder->CreateCall(fetchFn, { vtable, url, options });
+            lastValue = createCall(fetchFt, fetchFn.getCallee(), { vtable, url, options });
             return;
         }
     }
@@ -48,7 +48,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 visit(arg.get());
                 args.push_back(lastValue);
             }
-            builder->CreateCall(ctor, args);
+            createCall(ctor->getFunctionType(), ctor, args);
         }
         return;
     }
@@ -62,9 +62,9 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         llvm::Value* boxedFunc = lastValue;
         
         if (node->arguments.empty()) {
-            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0",
-                builder->getPtrTy(), builder->getPtrTy());
-            lastValue = builder->CreateCall(callFn, { boxedFunc });
+            llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0", callFt);
+            lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
             
             lastValue = unboxValue(lastValue, node->inferredType);
             return;
@@ -110,7 +110,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 llvm::Type* retType = builder->getPtrTy(); // Arrow functions always return TsValue* (ptr)
                 
                 llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
-                lastValue = builder->CreateCall(ft, funcPtr, args);
+                lastValue = createCall(ft, funcPtr, args);
                 return;
             }
         }
@@ -130,15 +130,12 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             
             visit(node->arguments[1].get());
             llvm::Value* delay = lastValue;
-            if (delay->getType()->isDoubleTy()) {
-                delay = builder->CreateFPToSI(delay, llvm::Type::getInt64Ty(*context));
-            }
             
             std::string funcName = (id->name == "setTimeout") ? "ts_set_timeout" : "ts_set_interval";
-            llvm::FunctionCallee timerFn = module->getOrInsertFunction(funcName,
-                builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context));
+            llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee timerFn = module->getOrInsertFunction(funcName, timerFt);
             
-            llvm::Value* boxedRes = builder->CreateCall(timerFn, { boxedCallback, delay });
+            llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback, delay });
             lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
             return;
         }
@@ -149,10 +146,10 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             llvm::Value* timerId = lastValue;
             llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
             
-            llvm::FunctionCallee clearFn = module->getOrInsertFunction("ts_clear_timer",
-                llvm::Type::getVoidTy(*context), builder->getPtrTy());
+            llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee clearFn = module->getOrInsertFunction("ts_clear_timer", clearFt);
             
-            builder->CreateCall(clearFn, { boxedId });
+            createCall(clearFt, clearFn.getCallee(), { boxedId });
             lastValue = nullptr;
             return;
         }
@@ -161,15 +158,11 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
              if (node->arguments.empty()) return;
              visit(node->arguments[0].get());
              llvm::Value* arg = lastValue;
-             if (arg->getType()->isIntegerTy(64)) {
-                 arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
-             }
 
-             llvm::FunctionCallee parseFn = module->getOrInsertFunction("ts_parseInt",
-                 llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
-                     { llvm::PointerType::getUnqual(*context) }, false));
+             llvm::FunctionType* parseFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
+             llvm::FunctionCallee parseFn = module->getOrInsertFunction("ts_parseInt", parseFt);
              
-             lastValue = builder->CreateCall(parseFn, { arg });
+             lastValue = createCall(parseFt, parseFn.getCallee(), { arg });
              return;
         }
 
@@ -196,7 +189,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 llvm::Type::getVoidTy(*context), { paramType }, false);
             llvm::FunctionCallee logFn = module->getOrInsertFunction(funcName, ft);
 
-            builder->CreateCall(logFn, { arg });
+            createCall(ft, logFn.getCallee(), { arg });
             lastValue = nullptr;
             return;
         }
@@ -231,7 +224,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             }
             for (auto arg : args) callArgs.push_back(arg);
             
-            lastValue = builder->CreateCall(func, callArgs);
+            lastValue = createCall(func->getFunctionType(), func, callArgs);
         } else {
             llvm::errs() << "Function not found: " << mangledName << "\n";
             // TODO: Error handling

@@ -43,7 +43,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             args.push_back(lastValue);
         }
         
-        lastValue = builder->CreateCall(ft, func.getCallee(), args);
+        lastValue = createCall(ft, func.getCallee(), args);
         return true;
     }
 
@@ -69,6 +69,9 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                     auto methodType = current->staticMethods[prop->name];
                     
                     std::vector<llvm::Type*> paramTypes;
+                    // Add context
+                    paramTypes.push_back(builder->getPtrTy());
+
                     // Add vtable param for Buffer static methods
                     if (current->name == "Buffer") {
                         paramTypes.push_back(builder->getPtrTy());
@@ -82,6 +85,13 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                     llvm::FunctionCallee func = module->getOrInsertFunction(implName, ft);
                     
                     std::vector<llvm::Value*> args;
+                    // Add context
+                    if (currentAsyncContext) {
+                        args.push_back(currentAsyncContext);
+                    } else {
+                        args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+                    }
+
                     if (current->name == "Buffer") {
                         llvm::Value* vtable = module->getGlobalVariable("Buffer_VTable_Global");
                         if (!vtable) vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -92,15 +102,16 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                         visit(arg.get());
                         llvm::Value* val = lastValue;
                         
-                        // Cast if necessary
-                        if (argIdx < (int)ft->getNumParams()) {
-                            val = castValue(val, ft->getParamType(argIdx));
+                        // Cast if necessary (account for context and potential vtable)
+                        int paramOffset = (current->name == "Buffer") ? 2 : 1;
+                        if (argIdx + paramOffset < (int)ft->getNumParams()) {
+                            val = castValue(val, ft->getParamType(argIdx + paramOffset));
                         }
                         
                         args.push_back(val);
                         argIdx++;
                     }
-                    lastValue = builder->CreateCall(ft, func.getCallee(), args);
+                    lastValue = createCall(ft, func.getCallee(), args);
                     return true;
                 }
                 current = current->baseClass;
@@ -129,7 +140,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 visit(arg.get());
                 args.push_back(lastValue);
             }
-            lastValue = builder->CreateCall(func, args);
+            lastValue = createCall(func->getFunctionType(), func, args);
         }
         return true;
     }
@@ -147,8 +158,8 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             llvm::Value* promiseObj = lastValue;
             
             if (methodName == "then") {
-                llvm::FunctionCallee thenFn = module->getOrInsertFunction("ts_promise_then",
-                    builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                llvm::FunctionType* thenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee thenFn = module->getOrInsertFunction("ts_promise_then", thenFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onFulfilled = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -161,29 +172,29 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                     onRejected = llvm::ConstantPointerNull::get(builder->getPtrTy());
                 }
                 
-                lastValue = builder->CreateCall(thenFn, { promiseObj, onFulfilled, onRejected });
+                lastValue = createCall(thenFt, thenFn.getCallee(), { promiseObj, onFulfilled, onRejected });
                 return true;
             } else if (methodName == "catch") {
-                llvm::FunctionCallee catchFn = module->getOrInsertFunction("ts_promise_catch",
-                    builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                llvm::FunctionType* catchFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee catchFn = module->getOrInsertFunction("ts_promise_catch", catchFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onRejected = boxValue(lastValue, node->arguments[0]->inferredType);
                 
-                lastValue = builder->CreateCall(catchFn, { promiseObj, onRejected });
+                lastValue = createCall(catchFt, catchFn.getCallee(), { promiseObj, onRejected });
                 return true;
             } else if (methodName == "finally") {
-                llvm::FunctionCallee finallyFn = module->getOrInsertFunction("ts_promise_finally",
-                    builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy());
+                llvm::FunctionType* finallyFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee finallyFn = module->getOrInsertFunction("ts_promise_finally", finallyFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onFinally = boxValue(lastValue, node->arguments[0]->inferredType);
                 
-                lastValue = builder->CreateCall(finallyFn, { promiseObj, onFinally });
+                lastValue = createCall(finallyFt, finallyFn.getCallee(), { promiseObj, onFinally });
                 return true;
             } else if (methodName == "resolve") {
-                llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve",
-                    builder->getPtrTy(), builder->getPtrTy());
+                llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve", resolveFt);
                 
                 llvm::Value* val;
                 std::shared_ptr<Type> valType;
@@ -197,11 +208,11 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 }
                 
                 llvm::Value* boxedVal = boxValue(val, valType);
-                lastValue = builder->CreateCall(resolveFn, { boxedVal });
+                lastValue = createCall(resolveFt, resolveFn.getCallee(), { boxedVal });
                 return true;
             } else if (methodName == "reject") {
-                llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject",
-                    builder->getPtrTy(), builder->getPtrTy());
+                llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject", rejectFt);
                 
                 llvm::Value* val;
                 std::shared_ptr<Type> valType;
@@ -215,7 +226,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 }
                 
                 llvm::Value* boxedVal = boxValue(val, valType);
-                lastValue = builder->CreateCall(rejectFn, { boxedVal });
+                lastValue = createCall(rejectFt, rejectFn.getCallee(), { boxedVal });
                 return true;
             }
         }
@@ -281,7 +292,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             argIdx++;
         }
         
-        lastValue = builder->CreateCall(ft, funcPtr, args);
+        lastValue = createCall(ft, funcPtr, args);
         return true;
     }
 
