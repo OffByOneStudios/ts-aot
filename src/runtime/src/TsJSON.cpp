@@ -58,11 +58,29 @@ static TsValue json_to_ts(const json& j) {
     return TsValue(nullptr);
 }
 
-static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, bool is_object_value = false) {
+static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited);
+
+static nlohmann::json ts_value_to_json(TsValue v, std::set<void*>& visited) {
+    switch (v.type) {
+        case ValueType::UNDEFINED: return nullptr;
+        case ValueType::NUMBER_INT: return v.i_val;
+        case ValueType::NUMBER_DBL: return v.d_val;
+        case ValueType::BOOLEAN: return v.b_val;
+        case ValueType::STRING_PTR: return ts_to_json_internal(v.ptr_val, visited);
+        case ValueType::OBJECT_PTR: return ts_to_json_internal(v.ptr_val, visited);
+        case ValueType::ARRAY_PTR: return ts_to_json_internal(v.ptr_val, visited);
+        case ValueType::PROMISE_PTR: return "[Promise]";
+        default: return nullptr;
+    }
+}
+
+static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     if (!p) return nullptr;
+    
+    // Check if it's a small integer (raw)
     if ((uintptr_t)p < 4096) return (int64_t)p;
 
-    // Check if it's a bit-casted double
+    // Check if it's a bit-casted double (raw)
     uint64_t val = (uint64_t)p;
     if (val > 0x00007FFFFFFFFFFF) {
         double d;
@@ -70,7 +88,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, boo
         return d;
     }
 
-    // Check magic numbers first
+    // Check magic numbers
     uint32_t magic = *(uint32_t*)p;
     if (magic == TsString::MAGIC) {
         return ((TsString*)p)->ToUtf8();
@@ -84,62 +102,42 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, boo
         return nlohmann::json::object();
     }
 
-    // For objects (Arrays and Maps), check for circular references
-    if (magic == TsArray::MAGIC || magic == TsMap::MAGIC) {
+    if (magic == TsArray::MAGIC) {
         if (visited.find(p) != visited.end()) {
             throw std::runtime_error("Circular reference in JSON.stringify");
         }
         visited.insert(p);
-
-        nlohmann::json j;
-        if (magic == TsArray::MAGIC) {
-            TsArray* arr = (TsArray*)p;
-            j = nlohmann::json::array();
-            for (int64_t i = 0; i < arr->Length(); ++i) {
-                j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
-            }
-        } else {
-            TsMap* map = (TsMap*)p;
-            j = nlohmann::json::object();
-            TsArray* keys = (TsArray*)map->GetKeys();
-            for (int64_t i = 0; i < keys->Length(); ++i) {
-                TsString* key = (TsString*)keys->Get(i);
-                void* val_ptr = (void*)map->Get(key);
-                
-                // In JS, undefined values in objects are omitted
-                if (val_ptr == nullptr) continue;
-                
-                // Check if it's a TsValue with UNDEFINED type
-                bool is_undefined = false;
-                if ((uintptr_t)val_ptr >= 4096) {
-                    uint8_t type_byte = *(uint8_t*)val_ptr;
-                    if (type_byte == (uint8_t)ValueType::UNDEFINED) {
-                        is_undefined = true;
-                    }
-                }
-                
-                if (is_undefined) continue;
-
-                j[key->ToUtf8()] = ts_to_json_internal(val_ptr, visited, true);
-            }
+        TsArray* arr = (TsArray*)p;
+        nlohmann::json j = nlohmann::json::array();
+        for (int64_t i = 0; i < arr->Length(); ++i) {
+            j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
         }
-
         visited.erase(p);
         return j;
     }
 
-    // Check if it's a TsValue
-    uint8_t type_byte = *(uint8_t*)p;
-    if (type_byte <= 5) {
-        TsValue* v = (TsValue*)p;
-        switch (v->type) {
-            case ValueType::UNDEFINED: return nullptr;
-            case ValueType::NUMBER_INT: return v->i_val;
-            case ValueType::NUMBER_DBL: return v->d_val;
-            case ValueType::BOOLEAN: return v->b_val;
-            case ValueType::STRING_PTR: return ts_to_json_internal(v->ptr_val, visited);
-            case ValueType::OBJECT_PTR: return ts_to_json_internal(v->ptr_val, visited);
+    if (magic == TsMap::MAGIC) {
+        if (visited.find(p) != visited.end()) {
+            throw std::runtime_error("Circular reference in JSON.stringify");
         }
+        visited.insert(p);
+        TsMap* map = (TsMap*)p;
+        nlohmann::json j = nlohmann::json::object();
+        TsArray* keys = (TsArray*)map->GetKeys();
+        for (int64_t i = 0; i < keys->Length(); ++i) {
+            TsString* key = (TsString*)keys->Get(i);
+            TsValue val = map->Get(key);
+            if (val.type == ValueType::UNDEFINED) continue;
+            j[key->ToUtf8()] = ts_value_to_json(val, visited);
+        }
+        visited.erase(p);
+        return j;
+    }
+
+    // Fallback: check if it's a boxed TsValue
+    uint8_t type_byte = *(uint8_t*)p;
+    if (type_byte <= (uint8_t)ValueType::ARRAY_PTR) {
+        return ts_value_to_json(*(TsValue*)p, visited);
     }
 
     return (int64_t)p;
@@ -147,7 +145,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited, boo
 
 static nlohmann::json ts_to_json(void* p) {
     std::set<void*> visited;
-    return ts_to_json_internal(p, visited, false);
+    return ts_to_json_internal(p, visited);
 }
 
 extern "C" {
