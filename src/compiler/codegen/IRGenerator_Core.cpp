@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include <fmt/core.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/TargetParser/Host.h>
@@ -9,6 +10,10 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/OptimizationLevel.h>
+#include <llvm/Transforms/Scalar/SROA.h>
+#include <llvm/Transforms/Scalar/GVN.h>
+#include <llvm/Transforms/IPO/Inliner.h>
+#include <llvm/Analysis/InlineCost.h>
 
 namespace ts {
 using namespace ast;
@@ -553,6 +558,48 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
         return;
     }
 
+    // New Pass Manager for IR optimizations
+    llvm::LoopAnalysisManager LAM;
+    llvm::FunctionAnalysisManager FAM;
+    llvm::CGSCCAnalysisManager CGAM;
+    llvm::ModuleAnalysisManager MAM;
+
+    llvm::PassBuilder PB(targetMachine.get());
+
+    PB.registerModuleAnalyses(MAM);
+    PB.registerCGSCCAnalyses(CGAM);
+    PB.registerFunctionAnalyses(FAM);
+    PB.registerLoopAnalyses(LAM);
+    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+    llvm::OptimizationLevel level;
+    switch (optLevel) {
+        case 0: level = llvm::OptimizationLevel::O0; break;
+        case 1: level = llvm::OptimizationLevel::O1; break;
+        case 2: level = llvm::OptimizationLevel::O2; break;
+        case 3: level = llvm::OptimizationLevel::O3; break;
+        default: level = llvm::OptimizationLevel::O0; break;
+    }
+
+    if (level != llvm::OptimizationLevel::O0) {
+        fmt::print("Running IR optimizations (Level O{})\n", optLevel);
+        llvm::ModulePassManager MPM;
+        
+        // Add custom "priority" passes as requested in Epic 73
+        MPM.addPass(llvm::ModuleInlinerWrapperPass());
+        
+        llvm::FunctionPassManager FPM;
+        FPM.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
+        FPM.addPass(llvm::GVNPass());
+        MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+        
+        // Add default pipeline
+        MPM.addPass(PB.buildPerModuleDefaultPipeline(level));
+        
+        MPM.run(*module, MAM);
+    }
+
+    // Legacy Pass Manager for CodeGen
     llvm::legacy::PassManager pass;
     auto fileType = llvm::CodeGenFileType::ObjectFile;
 
