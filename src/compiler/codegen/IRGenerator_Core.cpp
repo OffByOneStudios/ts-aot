@@ -598,13 +598,13 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
     llvm::OptimizationLevel level;
-    switch (optLevel) {
-        case 0: level = llvm::OptimizationLevel::O0; break;
-        case 1: level = llvm::OptimizationLevel::O1; break;
-        case 2: level = llvm::OptimizationLevel::O2; break;
-        case 3: level = llvm::OptimizationLevel::O3; break;
-        default: level = llvm::OptimizationLevel::O0; break;
-    }
+    if (optLevel == "0") level = llvm::OptimizationLevel::O0;
+    else if (optLevel == "1") level = llvm::OptimizationLevel::O1;
+    else if (optLevel == "2") level = llvm::OptimizationLevel::O2;
+    else if (optLevel == "3") level = llvm::OptimizationLevel::O3;
+    else if (optLevel == "s") level = llvm::OptimizationLevel::Os;
+    else if (optLevel == "z") level = llvm::OptimizationLevel::Oz;
+    else level = llvm::OptimizationLevel::O0;
 
     if (level != llvm::OptimizationLevel::O0) {
         fmt::print("Running IR optimizations (Level O{})\n", optLevel);

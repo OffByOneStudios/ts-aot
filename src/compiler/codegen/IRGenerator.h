@@ -21,7 +21,7 @@ public:
     void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer);
     void emitObjectCode(const std::string& filename);
     void dumpIR();
-    void setOptLevel(int level) { optLevel = level; }
+    void setOptLevel(const std::string& level) { optLevel = level; }
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
 
 private:
@@ -30,7 +30,7 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
-    int optLevel = 0;
+    std::string optLevel = "0";
     std::string runtimeBitcodePath;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
