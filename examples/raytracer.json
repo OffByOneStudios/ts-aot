@@ -820,7 +820,8 @@
           "isSetter": false
         }
       ],
-      "isAbstract": false
+      "isAbstract": false,
+      "isStruct": false
     },
     {
       "kind": "ClassDeclaration",
@@ -870,7 +871,8 @@
           "access": "public"
         }
       ],
-      "isAbstract": false
+      "isAbstract": false,
+      "isStruct": false
     },
     {
       "kind": "ClassDeclaration",
@@ -1277,7 +1279,8 @@
           "isSetter": false
         }
       ],
-      "isAbstract": false
+      "isAbstract": false,
+      "isStruct": false
     },
     {
       "kind": "FunctionDeclaration",
