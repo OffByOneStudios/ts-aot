@@ -55,6 +55,60 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
 }
 
 void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
+    std::shared_ptr<Type> elemType = nullptr;
+    if (node->inferredType && node->inferredType->kind == TypeKind::Array) {
+        elemType = std::static_pointer_cast<ArrayType>(node->inferredType)->elementType;
+    }
+
+    bool isSpecialized = false;
+    llvm::Type* llvmElemType = nullptr;
+    uint64_t elementSize = 8;
+
+    if (elemType) {
+        if (elemType->kind == TypeKind::Double) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getDoubleTy(*context);
+            elementSize = 8;
+        } else if (elemType->kind == TypeKind::Int) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getInt64Ty(*context);
+            elementSize = 8;
+        } else if (elemType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(elemType);
+            if (cls->isStruct) {
+                isSpecialized = true;
+                llvmElemType = llvm::StructType::getTypeByName(*context, cls->name);
+                elementSize = module->getDataLayout().getTypeAllocSize(llvmElemType);
+            }
+        }
+    }
+
+    if (isSpecialized) {
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create_specialized", createFt);
+        
+        llvm::Value* arr = createCall(createFt, createFn.getCallee(), {
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->elements.size()),
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elementSize)
+        });
+
+        llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
+        llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
+        
+        for (size_t i = 0; i < node->elements.size(); ++i) {
+            visit(node->elements[i].get());
+            llvm::Value* val = lastValue;
+            
+            llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i) });
+            builder->CreateStore(val, ptr);
+        }
+        
+        lastValue = arr;
+        return;
+    }
+
     llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
     llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
     

@@ -391,6 +391,39 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (index->getType()->isDoubleTy()) {
             index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
         }
+
+        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Array) {
+            auto arrayType = std::static_pointer_cast<ArrayType>(elem->expression->inferredType);
+            auto elemType = arrayType->elementType;
+
+            bool isSpecialized = false;
+            llvm::Type* llvmElemType = nullptr;
+
+            if (elemType->kind == TypeKind::Double) {
+                isSpecialized = true;
+                llvmElemType = llvm::Type::getDoubleTy(*context);
+            } else if (elemType->kind == TypeKind::Int) {
+                isSpecialized = true;
+                llvmElemType = llvm::Type::getInt64Ty(*context);
+            } else if (elemType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(elemType);
+                if (cls->isStruct) {
+                    isSpecialized = true;
+                    llvmElemType = llvm::StructType::getTypeByName(*context, cls->name);
+                }
+            }
+
+            if (isSpecialized) {
+                llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
+                llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
+
+                llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
+                builder->CreateStore(val, ptr);
+                lastValue = val;
+                return;
+            }
+        }
         
         // Check if this is a safe access for BCE
         bool isSafe = false;
