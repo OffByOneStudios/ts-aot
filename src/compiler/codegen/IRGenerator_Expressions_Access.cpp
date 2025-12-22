@@ -196,6 +196,10 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     
     index = castValue(index, llvm::Type::getInt64Ty(*context));
     
+    if (isSafe) {
+        // Safe access
+    }
+
     std::string funcName = isSafe ? "ts_array_get_unchecked" : "ts_array_get";
     llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
@@ -503,6 +507,12 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         emitNullCheckForExpression(node->expression.get(), obj);
+
+        if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+            lastLengthArray = id->name;
+        } else {
+            lastLengthArray = "";
+        }
         
         if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
              llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);

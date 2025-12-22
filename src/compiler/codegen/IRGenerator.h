@@ -37,6 +37,8 @@ private:
 
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;
+    std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName
+    std::string lastLengthArray;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void addStackProtection(llvm::Function* func);

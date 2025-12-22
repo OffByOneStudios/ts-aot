@@ -4,14 +4,18 @@
 **Current Phase:** Phase 15 (Node.js Parity) & Phase 16 (Developer Experience)
 
 ## Current Focus
-We are focusing on **Devirtualization (Epic 80)**.
+We are focusing on **Bounds Check Elimination (Epic 81)**.
 
 ## Active Tasks
-1.  **Devirtualization:** Milestone 2 & 3 Completed.
-2.  **Verification:** Verify impact on Raytracer benchmark.
+1.  **BCE:** Milestone 2: Range Analysis.
 
 ## Recent Accomplishments
-*   **Epic 80:** Implemented static and monomorphization-based devirtualization.
+*   ## Active Task
+- **Epic:** Epic 81: Bounds Check Elimination
+- **Phase:** Milestone 2: Range Analysis
+- **Status:** Implementing simple range tracker for local variables.
+
+*   **Epic 80:** Completed Devirtualization (Static & Monomorphization-based).
 *   **Epic 79:** Completed Number methods and SHA-256 benchmark.
 
 ## Next Steps

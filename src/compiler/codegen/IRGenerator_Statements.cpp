@@ -343,8 +343,6 @@ void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
     }
 
     generateDestructuring(initVal, node->initializer->inferredType, node->name.get());
-}
-
-} // namespace ts
+}} // namespace ts
 
 

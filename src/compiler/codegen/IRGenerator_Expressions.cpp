@@ -1130,9 +1130,10 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
 }
 
 void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
-    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "whilecond");
-    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "whilebody");
-    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "whilecont");
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "whilecond", func);
+    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "whilebody", func);
+    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "whilecont", func);
 
     builder->CreateBr(condBlock);
 
@@ -1144,7 +1145,9 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 
     // Body block
     builder->SetInsertPoint(bodyBlock);
+    loopStack.push_back({ condBlock, mergeBlock, {} });
     visit(node->body.get());
+    loopStack.pop_back();
     builder->CreateBr(condBlock);
 
     // Merge block
@@ -1152,15 +1155,18 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 }
 
 void IRGenerator::visitDoWhileStatement(ast::DoWhileStatement* node) {
-    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "dowhilebody");
-    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "dowhilecond");
-    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "dowhilecont");
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "dowhilebody", func);
+    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "dowhilecond", func);
+    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "dowhilecont", func);
 
     builder->CreateBr(bodyBlock);
 
     // Body block
     builder->SetInsertPoint(bodyBlock);
+    loopStack.push_back({ condBlock, mergeBlock, {} });
     visit(node->body.get());
+    loopStack.pop_back();
     builder->CreateBr(condBlock);
 
     // Condition block
@@ -1174,11 +1180,11 @@ void IRGenerator::visitDoWhileStatement(ast::DoWhileStatement* node) {
 }
 
 void IRGenerator::visitForStatement(ast::ForStatement* node) {
-    llvm::BasicBlock* initBlock = llvm::BasicBlock::Create(*context, "forinit");
-    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "forcond");
-    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "forbody");
-    llvm::BasicBlock* incBlock = llvm::BasicBlock::Create(*context, "forinc");
-    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "forcont");
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(*context, "forcond", func);
+    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(*context, "forbody", func);
+    llvm::BasicBlock* incBlock = llvm::BasicBlock::Create(*context, "forinc", func);
+    llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(*context, "forcont", func);
 
     // Initialize
     if (node->init) {
@@ -1198,7 +1204,26 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 
     // Body block
     builder->SetInsertPoint(bodyBlock);
+    loopStack.push_back({ incBlock, mergeBlock, {} });
+    
+    // BCE: Identify induction variable and array length
+    // for (let i = 0; i < arr.length; i++)
+    if (auto bin = dynamic_cast<ast::BinaryExpression*>(node->condition.get())) {
+        if (bin->op == "<") {
+            if (auto id = dynamic_cast<ast::Identifier*>(bin->left.get())) {
+                if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(bin->right.get())) {
+                    if (prop->name == "length") {
+                        if (auto arrId = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                            loopStack.back().safeIndices[id->name] = arrId->name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     visit(node->body.get());
+    loopStack.pop_back();
     builder->CreateBr(incBlock);
 
     // Increment block

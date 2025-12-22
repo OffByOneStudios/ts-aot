@@ -34,8 +34,47 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 
     builder->CreateCondBr(condValue, loopBB, afterBB);
 
+    // Detect while (i < arr.length)
+    std::string indexVar;
+    std::string arrayVar;
+    bool isSafeLoop = false;
+
+    if (auto bin = dynamic_cast<ast::BinaryExpression*>(node->condition.get())) {
+        if (bin->op == "<") {
+            if (auto leftId = dynamic_cast<ast::Identifier*>(bin->left.get())) {
+                indexVar = leftId->name;
+                if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(bin->right.get())) {
+                    if (prop->name == "length") {
+                        if (auto arrId = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                            arrayVar = arrId->name;
+                            isSafeLoop = true;
+                        }
+                    }
+                } else if (auto rightId = dynamic_cast<ast::Identifier*>(bin->right.get())) {
+                    llvm::Value* rightVal = nullptr;
+                    if (namedValues.count(rightId->name)) {
+                        rightVal = namedValues[rightId->name];
+                    } else {
+                        rightVal = module->getGlobalVariable(rightId->name);
+                    }
+
+                    if (rightVal && lengthAliases.count(rightVal)) {
+                        arrayVar = lengthAliases[rightVal];
+                        isSafeLoop = true;
+                    }
+                }
+            }
+        }
+    }
+
     // Push loop info
-    loopStack.push_back({ condBB, afterBB });
+    LoopInfo info;
+    info.continueBlock = condBB;
+    info.breakBlock = afterBB;
+    if (isSafeLoop) {
+        info.safeIndices[indexVar] = arrayVar;
+    }
+    loopStack.push_back(info);
 
     // Emit loop body
     func->insert(func->end(), loopBB);
@@ -105,10 +144,21 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     if (node->initializer) {
         if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
             if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                // Check if initializer is 0
+                bool isZero = false;
                 if (auto lit = dynamic_cast<ast::NumericLiteral*>(varDecl->initializer.get())) {
-                    if (lit->value == 0) {
-                        indexVar = id->name;
+                    if (lit->value == 0) isZero = true;
+                } else if (varDecl->initializer) {
+                    visit(varDecl->initializer.get());
+                    if (auto constInt = llvm::dyn_cast<llvm::ConstantInt>(lastValue)) {
+                        if (constInt->isZero()) isZero = true;
+                    } else if (auto constFP = llvm::dyn_cast<llvm::ConstantFP>(lastValue)) {
+                        if (constFP->isZero()) isZero = true;
                     }
+                }
+                
+                if (isZero) {
+                    indexVar = id->name;
                 }
             }
         }
@@ -123,6 +173,21 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
                             if (prop->name == "length") {
                                 if (auto arrId = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
                                     arrayVar = arrId->name;
+                                    isSafeLoop = true;
+                                }
+                            }
+                        } else if (auto rightId = dynamic_cast<ast::Identifier*>(bin->right.get())) {
+                            // Check if rightId is an alias for some array's length
+                            llvm::Value* rightVal = nullptr;
+                            if (namedValues.count(rightId->name)) {
+                                rightVal = namedValues[rightId->name];
+                            } else {
+                                rightVal = module->getGlobalVariable(rightId->name);
+                            }
+
+                            if (rightVal) {
+                                if (lengthAliases.count(rightVal)) {
+                                    arrayVar = lengthAliases[rightVal];
                                     isSafeLoop = true;
                                 }
                             }

@@ -1,6 +1,6 @@
 # Epic 80: Devirtualization
 
-**Status:** In Progress
+**Status:** Completed
 **Goal:** Convert indirect (vtable) calls into direct function calls to enable inlining and reduce branch mispredictions.
 
 ## Background

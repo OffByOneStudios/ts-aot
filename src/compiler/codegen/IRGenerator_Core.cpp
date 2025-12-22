@@ -320,6 +320,14 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
     if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
         if (auto gv = module->getGlobalVariable(id->name)) {
             builder->CreateStore(value, gv);
+            
+            if (!lastLengthArray.empty()) {
+                lengthAliases[gv] = lastLengthArray;
+                lastLengthArray = "";
+            } else {
+                lengthAliases.erase(gv);
+            }
+            
             return;
         }
 
@@ -341,6 +349,13 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             concreteTypes[alloca] = concreteTypes[value];
         } else if (type && type->kind == TypeKind::Class) {
             concreteTypes[alloca] = std::static_pointer_cast<ClassType>(type).get();
+        }
+
+        if (!lastLengthArray.empty()) {
+            lengthAliases[alloca] = lastLengthArray;
+            lastLengthArray = "";
+        } else {
+            lengthAliases.erase(alloca);
         }
 
         if (nonNullValues.count(value)) {
