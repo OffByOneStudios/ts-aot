@@ -341,7 +341,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         const llvm::DataLayout& dl = module->getDataLayout();
         
         llvm::Value* thisPtr;
-        if (!node->escapes) {
+        if (classType->isStruct || !node->escapes) {
             llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
             llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
             thisPtr = entryBuilder.CreateAlloca(structType, nullptr, className + "_stack");

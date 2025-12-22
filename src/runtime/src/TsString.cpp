@@ -9,36 +9,85 @@
 #include <cstring>
 
 TsString* TsString::Create(const char* utf8Str) {
+    if (!utf8Str) utf8Str = "";
+    size_t len = std::strlen(utf8Str);
+    
+    bool isAscii = true;
+    if (len < 16) {
+        for (size_t i = 0; i < len; ++i) {
+            if ((unsigned char)utf8Str[i] > 127) {
+                isAscii = false;
+                break;
+            }
+        }
+    } else {
+        isAscii = false;
+    }
+
     void* mem = ts_alloc(sizeof(TsString));
-    return new(mem) TsString(utf8Str);
+    if (isAscii) {
+        return new(mem) TsString(utf8Str, (uint32_t)len);
+    } else {
+        return new(mem) TsString(utf8Str);
+    }
+}
+
+TsString::TsString(const char* utf8Str, uint32_t len) {
+    isSmall = true;
+    length = len;
+    std::memcpy(data.inlineBuffer, utf8Str, len);
+    if (len < 16) data.inlineBuffer[len] = '\0';
 }
 
 TsString::TsString(const char* utf8Str) {
+    isSmall = false;
     // Allocate the ICU string on the GC heap as well
     void* mem = ts_alloc(sizeof(icu::UnicodeString));
-    impl = new(mem) icu::UnicodeString(utf8Str);
-    utf8Buffer = nullptr;
+    data.heap.impl = new(mem) icu::UnicodeString(utf8Str);
+    data.heap.utf8Buffer = nullptr;
+    length = static_cast<icu::UnicodeString*>(data.heap.impl)->length();
 }
 
 const char* TsString::ToUtf8() {
-    if (utf8Buffer) return utf8Buffer;
+    if (isSmall) return data.inlineBuffer;
+    if (data.heap.utf8Buffer) return data.heap.utf8Buffer;
     
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     std::string str;
     s->toUTF8String(str);
     
     size_t len = str.length();
-    utf8Buffer = (char*)ts_alloc(len + 1);
-    std::memcpy(utf8Buffer, str.c_str(), len + 1);
-    return utf8Buffer;
+    data.heap.utf8Buffer = (char*)ts_alloc(len + 1);
+    std::memcpy(data.heap.utf8Buffer, str.c_str(), len + 1);
+    return data.heap.utf8Buffer;
 }
 
 TsString* TsString::Concat(TsString* a, TsString* b) {
     if (!a || !b) return nullptr; // Safety check
-    icu::UnicodeString* s1 = static_cast<icu::UnicodeString*>(a->impl);
-    icu::UnicodeString* s2 = static_cast<icu::UnicodeString*>(b->impl);
     
-    icu::UnicodeString result = *s1 + *s2;
+    if (a->isSmall && b->isSmall && (a->length + b->length < 16)) {
+        char buf[16];
+        std::memcpy(buf, a->data.inlineBuffer, a->length);
+        std::memcpy(buf + a->length, b->data.inlineBuffer, b->length);
+        buf[a->length + b->length] = '\0';
+        return Create(buf);
+    }
+
+    icu::UnicodeString s1;
+    if (a->isSmall) {
+        s1 = icu::UnicodeString::fromUTF8(a->data.inlineBuffer);
+    } else {
+        s1 = *static_cast<icu::UnicodeString*>(a->data.heap.impl);
+    }
+
+    icu::UnicodeString s2;
+    if (b->isSmall) {
+        s2 = icu::UnicodeString::fromUTF8(b->data.inlineBuffer);
+    } else {
+        s2 = *static_cast<icu::UnicodeString*>(b->data.heap.impl);
+    }
+    
+    icu::UnicodeString result = s1 + s2;
     
     std::string str;
     result.toUTF8String(str);
@@ -46,8 +95,9 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
 }
 
 TsString* TsString::FromInt(int64_t value) {
-    std::string str = std::to_string(value);
-    return Create(str.c_str());
+    char buf[32];
+    int len = std::snprintf(buf, sizeof(buf), "%lld", value);
+    return Create(buf);
 }
 
 TsString* TsString::FromBool(bool value) {
@@ -55,34 +105,46 @@ TsString* TsString::FromBool(bool value) {
 }
 
 TsString* TsString::FromDouble(double value) {
-    std::string str = std::to_string(value);
-    // Remove trailing zeros? std::to_string(double) produces 6 decimal places.
-    // JS behavior is different.
-    // For now, simple to_string is enough.
-    return Create(str.c_str());
+    char buf[64];
+    // Use snprintf to avoid std::string allocation
+    int len = std::snprintf(buf, sizeof(buf), "%g", value);
+    return Create(buf);
 }
 
 int64_t TsString::Length() {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    return s->length();
+    return length;
 }
 
 int64_t TsString::CharCodeAt(int64_t index) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    if (index < 0 || index >= s->length()) return 0;
+    if (index < 0 || index >= length) return 0;
+    if (isSmall) return (unsigned char)data.inlineBuffer[index];
+    
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     return s->charAt((int32_t)index);
 }
 
+icu::UnicodeString TsString::ToUnicodeString() const {
+    if (isSmall) {
+        return icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    }
+    return *static_cast<icu::UnicodeString*>(data.heap.impl);
+}
+
 void* TsString::Split(TsString* separator) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* sep = static_cast<icu::UnicodeString*>(separator->impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString sep;
+    if (separator->isSmall) sep = icu::UnicodeString::fromUTF8(separator->data.inlineBuffer);
+    else sep = *static_cast<icu::UnicodeString*>(separator->data.heap.impl);
     
     TsArray* arr = TsArray::Create();
     
-    if (sep->length() == 0) {
+    if (sep.length() == 0) {
         // Split by character
-        for (int32_t i = 0; i < s->length(); ++i) {
-            icu::UnicodeString charStr = s->tempSubString(i, 1);
+        for (int32_t i = 0; i < s.length(); ++i) {
+            icu::UnicodeString charStr = s.tempSubString(i, 1);
             std::string utf8;
             charStr.toUTF8String(utf8);
             arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
@@ -93,16 +155,16 @@ void* TsString::Split(TsString* separator) {
     int32_t start = 0;
     int32_t pos = 0;
     
-    while ((pos = s->indexOf(*sep, start)) != -1) {
-        icu::UnicodeString sub = s->tempSubString(start, pos - start);
+    while ((pos = s.indexOf(sep, start)) != -1) {
+        icu::UnicodeString sub = s.tempSubString(start, pos - start);
         std::string utf8;
         sub.toUTF8String(utf8);
         arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
-        start = pos + sep->length();
+        start = pos + sep.length();
     }
     
     // Last part
-    icu::UnicodeString sub = s->tempSubString(start);
+    icu::UnicodeString sub = s.tempSubString(start);
     std::string utf8;
     sub.toUTF8String(utf8);
     arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
@@ -111,18 +173,23 @@ void* TsString::Split(TsString* separator) {
 }
 
 TsString* TsString::Trim() {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString trimmed = *s;
-    trimmed.trim();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    s.trim();
     
     std::string utf8;
-    trimmed.toUTF8String(utf8);
+    s.toUTF8String(utf8);
     return TsString::Create(utf8.c_str());
 }
 
 TsString* TsString::Substring(int64_t start, int64_t end) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    int32_t len = s->length();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    int32_t len = s.length();
     
     // Clamp to int32 range and string length
     if (start < 0) start = 0;
@@ -135,15 +202,18 @@ TsString* TsString::Substring(int64_t start, int64_t end) {
     
     if (s32 > e32) std::swap(s32, e32);
     
-    icu::UnicodeString sub = s->tempSubString(s32, e32 - s32);
+    icu::UnicodeString sub = s.tempSubString(s32, e32 - s32);
     std::string utf8;
     sub.toUTF8String(utf8);
     return TsString::Create(utf8.c_str());
 }
 
 TsString* TsString::Slice(int64_t start, int64_t end) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    int32_t len = s->length();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    int32_t len = s.length();
     
     if (start < 0) start = len + start;
     if (start < 0) start = 0;
@@ -153,7 +223,7 @@ TsString* TsString::Slice(int64_t start, int64_t end) {
     if (end > len) end = len;
     if (end < start) end = start;
     
-    icu::UnicodeString sub = s->tempSubString((int32_t)start, (int32_t)(end - start));
+    icu::UnicodeString sub = s.tempSubString((int32_t)start, (int32_t)(end - start));
     std::string utf8;
     sub.toUTF8String(utf8);
     return Create(utf8.c_str());
@@ -161,10 +231,13 @@ TsString* TsString::Slice(int64_t start, int64_t end) {
 
 TsString* TsString::Repeat(int64_t count) {
     if (count <= 0) return Create("");
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
     icu::UnicodeString result;
     for (int64_t i = 0; i < count; ++i) {
-        result += *s;
+        result += s;
     }
     std::string utf8;
     result.toUTF8String(utf8);
@@ -172,22 +245,28 @@ TsString* TsString::Repeat(int64_t count) {
 }
 
 TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    int32_t len = s->length();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    int32_t len = s.length();
     if (targetLength <= len) return this;
     
-    icu::UnicodeString* pad = static_cast<icu::UnicodeString*>(padString->impl);
-    if (pad->length() == 0) return this;
+    icu::UnicodeString pad;
+    if (padString->isSmall) pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
+    else pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+
+    if (pad.length() == 0) return this;
     
     icu::UnicodeString result;
     int32_t padLen = (int32_t)targetLength - len;
     while (result.length() < padLen) {
-        result += *pad;
+        result += pad;
     }
     if (result.length() > padLen) {
         result.truncate(padLen);
     }
-    result += *s;
+    result += s;
     
     std::string utf8;
     result.toUTF8String(utf8);
@@ -195,18 +274,24 @@ TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
 }
 
 TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    int32_t len = s->length();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    int32_t len = s.length();
     if (targetLength <= len) return this;
     
-    icu::UnicodeString* pad = static_cast<icu::UnicodeString*>(padString->impl);
-    if (pad->length() == 0) return this;
+    icu::UnicodeString pad;
+    if (padString->isSmall) pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
+    else pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+
+    if (pad.length() == 0) return this;
     
-    icu::UnicodeString result = *s;
+    icu::UnicodeString result = s;
     int32_t padLen = (int32_t)targetLength - len;
     icu::UnicodeString padding;
     while (padding.length() < padLen) {
-        padding += *pad;
+        padding += pad;
     }
     if (padding.length() > padLen) {
         padding.truncate(padLen);
@@ -219,67 +304,108 @@ TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
 }
 
 bool TsString::StartsWith(TsString* prefix) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(prefix->impl);
-    return s->startsWith(*p);
+    if (isSmall && prefix->isSmall) {
+        if (prefix->length > length) return false;
+        return std::memcmp(data.inlineBuffer, prefix->data.inlineBuffer, prefix->length) == 0;
+    }
+
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString p;
+    if (prefix->isSmall) p = icu::UnicodeString::fromUTF8(prefix->data.inlineBuffer);
+    else p = *static_cast<icu::UnicodeString*>(prefix->data.heap.impl);
+
+    return s.startsWith(p);
 }
 
 bool TsString::Includes(TsString* searchString) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* search = static_cast<icu::UnicodeString*>(searchString->impl);
-    return s->indexOf(*search) != -1;
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString search;
+    if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
+    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+
+    return s.indexOf(search) != -1;
 }
 
 int64_t TsString::IndexOf(TsString* searchString) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* search = static_cast<icu::UnicodeString*>(searchString->impl);
-    return s->indexOf(*search);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString search;
+    if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
+    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+
+    return s.indexOf(search);
 }
 
 TsString* TsString::ToLowerCase() {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString result = *s;
-    result.toLower();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    s.toLower();
     std::string str;
-    result.toUTF8String(str);
+    s.toUTF8String(str);
     return Create(str.c_str());
 }
 
 TsString* TsString::ToUpperCase() {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString result = *s;
-    result.toUpper();
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    s.toUpper();
     std::string str;
-    result.toUTF8String(str);
+    s.toUTF8String(str);
     return Create(str.c_str());
 }
 
 TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(pattern->impl);
-    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString p;
+    if (pattern->isSmall) p = icu::UnicodeString::fromUTF8(pattern->data.inlineBuffer);
+    else p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl);
+
+    icu::UnicodeString r;
+    if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
+    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
     
-    icu::UnicodeString result = *s;
-    int32_t pos = result.indexOf(*p);
+    int32_t pos = s.indexOf(p);
     if (pos != -1) {
-        result.replace(pos, p->length(), *r);
+        s.replace(pos, p.length(), r);
     }
     
     std::string str;
-    result.toUTF8String(str);
+    s.toUTF8String(str);
     return Create(str.c_str());
 }
 
 TsString* TsString::ReplaceAll(TsString* pattern, TsString* replacement) {
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* p = static_cast<icu::UnicodeString*>(pattern->impl);
-    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString p;
+    if (pattern->isSmall) p = icu::UnicodeString::fromUTF8(pattern->data.inlineBuffer);
+    else p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl);
+
+    icu::UnicodeString r;
+    if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
+    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
     
-    icu::UnicodeString result = *s;
-    result.findAndReplace(*p, *r);
+    s.findAndReplace(p, r);
     
     std::string str;
-    result.toUTF8String(str);
+    s.toUTF8String(str);
     return Create(str.c_str());
 }
 
@@ -310,9 +436,12 @@ void* TsString::Match(TsRegExp* regexp) {
 
 int64_t TsString::Search(TsRegExp* regexp) {
     if (!regexp) return -1;
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
-    matcher->reset(*s);
+    matcher->reset(s);
     if (matcher->find()) {
         UErrorCode status = U_ZERO_ERROR;
         return matcher->start(status);
@@ -323,18 +452,23 @@ int64_t TsString::Search(TsRegExp* regexp) {
 TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
     if (!regexp || !replacement) return this;
     
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* r = static_cast<icu::UnicodeString*>(replacement->impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString r;
+    if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
+    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
     
     UErrorCode status = U_ZERO_ERROR;
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
-    matcher->reset(*s);
+    matcher->reset(s);
     
     icu::UnicodeString result;
     if (regexp->GetFlags()->Includes(TsString::Create("g"))) {
-        result = matcher->replaceAll(*r, status);
+        result = matcher->replaceAll(r, status);
     } else {
-        result = matcher->replaceFirst(*r, status);
+        result = matcher->replaceFirst(r, status);
     }
     
     std::string utf8;
@@ -345,10 +479,13 @@ TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
 void* TsString::Split(TsRegExp* regexp) {
     if (!regexp) return Split(TsString::Create(""));
     
-    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(impl);
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
     UErrorCode status = U_ZERO_ERROR;
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
-    matcher->reset(*s);
+    matcher->reset(s);
     
     TsArray* arr = TsArray::Create();
     int32_t start = 0;
@@ -357,7 +494,7 @@ void* TsString::Split(TsRegExp* regexp) {
         int32_t matchStart = matcher->start(status);
         int32_t matchEnd = matcher->end(status);
         
-        icu::UnicodeString sub = s->tempSubString(start, matchStart - start);
+        icu::UnicodeString sub = s.tempSubString(start, matchStart - start);
         std::string utf8;
         sub.toUTF8String(utf8);
         arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
@@ -379,7 +516,7 @@ void* TsString::Split(TsRegExp* regexp) {
     }
     
     // Last part
-    icu::UnicodeString sub = s->tempSubString(start);
+    icu::UnicodeString sub = s.tempSubString(start);
     std::string utf8;
     sub.toUTF8String(utf8);
     arr->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
@@ -390,9 +527,20 @@ void* TsString::Split(TsRegExp* regexp) {
 bool TsString::Equals(TsString* other) {
     if (this == other) return true;
     if (!other) return false;
-    icu::UnicodeString* s1 = static_cast<icu::UnicodeString*>(impl);
-    icu::UnicodeString* s2 = static_cast<icu::UnicodeString*>(other->impl);
-    return *s1 == *s2;
+    if (length != other->length) return false;
+    if (isSmall && other->isSmall) {
+        return std::memcmp(data.inlineBuffer, other->data.inlineBuffer, length) == 0;
+    }
+    
+    icu::UnicodeString s1;
+    if (isSmall) s1 = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s1 = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString s2;
+    if (other->isSmall) s2 = icu::UnicodeString::fromUTF8(other->data.inlineBuffer);
+    else s2 = *static_cast<icu::UnicodeString*>(other->data.heap.impl);
+
+    return s1 == s2;
 }
 
 extern "C" {
@@ -418,6 +566,10 @@ extern "C" {
 
     void* ts_string_trim(void* str) {
         return ((TsString*)str)->Trim();
+    }
+
+    void* ts_string_substring(void* str, int64_t start, int64_t end) {
+        return ((TsString*)str)->Substring(start, end);
     }
 
     void* ts_string_slice(void* str, int64_t start, int64_t end) {
