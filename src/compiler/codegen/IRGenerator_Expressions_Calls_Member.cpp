@@ -251,10 +251,6 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         // 1. Evaluate Object
         visit(prop->expression.get());
         llvm::Value* objPtr = lastValue;
-        std::shared_ptr<ClassType> concreteClass = nullptr;
-        if (lastConcreteType && lastConcreteType->kind == TypeKind::Class) {
-            concreteClass = std::static_pointer_cast<ClassType>(lastConcreteType);
-        }
         emitNullCheckForExpression(prop->expression.get(), objPtr);
         
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
@@ -284,8 +280,17 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         // DEVIRTUALIZATION:
         // If the receiver is a specific class (not an interface), we can try to call the method directly.
         // This is safe if the method is not overridden in any subclass, or if we assume the type is exact.
-        std::shared_ptr<ClassType> searchType = concreteClass ? concreteClass : classType;
-        std::shared_ptr<ClassType> definer = searchType;
+        ClassType* concreteClass = nullptr;
+        if (concreteTypes.count(objPtr)) {
+            concreteClass = concreteTypes[objPtr];
+        }
+
+        if (concreteClass) {
+        }
+
+        std::shared_ptr<ClassType> definer = concreteClass ? 
+            std::static_pointer_cast<ClassType>(concreteClass->shared_from_this()) : classType;
+        
         std::string baseMangledName;
         bool isAbstract = false;
         while (definer) {
@@ -304,7 +309,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         if (concreteClass && !baseMangledName.empty() && !isAbstract) {
             // Try specialized version
             std::vector<std::shared_ptr<Type>> argTypes;
-            argTypes.push_back(searchType); // this
+            argTypes.push_back(std::static_pointer_cast<ClassType>(concreteClass->shared_from_this())); // this
             for (auto& arg : node->arguments) {
                 argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
             }
@@ -319,6 +324,8 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 if (!funcPtr) {
                     funcPtr = module->getOrInsertFunction(baseMangledName, ft).getCallee();
                 }
+            }
+            if (funcPtr) {
             }
         }
 

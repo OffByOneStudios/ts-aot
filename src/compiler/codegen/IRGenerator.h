@@ -35,6 +35,9 @@ private:
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
 
+    llvm::Value* lastConcreteType = nullptr;
+    std::map<llvm::Value*, ClassType*> concreteTypes;
+
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void addStackProtection(llvm::Function* func);
     void emitCFICheck(llvm::Value* ptr, const std::string& typeId);
@@ -125,8 +128,6 @@ private:
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
-    std::shared_ptr<Type> lastConcreteType = nullptr;
-    std::map<llvm::Value*, std::shared_ptr<Type>> concreteTypes;
     std::shared_ptr<Type> currentClass;
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
     llvm::Value* currentContext = nullptr;

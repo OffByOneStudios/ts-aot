@@ -292,6 +292,13 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
 std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     auto classType = std::make_shared<ClassType>(node->name);
     
+    if (!node->baseClass.empty()) {
+        auto base = symbols.lookupType(node->baseClass);
+        if (base && base->kind == TypeKind::Class) {
+            classType->baseClass = std::static_pointer_cast<ClassType>(base);
+        }
+    }
+
     std::map<std::string, std::shared_ptr<Type>> env;
     for (size_t i = 0; i < node->typeParameters.size() && i < typeArguments.size(); ++i) {
         env[node->typeParameters[i]->name] = typeArguments[i];

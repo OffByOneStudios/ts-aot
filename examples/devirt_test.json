@@ -20,15 +20,6 @@
           "isReadonly": false
         },
         {
-          "kind": "PropertyDefinition",
-          "name": "y",
-          "type": "number",
-          "initializer": null,
-          "access": null,
-          "isStatic": false,
-          "isReadonly": false
-        },
-        {
           "kind": "MethodDefinition",
           "name": "constructor",
           "parameters": [
@@ -37,20 +28,6 @@
               "name": {
                 "kind": "Identifier",
                 "name": "x"
-              },
-              "type": "number",
-              "isOptional": false,
-              "isRest": false,
-              "initializer": null,
-              "access": null,
-              "isReadonly": false,
-              "isParameterProperty": false
-            },
-            {
-              "kind": "Parameter",
-              "name": {
-                "kind": "Identifier",
-                "name": "y"
               },
               "type": "number",
               "isOptional": false,
@@ -80,24 +57,6 @@
                   "name": "x"
                 }
               }
-            },
-            {
-              "kind": "ExpressionStatement",
-              "expression": {
-                "kind": "AssignmentExpression",
-                "left": {
-                  "kind": "PropertyAccessExpression",
-                  "expression": {
-                    "kind": "Identifier",
-                    "name": "this"
-                  },
-                  "name": "y"
-                },
-                "right": {
-                  "kind": "Identifier",
-                  "name": "y"
-                }
-              }
             }
           ],
           "hasBody": true,
@@ -105,43 +64,53 @@
         },
         {
           "kind": "MethodDefinition",
-          "name": "draw",
+          "name": "getX",
           "isAsync": false,
           "typeParameters": [],
           "parameters": [],
-          "returnType": "any",
+          "returnType": "number",
           "body": [
             {
-              "kind": "ExpressionStatement",
+              "kind": "ReturnStatement",
               "expression": {
                 "kind": "CallExpression",
                 "callee": {
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "console"
+                    "name": "this"
                   },
-                  "name": "log"
+                  "name": "getInnerX"
                 },
-                "arguments": [
-                  {
-                    "kind": "PropertyAccessExpression",
-                    "expression": {
-                      "kind": "Identifier",
-                      "name": "this"
-                    },
-                    "name": "x"
-                  },
-                  {
-                    "kind": "PropertyAccessExpression",
-                    "expression": {
-                      "kind": "Identifier",
-                      "name": "this"
-                    },
-                    "name": "y"
-                  }
-                ],
+                "arguments": [],
                 "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getInnerX",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this"
+                },
+                "name": "x"
               }
             }
           ],
@@ -153,11 +122,100 @@
           "isSetter": false
         }
       ],
-      "isAbstract": false
+      "isAbstract": false,
+      "isStruct": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "SubPoint",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "Point",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "MethodDefinition",
+          "name": "getX",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "getInnerX"
+                  },
+                  "arguments": [],
+                  "typeArguments": []
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getInnerX",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "x"
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 2
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false
     },
     {
       "kind": "FunctionDeclaration",
-      "name": "doDraw",
+      "name": "test",
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
@@ -185,62 +243,172 @@
           "expression": {
             "kind": "CallExpression",
             "callee": {
-              "kind": "PropertyAccessExpression",
-              "expression": {
-                "kind": "Identifier",
-                "name": "p"
-              },
-              "name": "draw"
+              "kind": "Identifier",
+              "name": "ts_console_log"
             },
-            "arguments": [],
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "p"
+                  },
+                  "name": "getX"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
             "typeArguments": []
           }
         }
       ]
     },
     {
-      "kind": "VariableDeclaration",
-      "name": {
-        "kind": "Identifier",
-        "name": "p"
-      },
+      "kind": "FunctionDeclaration",
+      "name": "main",
       "isExported": false,
-      "type": "any",
-      "initializer": {
-        "kind": "NewExpression",
-        "expression": {
-          "kind": "Identifier",
-          "name": "Point"
-        },
-        "arguments": [
-          {
-            "kind": "NumericLiteral",
-            "value": 1
-          },
-          {
-            "kind": "NumericLiteral",
-            "value": 2
-          }
-        ],
-        "typeArguments": []
-      }
-    },
-    {
-      "kind": "ExpressionStatement",
-      "expression": {
-        "kind": "CallExpression",
-        "callee": {
-          "kind": "Identifier",
-          "name": "doDraw"
-        },
-        "arguments": [
-          {
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
             "kind": "Identifier",
             "name": "p"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Point"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 10
+              }
+            ],
+            "typeArguments": []
           }
-        ],
-        "typeArguments": []
-      }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "p"
+                  },
+                  "name": "getX"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "p2"
+          },
+          "isExported": false,
+          "type": "Point",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "SubPoint"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 20
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "ts_console_log"
+            },
+            "arguments": [
+              {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "p2"
+                  },
+                  "name": "getX"
+                },
+                "arguments": [],
+                "typeArguments": []
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "test"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "p"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "test"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "p2"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
     }
   ]
 }

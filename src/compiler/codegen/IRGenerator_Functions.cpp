@@ -197,11 +197,14 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", thisVal->getType());
                     builder->CreateStore(thisVal, alloca);
                     namedValues["this"] = alloca;
-                    if (spec.classType) {
-                        concreteTypes[alloca] = spec.classType;
-                    }
                     nonNullValues.insert(thisVal);
                     checkedAllocas.insert(alloca);
+                    
+                    if (spec.classType) {
+                        concreteTypes[alloca] = std::static_pointer_cast<ClassType>(spec.classType).get();
+                        concreteTypes[thisVal] = std::static_pointer_cast<ClassType>(spec.classType).get();
+                    }
+                    
                     ++argIt;
                     idx++;
                 }

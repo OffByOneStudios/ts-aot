@@ -20,8 +20,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         }
 
         if (concreteTypes.count(val)) {
-            lastConcreteType = concreteTypes[val];
+            concreteTypes[lastValue] = concreteTypes[val];
         }
+
         return;
     }
 

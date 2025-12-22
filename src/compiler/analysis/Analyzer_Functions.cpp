@@ -7,7 +7,6 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
-    std::cerr << "Visiting function declaration: " << node->name << std::endl;
     symbols.enterScope();
 
     auto funcType = std::make_shared<FunctionType>();

@@ -250,6 +250,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         for (const auto& [key, typeArgs] : uniqueInstances) {
             std::string mangled = generateMangledName(name, {}, typeArgs);
+            fmt::print("Monomorphizer: Specializing class {} as {}\n", name, mangled);
             
             // Specialize the class type
             auto specializedClass = analyzer.analyzeClassBody(classNode, typeArgs);
