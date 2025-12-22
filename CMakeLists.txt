@@ -95,6 +95,26 @@ add_executable(raytracer_bench examples/raytracer.obj)
 target_link_libraries(raytracer_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(raytracer_bench PRIVATE src/runtime/include)
 
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
+    DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json"
+)
+
+add_executable(escape_test examples/escape_test.obj)
+target_link_libraries(escape_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(escape_test PRIVATE src/runtime/include)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.obj"
+    DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.json"
+)
+
+add_executable(struct_test examples/struct_test.obj)
+target_link_libraries(struct_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(struct_test PRIVATE src/runtime/include)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")
     add_executable(test_app_lto http-server-lto.obj)
     set_target_properties(test_app_lto PROPERTIES LINKER_LANGUAGE CXX)

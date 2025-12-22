@@ -78,6 +78,19 @@ function isAsync(node) {
     return false;
 }
 
+function hasDecorator(node, name) {
+    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : undefined;
+    if (decorators) {
+        return decorators.some(d => {
+            const expr = d.expression;
+            if (ts.isIdentifier(expr)) return expr.text === name;
+            if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) return expr.expression.text === name;
+            return false;
+        });
+    }
+    return false;
+}
+
 function getTypeParameters(node) {
     if (!node.typeParameters) return [];
     return node.typeParameters.map(tp => ({
@@ -156,7 +169,8 @@ function visit(node) {
                 baseClass: baseClass,
                 implementsInterfaces: implementsInterfaces,
                 members: node.members.map(visit).filter(m => m),
-                isAbstract: isAbstract(node)
+                isAbstract: isAbstract(node),
+                isStruct: hasDecorator(node, "struct")
             };
         case ts.SyntaxKind.InterfaceDeclaration:
             let baseInterfaces = [];

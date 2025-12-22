@@ -28,6 +28,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Expressions_Literals.cpp
     analysis/Analyzer_Expressions_Access.cpp
     analysis/Analyzer_Expressions_Async.cpp
+    analysis/Analyzer_Escape.cpp
     analysis/Monomorphizer.cpp
     codegen/IRGenerator.cpp
     codegen/IRGenerator_Core.cpp

@@ -26,6 +26,8 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     
     mainModule->analyzed = true;
     moduleOrder.push_back(currentFilePath);
+
+    performEscapeAnalysis(program);
 }
 
 void Analyzer::analyzeModule(std::shared_ptr<Module> module) {

@@ -542,12 +542,35 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
             // Check if it's a field access
             if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
-                visit(prop->expression.get());
-                llvm::Value* objPtr = lastValue;
+                llvm::Value* objPtr = nullptr;
+                if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                    if (namedValues.count(id->name)) {
+                        objPtr = namedValues[id->name];
+                        // If it's a pointer to a pointer (like 'this'), load it
+                        if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(objPtr)) {
+                            if (alloca->getAllocatedType()->isPointerTy()) {
+                                objPtr = builder->CreateLoad(alloca->getAllocatedType(), objPtr);
+                            }
+                        }
+                    } else {
+                        objPtr = module->getGlobalVariable(id->name);
+                    }
+                }
+
+                if (!objPtr) {
+                    visit(prop->expression.get());
+                    objPtr = lastValue;
+                }
                 
                 llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
                 if (!classStruct) return;
                 
+                if (classType->isStruct && !objPtr->getType()->isPointerTy()) {
+                    // If we have a value but need a pointer, we are in trouble for assignment
+                    // unless we can find the original alloca.
+                    // For now, identifier case is handled above.
+                }
+
                 llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
                 
                 int fieldIndex = classLayouts[className].fieldIndices[fieldName];
