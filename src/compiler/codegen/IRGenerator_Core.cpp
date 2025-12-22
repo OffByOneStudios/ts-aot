@@ -58,6 +58,23 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     llvm::errs() << "IRGenerator::generate: Generating globals...\n";
     generateGlobals(analyzer);
     
+    auto tsArrayType = llvm::StructType::create(*context, "TsArray");
+    tsArrayType->setBody({
+        llvm::Type::getInt32Ty(*context), // magic
+        builder->getPtrTy(),              // elements
+        llvm::Type::getInt64Ty(*context), // length
+        llvm::Type::getInt64Ty(*context), // capacity
+        llvm::Type::getInt64Ty(*context)  // elementSize
+    });
+
+    auto tsBufferType = llvm::StructType::create(*context, "TsBuffer");
+    tsBufferType->setBody({
+        builder->getPtrTy(),              // vtable
+        llvm::Type::getInt32Ty(*context), // magic
+        builder->getPtrTy(),              // data
+        llvm::Type::getInt64Ty(*context)  // length
+    });
+
     asyncContextType = llvm::StructType::create(*context, "AsyncContext");
     asyncContextType->setBody({
         builder->getPtrTy(), // vtable
@@ -96,6 +113,81 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     }
 }
 
+void IRGenerator::addStackProtection(llvm::Function* func) {
+    if (!func) return;
+    func->addFnAttr("sspstrong");
+    func->addFnAttr("stack-protector-buffer-size", "8");
+}
+
+void IRGenerator::emitCFICheck(llvm::Value* ptr, const std::string& typeId) {
+    llvm::Function* typeTest = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::type_test);
+    
+    llvm::Value* typeIdVal = llvm::MetadataAsValue::get(*context, llvm::MDString::get(*context, typeId));
+    
+    // Cast ptr to i8* (ptr in LLVM 18)
+    llvm::Value* check = builder->CreateCall(typeTest, { ptr, typeIdVal });
+    
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* failBB = llvm::BasicBlock::Create(*context, "cfi_fail", currentFunc);
+    llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "cfi_cont", currentFunc);
+    
+    builder->CreateCondBr(check, contBB, failBB);
+    
+    builder->SetInsertPoint(failBB);
+    llvm::FunctionType* failFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+    llvm::FunctionCallee failFn = module->getOrInsertFunction("ts_cfi_fail", failFt);
+    builder->CreateCall(failFt, failFn.getCallee(), {});
+    builder->CreateUnreachable();
+    
+    builder->SetInsertPoint(contBB);
+}
+
+void IRGenerator::emitBoundsCheck(llvm::Value* index, llvm::Value* length) {
+    // if (index < 0 || index >= length) ts_panic("Index out of bounds")
+    llvm::Value* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+    llvm::Value* isNegative = builder->CreateICmpSLT(index, zero);
+    llvm::Value* isOver = builder->CreateICmpSGE(index, length);
+    llvm::Value* isOutOfBounds = builder->CreateOr(isNegative, isOver);
+
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* failBB = llvm::BasicBlock::Create(*context, "bounds_fail", currentFunc);
+    llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "bounds_cont", currentFunc);
+
+    builder->CreateCondBr(isOutOfBounds, failBB, contBB);
+
+    builder->SetInsertPoint(failBB);
+    llvm::FunctionType* panicFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee panicFn = module->getOrInsertFunction("ts_panic", panicFt);
+    
+    llvm::Value* msg = builder->CreateGlobalStringPtr("Index out of bounds");
+    builder->CreateCall(panicFt, panicFn.getCallee(), { msg });
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(contBB);
+}
+
+void IRGenerator::emitNullCheck(llvm::Value* ptr) {
+    if (!ptr->getType()->isPointerTy()) return;
+
+    llvm::Value* isNull = builder->CreateICmpEQ(ptr, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* failBB = llvm::BasicBlock::Create(*context, "null_fail", currentFunc);
+    llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*context, "null_cont", currentFunc);
+
+    builder->CreateCondBr(isNull, failBB, contBB);
+
+    builder->SetInsertPoint(failBB);
+    llvm::FunctionType* panicFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee panicFn = module->getOrInsertFunction("ts_panic", panicFt);
+    
+    llvm::Value* msg = builder->CreateGlobalStringPtr("Null or undefined dereference");
+    builder->CreateCall(panicFt, panicFn.getCallee(), { msg });
+    builder->CreateUnreachable();
+
+    builder->SetInsertPoint(contBB);
+}
+
 void IRGenerator::generateEntryPoint() {
     llvm::Function* userMain = module->getFunction("user_main");
     if (!userMain) return;
@@ -109,6 +201,7 @@ void IRGenerator::generateEntryPoint() {
     llvm::FunctionType* ft = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*context), args, false);
     llvm::Function* tsMain = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_main", module.get());
+    addStackProtection(tsMain);
 
     // Define main: int main(int argc, char** argv)
     std::vector<llvm::Type*> mainArgs = {
@@ -118,6 +211,7 @@ void IRGenerator::generateEntryPoint() {
     llvm::FunctionType* mainFt = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*context), mainArgs, false);
     llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "main", module.get());
+    addStackProtection(mainFn);
 
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", mainFn);
     builder->SetInsertPoint(bb);

@@ -36,6 +36,7 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Object) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        emitNullCheck(obj);
         visit(node->argumentExpression.get());
         llvm::Value* key = lastValue;
         
@@ -52,6 +53,7 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         if (cls->name == "Buffer") {
             visit(node->expression.get());
             llvm::Value* buf = lastValue;
+            emitNullCheck(buf);
             visit(node->argumentExpression.get());
             llvm::Value* index = lastValue;
             if (index->getType()->isPointerTy()) {
@@ -60,6 +62,12 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
                 index = createCall(unboxFt, unboxFn.getCallee(), { index });
             }
             
+            // Bounds check
+            llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
+            llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 3);
+            llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+            emitBoundsCheck(index, length);
+
             llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getInt8Ty(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_buffer_get", getFt);
             llvm::Value* byte = createCall(getFt, getFn.getCallee(), { buf, index });
@@ -92,6 +100,7 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         if (isSpecialized) {
             visit(node->expression.get());
             llvm::Value* arr = lastValue;
+            emitNullCheck(arr);
             visit(node->argumentExpression.get());
             llvm::Value* index = lastValue;
             if (index->getType()->isDoubleTy()) {
@@ -101,6 +110,12 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
             llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
             llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
+
+            // Bounds check
+            llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
+            llvm::Value* lengthPtr = builder->CreateStructGEP(tsArrayType, arr, 2);
+            llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+            emitBoundsCheck(index, length);
 
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
             lastValue = builder->CreateLoad(llvmElemType, ptr);
@@ -188,6 +203,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (cls->name == "RegExp") {
             visit(node->expression.get());
             llvm::Value* re = lastValue;
+            emitNullCheck(re);
             
             if (node->name == "lastIndex") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
@@ -315,6 +331,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (className == "URL") {
             visit(node->expression.get());
             llvm::Value* url = lastValue;
+            emitNullCheck(url);
             std::string getterName = "URL_get_" + fieldName;
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction(getterName, ft);
@@ -325,6 +342,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (className == "IncomingMessage") {
             visit(node->expression.get());
             llvm::Value* msg = lastValue;
+            emitNullCheck(msg);
             std::string getterName = "ts_incoming_message_" + fieldName;
             
             llvm::Value* contextVal = currentAsyncContext;
@@ -339,6 +357,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (className == "Buffer") {
             visit(node->expression.get());
             llvm::Value* buf = lastValue;
+            emitNullCheck(buf);
             if (fieldName == "length") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("Buffer_get_length", ft);
@@ -350,6 +369,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (className == "Response") {
             visit(node->expression.get());
             llvm::Value* resp = lastValue;
+            emitNullCheck(resp);
             if (fieldName == "status") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("Response_get_status", ft);
@@ -369,6 +389,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (classLayouts.count(className) && classLayouts[className].methodIndices.count(vname)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
+            emitNullCheck(objPtr);
             
             int methodIdx = classLayouts[className].methodIndices[vname];
             
@@ -407,6 +428,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
             visit(node->expression.get());
             llvm::Value* obj = lastValue;
+            emitNullCheck(obj);
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
             if (!classStruct) return;
@@ -443,6 +465,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        emitNullCheck(obj);
         
         if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
              llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
@@ -470,6 +493,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     } else if (node->name == "size" && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
+        emitNullCheck(obj);
         if (obj->getType()->isIntegerTy(64)) {
             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
         }
@@ -481,6 +505,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
+            emitNullCheck(objPtr);
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
@@ -505,6 +530,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
+            emitNullCheck(objPtr);
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);

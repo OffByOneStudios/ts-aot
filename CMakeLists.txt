@@ -35,7 +35,7 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
         
         add_custom_command(
             OUTPUT ${bc_file}
-            COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 
+            COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 -fstack-protector-strong
                     -I${RUNTIME_INC_DIR} 
                     -I${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/include
                     -DTS_RUNTIME_EXPORT -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
