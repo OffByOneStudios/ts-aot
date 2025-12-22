@@ -26,14 +26,17 @@ TsBuffer::TsBuffer(size_t length) {
 }
 
 uint8_t TsBuffer::Get(size_t index) {
-    if (index >= length) return 0;
+    if (index >= length) {
+        ts_panic("Buffer index out of bounds");
+    }
     return data[index];
 }
 
 void TsBuffer::Set(size_t index, uint8_t value) {
-    if (index < length) {
-        data[index] = value;
+    if (index >= length) {
+        ts_panic("Buffer index out of bounds");
     }
+    data[index] = value;
 }
 
 TsString* TsBuffer::ToString(TsString* encoding) {

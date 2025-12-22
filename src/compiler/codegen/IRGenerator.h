@@ -34,6 +34,10 @@ private:
     std::string runtimeBitcodePath;
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
+    void addStackProtection(llvm::Function* func);
+    void emitCFICheck(llvm::Value* ptr, const std::string& typeId);
+    void emitBoundsCheck(llvm::Value* index, llvm::Value* length);
+    void emitNullCheck(llvm::Value* ptr);
     void generateGlobals(const Analyzer& analyzer);
     void generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations);
     void generatePrototypes(const std::vector<Specialization>& specializations);

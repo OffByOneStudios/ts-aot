@@ -214,6 +214,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
                 llvm::Function* methodFunc = module->getFunction(mangledName);
                 if (!methodFunc) {
                     methodFunc = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, mangledName, module.get());
+                    addStackProtection(methodFunc);
                 }
                 vtableFuncs.push_back(methodFunc);
             }
@@ -224,7 +225,22 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         // Create VTable Global
         std::string vtableGlobalName = name + "_VTable_Global";
         llvm::Constant* vtableInit = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
-        new llvm::GlobalVariable(*module, vtableStruct, true, llvm::GlobalValue::ExternalLinkage, vtableInit, vtableGlobalName);
+        auto* vtableGV = new llvm::GlobalVariable(*module, vtableStruct, true, llvm::GlobalValue::ExternalLinkage, vtableInit, vtableGlobalName);
+
+        // Add CFI metadata
+        auto addTypeMetadata = [&](std::shared_ptr<ClassType> type) {
+            vtableGV->addMetadata(llvm::LLVMContext::MD_type,
+                *llvm::MDNode::get(*context, {
+                    llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+                    llvm::MDString::get(*context, type->name)
+                }));
+        };
+
+        auto current = classType;
+        while (current) {
+            addTypeMetadata(current);
+            current = current->baseClass;
+        }
     }
 
     // 4. Fourth pass: Generate static fields and methods

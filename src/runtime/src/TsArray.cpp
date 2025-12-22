@@ -82,8 +82,7 @@ int64_t TsArray::Shift() {
 
 int64_t TsArray::Get(size_t index) {
     if (index >= length) {
-        std::cerr << "Array index out of bounds: " << index << std::endl;
-        return 0;
+        ts_panic("Array index out of bounds");
     }
     if (elementSize != 8) return 0;
     return ((int64_t*)elements)[index];
@@ -95,8 +94,7 @@ void TsArray::Set(size_t index, int64_t value) {
             Push(value);
             return;
         }
-        std::cerr << "Array index out of bounds: " << index << std::endl;
-        return;
+        ts_panic("Array index out of bounds");
     }
     if (elementSize != 8) return;
     ((int64_t*)elements)[index] = value;

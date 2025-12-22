@@ -172,6 +172,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         } else if (className == "Promise") {
             visit(prop->expression.get());
             llvm::Value* promiseObj = lastValue;
+            emitNullCheck(promiseObj);
             
             if (methodName == "then") {
                 llvm::FunctionType* thenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -250,6 +251,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         // 1. Evaluate Object
         visit(prop->expression.get());
         llvm::Value* objPtr = lastValue;
+        emitNullCheck(objPtr);
         
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
         if (!classStruct) {
@@ -322,6 +324,9 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
             llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
             
+            // CFI Check
+            emitCFICheck(vptr, className);
+
             // 4. Load Function Pointer (index + 1 because of parentVTable at index 0)
             llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex + 1);
             funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);

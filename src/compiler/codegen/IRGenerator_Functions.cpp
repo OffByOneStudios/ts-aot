@@ -35,6 +35,14 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
 
         llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
         llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
+        addStackProtection(func);
+
+        // Add CFI metadata based on specialized name (which includes signature)
+        func->addMetadata(llvm::LLVMContext::MD_type,
+            *llvm::MDNode::get(*context, {
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+                llvm::MDString::get(*context, spec.specializedName)
+            }));
         
         // Inline specialized functions for performance
         if (spec.specializedName.find("Vector3") != std::string::npos || 
@@ -268,6 +276,14 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     
     llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
     llvm::Function* function = llvm::Function::Create(ft, llvm::Function::InternalLinkage, name, module.get());
+    addStackProtection(function);
+
+    // Add CFI metadata for TsFunction
+    function->addMetadata(llvm::LLVMContext::MD_type,
+        *llvm::MDNode::get(*context, {
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+            llvm::MDString::get(*context, "TsFunction")
+        }));
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
     auto oldNamedValues = namedValues;
@@ -362,6 +378,14 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     
     llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
     llvm::Function* function = llvm::Function::Create(ft, llvm::Function::InternalLinkage, name, module.get());
+    addStackProtection(function);
+
+    // Add CFI metadata for TsFunction
+    function->addMetadata(llvm::LLVMContext::MD_type,
+        *llvm::MDNode::get(*context, {
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+            llvm::MDString::get(*context, "TsFunction")
+        }));
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
     auto oldNamedValues = namedValues;

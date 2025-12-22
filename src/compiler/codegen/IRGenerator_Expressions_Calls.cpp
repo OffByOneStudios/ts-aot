@@ -85,6 +85,9 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             if (varType && varType->isPointerTy()) {
                 llvm::Value* funcPtr = builder->CreateLoad(varType, val, id->name.c_str());
                 
+                // CFI Check
+                emitCFICheck(funcPtr, "TsFunction");
+
                 std::vector<llvm::Value*> args;
                 std::vector<llvm::Type*> argTypes;
                 
