@@ -82,6 +82,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         builder->SetInsertPoint(bb);
 
         namedValues.clear();
+        nonNullValues.clear();
+        checkedAllocas.clear();
         lastValue = nullptr;
         anonVarCounter = 0;
 
@@ -147,6 +149,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
+                        if (argVal->getType()->isPointerTy()) {
+                            nonNullValues.insert(argVal);
+                        }
                         generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;
                         ++idx;
@@ -188,9 +193,15 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 // Handle 'this' parameter
                 if (argIt != function->arg_end()) {
                     argIt->setName("this");
-                    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", argIt->getType());
-                    builder->CreateStore(&*argIt, alloca);
+                    llvm::Value* thisVal = &*argIt;
+                    llvm::AllocaInst* alloca = createEntryBlockAlloca(function, "this", thisVal->getType());
+                    builder->CreateStore(thisVal, alloca);
                     namedValues["this"] = alloca;
+                    if (spec.classType) {
+                        concreteTypes[alloca] = spec.classType;
+                    }
+                    nonNullValues.insert(thisVal);
+                    checkedAllocas.insert(alloca);
                     ++argIt;
                     idx++;
                 }
@@ -228,6 +239,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
+                        }
+                        if (argVal->getType()->isPointerTy()) {
+                            nonNullValues.insert(argVal);
                         }
                         generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;

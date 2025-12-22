@@ -24,10 +24,12 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 ## Development Workflow
 Follow this cycle for all development tasks:
 
-1.  **Context:** Always check the active Epic in `docs/epics/` to understand the current goal.
+1.  **Context:** 
+    *   **CRITICAL:** Always read `.github/context/active_state.md` at the start of a session to understand the current phase and active tasks.
+    *   Check `docs/epics/` or `docs/phase*/` for the specific Epic details.
 2.  **Search:** Use the `ctags-search` skill (via `.github/skills/ctags-search/search_tags.ps1`) to find symbol definitions and locations. This is PREFERRED over `grep_search` for symbol lookups.
 3.  **Plan:** If the Epic is incomplete, help the user flesh out Milestones and Action Items.
-3.  **Pick:** Identify the next unchecked Action Item.
+4.  **Pick:** Identify the next unchecked Action Item.
 4.  **Implement:** Write the code, ensuring it compiles and follows the Technical Constraints.
 5.  **Verify:**
     *   Run `cmake --build build`.

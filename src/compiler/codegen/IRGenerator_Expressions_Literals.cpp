@@ -33,6 +33,7 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->value);
     lastValue = createCall(createFt, createFn.getCallee(), { strConst });
+    nonNullValues.insert(lastValue);
 }
 
 void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
@@ -44,6 +45,7 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->text);
     llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { strConst });
+    nonNullValues.insert(strVal);
 
     // Then call ts_regexp_from_literal
     llvm::FunctionType* createRegExpFt = llvm::FunctionType::get(
@@ -52,6 +54,7 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
     llvm::FunctionCallee createRegExpFn = module->getOrInsertFunction("ts_regexp_from_literal", createRegExpFt);
 
     lastValue = createCall(createRegExpFt, createRegExpFn.getCallee(), { strVal });
+    nonNullValues.insert(lastValue);
 }
 
 void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
@@ -64,11 +67,14 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
     llvm::Type* llvmElemType = nullptr;
     uint64_t elementSize = 8;
 
+    bool isDouble = false;
+
     if (elemType) {
         if (elemType->kind == TypeKind::Double) {
             isSpecialized = true;
             llvmElemType = llvm::Type::getDoubleTy(*context);
             elementSize = 8;
+            isDouble = true;
         } else if (elemType->kind == TypeKind::Int) {
             isSpecialized = true;
             llvmElemType = llvm::Type::getInt64Ty(*context);
@@ -85,13 +91,15 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
 
     if (isSpecialized) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), 
-                { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+                { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
         llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create_specialized", createFt);
         
         llvm::Value* arr = createCall(createFt, createFn.getCallee(), {
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->elements.size()),
-            llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elementSize)
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elementSize),
+            llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), isDouble ? 1 : 0)
         });
+        nonNullValues.insert(arr);
 
         llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
@@ -113,6 +121,7 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
     llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
     
     llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
+    nonNullValues.insert(arr);
 
     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -154,6 +163,7 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
 
     llvm::Constant* headStr = builder->CreateGlobalStringPtr(node->head);
     llvm::Value* currentStr = createCall(createFt, createFn.getCallee(), { headStr });
+    nonNullValues.insert(currentStr);
     
     for ( auto& span : node->spans ) {
         visit(span.expression.get());
@@ -163,17 +173,22 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
             llvm::FunctionType* fromIntFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false);
             llvm::FunctionCallee fromIntFn = module->getOrInsertFunction("ts_string_from_int", fromIntFt);
             exprVal = createCall(fromIntFt, fromIntFn.getCallee(), { exprVal });
+            nonNullValues.insert(exprVal);
         } else if (exprVal->getType()->isDoubleTy()) {
             llvm::FunctionType* fromDoubleFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false);
             llvm::FunctionCallee fromDoubleFn = module->getOrInsertFunction("ts_string_from_double", fromDoubleFt);
             exprVal = createCall(fromDoubleFt, fromDoubleFn.getCallee(), { exprVal });
+            nonNullValues.insert(exprVal);
         }
         
         currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, exprVal });
+        nonNullValues.insert(currentStr);
         
         llvm::Constant* litStr = builder->CreateGlobalStringPtr(span.literal);
         llvm::Value* litVal = createCall(createFt, createFn.getCallee(), { litStr });
+        nonNullValues.insert(litVal);
         currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, litVal });
+        nonNullValues.insert(currentStr);
     }
     
     lastValue = currentStr;

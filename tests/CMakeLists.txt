@@ -6,6 +6,7 @@ add_executable(unit_tests
     unit/TsArrayTests.cpp
     unit/TsDateTest.cpp
     unit/AnalyzerTests.cpp
+    unit/NumberTests.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE

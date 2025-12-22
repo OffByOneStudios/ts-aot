@@ -20,10 +20,12 @@ TsArray* TsArray::CreateSized(size_t size) {
     return arr;
 }
 
-TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize) {
+TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize, bool isDouble) {
     void* mem = ts_alloc(sizeof(TsArray));
     TsArray* arr = new(mem) TsArray(size, elementSize);
     arr->length = size;
+    arr->isSpecialized = true;
+    arr->isDouble = isDouble;
     std::memset(arr->elements, 0, size * elementSize);
     return arr;
 }
@@ -353,8 +355,8 @@ extern "C" {
         return TsArray::CreateSized((size_t)size);
     }
 
-    void* ts_array_create_specialized(int64_t size, int64_t elementSize) {
-        return TsArray::CreateSpecialized((size_t)size, (size_t)elementSize);
+    void* ts_array_create_specialized(int64_t size, int64_t elementSize, bool isDouble) {
+        return TsArray::CreateSpecialized((size_t)size, (size_t)elementSize, isDouble);
     }
 
     void* ts_array_get_elements_ptr(void* arr) {

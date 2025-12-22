@@ -10,7 +10,6 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
         if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map") continue;
-        llvm::errs() << "Global type: " << name << " kind: " << (int)type->kind << "\n";
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -144,7 +143,6 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         for (const auto& [fieldName, fieldType] : layout.allFields) {
             fieldTypes.push_back(getLLVMType(fieldType));
         }
-        llvm::errs() << "Setting body for class: " << name << " with " << fieldTypes.size() << " fields\n";
         classStruct->setBody(fieldTypes);
 
         // Define VTable Body: { ParentVTable*, Function Pointers... }
@@ -259,6 +257,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createFt);
         lastValue = createCall(createFt, fn.getCallee(), {});
+        nonNullValues.insert(lastValue);
         return;
     }
 
@@ -289,6 +288,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     lastValue = createCall(createStrFt, fn.getCallee(), { arg });
                 }
             }
+            nonNullValues.insert(lastValue);
             return;
         } else if (className == "RegExp") {
             llvm::Value* pattern = nullptr;
@@ -315,6 +315,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create", createRegExpFt);
             lastValue = createCall(createRegExpFt, fn.getCallee(), { pattern, flags });
+            nonNullValues.insert(lastValue);
             return;
         } else if (className == "URL") {
             llvm::Value* url = nullptr;
@@ -342,13 +343,66 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_create", createUrlFt);
             lastValue = createCall(createUrlFt, fn.getCallee(), { vtable, url, base });
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "Uint8Array" || className == "Uint32Array" || className == "Float64Array") {
+            llvm::Value* arg = nullptr;
+            bool isArrayLiteral = false;
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                arg = lastValue;
+                
+                if (node->arguments[0]->inferredType && (node->arguments[0]->inferredType->kind == TypeKind::Array || node->arguments[0]->inferredType->kind == TypeKind::Tuple)) {
+                    isArrayLiteral = true;
+                }
+            } else {
+                arg = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            }
+
+            if (isArrayLiteral) {
+                // Handle new Uint32Array([1, 2, 3])
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                        { llvm::PointerType::getUnqual(*context) }, false);
+                
+                std::string fnName = "ts_typed_array_from_array_u8";
+                if (className == "Uint32Array") fnName = "ts_typed_array_from_array_u32";
+                else if (className == "Float64Array") fnName = "ts_typed_array_from_array_f64";
+
+                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, createFt);
+                lastValue = createCall(createFt, fn.getCallee(), { arg });
+            } else {
+                // Ensure arg is i64
+                if (arg->getType()->isIntegerTy()) {
+                    arg = builder->CreateIntCast(arg, llvm::Type::getInt64Ty(*context), true);
+                }
+
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                        { llvm::Type::getInt64Ty(*context) }, false);
+                
+                std::string fnName = "ts_typed_array_create_u8";
+                if (className == "Uint32Array") fnName = "ts_typed_array_create_u32";
+                else if (className == "Float64Array") fnName = "ts_typed_array_create_f64";
+
+                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, createFt);
+                lastValue = createCall(createFt, fn.getCallee(), { arg });
+            }
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "DataView") {
+            visit(node->arguments[0].get());
+            llvm::Value* buffer = lastValue;
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
+                    { llvm::PointerType::getUnqual(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_data_view_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { buffer });
+            nonNullValues.insert(lastValue);
             return;
         }
         
         // 1. Get Struct Type
         llvm::StructType* structType = llvm::StructType::getTypeByName(*context, className);
         if (!structType) {
-            llvm::errs() << "Error: Class struct not found for " << className << "\n";
             lastValue = llvm::Constant::getNullValue(llvm::PointerType::getUnqual(*context));
             return;
         }
@@ -425,14 +479,16 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             
             createCall(ctor->getFunctionType(), ctor, args);
         } else {
-            llvm::errs() << "Constructor not found: " << baseCtorName << "\n";
+            // Constructor not found
         }
         
         if (classType->isStruct) {
             lastValue = builder->CreateLoad(structType, thisPtr);
         } else {
             lastValue = thisPtr;
+            nonNullValues.insert(lastValue);
         }
+        lastConcreteType = classType;
         return;
     }
 
@@ -441,6 +497,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionType* createMapFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createMapFt);
             lastValue = createCall(createMapFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
             return;
         } else if (id->name == "Array") {
             if (!node->arguments.empty()) {
@@ -455,13 +512,13 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                         { llvm::Type::getInt64Ty(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create_sized", createSizedFt);
                 lastValue = createCall(createSizedFt, fn.getCallee(), { size });
-                return;
             } else {
                 llvm::FunctionType* createArrayFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_create", createArrayFt);
                 lastValue = createCall(createArrayFt, fn.getCallee(), {});
-                return;
             }
+            nonNullValues.insert(lastValue);
+            return;
         } else if (id->name == "Date") {
             if (node->arguments.empty()) {
                 llvm::FunctionType* createDateFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
@@ -485,6 +542,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     lastValue = createCall(createStrFt, fn.getCallee(), { arg });
                 }
             }
+            nonNullValues.insert(lastValue);
             return;
         } else if (id->name == "RegExp") {
             llvm::Value* pattern = nullptr;
@@ -511,6 +569,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create", createRegExpFt);
             lastValue = createCall(createRegExpFt, fn.getCallee(), { pattern, flags });
+            nonNullValues.insert(lastValue);
             return;
         }
     }
@@ -521,6 +580,7 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
     llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
     llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_map_create", createMapFt);
     llvm::Value* map = createCall(createMapFt, createFn.getCallee(), {});
+    nonNullValues.insert(map);
 
     llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
             { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);

@@ -172,7 +172,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         } else if (className == "Promise") {
             visit(prop->expression.get());
             llvm::Value* promiseObj = lastValue;
-            emitNullCheck(promiseObj);
+            emitNullCheckForExpression(prop->expression.get(), promiseObj);
             
             if (methodName == "then") {
                 llvm::FunctionType* thenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -251,7 +251,11 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         // 1. Evaluate Object
         visit(prop->expression.get());
         llvm::Value* objPtr = lastValue;
-        emitNullCheck(objPtr);
+        std::shared_ptr<ClassType> concreteClass = nullptr;
+        if (lastConcreteType && lastConcreteType->kind == TypeKind::Class) {
+            concreteClass = std::static_pointer_cast<ClassType>(lastConcreteType);
+        }
+        emitNullCheckForExpression(prop->expression.get(), objPtr);
         
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
         if (!classStruct) {
@@ -280,7 +284,8 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         // DEVIRTUALIZATION:
         // If the receiver is a specific class (not an interface), we can try to call the method directly.
         // This is safe if the method is not overridden in any subclass, or if we assume the type is exact.
-        std::shared_ptr<ClassType> definer = classType;
+        std::shared_ptr<ClassType> searchType = concreteClass ? concreteClass : classType;
+        std::shared_ptr<ClassType> definer = searchType;
         std::string baseMangledName;
         bool isAbstract = false;
         while (definer) {
@@ -296,10 +301,10 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         }
 
         llvm::Value* funcPtr = nullptr;
-        if (!baseMangledName.empty() && !isAbstract) {
+        if (concreteClass && !baseMangledName.empty() && !isAbstract) {
             // Try specialized version
             std::vector<std::shared_ptr<Type>> argTypes;
-            argTypes.push_back(classType); // this
+            argTypes.push_back(searchType); // this
             for (auto& arg : node->arguments) {
                 argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
             }

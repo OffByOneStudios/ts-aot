@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
+#include <set>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -38,6 +40,7 @@ private:
     void emitCFICheck(llvm::Value* ptr, const std::string& typeId);
     void emitBoundsCheck(llvm::Value* index, llvm::Value* length);
     void emitNullCheck(llvm::Value* ptr);
+    void emitNullCheckForExpression(ast::Expression* expr, llvm::Value* ptr);
     void generateGlobals(const Analyzer& analyzer);
     void generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations);
     void generatePrototypes(const std::vector<Specialization>& specializations);
@@ -104,6 +107,8 @@ private:
 
     llvm::Value* boxValue(llvm::Value* val, std::shared_ptr<Type> type);
     llvm::Value* unboxValue(llvm::Value* val, std::shared_ptr<Type> type);
+    llvm::Value* toInt32(llvm::Value* val);
+    llvm::Value* toUint32(llvm::Value* val);
     void generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern);
 
     llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
@@ -120,6 +125,8 @@ private:
 
     std::map<std::string, llvm::Value*> namedValues;
     llvm::Value* lastValue = nullptr;
+    std::shared_ptr<Type> lastConcreteType = nullptr;
+    std::map<llvm::Value*, std::shared_ptr<Type>> concreteTypes;
     std::shared_ptr<Type> currentClass;
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
     llvm::Value* currentContext = nullptr;
@@ -149,6 +156,9 @@ private:
         std::map<std::string, std::string> safeIndices; // indexVar -> arrayVar
     };
     std::vector<LoopInfo> loopStack;
+
+    std::set<llvm::Value*> nonNullValues;
+    std::set<llvm::Value*> checkedAllocas;
 
     int anonVarCounter = 0;
 

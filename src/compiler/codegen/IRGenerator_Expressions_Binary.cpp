@@ -72,9 +72,10 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool isString = leftIsString || rightIsString;
 
     if (leftIsPtr && rightIsPtr) {
-        // Both are pointers. If it's an arithmetic operation, we MUST unbox.
+        // Both are pointers. If it's an arithmetic or bitwise operation, we MUST unbox.
         // EXCEPT if it's a string concatenation!
-        if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%") {
+        if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%" ||
+            node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>") {
              left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
              right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
         }
@@ -89,8 +90,8 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     // bool isString = leftIsString || rightIsString;
 
     if (isDouble && !isString) {
-        if (!leftIsDouble) left = builder->CreateSIToFP(left, llvm::Type::getDoubleTy(*context), "casttmp");
-        if (!rightIsDouble) right = builder->CreateSIToFP(right, llvm::Type::getDoubleTy(*context), "casttmp");
+        if (!leftIsDouble) left = castValue(left, llvm::Type::getDoubleTy(*context));
+        if (!rightIsDouble) right = castValue(right, llvm::Type::getDoubleTy(*context));
     }
 
     if (node->op == "+" || node->op == "+=") {
@@ -153,8 +154,8 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         else lastValue = builder->CreateMul(left, right, "multmp");
     } else if (node->op == "/" || node->op == "/=") {
         // In TypeScript, division is always floating point
-        if (!left->getType()->isDoubleTy()) left = builder->CreateSIToFP(left, llvm::Type::getDoubleTy(*context), "casttmp");
-        if (!right->getType()->isDoubleTy()) right = builder->CreateSIToFP(right, llvm::Type::getDoubleTy(*context), "casttmp");
+        if (!left->getType()->isDoubleTy()) left = castValue(left, llvm::Type::getDoubleTy(*context));
+        if (!right->getType()->isDoubleTy()) right = castValue(right, llvm::Type::getDoubleTy(*context));
         lastValue = builder->CreateFDiv(left, right, "divtmp");
     } else if (node->op == "%" || node->op == "%=") {
         if (isDouble) lastValue = builder->CreateFRem(left, right, "remtmp");
@@ -201,9 +202,69 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             lastValue = builder->CreateICmpNE(left, right, "cmptmp");
         }
     } else if (node->op == "&&") {
+        if (left->getType()->isDoubleTy()) left = builder->CreateFCmpONE(left, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
+        else if (left->getType()->isIntegerTy(64)) left = builder->CreateICmpNE(left, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+        else if (left->getType()->isPointerTy()) {
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee toBool = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            left = createCall(toBoolFt, toBool.getCallee(), { left });
+        }
+        
+        if (right->getType()->isDoubleTy()) right = builder->CreateFCmpONE(right, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
+        else if (right->getType()->isIntegerTy(64)) right = builder->CreateICmpNE(right, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+        else if (right->getType()->isPointerTy()) {
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee toBool = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            right = createCall(toBoolFt, toBool.getCallee(), { right });
+        }
         lastValue = builder->CreateAnd(left, right, "andtmp");
     } else if (node->op == "||") {
+        if (left->getType()->isDoubleTy()) left = builder->CreateFCmpONE(left, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
+        else if (left->getType()->isIntegerTy(64)) left = builder->CreateICmpNE(left, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+        else if (left->getType()->isPointerTy()) {
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee toBool = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            left = createCall(toBoolFt, toBool.getCallee(), { left });
+        }
+        
+        if (right->getType()->isDoubleTy()) right = builder->CreateFCmpONE(right, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
+        else if (right->getType()->isIntegerTy(64)) right = builder->CreateICmpNE(right, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+        else if (right->getType()->isPointerTy()) {
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee toBool = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            right = createCall(toBoolFt, toBool.getCallee(), { right });
+        }
         lastValue = builder->CreateOr(left, right, "ortmp");
+    } else if (node->op == "&") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateAnd(left, right, "andtmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == "|") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateOr(left, right, "ortmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == "^") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateXor(left, right, "xortmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == "<<") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateShl(left, right, "shltmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == ">>") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateAShr(left, right, "ashrtmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == ">>>") {
+        left = toUint32(left);
+        right = toUint32(right);
+        lastValue = builder->CreateLShr(left, right, "lshrtmp");
+        lastValue = builder->CreateUIToFP(lastValue, builder->getDoubleTy());
     }
 
     // Handle compound assignment store back
@@ -233,6 +294,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             }
         }
     }
+    llvm::errs() << "visitBinaryExpression done\n";
 }
 
 void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
@@ -332,10 +394,39 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // 4. Store the value
         val = castValue(val, varType);
         builder->CreateStore(val, variable);
+
+        if (lastConcreteType) {
+            concreteTypes[variable] = lastConcreteType;
+        } else {
+            concreteTypes.erase(variable);
+        }
+
+        // Update checkedAllocas
+        if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+            if (nonNullValues.count(val)) {
+                checkedAllocas.insert(alloca);
+            } else {
+                checkedAllocas.erase(alloca);
+            }
+        }
     } else if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
+        // Check if this is a safe access for BCE
+        bool isSafe = false;
+        if (auto id = dynamic_cast<ast::Identifier*>(elem->argumentExpression.get())) {
+            if (auto arrId = dynamic_cast<ast::Identifier*>(elem->expression.get())) {
+                for (auto it = loopStack.rbegin(); it != loopStack.rend(); ++it) {
+                    if (it->safeIndices.count(id->name) && it->safeIndices.at(id->name) == arrId->name) {
+                        isSafe = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Object) {
             visit(elem->expression.get());
             llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(elem->expression.get(), obj);
             visit(elem->argumentExpression.get());
             llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
             
@@ -354,24 +445,19 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             if (cls->name == "Buffer") {
                 visit(elem->expression.get());
                 llvm::Value* buf = lastValue;
+                emitNullCheckForExpression(elem->expression.get(), buf);
                 visit(elem->argumentExpression.get());
-                llvm::Value* index = lastValue;
-                if (index->getType()->isPointerTy()) {
-                    llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
-                    index = createCall(unboxFt, unboxFn.getCallee(), { index });
-                }
+                llvm::Value* index = castValue(lastValue, llvm::Type::getInt64Ty(*context));
                 
-                llvm::Value* byteVal = val;
-                if (byteVal->getType()->isPointerTy()) {
-                    llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
-                    byteVal = createCall(unboxFt, unboxFn.getCallee(), { byteVal });
+                // Bounds check
+                if (!isSafe) {
+                    llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 3);
+                    llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                    emitBoundsCheck(index, length);
                 }
-                if (byteVal->getType()->isDoubleTy()) {
-                    byteVal = builder->CreateFPToSI(byteVal, llvm::Type::getInt64Ty(*context));
-                }
-                byteVal = builder->CreateTrunc(byteVal, llvm::Type::getInt8Ty(*context));
+
+                llvm::Value* byteVal = castValue(val, llvm::Type::getInt8Ty(*context));
                 
                 llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                     { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt8Ty(*context) }, false);
@@ -379,18 +465,44 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 createCall(setFt, setFn.getCallee(), { buf, index, byteVal });
                 lastValue = val;
                 return;
+            } else if (cls->name == "Uint8Array" || cls->name == "Uint32Array" || cls->name == "Float64Array") {
+                visit(elem->expression.get());
+                llvm::Value* ta = lastValue;
+                emitNullCheckForExpression(elem->expression.get(), ta);
+                visit(elem->argumentExpression.get());
+                llvm::Value* index = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+                llvm::Value* storeVal = val;
+                if (cls->name == "Uint8Array") {
+                    storeVal = toUint32(storeVal);
+                    storeVal = builder->CreateTrunc(storeVal, llvm::Type::getInt8Ty(*context));
+                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt8Ty(*context) }, false);
+                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_u8", setFt);
+                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
+                } else if (cls->name == "Uint32Array") {
+                    storeVal = toUint32(storeVal);
+                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
+                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_u32", setFt);
+                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
+                } else if (cls->name == "Float64Array") {
+                    storeVal = castValue(storeVal, llvm::Type::getDoubleTy(*context));
+                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getDoubleTy(*context) }, false);
+                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_f64", setFt);
+                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
+                }
+                lastValue = val;
+                return;
             }
         }
 
         visit(elem->expression.get());
         llvm::Value* arr = lastValue;
+        emitNullCheckForExpression(elem->expression.get(), arr);
         
         visit(elem->argumentExpression.get());
         llvm::Value* index = lastValue;
         
-        if (index->getType()->isDoubleTy()) {
-            index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
-        }
+        index = castValue(index, llvm::Type::getInt64Ty(*context));
 
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Array) {
             auto arrayType = std::static_pointer_cast<ArrayType>(elem->expression->inferredType);
@@ -418,6 +530,14 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
                 llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
 
+                // Bounds check
+                if (!isSafe) {
+                    llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsArrayType, arr, 2);
+                    llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                    emitBoundsCheck(index, length);
+                }
+
                 llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
                 builder->CreateStore(val, ptr);
                 lastValue = val;
@@ -425,19 +545,6 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
         
-        // Check if this is a safe access for BCE
-        bool isSafe = false;
-        if (auto id = dynamic_cast<ast::Identifier*>(elem->argumentExpression.get())) {
-            if (auto arrId = dynamic_cast<ast::Identifier*>(elem->expression.get())) {
-                for (auto it = loopStack.rbegin(); it != loopStack.rend(); ++it) {
-                    if (it->safeIndices.count(id->name) && it->safeIndices.at(id->name) == arrId->name) {
-                        isSafe = true;
-                        break;
-                    }
-                }
-            }
-        }
-
         llvm::Value* storeVal = val;
         if (storeVal->getType()->isDoubleTy()) {
             storeVal = builder->CreateBitCast(storeVal, llvm::Type::getInt64Ty(*context));

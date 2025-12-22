@@ -8,7 +8,7 @@ public:
     static constexpr uint32_t MAGIC = 0x41525259; // "ARRY"
     static TsArray* Create(size_t initialCapacity = 4);
     static TsArray* CreateSized(size_t size);
-    static TsArray* CreateSpecialized(size_t size, size_t elementSize);
+    static TsArray* CreateSpecialized(size_t size, size_t elementSize, bool isDouble = false);
 
     void Push(int64_t value);
     int64_t Pop();
@@ -29,6 +29,8 @@ public:
     void* FlatMap(void* callback, void* thisArg = nullptr);
 
     void* GetElementsPtr() { return elements; }
+    bool IsSpecialized() { return isSpecialized; }
+    bool IsDouble() { return isDouble; }
 
     void ForEach(void* callback, void* thisArg = nullptr);
     void* Map(void* callback, void* thisArg = nullptr);
@@ -47,12 +49,14 @@ private:
     size_t length;
     size_t capacity;
     size_t elementSize;
+    bool isSpecialized = false;
+    bool isDouble = false;
 };
 
 extern "C" {
     void* ts_array_create();
     void* ts_array_create_sized(int64_t size);
-    void* ts_array_create_specialized(int64_t size, int64_t elementSize);
+    void* ts_array_create_specialized(int64_t size, int64_t elementSize, bool isDouble);
     void* ts_array_get_elements_ptr(void* arr);
     void ts_array_push(void* arr, void* value);
     void* ts_array_pop(void* arr);

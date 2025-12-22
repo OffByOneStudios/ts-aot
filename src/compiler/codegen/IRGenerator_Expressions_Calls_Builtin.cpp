@@ -5,8 +5,104 @@ namespace ts {
 using namespace ast;
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Int || prop->expression->inferredType->kind == TypeKind::Double)) {
+        if (prop->name == "toString" || prop->name == "toFixed") {
+            visit(prop->expression.get());
+            llvm::Value* val = lastValue;
+            
+            std::vector<llvm::Value*> args;
+            std::vector<llvm::Type*> paramTypes;
+            
+            if (prop->expression->inferredType->kind == TypeKind::Int) {
+                args.push_back(val);
+                paramTypes.push_back(llvm::Type::getInt64Ty(*context));
+            } else {
+                args.push_back(val);
+                paramTypes.push_back(llvm::Type::getDoubleTy(*context));
+            }
+            
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                llvm::Value* arg0 = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                args.push_back(arg0);
+                paramTypes.push_back(llvm::Type::getInt64Ty(*context));
+            } else {
+                if (prop->name == "toString") {
+                    args.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 10));
+                    paramTypes.push_back(llvm::Type::getInt64Ty(*context));
+                } else {
+                    args.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+                    paramTypes.push_back(llvm::Type::getInt64Ty(*context));
+                }
+            }
+            
+            std::string fnName = (prop->expression->inferredType->kind == TypeKind::Int) ? "ts_int_to_string" : "ts_double_to_string";
+            if (prop->name == "toFixed") {
+                fnName = "ts_double_to_fixed"; // Both int and double can use this if we cast int to double
+                if (prop->expression->inferredType->kind == TypeKind::Int) {
+                    args[0] = builder->CreateSIToFP(args[0], llvm::Type::getDoubleTy(*context));
+                    paramTypes[0] = llvm::Type::getDoubleTy(*context);
+                }
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            lastValue = createCall(ft, fn.getCallee(), args);
+            return true;
+        }
+    }
+
     if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+        if (classType->name == "DataView") {
+            visit(prop->expression.get());
+            llvm::Value* dv = lastValue;
+            
+            if (prop->name == "getUint32") {
+                visit(node->arguments[0].get());
+                llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                
+                llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
+                }
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("DataView_getUint32", ft);
+                
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                lastValue = createCall(ft, fn.getCallee(), { contextVal, dv, offset, littleEndian });
+                lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                return true;
+            } else if (prop->name == "setUint32") {
+                visit(node->arguments[0].get());
+                llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                
+                visit(node->arguments[1].get());
+                llvm::Value* val = castValue(lastValue, llvm::Type::getInt32Ty(*context));
+                // The runtime expects i64 for the value parameter to be generic, but we cast to i32 first for JS semantics
+                llvm::Value* val64 = castValue(val, llvm::Type::getInt64Ty(*context));
+                
+                llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
+                }
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("DataView_setUint32", ft);
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                createCall(ft, fn.getCallee(), { contextVal, dv, offset, val64, littleEndian });
+                lastValue = nullptr;
+                return true;
+            }
+        }
         if (classType->name == "Date") {
             visit(prop->expression.get());
             llvm::Value* dateObj = lastValue;

@@ -128,6 +128,22 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         return;
     }
 
+    if (objType->kind == TypeKind::Int || objType->kind == TypeKind::Double) {
+        if (node->name == "toString") {
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // radix
+            fn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = fn;
+            return;
+        } else if (node->name == "toFixed") {
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // digits
+            fn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = fn;
+            return;
+        }
+    }
+
     if (objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
         if (node->name == "push") {
             auto pushFn = std::make_shared<FunctionType>();

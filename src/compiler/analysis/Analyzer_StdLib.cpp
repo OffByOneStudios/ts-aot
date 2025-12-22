@@ -32,6 +32,37 @@ Analyzer::Analyzer() {
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));
 
+    // Register TypedArrays
+    auto uint8ArrayClass = std::make_shared<ClassType>("Uint8Array");
+    uint8ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    uint8ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.defineType("Uint8Array", uint8ArrayClass);
+
+    auto uint32ArrayClass = std::make_shared<ClassType>("Uint32Array");
+    uint32ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    uint32ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.defineType("Uint32Array", uint32ArrayClass);
+
+    auto float64ArrayClass = std::make_shared<ClassType>("Float64Array");
+    float64ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    float64ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.defineType("Float64Array", float64ArrayClass);
+
+    auto dataViewClass = std::make_shared<ClassType>("DataView");
+    auto getUint32 = std::make_shared<FunctionType>();
+    getUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    getUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian
+    getUint32->returnType = std::make_shared<Type>(TypeKind::Int);
+    dataViewClass->methods["getUint32"] = getUint32;
+
+    auto setUint32 = std::make_shared<FunctionType>();
+    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian
+    setUint32->returnType = std::make_shared<Type>(TypeKind::Void);
+    dataViewClass->methods["setUint32"] = setUint32;
+    symbols.defineType("DataView", dataViewClass);
+
     // Register Date class
     auto dateClass = std::make_shared<ClassType>("Date");
     

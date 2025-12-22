@@ -4,6 +4,7 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
+    llvm::errs() << "visitCallExpression\n";
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;

@@ -305,7 +305,6 @@ void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
 
 void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
     if (loopStack.empty()) {
-        llvm::errs() << "Error: Break statement outside of loop\n";
         return;
     }
     builder->CreateBr(loopStack.back().breakBlock);
@@ -317,7 +316,6 @@ void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
 
 void IRGenerator::visitContinueStatement(ast::ContinueStatement* node) {
     if (loopStack.empty()) {
-        llvm::errs() << "Error: Continue statement outside of loop\n";
         return;
     }
     builder->CreateBr(loopStack.back().continueBlock);
@@ -341,7 +339,6 @@ void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
     llvm::Value* initVal = lastValue;
     
     if (!initVal) {
-        llvm::errs() << "Error: Variable initializer evaluated to null\n";
         return;
     }
 
