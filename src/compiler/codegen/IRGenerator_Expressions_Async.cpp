@@ -77,6 +77,10 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     // The resumed value is in currentAsyncResumedValue
     // Unbox it to the expected type
     lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
+
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(node->inferredType).get();
+    }
 }
 
 void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node* node, const std::vector<std::shared_ptr<Type>>& argTypes, std::shared_ptr<Type> classType, const std::string& specializedName) {
@@ -296,14 +300,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     
     // Map variables in frame to namedValues
     for (auto const& [name, idx] : frameMap) {
-        llvm::Value* ptr = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
-        namedValues[name] = ptr;
-        if (variableTypes.count(name)) {
-            auto type = variableTypes[name];
-            if (type && type->kind == TypeKind::Class) {
-                concreteTypes[ptr] = type;
-            }
-        }
+        namedValues[name] = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
     }
 
     // If this is a class method, ensure 'this' is in namedValues

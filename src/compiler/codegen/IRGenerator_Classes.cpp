@@ -487,8 +487,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         } else {
             lastValue = thisPtr;
             nonNullValues.insert(lastValue);
+            lastConcreteType = thisPtr;
+            concreteTypes[lastValue] = classType.get();
         }
-        lastConcreteType = classType;
         return;
     }
 

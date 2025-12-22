@@ -31,6 +31,8 @@ IRGenerator::IRGenerator() {
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
     this->specializations = specializations;
+    concreteTypes.clear();
+    lastConcreteType = nullptr;
     // Initialize target for DataLayout
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
@@ -335,8 +337,10 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         builder->CreateStore(value, alloca);
         namedValues[id->name] = alloca;
 
-        if (lastConcreteType) {
-            concreteTypes[alloca] = lastConcreteType;
+        if (concreteTypes.count(value)) {
+            concreteTypes[alloca] = concreteTypes[value];
+        } else if (type && type->kind == TypeKind::Class) {
+            concreteTypes[alloca] = std::static_pointer_cast<ClassType>(type).get();
         }
 
         if (nonNullValues.count(value)) {
@@ -528,7 +532,6 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 
 void IRGenerator::visit(ast::Node* node) {
     if (node) {
-        lastConcreteType = nullptr;
         node->accept(this);
     }
 }
@@ -896,6 +899,8 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
         return val;
     }
 
+    llvm::Value* result = nullptr;
+
     // Boxing: primitive -> ptr
     if (!val->getType()->isPointerTy() && expectedType->isPointerTy()) {
         if (val->getType()->isStructTy()) {
@@ -909,82 +914,83 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
             
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
-            return createCall(boxFt, boxFn.getCallee(), { heapPtr });
-        }
-        if (val->getType()->isIntegerTy(1)) {
+            result = createCall(boxFt, boxFn.getCallee(), { heapPtr });
+        } else if (val->getType()->isIntegerTy(1)) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_bool", boxFt);
-            return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
+            result = builder->CreateCall(boxFt, boxFn.getCallee(), { val });
         } else if (val->getType()->isIntegerTy(8)) {
             // Void/bool8 -> undefined
             llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
-            return builder->CreateCall(undefFt, undefFn.getCallee());
+            result = builder->CreateCall(undefFt, undefFn.getCallee());
         } else if (val->getType()->isIntegerTy()) {
             llvm::Value* i64Val = builder->CreateIntCast(val, builder->getInt64Ty(), true);
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", boxFt);
-            return builder->CreateCall(boxFt, boxFn.getCallee(), { i64Val });
+            result = builder->CreateCall(boxFt, boxFn.getCallee(), { i64Val });
         } else if (val->getType()->isDoubleTy()) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getDoubleTy() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_double", boxFt);
-            return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
+            result = builder->CreateCall(boxFt, boxFn.getCallee(), { val });
         }
     }
 
     // Unboxing: ptr -> primitive
-    if (val->getType()->isPointerTy() && !expectedType->isPointerTy()) {
+    if (!result && val->getType()->isPointerTy() && !expectedType->isPointerTy()) {
         if (expectedType->isIntegerTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
             llvm::Value* i64Val = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
-            return builder->CreateIntCast(i64Val, expectedType, true);
+            result = builder->CreateIntCast(i64Val, expectedType, true);
         } else if (expectedType->isDoubleTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getDoubleTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", unboxFt);
-            return builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
+            result = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
         } else if (expectedType->isIntegerTy(1)) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", unboxFt);
-            return builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
+            result = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
         } else if (expectedType->isStructTy()) {
             // Unbox struct from TsValue*
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
-            return builder->CreateLoad(expectedType, objPtr);
+            result = builder->CreateLoad(expectedType, objPtr);
         }
     }
 
-    if (val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
-        llvm::Value* res = builder->CreateIntCast(val, expectedType, true);
-        return res;
+    if (!result && val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
+        result = builder->CreateIntCast(val, expectedType, true);
     }
     
-    if (val->getType()->isIntegerTy() && expectedType->isDoubleTy()) {
-        llvm::Value* res = builder->CreateSIToFP(val, expectedType);
-        return res;
+    if (!result && val->getType()->isIntegerTy() && expectedType->isDoubleTy()) {
+        result = builder->CreateSIToFP(val, expectedType);
     }
     
-    if (val->getType()->isDoubleTy() && expectedType->isIntegerTy()) {
-        llvm::Value* res = builder->CreateFPToSI(val, expectedType);
-        return res;
+    if (!result && val->getType()->isDoubleTy() && expectedType->isIntegerTy()) {
+        result = builder->CreateFPToSI(val, expectedType);
     }
 
-    if (val->getType()->isPointerTy() && expectedType->isPointerTy()) {
-        llvm::Value* res = builder->CreateBitCast(val, expectedType);
-        return res;
+    if (!result && val->getType()->isPointerTy() && expectedType->isPointerTy()) {
+        result = builder->CreateBitCast(val, expectedType);
     }
 
-    if (val->getType()->isIntegerTy() && expectedType->isPointerTy()) {
-        return builder->CreateIntToPtr(val, expectedType);
+    if (!result && val->getType()->isIntegerTy() && expectedType->isPointerTy()) {
+        result = builder->CreateIntToPtr(val, expectedType);
     }
 
-    if (val->getType()->isPointerTy() && expectedType->isIntegerTy()) {
-        return builder->CreatePtrToInt(val, expectedType);
+    if (!result && val->getType()->isPointerTy() && expectedType->isIntegerTy()) {
+        result = builder->CreatePtrToInt(val, expectedType);
     }
     
-    return val;
+    if (!result) result = val;
+
+    if (result && concreteTypes.count(val)) {
+        concreteTypes[result] = concreteTypes[val];
+    }
+
+    return result;
 }
 
 llvm::Value* IRGenerator::toInt32(llvm::Value* val) {

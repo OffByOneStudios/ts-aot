@@ -391,6 +391,7 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
             } else {
                 lastType = type;
             }
+            node->inferredType = lastType;
             classUsages[id->name].push_back(resolvedTypeArguments);
             return;
         }

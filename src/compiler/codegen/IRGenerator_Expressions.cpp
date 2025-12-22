@@ -864,6 +864,12 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     llvm::FunctionType* newFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
     llvm::FunctionCallee newFn = module->getOrInsertFunction("ts_new", newFt);
     lastValue = createCall(newFt, newFn.getCallee(), { callee, builder->CreateArray(args) });
+
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
+        std::cout << "DEBUG: NewExpression inferred type: " << cls->name << std::endl;
+        concreteTypes[lastValue] = cls;
+    }
 }
 
 void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {

@@ -32,7 +32,6 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 if (!lastType->isAssignableTo(type)) {
                     reportError(fmt::format("Type {} is not assignable to type {}", lastType->toString(), type->toString()));
                 }
-                node->initializer->inferredType = type;
             }
         }
     }

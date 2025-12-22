@@ -328,9 +328,11 @@ void Analyzer::visitNewExpression(NewExpression* node) {
     if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
             lastType = std::make_shared<Type>(TypeKind::Map);
+            node->inferredType = lastType;
             return;
         } else if (id->name == "Array") {
             lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            node->inferredType = lastType;
             return;
         }
 
@@ -338,6 +340,7 @@ void Analyzer::visitNewExpression(NewExpression* node) {
         auto type = symbols.lookupType(id->name);
         if (type && type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
+            std::cerr << "DEBUG: Analyzer setting NewExpression inferredType to " << classType->name << std::endl;
             if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
                 // Validate constraints
                 for (size_t i = 0; i < classType->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
@@ -354,6 +357,7 @@ void Analyzer::visitNewExpression(NewExpression* node) {
             } else {
                 lastType = type;
             }
+            node->inferredType = lastType;
             classUsages[id->name].push_back(resolvedTypeArguments);
             return;
         }
@@ -376,12 +380,14 @@ void Analyzer::visitNewExpression(NewExpression* node) {
                 }
 
                 lastType = classType;
+                node->inferredType = lastType;
                 return;
             }
         }
     }
     
     lastType = std::make_shared<Type>(TypeKind::Any);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {

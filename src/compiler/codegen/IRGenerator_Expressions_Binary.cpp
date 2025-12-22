@@ -395,8 +395,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         val = castValue(val, varType);
         builder->CreateStore(val, variable);
 
-        if (lastConcreteType) {
-            concreteTypes[variable] = lastConcreteType;
+        if (concreteTypes.count(val)) {
+            concreteTypes[variable] = concreteTypes[val];
         } else {
             concreteTypes.erase(variable);
         }

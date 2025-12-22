@@ -1,6 +1,6 @@
 # Epic 80: Devirtualization
 
-**Status:** Planned
+**Status:** In Progress
 **Goal:** Convert indirect (vtable) calls into direct function calls to enable inlining and reduce branch mispredictions.
 
 ## Background
@@ -9,8 +9,8 @@ Currently, all method calls in `ts-aot` go through a vtable lookup (indirect cal
 ## Action Items
 
 ### Milestone 1: Infrastructure
-- [ ] Add `concreteType` information to `llvm::Value*` tracking in `IRGenerator`.
-- [ ] Implement a lookup mechanism to find the concrete function implementation for a given class and method name.
+- [x] Add `concreteType` information to `llvm::Value*` tracking in `IRGenerator`.
+- [x] Implement a lookup mechanism to find the concrete function implementation for a given class and method name.
 
 ### Milestone 2: Static Devirtualization
 - [ ] Identify call sites where the receiver is a result of `new ClassName()`.
