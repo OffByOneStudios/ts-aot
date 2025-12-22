@@ -31,15 +31,22 @@ JITs like V8 use "Inline Caches" (ICs) to optimize property access. Since we hav
 | Engine | Avg Time (ms) | Total Time (100 iterations) | Status |
 | :--- | :--- | :--- | :--- |
 | Node.js (V8 v22.18.0) | 0.79ms | 79ms | Baseline |
+| C++ (MSVC /O2) | 0.31ms | 31ms | Native Reference |
 | ts-aot (Baseline) | ~12.0ms | 1200ms | Before Epic 71 |
 | ts-aot (Milestone 1) | ~11.0ms | 1100ms | Devirtualization |
 | ts-aot (Milestone 2) | 5.32ms | 532ms | Unboxed Arithmetic |
 | ts-aot (Milestone 3) | 2.98ms | 298ms | Fast Math + BCE |
-| ts-aot (Epic 70: @struct) | 0.28ms | 28ms | Value Types |
+| ts-aot (Epic 70: @struct) | **0.29ms** | 29ms | Value Types + LTO |
 
-## Performance Analysis (ts-aot vs V8)
-With the completion of Epic 70 and 71, we have achieved a ~40x speedup over the baseline. We are now **~2.8x faster than V8** on this specific benchmark.
+## Performance Analysis (ts-aot vs V8 vs C++)
+With the completion of Epic 70 and 71, we have achieved a ~40x speedup over the baseline. We are now:
+*   **~2.7x faster than V8** (Node.js).
+*   **~7% faster than native C++** (MSVC /O2).
 
-Remaining bottlenecks:
-1.  **Array Specialization:** The `spheres` array still contains `TsValue*` (boxed objects). Specializing arrays for specific types (e.g., `Sphere[]`) could further improve performance.
-2.  **Generational GC:** While `@struct` reduced allocation significantly, we still use Boehm GC for the remaining objects. A bump-pointer allocator for the nursery would be faster.
+The performance advantage over C++ is likely due to LLVM's more aggressive optimization passes (O3) and the use of Link-Time Optimization (LTO) across the TypeScript/C++ boundary, which allows inlining of runtime functions like `Math.sqrt`.
+
+## Future Work
+### Milestone 4: Array Specialization
+- [ ] Implement specialized array types for primitives (e.g., `double[]`) and structs (e.g., `Sphere[]`).
+- [ ] Store elements contiguously in memory to improve cache locality.
+- [ ] Eliminate `TsValue` wrapping for array access.

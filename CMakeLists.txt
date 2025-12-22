@@ -95,6 +95,8 @@ add_executable(raytracer_bench examples/raytracer.obj)
 target_link_libraries(raytracer_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(raytracer_bench PRIVATE src/runtime/include)
 
+add_executable(raytracer_cpp examples/raytracer.cpp)
+
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
     COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
