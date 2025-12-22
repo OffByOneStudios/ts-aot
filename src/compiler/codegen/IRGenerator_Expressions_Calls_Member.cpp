@@ -334,7 +334,16 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         } else {
             args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
         }
-        args.push_back(objPtr); // this
+        
+        llvm::Value* thisArg = objPtr;
+        if (classType->isStruct && !thisArg->getType()->isPointerTy()) {
+            // If it's a struct value, we need to pass a pointer to it.
+            // Store it to a temporary alloca.
+            llvm::Value* temp = builder->CreateAlloca(thisArg->getType());
+            builder->CreateStore(thisArg, temp);
+            thisArg = temp;
+        }
+        args.push_back(thisArg); // this
         
         int argIdx = 0;
         for (auto& arg : node->arguments) {
