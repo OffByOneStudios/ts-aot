@@ -82,20 +82,6 @@ extern "C" {
         return func->funcPtr;
     }
 
-    int64_t ts_value_get_int(TsValue* v) {
-        if (!v) return 0;
-        if (v->type == ValueType::NUMBER_INT) return v->i_val;
-        if (v->type == ValueType::NUMBER_DBL) return (int64_t)v->d_val;
-        return 0;
-    }
-
-    double ts_value_get_double(TsValue* v) {
-        if (!v) return 0.0;
-        if (v->type == ValueType::NUMBER_DBL) return v->d_val;
-        if (v->type == ValueType::NUMBER_INT) return (double)v->i_val;
-        return 0.0;
-    }
-
     bool ts_value_get_bool(TsValue* v) {
         if (!v) return false;
         if (v->type == ValueType::BOOLEAN) return v->b_val;

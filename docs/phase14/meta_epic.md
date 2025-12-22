@@ -26,12 +26,18 @@ Leverage TypeScript's type system to generate more efficient machine code.
 
 ### Epic 72: Security Hardening
 Implement mitigations against common exploits to ensure a "production-ready" comparison.
-- [ ] **Stack Smashing Protection (SSP):** Enable LLVM stack canaries.
-- [ ] **Control Flow Integrity (CFI):** Protect indirect function calls and vtable lookups.
-- [ ] **SafeStack:** Implement LLVM's SafeStack to separate the stack into safe and unsafe regions.
+- [x] **Stack Smashing Protection (SSP):** Enable LLVM stack canaries.
+- [x] **Control Flow Integrity (CFI):** Protect indirect function calls and vtable lookups.
+- [x] **Memory Safety:** Implement strict bounds and null checks.
 
 ### Epic 73: Compiler Pipeline Tuning
 Optimize the compilation process and the final binary.
 - [ ] **LLVM Pass Manager Tuning:** Customize the optimization pipeline (O3 + specialized passes).
 - [ ] **Link Time Optimization (LTO):** Enable cross-module optimization between the generated code and the C++ runtime.
 - [ ] **Profile-Guided Optimization (PGO):** (Future) Use execution profiles to guide hot-path optimization.
+
+### Epic 74: Null Check Elimination (NCE)
+Reduce the performance overhead of security hardening by eliminating redundant null checks.
+- [x] **Local NCE:** Track non-null values within basic blocks.
+- [ ] **Dominator-based NCE:** Propagate non-null information across the CFG.
+- [x] **Allocation NCE:** Skip checks for objects returned by `new`.

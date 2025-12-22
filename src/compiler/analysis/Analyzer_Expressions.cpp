@@ -73,6 +73,12 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
+        } else if (prop->name == "toString") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
+        } else if (prop->name == "toFixed") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         }
         
         // Check for Math methods

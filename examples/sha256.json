@@ -1,0 +1,2842 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "rotr",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "n"
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "x"
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "|",
+            "left": {
+              "kind": "ParenthesizedExpression",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": ">>>",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "x"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "n"
+                }
+              }
+            },
+            "right": {
+              "kind": "ParenthesizedExpression",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "<<",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "x"
+                },
+                "right": {
+                  "kind": "ParenthesizedExpression",
+                  "expression": {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 32
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "n"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "sha256",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "message"
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "K"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Uint32Array"
+            },
+            "arguments": [
+              {
+                "kind": "ArrayLiteralExpression",
+                "elements": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1116352408
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1899447441
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3049323471
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3921009573
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 961987163
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1508970993
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2453635748
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2870763221
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3624381080
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 310598401
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 607225278
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1426881987
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1925078388
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2162078206
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2614888103
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3248222580
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3835390401
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 4022224774
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 264347078
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 604807628
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 770255983
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1249150122
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1555081692
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1996064986
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2554220882
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2821834349
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2952996808
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3210313671
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3336571891
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3584528711
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 113926993
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 338241895
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 666307205
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 773529912
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1294757372
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1396182291
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1695183700
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1986661051
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2177026350
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2456956037
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2730485921
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2820302411
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3259730800
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3345764771
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3516065817
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3600352804
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 4094571909
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 275423344
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 430227734
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 506948616
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 659060556
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 883997877
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 958139571
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1322822218
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1537002063
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1747873779
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1955562222
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2024104815
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2227730452
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2361852424
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2428436474
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2756734187
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3204031479
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3329325298
+                  }
+                ]
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h0"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1779033703
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h1"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 3144134277
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h2"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1013904242
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h3"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 2773480762
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h4"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1359893119
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h5"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 2600822924
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h6"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 528734635
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "h7"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1541459225
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "msgLen"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "message"
+            },
+            "name": "length"
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "nBlocks"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "ParenthesizedExpression",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": ">>",
+                "left": {
+                  "kind": "ParenthesizedExpression",
+                  "expression": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "msgLen"
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 8
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 6
+                }
+              }
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 1
+            }
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "msg"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Uint8Array"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "<<",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "nBlocks"
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 6
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "msgLen"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "ElementAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "msg"
+                    },
+                    "argumentExpression": {
+                      "kind": "Identifier",
+                      "name": "i"
+                    }
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "message"
+                      },
+                      "name": "charCodeAt"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "Identifier",
+                        "name": "i"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "AssignmentExpression",
+            "left": {
+              "kind": "ElementAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "msg"
+              },
+              "argumentExpression": {
+                "kind": "Identifier",
+                "name": "msgLen"
+              }
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 128
+            }
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "view"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "DataView"
+            },
+            "arguments": [
+              {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "msg"
+                },
+                "name": "buffer"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "view"
+              },
+              "name": "setUint32"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "-",
+                "left": {
+                  "kind": "ParenthesizedExpression",
+                  "expression": {
+                    "kind": "BinaryExpression",
+                    "operator": "<<",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "nBlocks"
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 6
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 4
+                }
+              },
+              {
+                "kind": "BinaryExpression",
+                "operator": "*",
+                "left": {
+                  "kind": "Identifier",
+                  "name": "msgLen"
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 8
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "w"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Uint32Array"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 64
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "b"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "b"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "nBlocks"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "b"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ForStatement",
+                "initializer": {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                },
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 16
+                  }
+                },
+                "incrementor": {
+                  "kind": "PostfixUnaryExpression",
+                  "operator": "++",
+                  "operand": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  }
+                },
+                "body": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "ElementAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "w"
+                          },
+                          "argumentExpression": {
+                            "kind": "Identifier",
+                            "name": "t"
+                          }
+                        },
+                        "right": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "view"
+                            },
+                            "name": "getUint32"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "BinaryExpression",
+                              "operator": "+",
+                              "left": {
+                                "kind": "ParenthesizedExpression",
+                                "expression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "<<",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "b"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 6
+                                  }
+                                }
+                              },
+                              "right": {
+                                "kind": "ParenthesizedExpression",
+                                "expression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "<<",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "t"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 2
+                                  }
+                                }
+                              }
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "ForStatement",
+                "initializer": {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 16
+                  }
+                },
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 64
+                  }
+                },
+                "incrementor": {
+                  "kind": "PostfixUnaryExpression",
+                  "operator": "++",
+                  "operand": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  }
+                },
+                "body": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "s0"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "^",
+                          "left": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 7
+                              },
+                              {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "w"
+                                },
+                                "argumentExpression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "-",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "t"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 15
+                                  }
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          },
+                          "right": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 18
+                              },
+                              {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "w"
+                                },
+                                "argumentExpression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "-",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "t"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 15
+                                  }
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        },
+                        "right": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": ">>>",
+                            "left": {
+                              "kind": "ElementAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "w"
+                              },
+                              "argumentExpression": {
+                                "kind": "BinaryExpression",
+                                "operator": "-",
+                                "left": {
+                                  "kind": "Identifier",
+                                  "name": "t"
+                                },
+                                "right": {
+                                  "kind": "NumericLiteral",
+                                  "value": 15
+                                }
+                              }
+                            },
+                            "right": {
+                              "kind": "NumericLiteral",
+                              "value": 3
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "s1"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "^",
+                          "left": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 17
+                              },
+                              {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "w"
+                                },
+                                "argumentExpression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "-",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "t"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 2
+                                  }
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          },
+                          "right": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 19
+                              },
+                              {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "w"
+                                },
+                                "argumentExpression": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "-",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "t"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 2
+                                  }
+                                }
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        },
+                        "right": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": ">>>",
+                            "left": {
+                              "kind": "ElementAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "w"
+                              },
+                              "argumentExpression": {
+                                "kind": "BinaryExpression",
+                                "operator": "-",
+                                "left": {
+                                  "kind": "Identifier",
+                                  "name": "t"
+                                },
+                                "right": {
+                                  "kind": "NumericLiteral",
+                                  "value": 2
+                                }
+                              }
+                            },
+                            "right": {
+                              "kind": "NumericLiteral",
+                              "value": 10
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "ElementAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "w"
+                          },
+                          "argumentExpression": {
+                            "kind": "Identifier",
+                            "name": "t"
+                          }
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "|",
+                          "left": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "+",
+                              "left": {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "+",
+                                  "left": {
+                                    "kind": "ElementAccessExpression",
+                                    "expression": {
+                                      "kind": "Identifier",
+                                      "name": "w"
+                                    },
+                                    "argumentExpression": {
+                                      "kind": "BinaryExpression",
+                                      "operator": "-",
+                                      "left": {
+                                        "kind": "Identifier",
+                                        "name": "t"
+                                      },
+                                      "right": {
+                                        "kind": "NumericLiteral",
+                                        "value": 16
+                                      }
+                                    }
+                                  },
+                                  "right": {
+                                    "kind": "Identifier",
+                                    "name": "s0"
+                                  }
+                                },
+                                "right": {
+                                  "kind": "ElementAccessExpression",
+                                  "expression": {
+                                    "kind": "Identifier",
+                                    "name": "w"
+                                  },
+                                  "argumentExpression": {
+                                    "kind": "BinaryExpression",
+                                    "operator": "-",
+                                    "left": {
+                                      "kind": "Identifier",
+                                      "name": "t"
+                                    },
+                                    "right": {
+                                      "kind": "NumericLiteral",
+                                      "value": 7
+                                    }
+                                  }
+                                }
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "s1"
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 0
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h0"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b_"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h1"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "c"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h2"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "d"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h3"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "e"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h4"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "f"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h5"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "g"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h6"
+                }
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "h"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "Identifier",
+                  "name": "h7"
+                }
+              },
+              {
+                "kind": "ForStatement",
+                "initializer": {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                },
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 64
+                  }
+                },
+                "incrementor": {
+                  "kind": "PostfixUnaryExpression",
+                  "operator": "++",
+                  "operand": {
+                    "kind": "Identifier",
+                    "name": "t"
+                  }
+                },
+                "body": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "s1"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "^",
+                          "left": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 6
+                              },
+                              {
+                                "kind": "Identifier",
+                                "name": "e"
+                              }
+                            ],
+                            "typeArguments": []
+                          },
+                          "right": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 11
+                              },
+                              {
+                                "kind": "Identifier",
+                                "name": "e"
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        },
+                        "right": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "rotr"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "NumericLiteral",
+                              "value": 25
+                            },
+                            {
+                              "kind": "Identifier",
+                              "name": "e"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "ch"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "&",
+                            "left": {
+                              "kind": "Identifier",
+                              "name": "e"
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "f"
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "&",
+                            "left": {
+                              "kind": "ParenthesizedExpression",
+                              "expression": {
+                                "kind": "PrefixUnaryExpression",
+                                "operator": "~",
+                                "operand": {
+                                  "kind": "Identifier",
+                                  "name": "e"
+                                }
+                              }
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "g"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "temp1"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "|",
+                        "left": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "BinaryExpression",
+                              "operator": "+",
+                              "left": {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "+",
+                                  "left": {
+                                    "kind": "Identifier",
+                                    "name": "h"
+                                  },
+                                  "right": {
+                                    "kind": "Identifier",
+                                    "name": "s1"
+                                  }
+                                },
+                                "right": {
+                                  "kind": "Identifier",
+                                  "name": "ch"
+                                }
+                              },
+                              "right": {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "K"
+                                },
+                                "argumentExpression": {
+                                  "kind": "Identifier",
+                                  "name": "t"
+                                }
+                              }
+                            },
+                            "right": {
+                              "kind": "ElementAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "w"
+                              },
+                              "argumentExpression": {
+                                "kind": "Identifier",
+                                "name": "t"
+                              }
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "NumericLiteral",
+                          "value": 0
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "s0"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "^",
+                          "left": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 2
+                              },
+                              {
+                                "kind": "Identifier",
+                                "name": "a"
+                              }
+                            ],
+                            "typeArguments": []
+                          },
+                          "right": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "Identifier",
+                              "name": "rotr"
+                            },
+                            "arguments": [
+                              {
+                                "kind": "NumericLiteral",
+                                "value": 13
+                              },
+                              {
+                                "kind": "Identifier",
+                                "name": "a"
+                              }
+                            ],
+                            "typeArguments": []
+                          }
+                        },
+                        "right": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "rotr"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "NumericLiteral",
+                              "value": 22
+                            },
+                            {
+                              "kind": "Identifier",
+                              "name": "a"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "maj"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "^",
+                        "left": {
+                          "kind": "BinaryExpression",
+                          "operator": "^",
+                          "left": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "&",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "a"
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "b_"
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "&",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "a"
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "c"
+                              }
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "&",
+                            "left": {
+                              "kind": "Identifier",
+                              "name": "b_"
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "c"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "temp2"
+                      },
+                      "isExported": false,
+                      "type": "any",
+                      "initializer": {
+                        "kind": "BinaryExpression",
+                        "operator": "|",
+                        "left": {
+                          "kind": "ParenthesizedExpression",
+                          "expression": {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "Identifier",
+                              "name": "s0"
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "maj"
+                            }
+                          }
+                        },
+                        "right": {
+                          "kind": "NumericLiteral",
+                          "value": 0
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "g"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "g"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "f"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "f"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "e"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "e"
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "|",
+                          "left": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "+",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "d"
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "temp1"
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 0
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "d"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "c"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "c"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "b_"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "b_"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "|",
+                          "left": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "+",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "temp1"
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "temp2"
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 0
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h0"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h0"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "a"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h1"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h1"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "b_"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h2"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h2"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "c"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h3"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h3"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "d"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h4"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h4"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "e"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h5"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h5"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "f"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h6"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h6"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "g"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "h7"
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "|",
+                    "left": {
+                      "kind": "ParenthesizedExpression",
+                      "expression": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "h7"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "h"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "+",
+              "left": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "+",
+                      "left": {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "hex"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "h0"
+                            }
+                          ],
+                          "typeArguments": []
+                        },
+                        "right": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "Identifier",
+                            "name": "hex"
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "h1"
+                            }
+                          ],
+                          "typeArguments": []
+                        }
+                      },
+                      "right": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "Identifier",
+                          "name": "hex"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "h2"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    },
+                    "right": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "Identifier",
+                        "name": "hex"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "Identifier",
+                          "name": "h3"
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "hex"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "Identifier",
+                        "name": "h4"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                },
+                "right": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "hex"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "h5"
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              },
+              "right": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "Identifier",
+                  "name": "hex"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "h6"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "hex"
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "h7"
+                }
+              ],
+              "typeArguments": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "hex",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "n"
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "s"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "ParenthesizedExpression",
+                "expression": {
+                  "kind": "BinaryExpression",
+                  "operator": ">>>",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "n"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                }
+              },
+              "name": "toString"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 16
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "s"
+              },
+              "name": "length"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 8
+            }
+          },
+          "statement": {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "AssignmentExpression",
+              "left": {
+                "kind": "Identifier",
+                "name": "s"
+              },
+              "right": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "0"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "s"
+                }
+              }
+            }
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "s"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "iterations"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 10000
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "input"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "The quick brown fox jumps over the lazy dog"
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Starting SHA-256 Benchmark ("
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "iterations"
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": " iterations)..."
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "start"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": ""
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "iterations"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "result"
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "sha256"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "BinaryExpression",
+                        "operator": "+",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "input"
+                        },
+                        "right": {
+                          "kind": "Identifier",
+                          "name": "i"
+                        }
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "end"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Benchmark Complete."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Last Hash: "
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "result"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Total Time: "
+                  },
+                  "right": {
+                    "kind": "ParenthesizedExpression",
+                    "expression": {
+                      "kind": "BinaryExpression",
+                      "operator": "-",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "end"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "start"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "ms"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "Average Time: "
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "ParenthesizedExpression",
+                        "expression": {
+                          "kind": "BinaryExpression",
+                          "operator": "/",
+                          "left": {
+                            "kind": "ParenthesizedExpression",
+                            "expression": {
+                              "kind": "BinaryExpression",
+                              "operator": "-",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "end"
+                              },
+                              "right": {
+                                "kind": "Identifier",
+                                "name": "start"
+                              }
+                            }
+                          },
+                          "right": {
+                            "kind": "Identifier",
+                            "name": "iterations"
+                          }
+                        }
+                      },
+                      "name": "toFixed"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "NumericLiteral",
+                        "value": 4
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "ms"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "main"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

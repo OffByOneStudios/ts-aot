@@ -296,7 +296,14 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     
     // Map variables in frame to namedValues
     for (auto const& [name, idx] : frameMap) {
-        namedValues[name] = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
+        llvm::Value* ptr = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
+        namedValues[name] = ptr;
+        if (variableTypes.count(name)) {
+            auto type = variableTypes[name];
+            if (type && type->kind == TypeKind::Class) {
+                concreteTypes[ptr] = type;
+            }
+        }
     }
 
     // If this is a class method, ensure 'this' is in namedValues

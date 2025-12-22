@@ -95,6 +95,54 @@ add_executable(raytracer_bench examples/raytracer.obj)
 target_link_libraries(raytracer_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(raytracer_bench PRIVATE src/runtime/include)
 
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js" "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.ts" "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.ts" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js"
+)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.obj"
+    DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json"
+)
+
+add_executable(number_test examples/number_test.obj)
+target_link_libraries(number_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(number_test PRIVATE src/runtime/include)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js" "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.ts" "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.ts" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js"
+)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.obj"
+    DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json"
+)
+
+add_executable(buffer_string_test examples/buffer_string_test.obj)
+target_link_libraries(buffer_string_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(buffer_string_test PRIVATE src/runtime/include)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js" "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.ts" "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.ts" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js"
+)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.obj" -O3 --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
+    DEPENDS ts-aot tsruntime_bc "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json"
+)
+
+add_executable(sha256_bench examples/sha256.obj)
+target_link_libraries(sha256_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(sha256_bench PRIVATE src/runtime/include)
+
 add_executable(raytracer_cpp examples/raytracer.cpp)
 
 add_custom_command(

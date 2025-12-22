@@ -51,10 +51,15 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
              operandV = builder->CreateICmpNE(operandV, llvm::ConstantInt::get(operandV->getType(), 0), "tobool");
         }
         lastValue = builder->CreateNot(operandV, "nottmp");
+    } else if (node->op == "~") {
+        operandV = toInt32(operandV);
+        lastValue = builder->CreateNot(operandV, "bitnot");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
     }
 }
 
 void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
+    llvm::errs() << "visitPostfixUnaryExpression: " << node->op << "\n";
     visit(node->operand.get());
     llvm::Value* val = lastValue;
     
@@ -78,11 +83,34 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
             }
 
             if (variable) {
+                llvm::errs() << "  Storing back to " << id->name << " type: ";
+                variable->getType()->print(llvm::errs());
+                llvm::errs() << " value type: ";
+                next->getType()->print(llvm::errs());
+                llvm::errs() << "\n";
+
+                // Ensure types match for store
+                llvm::Type* varType = nullptr;
+                if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                    varType = alloca->getAllocatedType();
+                } else if (auto gv = llvm::dyn_cast<llvm::GlobalVariable>(variable)) {
+                    varType = gv->getValueType();
+                }
+
+                if (varType && next->getType() != varType) {
+                    llvm::errs() << "  Casting for store: ";
+                    next->getType()->print(llvm::errs());
+                    llvm::errs() << " -> ";
+                    varType->print(llvm::errs());
+                    llvm::errs() << "\n";
+                    next = castValue(next, varType);
+                }
                 builder->CreateStore(next, variable);
             }
         }
         lastValue = val; // Postfix returns old value
     }
+    llvm::errs() << "visitPostfixUnaryExpression done\n";
 }
 
 void IRGenerator::visitAsExpression(ast::AsExpression* node) {

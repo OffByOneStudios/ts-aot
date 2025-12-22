@@ -72,6 +72,8 @@ ConditionalExpression	./src/compiler/ast/AstNodes.h	/^struct ConditionalExpressi
 ContinueStatement	./src/compiler/ast/AstNodes.h	/^struct ContinueStatement : Statement {$/;"	s	namespace:ast
 Create	./src/runtime/src/TsArray.cpp	/^TsArray* TsArray::Create(size_t initialCapacity) {$/;"	f	class:TsArray	typeref:typename:TsArray *
 Create	./src/runtime/src/TsBuffer.cpp	/^TsBuffer* TsBuffer::Create(size_t length) {$/;"	f	class:TsBuffer	typeref:typename:TsBuffer *
+Create	./src/runtime/src/TsBuffer.cpp	/^TsDataView* TsDataView::Create(TsBuffer* buffer) {$/;"	f	class:TsDataView	typeref:typename:TsDataView *
+Create	./src/runtime/src/TsBuffer.cpp	/^TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize) {$/;"	f	class:TsTypedArray	typeref:typename:TsTypedArray *
 Create	./src/runtime/src/TsDate.cpp	/^TsDate* TsDate::Create() {$/;"	f	class:TsDate	typeref:typename:TsDate *
 Create	./src/runtime/src/TsDate.cpp	/^TsDate* TsDate::Create(const char* dateStr) {$/;"	f	class:TsDate	typeref:typename:TsDate *
 Create	./src/runtime/src/TsDate.cpp	/^TsDate* TsDate::Create(int64_t milliseconds) {$/;"	f	class:TsDate	typeref:typename:TsDate *
@@ -86,6 +88,8 @@ Create	./src/runtime/src/TsString.cpp	/^TsString* TsString::Create(const char* u
 Create	./src/runtime/src/TsURL.cpp	/^TsURL* TsURL::Create(TsString* url, TsString* base) {$/;"	f	class:TsURL	typeref:typename:TsURL *
 CreateSized	./src/runtime/src/TsArray.cpp	/^TsArray* TsArray::CreateSized(size_t size) {$/;"	f	class:TsArray	typeref:typename:TsArray *
 CreateSpecialized	./src/runtime/src/TsArray.cpp	/^TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize) {$/;"	f	class:TsArray	typeref:typename:TsArray *
+DataView_getUint32	./src/runtime/src/TsBuffer.cpp	/^    int64_t DataView_getUint32(void* context, void* dv, int64_t offset, bool littleEndian) {$/;"	f	typeref:typename:int64_t
+DataView_setUint32	./src/runtime/src/TsBuffer.cpp	/^    void DataView_setUint32(void* context, void* dv, int64_t offset, int64_t value, bool littleE/;"	f	typeref:typename:void
 Date_getDate	./src/runtime/src/TsDate.cpp	/^    int64_t Date_getDate(void* date) { return ((TsDate*)date)->GetDate(); }$/;"	f	typeref:typename:int64_t
 Date_getFullYear	./src/runtime/src/TsDate.cpp	/^    int64_t Date_getFullYear(void* date) { return ((TsDate*)date)->GetFullYear(); }$/;"	f	typeref:typename:int64_t
 Date_getHours	./src/runtime/src/TsDate.cpp	/^    int64_t Date_getHours(void* date) { return ((TsDate*)date)->GetHours(); }$/;"	f	typeref:typename:int64_t
@@ -178,7 +182,10 @@ Get	./src/runtime/src/TsBuffer.cpp	/^uint8_t TsBuffer::Get(size_t index) {$/;"	f
 Get	./src/runtime/src/TsFetch.cpp	/^TsString* TsHeaders::Get(TsString* name) {$/;"	f	class:TsHeaders	typeref:typename:TsString *
 Get	./src/runtime/src/TsMap.cpp	/^TsValue TsMap::Get(TsString* key) {$/;"	f	class:TsMap	typeref:typename:TsValue
 GetBody	./src/runtime/include/TsFetch.h	/^    TsBuffer* GetBody() { return body; }$/;"	f	class:TsResponse	typeref:typename:TsBuffer *
+GetBuffer	./src/runtime/include/TsBuffer.h	/^    TsBuffer* GetBuffer() { return buffer; }$/;"	f	class:TsDataView	typeref:typename:TsBuffer *
+GetBuffer	./src/runtime/include/TsBuffer.h	/^    TsBuffer* GetBuffer() { return buffer; }$/;"	f	class:TsTypedArray	typeref:typename:TsBuffer *
 GetBuffer	./src/runtime/include/TsString.h	/^    const char* GetBuffer() { return ToUtf8(); }$/;"	f	class:TsString	typeref:typename:const char *
+GetData	./src/runtime/include/TsBuffer.h	/^    uint8_t* GetData() { return buffer->GetData(); }$/;"	f	class:TsTypedArray	typeref:typename:uint8_t *
 GetData	./src/runtime/include/TsBuffer.h	/^    uint8_t* GetData() { return data; }$/;"	f	class:TsBuffer	typeref:typename:uint8_t *
 GetDate	./src/runtime/src/TsDate.cpp	/^int64_t TsDate::GetDate() { return getField(ms, UCAL_DATE, false); }$/;"	f	class:TsDate	typeref:typename:int64_t
 GetElementsPtr	./src/runtime/include/TsArray.h	/^    void* GetElementsPtr() { return elements; }$/;"	f	class:TsArray	typeref:typename:void *
@@ -194,6 +201,7 @@ GetHref	./src/runtime/src/TsURL.cpp	/^TsString* TsURL::GetHref() { return href; 
 GetKeys	./src/runtime/src/TsMap.cpp	/^void* TsMap::GetKeys() {$/;"	f	class:TsMap	typeref:typename:void *
 GetLastIndex	./src/runtime/include/TsRegExp.h	/^    int64_t GetLastIndex() const { return lastIndex; }$/;"	f	class:TsRegExp	typeref:typename:int64_t
 GetLength	./src/runtime/include/TsBuffer.h	/^    size_t GetLength() { return length; }$/;"	f	class:TsBuffer	typeref:typename:size_t
+GetLength	./src/runtime/include/TsBuffer.h	/^    size_t GetLength() { return length; }$/;"	f	class:TsTypedArray	typeref:typename:size_t
 GetMap	./src/runtime/include/TsFetch.h	/^    TsMap* GetMap() { return map; }$/;"	f	class:TsHeaders	typeref:typename:TsMap *
 GetMatcher	./src/runtime/include/TsRegExp.h	/^    void* GetMatcher() const { return matcher; }$/;"	f	class:TsRegExp	typeref:typename:void *
 GetMilliseconds	./src/runtime/src/TsDate.cpp	/^int64_t TsDate::GetMilliseconds() { return getField(ms, UCAL_MILLISECOND, false); }$/;"	f	class:TsDate	typeref:typename:int64_t
@@ -248,6 +256,7 @@ IsIgnoreCase	./src/runtime/include/TsRegExp.h	/^    bool IsIgnoreCase() const { 
 IsMultiline	./src/runtime/include/TsRegExp.h	/^    bool IsMultiline() const { return multiline; }$/;"	f	class:TsRegExp	typeref:typename:bool
 IsSticky	./src/runtime/include/TsRegExp.h	/^    bool IsSticky() const { return sticky; }$/;"	f	class:TsRegExp	typeref:typename:bool
 Join	./src/runtime/src/TsArray.cpp	/^void* TsArray::Join(void* separator) {$/;"	f	class:TsArray	typeref:typename:void *
+K	./examples/sha256.ts	/^    const K = new Uint32Array([$/;"	C	function:sha256
 Length	./src/runtime/src/TsArray.cpp	/^int64_t TsArray::Length() {$/;"	f	class:TsArray	typeref:typename:int64_t
 Length	./src/runtime/src/TsString.cpp	/^int64_t TsString::Length() {$/;"	f	class:TsString	typeref:typename:int64_t
 Listen	./src/runtime/src/TsHttp.cpp	/^void TsHttpServer::Listen(int port, void* callbackVTable, void* callbackFunc) {$/;"	f	class:TsHttpServer	typeref:typename:void
@@ -473,6 +482,8 @@ TsArray	./src/runtime/include/TsArray.h	/^class TsArray {$/;"	c
 TsArray	./src/runtime/src/TsArray.cpp	/^TsArray::TsArray(size_t initialCapacity, size_t elementSize) {$/;"	f	class:TsArray
 TsBuffer	./src/runtime/include/TsBuffer.h	/^class TsBuffer : public TsObject {$/;"	c
 TsBuffer	./src/runtime/src/TsBuffer.cpp	/^TsBuffer::TsBuffer(size_t length) {$/;"	f	class:TsBuffer
+TsDataView	./src/runtime/include/TsBuffer.h	/^class TsDataView : public TsObject {$/;"	c
+TsDataView	./src/runtime/src/TsBuffer.cpp	/^TsDataView::TsDataView(TsBuffer* buffer) {$/;"	f	class:TsDataView
 TsDate	./src/runtime/include/TsDate.h	/^class TsDate {$/;"	c
 TsDate	./src/runtime/src/TsDate.cpp	/^TsDate::TsDate() {$/;"	f	class:TsDate
 TsDate	./src/runtime/src/TsDate.cpp	/^TsDate::TsDate(int64_t milliseconds) : ms(milliseconds) {}$/;"	f	class:TsDate
@@ -502,6 +513,8 @@ TsString	./src/runtime/src/TsString.cpp	/^TsString::TsString(const char* utf8Str
 TsString	./src/runtime/src/TsString.cpp	/^TsString::TsString(const char* utf8Str, uint32_t len) {$/;"	f	class:TsString
 TsStringEqual	./src/runtime/src/TsMap.cpp	/^struct TsStringEqual {$/;"	s	file:
 TsStringHash	./src/runtime/src/TsMap.cpp	/^struct TsStringHash {$/;"	s	file:
+TsTypedArray	./src/runtime/include/TsBuffer.h	/^class TsTypedArray : public TsObject {$/;"	c
+TsTypedArray	./src/runtime/src/TsBuffer.cpp	/^TsTypedArray::TsTypedArray(size_t length, size_t elementSize) {$/;"	f	class:TsTypedArray
 TsURL	./src/runtime/include/TsURL.h	/^class TsURL : public TsObject {$/;"	c
 TsURL	./src/runtime/src/TsURL.cpp	/^TsURL::TsURL(TsString* url, TsString* base) {$/;"	f	class:TsURL
 TsValue	./src/runtime/include/TsObject.h	/^using TsValue = TaggedValue;$/;"	t	typeref:typename:TaggedValue
@@ -557,6 +570,7 @@ __anon32193cd00102	./src/runtime/src/EventLoop.cpp	/^    microtasks.push_back([c
 __anon39bf0dfd0102	./src/compiler/analysis/Analyzer_Expressions_Unary.cpp	/^    auto inferFromTypes = [&](auto self, std::shared_ptr<Type> paramType, std::shared_ptr<Type> /;"	f	function:ts::Analyzer::inferTypeArguments	typeref:typename:void	file:
 __anon3ca7d0d50102	./src/compiler/analysis/Analyzer_Core.cpp	/^    mainModule->ast = std::shared_ptr<ast::Program>(program, [](ast::Program*){});$/;"	f	function:ts::Analyzer::analyze	file:
 __anon3d246293010a	./src/runtime/include/TsObject.h	/^    union {$/;"	u	struct:TaggedValue
+__anon5be650220102	./src/compiler/codegen/IRGenerator_Core.cpp	/^    auto addRuntimeSymbol = [&](const std::string& name, llvm::Type* retTy, std::vector<llvm::Ty/;"	f	function:ts::IRGenerator::generate	file:
 __anon6abb7393010a	./src/runtime/include/TsString.h	/^    union {$/;"	u	class:TsString
 __anon6abb73930208	./src/runtime/include/TsString.h	/^        struct {$/;"	s	union:TsString::__anon6abb7393010a
 __anon6f5738650102	./src/compiler/analysis/Analyzer_Functions.cpp	/^            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {$/;"	f	function:ts::Analyzer::analyzeFunctionBody	file:
@@ -568,6 +582,7 @@ __anon7c3f8b9b0302	./src/runtime/src/TsHttp.cpp	/^    uv_write(req, client, &uv_
 __anon7c3f8b9b0402	./src/runtime/src/TsHttp.cpp	/^        uv_read_start((uv_stream_t*)&ctx->client, [](uv_handle_t* handle, size_t suggested_size,/;"	f	function:on_new_connection	file:
 __anona9318a5a0102	./src/compiler/analysis/Analyzer_Classes.cpp	/^            std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {$/;"	f	function:ts::Analyzer::analyzeMethodBody	file:
 __anonad7de2870102	./src/compiler/codegen/IRGenerator_Classes.cpp	/^        std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType>/;"	f	function:ts::IRGenerator::generateClasses	file:
+__anonad7de2870202	./src/compiler/codegen/IRGenerator_Classes.cpp	/^        auto addTypeMetadata = [&](std::shared_ptr<ClassType> type) {$/;"	f	function:ts::IRGenerator::generateClasses	file:
 __stack_chk_fail	./src/runtime/src/Memory.cpp	/^void __stack_chk_fail() {$/;"	f	typeref:typename:void
 _age	./tests/integration/getters_setters.ts	/^    private _age: number;$/;"	p	class:Person
 _name	./tests/integration/getters_setters.ts	/^    private _name: string;$/;"	p	class:Person
@@ -750,6 +765,8 @@ boxValue	./src/compiler/codegen/IRGenerator_Core.cpp	/^llvm::Value* IRGenerator:
 breakBlock	./src/compiler/codegen/IRGenerator.h	/^        llvm::BasicBlock* breakBlock;$/;"	m	struct:ts::IRGenerator::LoopInfo	typeref:typename:llvm::BasicBlock *
 buf	./examples/buffer_test.ts	/^    const buf = Buffer.alloc(10);$/;"	C	function:testBuffer
 buf	./tests/integration/networking_test.ts	/^    const buf = Buffer.alloc(10);$/;"	C	function:testBuffer
+buffer	./src/runtime/include/TsBuffer.h	/^    TsBuffer* buffer;$/;"	m	class:TsDataView	typeref:typename:TsBuffer *
+buffer	./src/runtime/include/TsBuffer.h	/^    TsBuffer* buffer;$/;"	m	class:TsTypedArray	typeref:typename:TsBuffer *
 buffer	./src/runtime/src/md5.cpp	/^  uint8_t buffer[64];$/;"	m	class:MD5	typeref:typename:uint8_t[64]	file:
 builder	./src/compiler/codegen/IRGenerator.h	/^    std::unique_ptr<llvm::IRBuilder<>> builder;$/;"	m	class:ts::IRGenerator	typeref:typename:std::unique_ptr<llvm::IRBuilder<>>
 c	./examples/raytracer.ts	/^        const c = Vector3.dot(oc, oc) - this.radius * this.radius;$/;"	C	method:Sphere.intersect
@@ -771,7 +788,9 @@ catch_error	./src/runtime/src/TsPromise.cpp	/^TsPromise* TsPromise::catch_error(
 cb	./src/runtime/src/TsPromise.cpp	/^    TsPromise::Callback cb;$/;"	m	struct:ts::PromiseCallbackTask	typeref:typename:TsPromise::Callback	file:
 center	./examples/raytracer.cpp	/^    Vector3 center;$/;"	m	class:Sphere	typeref:typename:Vector3	file:
 center	./examples/raytracer.ts	/^    constructor(public center: Vector3, public radius: number, public color: Vector3) {}$/;"	p	class:Sphere
+ch	./examples/sha256.ts	/^            const ch = (e & f) ^ ((~e) & g);$/;"	C	function:sha256
 checkInterfaceImplementation	./src/compiler/analysis/Analyzer_Classes.cpp	/^void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType, std::shared_pt/;"	f	class:ts::Analyzer	typeref:typename:void
+checkedAllocas	./src/compiler/codegen/IRGenerator.h	/^    std::set<llvm::Value*> checkedAllocas;$/;"	m	class:ts::IRGenerator	typeref:typename:std::set<llvm::Value * >
 classLayouts	./src/compiler/codegen/IRGenerator.h	/^    std::map<std::string, ClassLayout> classLayouts;$/;"	m	class:ts::IRGenerator	typeref:typename:std::map<std::string,ClassLayout>
 classType	./src/compiler/analysis/Monomorphizer.h	/^    std::shared_ptr<Type> classType; \/\/ If this is a class method, the class type$/;"	m	struct:ts::Specialization	typeref:typename:std::shared_ptr<Type>
 classUsages	./src/compiler/analysis/Analyzer.h	/^    std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;$/;"	m	class:ts::Analyzer	typeref:typename:std::map<std::string,std::vector<std::vector<std::shared_ptr<Type>>>>
@@ -888,9 +907,14 @@ elements	./src/compiler/ast/AstNodes.h	/^    std::vector<NodePtr> elements;$/;"	
 elements	./src/compiler/ast/AstNodes.h	/^    std::vector<NodePtr> elements;$/;"	m	struct:ast::ObjectBindingPattern	typeref:typename:std::vector<NodePtr>
 elements	./src/runtime/include/TsArray.h	/^    void* elements;$/;"	m	class:TsArray	typeref:typename:void *
 elseStatement	./src/compiler/ast/AstNodes.h	/^    StmtPtr elseStatement;$/;"	m	struct:ast::IfStatement	typeref:typename:StmtPtr
+emitBoundsCheck	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::emitBoundsCheck(llvm::Value* index, llvm::Value* length) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
+emitCFICheck	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::emitCFICheck(llvm::Value* ptr, const std::string& typeId) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
+emitNullCheck	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::emitNullCheck(llvm::Value* ptr) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
+emitNullCheckForExpression	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::emitNullCheckForExpression(ast::Expression* expr, llvm::Value* ptr) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
 emitObjectCode	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::emitObjectCode(const std::string& filename) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
 empty	./tests/unit/TsStringTests.cpp	/^        TsString* empty = TsString::Create("");$/;"	v	typeref:typename:TsString *
 end	./examples/raytracer.ts	/^    const end = Date.now();$/;"	C	function:render
+end	./examples/sha256.ts	/^    const end = Date.now();$/;"	C	function:main
 endParts	./tests/integration/aoc_2015_day6.ts	/^        const endParts = endStr.split(",");$/;"	C	function:main
 endX	./tests/integration/aoc_2015_day6.ts	/^        const endX = parseInt(endParts[0]);$/;"	C	function:main
 endY	./tests/integration/aoc_2015_day6.ts	/^        const endY = parseInt(endParts[1]);$/;"	C	function:main
@@ -1071,6 +1095,7 @@ height	./examples/raytracer.ts	/^    const height = 100;$/;"	C	function:render
 height	./tests/integration/interfaces.ts	/^    height: number;$/;"	p	class:Rect
 height	./tests/integration/interfaces_extending.ts	/^    height: number;$/;"	p	class:Rect
 hello	./examples/buffer_test.ts	/^    const hello = buf.toString();$/;"	C	function:testBuffer
+hex	./examples/sha256.ts	/^function hex(n: number): string {$/;"	f
 hexdigest	./src/runtime/src/md5.cpp	/^std::string MD5::hexdigest() const {$/;"	f	class:MD5	typeref:typename:std::string
 host	./src/runtime/include/TsURL.h	/^    TsString* host;$/;"	m	class:TsURL	typeref:typename:TsString *
 hostname	./src/runtime/include/TsURL.h	/^    TsString* hostname;$/;"	m	class:TsURL	typeref:typename:TsString *
@@ -1115,6 +1140,7 @@ initializer	./src/compiler/ast/AstNodes.h	/^    StmtPtr initializer; \/\/ Variab
 initializer	./src/compiler/ast/AstNodes.h	/^    StmtPtr initializer;$/;"	m	struct:ast::ForStatement	typeref:typename:StmtPtr
 initializer	./src/compiler/ast/AstNodes.h	/^    std::unique_ptr<Expression> initializer;$/;"	m	struct:ast::EnumMember	typeref:typename:std::unique_ptr<Expression>
 inlineBuffer	./src/runtime/include/TsString.h	/^        char inlineBuffer[16];$/;"	m	union:TsString::__anon6abb7393010a	typeref:typename:char[16]
+input	./examples/sha256.ts	/^    const input = "The quick brown fox jumps over the lazy dog";$/;"	C	function:main
 input	./tests/integration/aoc_2015_day1.ts	/^let input = fs.readFileSync("E:\\\\src\\\\github.com\\\\cgrinker\\\\ts-aoc\\\\tests\\\\integrati/;"	v
 input	./tests/integration/aoc_2015_day2.ts	/^let input = fs.readFileSync("E:\\\\src\\\\github.com\\\\cgrinker\\\\ts-aoc\\\\tests\\\\integrati/;"	v
 input	./tests/integration/aoc_2015_day3.ts	/^let input = fs.readFileSync("tests\/integration\/aoc_2015_day3.txt");$/;"	v
@@ -1167,6 +1193,7 @@ isSubclassOf	./src/compiler/analysis/Type.h	/^    bool isSubclassOf(std::shared_
 is_https	./src/runtime/src/TsFetch.cpp	/^    bool is_https;$/;"	m	struct:FetchContext	typeref:typename:bool	file:
 iso	./tests/unit/TsDateTest.cpp	/^        TsString* iso = d->ToISOString();$/;"	v	typeref:typename:TsString *
 iterations	./examples/raytracer.ts	/^    const iterations = 100;$/;"	C	function:render
+iterations	./examples/sha256.ts	/^    const iterations = 10000;$/;"	C	function:main
 joined	./tests/integration/string_array_enhancements_test.ts	/^const joined = arr.join("-");$/;"	C
 json	./examples/fetch_post.ts	/^        const json = JSON.parse(text);$/;"	C	function:testPost
 json	./src/compiler/ast/AstLoader.cpp	/^using json = nlohmann::json;$/;"	t	typeref:typename:nlohmann::json	file:
@@ -1193,6 +1220,7 @@ left	./src/compiler/ast/AstNodes.h	/^    ExprPtr left;$/;"	m	struct:ast::BinaryE
 len	./examples/raytracer.ts	/^        const len = Math.sqrt(Vector3.dot(a, a));$/;"	C	method:Vector3.normalize
 length	./src/runtime/include/TsArray.h	/^    size_t length;$/;"	m	class:TsArray	typeref:typename:size_t
 length	./src/runtime/include/TsBuffer.h	/^    size_t length;$/;"	m	class:TsBuffer	typeref:typename:size_t
+length	./src/runtime/include/TsBuffer.h	/^    size_t length;$/;"	m	class:TsTypedArray	typeref:typename:size_t
 length	./src/runtime/include/TsString.h	/^    uint32_t length = 0;$/;"	m	class:TsString	typeref:typename:uint32_t
 length	./tests/integration/generics_constraints.ts	/^    length: number;$/;"	p	interface:HasLength
 length	./tests/integration/generics_inference.ts	/^    length: number;$/;"	p	interface:HasLength
@@ -1228,6 +1256,7 @@ magic	./src/runtime/include/TsURL.h	/^    uint32_t magic = MAGIC;$/;"	m	class:Ts
 magic	./src/runtime/src/TsObject.cpp	/^                uint32_t magic;$/;"	m	struct:ts_object_get_property::FakeHeaders	typeref:typename:uint32_t	file:
 main	./examples/fetch.ts	/^async function main() {$/;"	f
 main	./examples/raytracer.cpp	/^int main() {$/;"	f	typeref:typename:int
+main	./examples/sha256.ts	/^function main() {$/;"	f
 main	./examples/struct_test.ts	/^function main() {$/;"	f
 main	./examples/ts-grep/ts-grep.ts	/^async function main() {$/;"	f
 main	./scripts/test_runner/main_wrapper.cpp	/^int main(int argc, char** argv) {$/;"	f	typeref:typename:int
@@ -1282,6 +1311,7 @@ main	./tests/integration/unknown_never.ts	/^function main() {$/;"	f
 mainPromise	./src/runtime/src/TsPromise.cpp	/^    TsPromise* mainPromise;$/;"	m	struct:ts::AllSettledContext	typeref:typename:TsPromise *	file:
 mainPromise	./src/runtime/src/TsPromise.cpp	/^    TsPromise* mainPromise;$/;"	m	struct:ts::AnyContext	typeref:typename:TsPromise *	file:
 mainPromise	./src/runtime/src/TsPromise.cpp	/^    TsPromise* mainPromise;$/;"	m	struct:ts::PromiseAllContext	typeref:typename:TsPromise *	file:
+maj	./examples/sha256.ts	/^            const maj = (a & b_) ^ (a & c) ^ (b_ & c);$/;"	C	function:sha256
 map	./src/runtime/include/TsFetch.h	/^    TsMap* map;$/;"	m	class:TsHeaders	typeref:typename:TsMap *
 map	./src/runtime/src/TsObject.cpp	/^                TsMap* map;$/;"	m	struct:ts_object_get_property::FakeHeaders	typeref:typename:TsMap *	file:
 map	./tests/integration/collection_parity.ts	/^const map = new Map<string, number>();$/;"	C
@@ -1315,6 +1345,8 @@ moduleSpecifier	./src/compiler/ast/AstNodes.h	/^    std::string moduleSpecifier;
 modules	./src/compiler/analysis/Analyzer.h	/^    std::map<std::string, std::shared_ptr<Module>> modules;$/;"	m	class:ts::Analyzer	typeref:typename:std::map<std::string,std::shared_ptr<Module>>
 monomorphize	./src/compiler/analysis/Monomorphizer.cpp	/^void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {$/;"	f	class:ts::Monomorphizer	typeref:typename:void
 ms	./src/runtime/include/TsDate.h	/^    int64_t ms; \/\/ Milliseconds since epoch$/;"	m	class:TsDate	typeref:typename:int64_t
+msg	./examples/sha256.ts	/^    const msg = new Uint8Array(nBlocks << 6);$/;"	C	function:sha256
+msgLen	./examples/sha256.ts	/^    const msgLen = message.length;$/;"	C	function:sha256
 mtimeMs	./src/runtime/src/IO.cpp	/^    double mtimeMs;$/;"	m	struct:StatWork	typeref:typename:double	file:
 mul	./examples/raytracer.cpp	/^    static Vector3 mul(const Vector3& a, double b) {$/;"	f	struct:Vector3	typeref:typename:Vector3	file:
 mul	./examples/raytracer.ts	/^    static mul(a: Vector3, b: number): Vector3 {$/;"	m	class:Vector3
@@ -1324,6 +1356,7 @@ multiply	./tests/integration/functions_anon.ts	/^    const multiply = (a: number
 multiply	./tests/integration/functions_anon.ts	/^    const ops = [add, multiply];$/;"	C	function:main
 n	./tests/integration/functions_rest.ts	/^    for (const n of numbers) {$/;"	C	function:sum
 n	./tests/integration/generics_inference.ts	/^    const n = getLength(s); \/\/ Should infer T = string$/;"	C	function:main
+nBlocks	./examples/sha256.ts	/^    const nBlocks = ((msgLen + 8) >> 6) + 1;$/;"	C	function:sha256
 name	./src/compiler/analysis/SymbolTable.h	/^    std::string name;$/;"	m	struct:ts::Symbol	typeref:typename:std::string
 name	./src/compiler/analysis/Type.h	/^    std::string name;$/;"	m	struct:ts::ClassType	typeref:typename:std::string
 name	./src/compiler/analysis/Type.h	/^    std::string name;$/;"	m	struct:ts::EnumType	typeref:typename:std::string
@@ -1366,6 +1399,7 @@ node	./src/compiler/analysis/Monomorphizer.h	/^    ast::Node* node; \/\/ Pointer
 node	./src/compiler/analysis/Type.h	/^    ast::ClassDeclaration* node = nullptr;$/;"	m	struct:ts::ClassType	typeref:typename:ast::ClassDeclaration *
 node	./src/compiler/analysis/Type.h	/^    ast::InterfaceDeclaration* node = nullptr;$/;"	m	struct:ts::InterfaceType	typeref:typename:ast::InterfaceDeclaration *
 node	./src/compiler/analysis/Type.h	/^    ast::Node* node = nullptr;$/;"	m	struct:ts::FunctionType	typeref:typename:ast::Node *
+nonNullValues	./src/compiler/codegen/IRGenerator.h	/^    std::set<llvm::Value*> nonNullValues;$/;"	m	class:ts::IRGenerator	typeref:typename:std::set<llvm::Value * >
 normalize	./examples/raytracer.cpp	/^    static Vector3 normalize(const Vector3& a) {$/;"	f	struct:Vector3	typeref:typename:Vector3	file:
 normalize	./examples/raytracer.ts	/^    static normalize(a: Vector3): Vector3 {$/;"	m	class:Vector3
 now	./tests/integration/date_test.ts	/^const now = Date.now();$/;"	C
@@ -1582,6 +1616,7 @@ returnType	./src/compiler/ast/AstNodes.h	/^    std::string returnType;$/;"	m	str
 returnType	./src/compiler/ast/AstNodes.h	/^    std::string returnType;$/;"	m	struct:ast::MethodDefinition	typeref:typename:std::string
 right	./src/compiler/ast/AstNodes.h	/^    ExprPtr right;$/;"	m	struct:ast::AssignmentExpression	typeref:typename:ExprPtr
 right	./src/compiler/ast/AstNodes.h	/^    ExprPtr right;$/;"	m	struct:ast::BinaryExpression	typeref:typename:ExprPtr
+rotr	./examples/sha256.ts	/^function rotr(n: number, x: number): number {$/;"	f
 runtimeBitcodePath	./src/compiler/codegen/IRGenerator.h	/^    std::string runtimeBitcodePath;$/;"	m	class:ts::IRGenerator	typeref:typename:std::string
 s	./tests/integration/abstract_classes.ts	/^    const s = new Square(5);$/;"	C	function:main
 s	./tests/integration/abstract_instantiation_fail.ts	/^    const s = new Shape(); \/\/ Should fail$/;"	C	method:Shape.getArea
@@ -1597,6 +1632,10 @@ s	./tests/integration/string_array_enhancements_test.ts	/^const s = "Hello World
 s	./tests/integration/strings_advanced.ts	/^const s = "Hello, World!";$/;"	C
 s	./tests/integration/type_aliases_enums.ts	/^const s: MyString = "Hello Aliases";$/;"	C
 s	./tests/unit/TsStringTests.cpp	/^        TsString* s = TsString::Create("Test");$/;"	v	typeref:typename:TsString *
+s0	./examples/sha256.ts	/^            const s0 = rotr(2, a) ^ rotr(13, a) ^ rotr(22, a);$/;"	C	function:sha256
+s0	./examples/sha256.ts	/^            const s0 = rotr(7, w[t - 15]) ^ rotr(18, w[t - 15]) ^ (w[t - 15] >>> 3);$/;"	C	function:sha256
+s1	./examples/sha256.ts	/^            const s1 = rotr(17, w[t - 2]) ^ rotr(19, w[t - 2]) ^ (w[t - 2] >>> 10);$/;"	C	function:sha256
+s1	./examples/sha256.ts	/^            const s1 = rotr(6, e) ^ rotr(11, e) ^ rotr(25, e);$/;"	C	function:sha256
 s1	./examples/string_test.ts	/^    const s1 = "hello";$/;"	C	function:testStrings
 s1	./tests/integration/aoc_2015_day2.ts	/^    let s1 = l * w;$/;"	v
 s1	./tests/integration/promise_static.ts	/^    const s1 = Promise.resolve(1);$/;"	C	function:testPromiseStatic
@@ -1621,6 +1660,7 @@ setRuntimeBitcode	./src/compiler/codegen/IRGenerator.h	/^    void setRuntimeBitc
 setters	./src/compiler/analysis/Type.h	/^    std::map<std::string, std::shared_ptr<FunctionType>> setters;$/;"	m	struct:ts::ClassType	typeref:typename:std::map<std::string,std::shared_ptr<FunctionType>>
 settings	./src/runtime/src/TsFetch.cpp	/^    llhttp_settings_t settings;$/;"	m	struct:FetchContext	typeref:typename:llhttp_settings_t	file:
 settings	./src/runtime/src/TsHttp.cpp	/^    llhttp_settings_t settings;$/;"	m	struct:ServerContext	typeref:typename:llhttp_settings_t	file:
+sha256	./examples/sha256.ts	/^function sha256(message: string): string {$/;"	f
 side	./tests/integration/abstract_classes.ts	/^    side: number;$/;"	p	class:Square
 side	./tests/integration/unions_intersections.ts	/^interface Square { kind: string, side: number }$/;"	p	interface:Square
 simpleObj	./tests/integration/json_test.ts	/^const simpleObj = { a: 1, b: "hello" };$/;"	C
@@ -1635,6 +1675,7 @@ spheres	./examples/raytracer.ts	/^    const spheres: Sphere[] = [$/;"	C	function
 ssl	./src/runtime/src/TsFetch.cpp	/^    SSL* ssl;$/;"	m	struct:FetchContext	typeref:typename:SSL *	file:
 ssl_ctx	./src/runtime/src/TsFetch.cpp	/^    SSL_CTX* ssl_ctx;$/;"	m	struct:FetchContext	typeref:typename:SSL_CTX *	file:
 start	./examples/raytracer.ts	/^    const start = Date.now();$/;"	C	function:render
+start	./examples/sha256.ts	/^    const start = Date.now();$/;"	C	function:main
 startParts	./tests/integration/aoc_2015_day6.ts	/^        const startParts = startStr.split(",");$/;"	C	function:main
 startX	./tests/integration/aoc_2015_day6.ts	/^        const startX = parseInt(startParts[0]);$/;"	C	function:main
 startY	./tests/integration/aoc_2015_day6.ts	/^        const startY = parseInt(startParts[1]);$/;"	C	function:main
@@ -1691,6 +1732,8 @@ syntheticFunctions	./src/compiler/analysis/Monomorphizer.h	/^    std::vector<std
 t	./tests/integration/tuples.ts	/^let t: [string, number] = ["hello", 42];$/;"	v
 tcp	./src/runtime/include/TsHttp.h	/^    uv_tcp_t tcp;$/;"	m	class:TsHttpServer	typeref:typename:uv_tcp_t
 tcp	./src/runtime/src/TsFetch.cpp	/^    uv_tcp_t tcp;$/;"	m	struct:FetchContext	typeref:typename:uv_tcp_t	file:
+temp1	./examples/sha256.ts	/^            const temp1 = (h + s1 + ch + K[t] + w[t]) | 0;$/;"	C	function:sha256
+temp2	./examples/sha256.ts	/^            const temp2 = (s0 + maj) | 0;$/;"	C	function:sha256
 test	./examples/escape_test.ts	/^function test() {$/;"	f
 test	./tests/integration/async_arrow_test.ts	/^async function test() {$/;"	f
 test	./tests/integration/async_basic.ts	/^async function test() {$/;"	f
@@ -1844,6 +1887,7 @@ ts_buffer_length	./src/runtime/src/TsBuffer.cpp	/^    int64_t ts_buffer_length(v
 ts_buffer_set	./src/runtime/src/TsBuffer.cpp	/^    void ts_buffer_set(void* buf, int64_t index, uint8_t value) {$/;"	f	typeref:typename:void
 ts_buffer_to_string	./src/runtime/src/TsBuffer.cpp	/^    void* ts_buffer_to_string(void* buf, void* encoding) {$/;"	f	typeref:typename:void *
 ts_call_0	./src/runtime/src/TsObject.cpp	/^    TsValue* ts_call_0(TsValue* boxedFunc) {$/;"	f	typeref:typename:TsValue *
+ts_cfi_fail	./src/runtime/src/Memory.cpp	/^void ts_cfi_fail() {$/;"	f	typeref:typename:void
 ts_clear_timer	./src/runtime/src/EventLoop.cpp	/^extern "C" void ts_clear_timer(TsValue* timerId) {$/;"	f	typeref:typename:void
 ts_console_log	./src/runtime/src/Primitives.cpp	/^void ts_console_log(TsString* str) {$/;"	f	typeref:typename:void
 ts_console_log_bool	./src/runtime/src/Primitives.cpp	/^void ts_console_log_bool(bool val) {$/;"	f	typeref:typename:void
@@ -1851,9 +1895,12 @@ ts_console_log_double	./src/runtime/src/Primitives.cpp	/^void ts_console_log_dou
 ts_console_log_int	./src/runtime/src/Primitives.cpp	/^void ts_console_log_int(int64_t val) {$/;"	f	typeref:typename:void
 ts_console_log_value	./src/runtime/src/Primitives.cpp	/^void ts_console_log_value(TsValue* val) {$/;"	f	typeref:typename:void
 ts_crypto_md5	./src/runtime/src/Crypto.cpp	/^    void* ts_crypto_md5(void* str) {$/;"	f	typeref:typename:void *
+ts_data_view_create	./src/runtime/src/TsBuffer.cpp	/^    void* ts_data_view_create(void* buffer) {$/;"	f	typeref:typename:void *
 ts_date_create	./src/runtime/src/TsDate.cpp	/^    void* ts_date_create() { return TsDate::Create(); }$/;"	f	typeref:typename:void *
 ts_date_create_ms	./src/runtime/src/TsDate.cpp	/^    void* ts_date_create_ms(int64_t ms) { return TsDate::Create(ms); }$/;"	f	typeref:typename:void *
 ts_date_create_str	./src/runtime/src/TsDate.cpp	/^    void* ts_date_create_str(void* str) { return TsDate::Create(((TsString*)str)->ToUtf8()); }$/;"	f	typeref:typename:void *
+ts_double_to_fixed	./src/runtime/src/TsString.cpp	/^    void* ts_double_to_fixed(double value, int64_t fractionDigits) {$/;"	f	typeref:typename:void *
+ts_double_to_string	./src/runtime/src/TsString.cpp	/^    void* ts_double_to_string(double value, int64_t radix) {$/;"	f	typeref:typename:void *
 ts_fetch	./src/runtime/src/TsFetch.cpp	/^void* ts_fetch(void* vtable, void* url_val, void* options_val) {$/;"	f	typeref:typename:void *
 ts_fs_existsSync	./src/runtime/src/IO.cpp	/^bool ts_fs_existsSync(void* path) {$/;"	f	typeref:typename:bool
 ts_fs_mkdirSync	./src/runtime/src/IO.cpp	/^void ts_fs_mkdirSync(void* path) {$/;"	f	typeref:typename:void
@@ -1879,6 +1926,7 @@ ts_incoming_message_headers	./src/runtime/src/TsHttp.cpp	/^    void* ts_incoming
 ts_incoming_message_method	./src/runtime/src/TsHttp.cpp	/^    void* ts_incoming_message_method(void* context, void* msg) {$/;"	f	typeref:typename:void *
 ts_incoming_message_url	./src/runtime/src/TsHttp.cpp	/^    void* ts_incoming_message_url(void* context, void* msg) {$/;"	f	typeref:typename:void *
 ts_instanceof	./src/runtime/src/Primitives.cpp	/^bool ts_instanceof(void* obj, void* targetVTable) {$/;"	f	typeref:typename:bool
+ts_int_to_string	./src/runtime/src/TsString.cpp	/^    void* ts_int_to_string(int64_t value, int64_t radix) {$/;"	f	typeref:typename:void *
 ts_json_parse	./src/runtime/src/TsJSON.cpp	/^    void* ts_json_parse(void* json_str) {$/;"	f	typeref:typename:void *
 ts_json_stringify	./src/runtime/src/TsJSON.cpp	/^    void* ts_json_stringify(void* obj, void* replacer, void* space) {$/;"	f	typeref:typename:void *
 ts_loop_init	./src/runtime/src/EventLoop.cpp	/^extern "C" void ts_loop_init() {$/;"	f	typeref:typename:void
@@ -1922,6 +1970,7 @@ ts_math_sqrt	./src/runtime/src/Math.cpp	/^double ts_math_sqrt(double a) {$/;"	f	
 ts_math_tanh	./src/runtime/src/Math.cpp	/^double ts_math_tanh(double a) { return std::tanh(a); }$/;"	f	typeref:typename:double
 ts_math_trunc	./src/runtime/src/Math.cpp	/^double ts_math_trunc(double a) { return std::trunc(a); }$/;"	f	typeref:typename:double
 ts_object_get_property	./src/runtime/src/TsObject.cpp	/^    void* ts_object_get_property(void* obj, void* key) {$/;"	f	typeref:typename:void *
+ts_panic	./src/runtime/src/Memory.cpp	/^void ts_panic(const char* msg) {$/;"	f	typeref:typename:void
 ts_path_join	./src/runtime/src/IO.cpp	/^void* ts_path_join(void* path1, void* path2) {$/;"	f	typeref:typename:void *
 ts_pop_exception_handler	./src/runtime/src/Core.cpp	/^void ts_pop_exception_handler() {$/;"	f	typeref:typename:void
 ts_process_cwd	./src/runtime/src/Core.cpp	/^void* ts_process_cwd() {$/;"	f	typeref:typename:void *
@@ -1993,6 +2042,19 @@ ts_string_trim	./src/runtime/src/TsString.cpp	/^    void* ts_string_trim(void* s
 ts_throw	./src/runtime/src/Core.cpp	/^void ts_throw(void* exception) {$/;"	f	typeref:typename:void
 ts_to_json	./src/runtime/src/TsJSON.cpp	/^static nlohmann::json ts_to_json(void* p) {$/;"	f	typeref:typename:nlohmann::json	file:
 ts_to_json_internal	./src/runtime/src/TsJSON.cpp	/^static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {$/;"	f	typeref:typename:nlohmann::json	file:
+ts_typed_array_create_f64	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_create_f64(int64_t length) {$/;"	f	typeref:typename:void *
+ts_typed_array_create_u32	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_create_u32(int64_t length) {$/;"	f	typeref:typename:void *
+ts_typed_array_create_u8	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_create_u8(int64_t length) {$/;"	f	typeref:typename:void *
+ts_typed_array_from_array_f64	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_from_array_f64(void* array) {$/;"	f	typeref:typename:void *
+ts_typed_array_from_array_u32	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_from_array_u32(void* array) {$/;"	f	typeref:typename:void *
+ts_typed_array_from_array_u8	./src/runtime/src/TsBuffer.cpp	/^    void* ts_typed_array_from_array_u8(void* array) {$/;"	f	typeref:typename:void *
+ts_typed_array_get_f64	./src/runtime/src/TsBuffer.cpp	/^    double ts_typed_array_get_f64(void* ta, int64_t index) {$/;"	f	typeref:typename:double
+ts_typed_array_get_u32	./src/runtime/src/TsBuffer.cpp	/^    uint32_t ts_typed_array_get_u32(void* ta, int64_t index) {$/;"	f	typeref:typename:uint32_t
+ts_typed_array_get_u8	./src/runtime/src/TsBuffer.cpp	/^    uint8_t ts_typed_array_get_u8(void* ta, int64_t index) {$/;"	f	typeref:typename:uint8_t
+ts_typed_array_length	./src/runtime/src/TsBuffer.cpp	/^    int64_t ts_typed_array_length(void* ta) {$/;"	f	typeref:typename:int64_t
+ts_typed_array_set_f64	./src/runtime/src/TsBuffer.cpp	/^    void ts_typed_array_set_f64(void* ta, int64_t index, double value) {$/;"	f	typeref:typename:void
+ts_typed_array_set_u32	./src/runtime/src/TsBuffer.cpp	/^    void ts_typed_array_set_u32(void* ta, int64_t index, uint32_t value) {$/;"	f	typeref:typename:void
+ts_typed_array_set_u8	./src/runtime/src/TsBuffer.cpp	/^    void ts_typed_array_set_u8(void* ta, int64_t index, uint8_t value) {$/;"	f	typeref:typename:void
 ts_typeof	./src/runtime/src/Primitives.cpp	/^TsString* ts_typeof(void* val) {$/;"	f	typeref:typename:TsString *
 ts_url_create	./src/runtime/src/TsURL.cpp	/^    void* ts_url_create(void* vtable, void* url, void* base) {$/;"	f	typeref:typename:void *
 ts_url_get_hash	./src/runtime/src/TsURL.cpp	/^    void* ts_url_get_hash(void* url) { return ((TsURL*)url)->GetHash(); }$/;"	f	typeref:typename:void *
@@ -2004,9 +2066,9 @@ ts_url_get_port	./src/runtime/src/TsURL.cpp	/^    void* ts_url_get_port(void* ur
 ts_url_get_protocol	./src/runtime/src/TsURL.cpp	/^    void* ts_url_get_protocol(void* url) { return ((TsURL*)url)->GetProtocol(); }$/;"	f	typeref:typename:void *
 ts_url_get_search	./src/runtime/src/TsURL.cpp	/^    void* ts_url_get_search(void* url) { return ((TsURL*)url)->GetSearch(); }$/;"	f	typeref:typename:void *
 ts_value_get_bool	./src/runtime/src/TsObject.cpp	/^    bool ts_value_get_bool(TsValue* v) {$/;"	f	typeref:typename:bool
-ts_value_get_double	./src/runtime/src/TsObject.cpp	/^    double ts_value_get_double(TsValue* v) {$/;"	f	typeref:typename:double
+ts_value_get_double	./src/runtime/src/Primitives.cpp	/^double ts_value_get_double(TsValue* v) {$/;"	f	typeref:typename:double
 ts_value_get_element	./src/runtime/src/TsObject.cpp	/^    void* ts_value_get_element(TsValue* val, int64_t index) {$/;"	f	typeref:typename:void *
-ts_value_get_int	./src/runtime/src/TsObject.cpp	/^    int64_t ts_value_get_int(TsValue* v) {$/;"	f	typeref:typename:int64_t
+ts_value_get_int	./src/runtime/src/Primitives.cpp	/^int64_t ts_value_get_int(TsValue* v) {$/;"	f	typeref:typename:int64_t
 ts_value_get_object	./src/runtime/src/TsObject.cpp	/^    void* ts_value_get_object(TsValue* v) {$/;"	f	typeref:typename:void *
 ts_value_get_property	./src/runtime/src/TsObject.cpp	/^    void* ts_value_get_property(TsValue* val, void* propName) {$/;"	f	typeref:typename:void *
 ts_value_get_string	./src/runtime/src/TsObject.cpp	/^    void* ts_value_get_string(TsValue* v) {$/;"	f	typeref:typename:void *
@@ -2072,6 +2134,7 @@ value	./tests/integration/generics_test.ts	/^    value: T;$/;"	p	class:Box
 value_type	./src/runtime/src/TsMap.cpp	/^    typedef T value_type;$/;"	t	struct:TsAllocator	typeref:typename:T	file:
 variable	./src/compiler/ast/AstNodes.h	/^    NodePtr variable;$/;"	m	struct:ast::CatchClause	typeref:typename:NodePtr
 variables	./src/compiler/analysis/Analyzer_Escape.cpp	/^    std::map<std::string, VariableState> variables;$/;"	m	class:ts::EscapeVisitor	typeref:typename:std::map<std::string,VariableState>	file:
+view	./examples/sha256.ts	/^    const view = new DataView(msg.buffer);$/;"	C	function:sha256
 visit	./src/compiler/analysis/Analyzer_Core.cpp	/^void Analyzer::visit(Node* node) {$/;"	f	class:ts::Analyzer	typeref:typename:void
 visit	./src/compiler/codegen/IRGenerator_Core.cpp	/^void IRGenerator::visit(ast::Node* node) {$/;"	f	class:ts::IRGenerator	typeref:typename:void
 visitArrayBindingPattern	./src/compiler/analysis/Analyzer_Core.cpp	/^void Analyzer::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {}$/;"	f	class:ts::Analyzer	typeref:typename:void
@@ -2298,6 +2361,7 @@ visitYieldExpression	./src/compiler/codegen/IRGenerator_Expressions.cpp	/^void I
 visited	./tests/integration/aoc_2015_day3.ts	/^let visited = new Map();$/;"	v
 vtable	./src/runtime/include/TsObject.h	/^    void* vtable;$/;"	m	class:TsObject	typeref:typename:void *
 vtable	./src/runtime/src/TsObject.cpp	/^                void* vtable;$/;"	m	struct:ts_object_get_property::FakeHeaders	typeref:typename:void *	file:
+w	./examples/sha256.ts	/^    const w = new Uint32Array(64);$/;"	C	function:sha256
 w	./tests/integration/aoc_2015_day2.ts	/^    let w = parseInt(parts[1]);$/;"	v
 wbio	./src/runtime/src/TsFetch.cpp	/^    BIO* wbio;$/;"	m	struct:FetchContext	typeref:typename:BIO *	file:
 whenFalse	./src/compiler/ast/AstNodes.h	/^    ExprPtr whenFalse;$/;"	m	struct:ast::ConditionalExpression	typeref:typename:ExprPtr

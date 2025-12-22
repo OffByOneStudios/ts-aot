@@ -1,8 +1,24 @@
 #include "TsRuntime.h"
 #include "TsString.h"
 #include <cstdio>
+#include <cmath>
 
 extern "C" {
+
+int32_t ts_double_to_int32(double d) {
+    if (std::isnan(d) || std::isinf(d)) return 0;
+    double i = std::trunc(std::fmod(d, 4294967296.0));
+    if (i < 0) i += 4294967296.0;
+    if (i >= 2147483648.0) i -= 4294967296.0;
+    return (int32_t)i;
+}
+
+uint32_t ts_double_to_uint32(double d) {
+    if (std::isnan(d) || std::isinf(d)) return 0;
+    double i = std::trunc(std::fmod(d, 4294967296.0));
+    if (i < 0) i += 4294967296.0;
+    return (uint32_t)i;
+}
 
 void ts_console_log(TsString* str) {
     if (str) {
@@ -85,6 +101,20 @@ bool ts_instanceof(void* obj, void* targetVTable) {
     }
     
     return false;
+}
+
+int64_t ts_value_get_int(TsValue* v) {
+    if (!v) return 0;
+    if (v->type == ValueType::NUMBER_INT) return v->i_val;
+    if (v->type == ValueType::NUMBER_DBL) return (int64_t)v->d_val;
+    return 0;
+}
+
+double ts_value_get_double(TsValue* v) {
+    if (!v) return 0.0;
+    if (v->type == ValueType::NUMBER_DBL) return v->d_val;
+    if (v->type == ValueType::NUMBER_INT) return (double)v->i_val;
+    return 0.0;
 }
 
 }

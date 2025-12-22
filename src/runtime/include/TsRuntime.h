@@ -25,6 +25,15 @@ void ts_console_log_double(double val);
 void ts_console_log_bool(bool val);
 void ts_console_log_value(TsValue* val);
 
+// --- Conversions ---
+int32_t ts_double_to_int32(double d);
+uint32_t ts_double_to_uint32(double d);
+void* ts_number_to_string(double val, int64_t radix);
+void* ts_number_to_fixed(double val, int64_t digits);
+void* ts_int_to_string(int64_t val, int64_t radix);
+void* ts_double_to_string(double val, int64_t radix);
+void* ts_double_to_fixed(double val, int64_t digits);
+
 // --- String ---
 void* ts_string_create(const char* str);
 void* ts_string_concat(void* a, void* b);
@@ -65,6 +74,9 @@ void* ts_value_get_object(TsValue* v);
 TsValue* ts_value_make_promise(void* p);
 TsValue* ts_value_make_function(void* funcPtr, void* context);
 void* ts_function_get_ptr(TsValue* val);
+
+int64_t ts_value_get_int(TsValue* v);
+double ts_value_get_double(TsValue* v);
 
 // --- Promises ---
 TsValue* ts_promise_all(TsValue* iterable);

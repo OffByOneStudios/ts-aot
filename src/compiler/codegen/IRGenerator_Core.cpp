@@ -31,7 +31,6 @@ IRGenerator::IRGenerator() {
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
     this->specializations = specializations;
-    llvm::errs() << "IRGenerator::generate: Starting...\n";
     // Initialize target for DataLayout
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
@@ -55,7 +54,36 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         builder->setFastMathFlags(fmf);
     }
 
-    llvm::errs() << "IRGenerator::generate: Generating globals...\n";
+    // Register runtime symbols for TypedArray and DataView
+    auto ptrTy = builder->getPtrTy();
+    auto addRuntimeSymbol = [&](const std::string& name, llvm::Type* retTy, std::vector<llvm::Type*> argTypes) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(retTy, argTypes, false);
+        module->getOrInsertFunction(name, ft);
+    };
+
+    // TypedArray
+    addRuntimeSymbol("ts_typed_array_get_u8", builder->getInt8Ty(), {ptrTy, builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_set_u8", builder->getVoidTy(), {ptrTy, builder->getInt64Ty(), builder->getInt8Ty()});
+    addRuntimeSymbol("ts_typed_array_get_u32", builder->getInt32Ty(), {ptrTy, builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_set_u32", builder->getVoidTy(), {ptrTy, builder->getInt64Ty(), builder->getInt32Ty()});
+    addRuntimeSymbol("ts_typed_array_get_f64", builder->getDoubleTy(), {ptrTy, builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_set_f64", builder->getVoidTy(), {ptrTy, builder->getInt64Ty(), builder->getDoubleTy()});
+    addRuntimeSymbol("ts_typed_array_create_u8", ptrTy, {builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_create_u32", ptrTy, {builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_create_f64", ptrTy, {builder->getInt64Ty()});
+    addRuntimeSymbol("ts_typed_array_from_array_u8", ptrTy, {ptrTy});
+    addRuntimeSymbol("ts_typed_array_from_array_u32", ptrTy, {ptrTy});
+    addRuntimeSymbol("ts_typed_array_from_array_f64", ptrTy, {ptrTy});
+
+    // Bitwise helpers
+    addRuntimeSymbol("ts_double_to_int32", builder->getInt32Ty(), {builder->getDoubleTy()});
+    addRuntimeSymbol("ts_double_to_uint32", builder->getInt32Ty(), {builder->getDoubleTy()});
+
+    // DataView
+    addRuntimeSymbol("ts_data_view_create", ptrTy, {ptrTy});
+    addRuntimeSymbol("DataView_getUint32", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setUint32", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+
     generateGlobals(analyzer);
     
     auto tsArrayType = llvm::StructType::create(*context, "TsArray");
@@ -85,15 +113,11 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         builder->getPtrTy()  // data
     });
 
-    llvm::errs() << "IRGenerator::generate: Generating classes...\n";
     generateClasses(analyzer, specializations);
-    llvm::errs() << "IRGenerator::generate: Generating prototypes...\n";
     generatePrototypes(specializations);
-    llvm::errs() << "IRGenerator::generate: Generating bodies...\n";
     generateBodies(specializations);
-    llvm::errs() << "IRGenerator::generate: Generating entry point...\n";
+
     generateEntryPoint();
-    llvm::errs() << "IRGenerator::generate: Done.\n";
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
@@ -168,6 +192,15 @@ void IRGenerator::emitBoundsCheck(llvm::Value* index, llvm::Value* length) {
 
 void IRGenerator::emitNullCheck(llvm::Value* ptr) {
     if (!ptr->getType()->isPointerTy()) return;
+    if (nonNullValues.count(ptr)) return;
+
+    // Check if this is a load from a known non-null alloca
+    if (auto load = llvm::dyn_cast<llvm::LoadInst>(ptr)) {
+        if (checkedAllocas.count(load->getPointerOperand())) {
+            nonNullValues.insert(ptr);
+            return;
+        }
+    }
 
     llvm::Value* isNull = builder->CreateICmpEQ(ptr, llvm::ConstantPointerNull::get(builder->getPtrTy()));
 
@@ -186,6 +219,19 @@ void IRGenerator::emitNullCheck(llvm::Value* ptr) {
     builder->CreateUnreachable();
 
     builder->SetInsertPoint(contBB);
+    nonNullValues.insert(ptr);
+
+    // If this was a load from an alloca, mark the alloca as checked
+    if (auto load = llvm::dyn_cast<llvm::LoadInst>(ptr)) {
+        checkedAllocas.insert(load->getPointerOperand());
+    }
+}
+
+void IRGenerator::emitNullCheckForExpression(ast::Expression* expr, llvm::Value* ptr) {
+    if (auto id = dynamic_cast<ast::Identifier*>(expr)) {
+        if (id->name == "this") return;
+    }
+    emitNullCheck(ptr);
 }
 
 void IRGenerator::generateEntryPoint() {
@@ -288,6 +334,16 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, value->getType());
         builder->CreateStore(value, alloca);
         namedValues[id->name] = alloca;
+
+        if (lastConcreteType) {
+            concreteTypes[alloca] = lastConcreteType;
+        }
+
+        if (nonNullValues.count(value)) {
+            checkedAllocas.insert(alloca);
+        } else {
+            checkedAllocas.erase(alloca);
+        }
     } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(pattern)) {
         if (!type || type->kind != TypeKind::Class) {
             for (auto& elementNode : obp->elements) {
@@ -472,6 +528,7 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 
 void IRGenerator::visit(ast::Node* node) {
     if (node) {
+        lastConcreteType = nullptr;
         node->accept(this);
     }
 }
@@ -813,7 +870,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         // Some functions might be vararg or we might have optional args
         // For now, just warn if not vararg
         if (!ft->isVarArg() && args.size() < ft->getNumParams()) {
-            llvm::errs() << "Warning: Too few arguments in createCall. Expected " << ft->getNumParams() << ", got " << args.size() << "\n";
+            // Warning: Too few arguments
         }
     }
     
@@ -828,12 +885,17 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         }
     }
     
-    return builder->CreateCall(ft, callee, castedArgs);
+    llvm::Value* res = builder->CreateCall(ft, callee, castedArgs);
+    return res;
 }
 
 llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) {
-    if (val->getType() == expectedType) return val;
-    
+    if (!val) return nullptr;
+
+    if (val->getType() == expectedType) {
+        return val;
+    }
+
     // Boxing: primitive -> ptr
     if (!val->getType()->isPointerTy() && expectedType->isPointerTy()) {
         if (val->getType()->isStructTy()) {
@@ -849,15 +911,7 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
             return createCall(boxFt, boxFn.getCallee(), { heapPtr });
         }
-        if (val->getType()->isIntegerTy(64)) {
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", boxFt);
-            return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
-        } else if (val->getType()->isDoubleTy()) {
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getDoubleTy() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_double", boxFt);
-            return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
-        } else if (val->getType()->isIntegerTy(1)) {
+        if (val->getType()->isIntegerTy(1)) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_bool", boxFt);
             return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
@@ -866,15 +920,25 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
             llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
             return builder->CreateCall(undefFt, undefFn.getCallee());
+        } else if (val->getType()->isIntegerTy()) {
+            llvm::Value* i64Val = builder->CreateIntCast(val, builder->getInt64Ty(), true);
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", boxFt);
+            return builder->CreateCall(boxFt, boxFn.getCallee(), { i64Val });
+        } else if (val->getType()->isDoubleTy()) {
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getDoubleTy() }, false);
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_double", boxFt);
+            return builder->CreateCall(boxFt, boxFn.getCallee(), { val });
         }
     }
 
     // Unboxing: ptr -> primitive
     if (val->getType()->isPointerTy() && !expectedType->isPointerTy()) {
-        if (expectedType->isIntegerTy(64)) {
+        if (expectedType->isIntegerTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
-            return builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
+            llvm::Value* i64Val = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
+            return builder->CreateIntCast(i64Val, expectedType, true);
         } else if (expectedType->isDoubleTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getDoubleTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", unboxFt);
@@ -893,22 +957,56 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     }
 
     if (val->getType()->isIntegerTy() && expectedType->isIntegerTy()) {
-        return builder->CreateIntCast(val, expectedType, true);
+        llvm::Value* res = builder->CreateIntCast(val, expectedType, true);
+        return res;
     }
     
     if (val->getType()->isIntegerTy() && expectedType->isDoubleTy()) {
-        return builder->CreateSIToFP(val, expectedType);
+        llvm::Value* res = builder->CreateSIToFP(val, expectedType);
+        return res;
     }
     
     if (val->getType()->isDoubleTy() && expectedType->isIntegerTy()) {
-        return builder->CreateFPToSI(val, expectedType);
+        llvm::Value* res = builder->CreateFPToSI(val, expectedType);
+        return res;
     }
 
     if (val->getType()->isPointerTy() && expectedType->isPointerTy()) {
-        return builder->CreateBitCast(val, expectedType);
+        llvm::Value* res = builder->CreateBitCast(val, expectedType);
+        return res;
+    }
+
+    if (val->getType()->isIntegerTy() && expectedType->isPointerTy()) {
+        return builder->CreateIntToPtr(val, expectedType);
+    }
+
+    if (val->getType()->isPointerTy() && expectedType->isIntegerTy()) {
+        return builder->CreatePtrToInt(val, expectedType);
     }
     
     return val;
+}
+
+llvm::Value* IRGenerator::toInt32(llvm::Value* val) {
+    if (val->getType()->isIntegerTy(32)) return val;
+    if (val->getType()->isIntegerTy()) return builder->CreateIntCast(val, llvm::Type::getInt32Ty(*context), true);
+    if (val->getType()->isDoubleTy()) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_double_to_int32", ft);
+        return createCall(ft, fn.getCallee(), { val });
+    }
+    return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0);
+}
+
+llvm::Value* IRGenerator::toUint32(llvm::Value* val) {
+    if (val->getType()->isIntegerTy(32)) return val;
+    if (val->getType()->isIntegerTy()) return builder->CreateIntCast(val, llvm::Type::getInt32Ty(*context), false);
+    if (val->getType()->isDoubleTy()) {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_double_to_uint32", ft);
+        return createCall(ft, fn.getCallee(), { val });
+    }
+    return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0);
 }
 
 void IRGenerator::visitExportAssignment(ast::ExportAssignment* node) {

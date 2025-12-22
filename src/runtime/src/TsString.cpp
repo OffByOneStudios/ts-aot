@@ -3,6 +3,7 @@
 #include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include <cmath>
 #include <unicode/unistr.h>
 #include <new>
 #include <string>
@@ -105,6 +106,9 @@ TsString* TsString::FromBool(bool value) {
 }
 
 TsString* TsString::FromDouble(double value) {
+    if (std::isnan(value)) return Create("NaN");
+    if (std::isinf(value)) return Create(value < 0 ? "-Infinity" : "Infinity");
+
     char buf[64];
     // Use snprintf to avoid std::string allocation
     int len = std::snprintf(buf, sizeof(buf), "%g", value);
@@ -544,6 +548,61 @@ bool TsString::Equals(TsString* other) {
 }
 
 extern "C" {
+    void* ts_int_to_string(int64_t value, int64_t radix) {
+        if (radix == 10) {
+            return TsString::FromInt(value);
+        }
+        if (radix < 2 || radix > 36) radix = 10;
+        
+        char buf[128];
+        const char* digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+        
+        char* p = buf + 127;
+        *p = '\0';
+        bool negative = value < 0;
+        uint64_t uval = negative ? (uint64_t)-value : (uint64_t)value;
+        
+        do {
+            *--p = digits[uval % radix];
+            uval /= radix;
+        } while (uval > 0);
+        
+        if (negative) *--p = '-';
+        return TsString::Create(p);
+    }
+
+    void* ts_double_to_string(double value, int64_t radix) {
+        if (radix == 10) {
+            return TsString::FromDouble(value);
+        }
+        if (radix < 2 || radix > 36) radix = 10;
+        
+        if (std::isnan(value)) return TsString::Create("NaN");
+        if (std::isinf(value)) return TsString::Create(value < 0 ? "-Infinity" : "Infinity");
+
+        if (std::floor(value) == value) {
+            return ts_int_to_string((int64_t)value, radix);
+        }
+
+        return TsString::FromDouble(value);
+    }
+
+    void* ts_number_to_string(double value, int64_t radix) {
+        return ts_double_to_string(value, radix);
+    }
+
+    void* ts_double_to_fixed(double value, int64_t fractionDigits) {
+        if (fractionDigits < 0) fractionDigits = 0;
+        if (fractionDigits > 100) fractionDigits = 100;
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "%.*f", (int)fractionDigits, value);
+        return TsString::Create(buf);
+    }
+
+    void* ts_number_to_fixed(double value, int64_t fractionDigits) {
+        return ts_double_to_fixed(value, fractionDigits);
+    }
+
     void* ts_string_create(const char* str) {
         return TsString::Create(str);
     }
