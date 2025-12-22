@@ -150,13 +150,12 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
                 index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
             }
 
-            llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
-            llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
+            llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
+            llvm::Value* elementsPtrPtr = builder->CreateStructGEP(tsArrayType, arr, 1);
+            llvm::Value* elementsPtr = builder->CreateLoad(builder->getPtrTy(), elementsPtrPtr);
 
             // Bounds check
             if (!isSafe) {
-                llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
                 llvm::Value* lengthPtr = builder->CreateStructGEP(tsArrayType, arr, 2);
                 llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                 emitBoundsCheck(index, length);
@@ -221,6 +220,94 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->name == "length") {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+        emitNullCheckForExpression(node->expression.get(), obj);
+
+        if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+            lastLengthArray = id->name;
+        } else {
+            lastLengthArray = "";
+        }
+        
+        if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length", lenFt);
+             lastValue = createCall(lenFt, lenFn.getCallee(), { boxValue(obj, node->expression->inferredType) });
+             return;
+        }
+
+        if (obj->getType()->isIntegerTy(64)) {
+            obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+        }
+        
+        if (node->expression->inferredType->kind == TypeKind::String) {
+            llvm::StructType* tsStringType = llvm::StructType::getTypeByName(*context, "TsString");
+            llvm::Value* lengthPtr = builder->CreateStructGEP(tsStringType, obj, 1);
+            llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt32Ty(*context), lengthPtr);
+            
+            // Add range metadata [0, 2^31)
+            llvm::Metadata* rangeArgs[] = {
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0)),
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 2147483647))
+            };
+            length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
+            
+            lastValue = builder->CreateZExt(length, llvm::Type::getInt64Ty(*context));
+            return;
+        } else if (node->expression->inferredType->kind == TypeKind::Array || node->expression->inferredType->kind == TypeKind::Tuple) {
+            llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
+            llvm::Value* lengthPtr = builder->CreateStructGEP(tsArrayType, obj, 2);
+            llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+            
+            // Add range metadata [0, 2^63)
+            llvm::Metadata* rangeArgs[] = {
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+                llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 9223372036854775807LL))
+            };
+            length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
+            
+            lastValue = length;
+            return;
+        } else if (node->expression->inferredType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+            if (cls->name == "Uint8Array" || cls->name == "Uint32Array" || cls->name == "Float64Array") {
+                llvm::StructType* tsTypedArrayType = llvm::StructType::getTypeByName(*context, cls->name);
+                if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
+                
+                if (tsTypedArrayType) {
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, obj, 2);
+                    llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                    
+                    // Add range metadata
+                    llvm::Metadata* rangeArgs[] = {
+                        llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+                        llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 9223372036854775807LL))
+                    };
+                    length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
+                    
+                    lastValue = length;
+                    return;
+                }
+            } else if (cls->name == "Buffer") {
+                llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
+                llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, obj, 3);
+                llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                
+                // Add range metadata
+                llvm::Metadata* rangeArgs[] = {
+                    llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+                    llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 9223372036854775807LL))
+                };
+                length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
+                
+                lastValue = length;
+                return;
+            }
+        }
+    }
+
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "process" && node->name == "argv") {
             llvm::FunctionType* getArgvFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
@@ -503,49 +590,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         }
     }
 
-    if (node->name == "length") {
-        visit(node->expression.get());
-        llvm::Value* obj = lastValue;
-        emitNullCheckForExpression(node->expression.get(), obj);
-
-        if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
-            lastLengthArray = id->name;
-        } else {
-            lastLengthArray = "";
-        }
-        
-        if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
-             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length", lenFt);
-             lastValue = createCall(lenFt, lenFn.getCallee(), { boxValue(obj, node->expression->inferredType) });
-             return;
-        }
-
-        if (obj->getType()->isIntegerTy(64)) {
-            obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
-        }
-        
-        if (node->expression->inferredType->kind == TypeKind::String) {
-             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_string_length", lenFt);
-             lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
-        } else if (node->expression->inferredType->kind == TypeKind::Array || node->expression->inferredType->kind == TypeKind::Tuple) {
-             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
-             lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
-        } else if (node->expression->inferredType->kind == TypeKind::Class) {
-            auto cls = std::static_pointer_cast<ClassType>(node->expression->inferredType);
-            if (cls->name == "Uint8Array" || cls->name == "Uint32Array" || cls->name == "Float64Array") {
-                llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_typed_array_length", lenFt);
-                lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
-            } else {
-                lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
-            }
-        } else {
-             lastValue = llvm::ConstantInt::get(*context, llvm::APInt(64, 0));
-        }
-    } else if (node->name == "size" && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
+    if (node->name == "size" && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         emitNullCheckForExpression(node->expression.get(), obj);

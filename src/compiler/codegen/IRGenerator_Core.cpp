@@ -105,6 +105,19 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         llvm::Type::getInt64Ty(*context)  // length
     });
 
+    auto tsStringType = llvm::StructType::create(*context, "TsString");
+    tsStringType->setBody({
+        llvm::Type::getInt32Ty(*context), // magic
+        llvm::Type::getInt32Ty(*context)  // length
+    });
+
+    auto tsTypedArrayType = llvm::StructType::create(*context, "TsTypedArray");
+    tsTypedArrayType->setBody({
+        builder->getPtrTy(),              // vtable
+        builder->getPtrTy(),              // buffer
+        llvm::Type::getInt64Ty(*context)  // length
+    });
+
     asyncContextType = llvm::StructType::create(*context, "AsyncContext");
     asyncContextType->setBody({
         builder->getPtrTy(), // vtable
