@@ -164,6 +164,9 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
             lastValue = builder->CreateLoad(llvmElemType, ptr);
+            if (elemType->kind == TypeKind::Class) {
+                concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(elemType).get();
+            }
             return;
         }
     }
@@ -208,6 +211,9 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
     }
 
     lastValue = unboxValue(val, elementType);
+    if (elementType->kind == TypeKind::Class) {
+        concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(elementType).get();
+    }
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
@@ -483,6 +489,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             
             if (fieldType) {
                 lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                if (fieldType->kind == TypeKind::Class) {
+                    concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(fieldType).get();
+                }
             } else {
                 lastValue = nullptr;
             }

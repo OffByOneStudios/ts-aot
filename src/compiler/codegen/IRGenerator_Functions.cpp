@@ -152,6 +152,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (argVal->getType()->isPointerTy()) {
                             nonNullValues.insert(argVal);
                         }
+                        if (argType && argType->kind == TypeKind::Class) {
+                            concreteTypes[argVal] = std::static_pointer_cast<ClassType>(argType).get();
+                        }
                         generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;
                         ++idx;
@@ -245,6 +248,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         }
                         if (argVal->getType()->isPointerTy()) {
                             nonNullValues.insert(argVal);
+                        }
+                        if (argType && argType->kind == TypeKind::Class) {
+                            concreteTypes[argVal] = std::static_pointer_cast<ClassType>(argType).get();
                         }
                         generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;

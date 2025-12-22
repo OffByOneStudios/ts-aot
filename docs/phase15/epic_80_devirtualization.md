@@ -13,13 +13,13 @@ Currently, all method calls in `ts-aot` go through a vtable lookup (indirect cal
 - [x] Implement a lookup mechanism to find the concrete function implementation for a given class and method name.
 
 ### Milestone 2: Static Devirtualization
-- [ ] Identify call sites where the receiver is a result of `new ClassName()`.
-- [ ] Replace the `vtable` load and indirect call with a direct call to `ClassName_methodName`.
-- [ ] Verify that LLVM inlines these calls at `-O3`.
+- [x] Identify call sites where the receiver is a result of `new ClassName()`.
+- [x] Replace the `vtable` load and indirect call with a direct call to `ClassName_methodName`.
+- [x] Verify that LLVM inlines these calls at `-O3`.
 
 ### Milestone 3: Monomorphization-based Devirtualization
-- [ ] Use the `Specialization` context to identify when a parameter or local variable has a known concrete class type.
-- [ ] Apply devirtualization to these call sites.
+- [x] Use the `Specialization` context to identify when a parameter or local variable has a known concrete class type.
+- [x] Apply devirtualization to these call sites.
 
 ## Verification Plan
 - **IR Inspection:** Ensure `call ptr %vtable_ptr` is replaced by `call void @Vector3_add`.

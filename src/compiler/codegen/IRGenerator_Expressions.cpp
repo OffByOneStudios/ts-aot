@@ -308,6 +308,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         
         if (type) {
             lastValue = builder->CreateLoad(type, val, node->name.c_str());
+            if (concreteTypes.count(val)) {
+                concreteTypes[lastValue] = concreteTypes[val];
+            }
         } else {
             lastValue = val;
         }
