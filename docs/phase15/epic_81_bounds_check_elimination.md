@@ -1,6 +1,6 @@
 # Epic 81: Bounds Check Elimination (BCE)
 
-**Status:** Planned
+**Status:** In Progress
 **Goal:** Eliminate redundant array bounds checks in hot loops to enable vectorization and reduce branching.
 
 ## Background
@@ -18,7 +18,10 @@ Security hardening (Epic 72) added mandatory bounds checks to every array access
 - [x] Support aliases (e.g., `const len = arr.length; for (let i = 0; i < len; i++)`).
 - [x] Support both `for` and `while` loops across global and local scopes.
 
-### Milestone 3: LLVM Loop Optimizations
+### Milestone 3: LLVM Range Metadata & Optimization Hints
+- [x] Define LLVM struct layouts for `TsString`, `TsArray`, `TsTypedArray`, and `TsBuffer`.
+- [x] Replace runtime length calls with direct field loads to enable metadata attachment.
+- [x] Attach `!range` metadata to length loads to inform LLVM that lengths are non-negative.
 - [ ] Ensure that removing bounds checks allows LLVM's `LoopStrengthReduce` and `LoopVectorize` passes to trigger.
 
 ## Verification Plan
