@@ -401,6 +401,13 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             concreteTypes.erase(variable);
         }
 
+        if (!lastLengthArray.empty()) {
+            lengthAliases[variable] = lastLengthArray;
+            lastLengthArray = "";
+        } else {
+            lengthAliases.erase(variable);
+        }
+
         // Update checkedAllocas
         if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
             if (nonNullValues.count(val)) {

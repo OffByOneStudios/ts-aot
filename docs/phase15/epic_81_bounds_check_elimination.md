@@ -9,12 +9,14 @@ Security hardening (Epic 72) added mandatory bounds checks to every array access
 ## Action Items
 
 ### Milestone 1: Loop Pattern Recognition
-- [ ] Identify induction variables in `for` and `while` loops.
-- [ ] Recognize the `arr.length` property access as a loop invariant (if the array is not modified).
+- [x] Identify induction variables in `for` and `while` loops.
+- [x] Recognize the `arr.length` property access as a loop invariant (if the array is not modified).
 
 ### Milestone 2: Range Analysis
-- [ ] Implement a simple range tracker for local variables.
-- [ ] Prove that if `0 <= i < length` is checked by the loop, the internal `emitBoundsCheck` can be skipped.
+- [x] Implement a simple range tracker for local variables (length alias tracking).
+- [x] Prove that if `0 <= i < length` is checked by the loop, the internal `emitBoundsCheck` can be skipped.
+- [x] Support aliases (e.g., `const len = arr.length; for (let i = 0; i < len; i++)`).
+- [x] Support both `for` and `while` loops across global and local scopes.
 
 ### Milestone 3: LLVM Loop Optimizations
 - [ ] Ensure that removing bounds checks allows LLVM's `LoopStrengthReduce` and `LoopVectorize` passes to trigger.

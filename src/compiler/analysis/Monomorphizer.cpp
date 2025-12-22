@@ -14,11 +14,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
     for (const auto& path : analyzer.moduleOrder) {
         fmt::print("Processing module: {}\n", path);
-        auto module = analyzer.modules[path];
-        if (!module) {
-            fmt::print("Module not found in analyzer.modules!\n");
+        auto it = analyzer.modules.find(path);
+        if (it == analyzer.modules.end()) {
+            fmt::print("Module NOT FOUND in analyzer.modules: {}\n", path);
             continue;
         }
+        auto module = it->second;
         if (!module->ast) {
             fmt::print("Module has no AST!\n");
             continue;
