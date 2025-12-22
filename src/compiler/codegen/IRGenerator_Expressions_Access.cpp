@@ -78,6 +78,19 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
     }
 
+    // Check if this is a safe access for BCE
+    bool isSafe = false;
+    if (auto id = dynamic_cast<ast::Identifier*>(node->argumentExpression.get())) {
+        if (auto arrId = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+            for (auto it = loopStack.rbegin(); it != loopStack.rend(); ++it) {
+                if (it->safeIndices.count(id->name) && it->safeIndices.at(id->name) == arrId->name) {
+                    isSafe = true;
+                    break;
+                }
+            }
+        }
+    }
+
     if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
         if (index->getType()->isPointerTy()) {
             // String index on any
@@ -97,9 +110,10 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         return;
     }
     
+    std::string funcName = isSafe ? "ts_array_get_unchecked" : "ts_array_get";
     llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-    llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_array_get", getFt);
+    llvm::FunctionCallee getFn = module->getOrInsertFunction(funcName, getFt);
             
     llvm::Value* val = createCall(getFt, getFn.getCallee(), { arr, index });
 

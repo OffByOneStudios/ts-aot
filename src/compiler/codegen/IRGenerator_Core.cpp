@@ -31,6 +31,7 @@ IRGenerator::IRGenerator() {
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
     this->specializations = specializations;
+    llvm::errs() << "IRGenerator::generate: Starting...\n";
     // Initialize target for DataLayout
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
@@ -48,6 +49,13 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         module->setDataLayout(targetMachine->createDataLayout());
     }
 
+    if (optLevel != "0") {
+        llvm::FastMathFlags fmf;
+        fmf.setFast();
+        builder->setFastMathFlags(fmf);
+    }
+
+    llvm::errs() << "IRGenerator::generate: Generating globals...\n";
     generateGlobals(analyzer);
     
     asyncContextType = llvm::StructType::create(*context, "AsyncContext");
@@ -60,10 +68,15 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         builder->getPtrTy()  // data
     });
 
+    llvm::errs() << "IRGenerator::generate: Generating classes...\n";
     generateClasses(analyzer, specializations);
+    llvm::errs() << "IRGenerator::generate: Generating prototypes...\n";
     generatePrototypes(specializations);
+    llvm::errs() << "IRGenerator::generate: Generating bodies...\n";
     generateBodies(specializations);
+    llvm::errs() << "IRGenerator::generate: Generating entry point...\n";
     generateEntryPoint();
+    llvm::errs() << "IRGenerator::generate: Done.\n";
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {

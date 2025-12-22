@@ -91,7 +91,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 ++argIt;
             }
 
-            unsigned idx = 1; // Start from 1 because 0 is context
+            unsigned idx = 0; // Index into spec.argTypes
 
             for (size_t pIdx = 0; pIdx < funcNode->parameters.size(); ++pIdx) {
                 auto param = funcNode->parameters[pIdx].get();
@@ -122,10 +122,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 } else {
                     if (argIt != function->arg_end()) {
                         auto argVal = &*argIt;
+                        std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
-                        generateDestructuring(argVal, (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr, param->name.get());
+                        generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;
                         ++idx;
                     } else {
@@ -160,7 +161,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 ++argIt;
             }
 
-            unsigned idx = 1;
+            unsigned idx = 0; // Index into spec.argTypes
 
             if (!methodNode->isStatic) {
                 // Handle 'this' parameter
@@ -203,10 +204,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 } else {
                     if (argIt != function->arg_end()) {
                         auto argVal = &*argIt;
+                        std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
-                        generateDestructuring(argVal, (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr, param->name.get());
+                        generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;
                         ++idx;
                     } else {

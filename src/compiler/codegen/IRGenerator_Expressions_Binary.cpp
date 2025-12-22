@@ -392,6 +392,19 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
         }
         
+        // Check if this is a safe access for BCE
+        bool isSafe = false;
+        if (auto id = dynamic_cast<ast::Identifier*>(elem->argumentExpression.get())) {
+            if (auto arrId = dynamic_cast<ast::Identifier*>(elem->expression.get())) {
+                for (auto it = loopStack.rbegin(); it != loopStack.rend(); ++it) {
+                    if (it->safeIndices.count(id->name) && it->safeIndices.at(id->name) == arrId->name) {
+                        isSafe = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         llvm::Value* storeVal = val;
         if (storeVal->getType()->isDoubleTy()) {
             storeVal = builder->CreateBitCast(storeVal, llvm::Type::getInt64Ty(*context));
@@ -399,9 +412,10 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             storeVal = builder->CreatePtrToInt(storeVal, llvm::Type::getInt64Ty(*context));
         }
 
+        std::string funcName = isSafe ? "ts_array_set_unchecked" : "ts_array_set";
         llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_array_set", setFt);
+        llvm::FunctionCallee setFn = module->getOrInsertFunction(funcName, setFt);
                 
         createCall(setFt, setFn.getCallee(), { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {

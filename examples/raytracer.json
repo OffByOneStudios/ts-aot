@@ -2134,7 +2134,7 @@
           "type": "any",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 5
+            "value": 100
           }
         },
         {

@@ -68,21 +68,37 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                     }
                     auto methodType = current->staticMethods[prop->name];
                     
-                    std::vector<llvm::Type*> paramTypes;
-                    // Add context
-                    paramTypes.push_back(builder->getPtrTy());
-
-                    // Add vtable param for Buffer static methods
-                    if (current->name == "Buffer") {
-                        paramTypes.push_back(builder->getPtrTy());
+                    // Try specialized version first
+                    std::vector<std::shared_ptr<Type>> argTypes;
+                    for (auto& arg : node->arguments) {
+                        argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
                     }
-                    for (const auto& param : methodType->paramTypes) {
-                        paramTypes.push_back(getLLVMType(param));
-                    }
-                    llvm::FunctionType* ft = llvm::FunctionType::get(
-                        getLLVMType(methodType->returnType), paramTypes, false);
+                    std::string mangledName = Monomorphizer::generateMangledName(implName, argTypes, {});
                     
-                    llvm::FunctionCallee func = module->getOrInsertFunction(implName, ft);
+                    llvm::Function* specializedFunc = module->getFunction(mangledName);
+                    llvm::FunctionType* ft = nullptr;
+                    llvm::FunctionCallee func;
+
+                    if (specializedFunc) {
+                        func = specializedFunc;
+                        ft = specializedFunc->getFunctionType();
+                    } else {
+                        std::vector<llvm::Type*> paramTypes;
+                        // Add context
+                        paramTypes.push_back(builder->getPtrTy());
+
+                        // Add vtable param for Buffer static methods
+                        if (current->name == "Buffer") {
+                            paramTypes.push_back(builder->getPtrTy());
+                        }
+                        for (const auto& param : methodType->paramTypes) {
+                            paramTypes.push_back(getLLVMType(param));
+                        }
+                        ft = llvm::FunctionType::get(
+                            getLLVMType(methodType->returnType), paramTypes, false);
+                        
+                        func = module->getOrInsertFunction(implName, ft);
+                    }
                     
                     std::vector<llvm::Value*> args;
                     // Add context
@@ -98,12 +114,12 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                         args.push_back(vtable);
                     }
                     int argIdx = 0;
+                    int paramOffset = (current->name == "Buffer") ? 2 : 1;
                     for (auto& arg : node->arguments) {
                         visit(arg.get());
                         llvm::Value* val = lastValue;
                         
                         // Cast if necessary (account for context and potential vtable)
-                        int paramOffset = (current->name == "Buffer") ? 2 : 1;
                         if (argIdx + paramOffset < (int)ft->getNumParams()) {
                             val = castValue(val, ft->getParamType(argIdx + paramOffset));
                         }
@@ -250,14 +266,6 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         
         int methodIndex = layout.methodIndices.at(methodName);
 
-        // 2. Get VTable Pointer
-        llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, objPtr, 0);
-        llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
-        llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
-        
-        // 4. Load Function Pointer (index + 1 because of parentVTable at index 0)
-        llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex + 1);
-        
         auto methodType = layout.allMethods[methodIndex].second;
         std::vector<llvm::Type*> paramTypes;
         paramTypes.push_back(builder->getPtrTy()); // context
@@ -266,8 +274,58 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             paramTypes.push_back(getLLVMType(param));
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(methodType->returnType), paramTypes, false);
-        
-        llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+
+        // DEVIRTUALIZATION:
+        // If the receiver is a specific class (not an interface), we can try to call the method directly.
+        // This is safe if the method is not overridden in any subclass, or if we assume the type is exact.
+        std::shared_ptr<ClassType> definer = classType;
+        std::string baseMangledName;
+        bool isAbstract = false;
+        while (definer) {
+            if (definer->abstractMethods.count(methodName)) {
+                isAbstract = true;
+                break;
+            }
+            if (definer->methods.count(methodName)) {
+                baseMangledName = definer->name + "_" + methodName;
+                break;
+            }
+            definer = definer->baseClass;
+        }
+
+        llvm::Value* funcPtr = nullptr;
+        if (!baseMangledName.empty() && !isAbstract) {
+            // Try specialized version
+            std::vector<std::shared_ptr<Type>> argTypes;
+            argTypes.push_back(classType); // this
+            for (auto& arg : node->arguments) {
+                argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
+            }
+            std::string specializedName = Monomorphizer::generateMangledName(baseMangledName, argTypes, {});
+            
+            llvm::Function* specializedFunc = module->getFunction(specializedName);
+            if (specializedFunc) {
+                funcPtr = specializedFunc;
+                ft = specializedFunc->getFunctionType();
+            } else {
+                funcPtr = module->getFunction(baseMangledName);
+                if (!funcPtr) {
+                    funcPtr = module->getOrInsertFunction(baseMangledName, ft).getCallee();
+                }
+            }
+        }
+
+        if (!funcPtr) {
+            // Fallback to virtual call
+            // 2. Get VTable Pointer
+            llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, objPtr, 0);
+            llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
+            llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
+            
+            // 4. Load Function Pointer (index + 1 because of parentVTable at index 0)
+            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex + 1);
+            funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+        }
         
         // 5. Call
         std::vector<llvm::Value*> args;

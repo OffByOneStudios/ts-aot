@@ -97,8 +97,79 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
         builder->CreateBr(loopBB);
     }
 
+    // Detect for (let i = 0; i < arr.length; i++)
+    std::string indexVar;
+    std::string arrayVar;
+    bool isSafeLoop = false;
+
+    if (node->initializer) {
+        if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
+            if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                if (auto lit = dynamic_cast<ast::NumericLiteral*>(varDecl->initializer.get())) {
+                    if (lit->value == 0) {
+                        indexVar = id->name;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!indexVar.empty() && node->condition) {
+        if (auto bin = dynamic_cast<ast::BinaryExpression*>(node->condition.get())) {
+            if (bin->op == "<") {
+                if (auto leftId = dynamic_cast<ast::Identifier*>(bin->left.get())) {
+                    if (leftId->name == indexVar) {
+                        if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(bin->right.get())) {
+                            if (prop->name == "length") {
+                                if (auto arrId = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                                    arrayVar = arrId->name;
+                                    isSafeLoop = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Verify increment is i++ or ++i or i += 1
+    if (isSafeLoop && node->incrementor) {
+        bool validIncrement = false;
+        if (auto unary = dynamic_cast<ast::PostfixUnaryExpression*>(node->incrementor.get())) {
+            if (unary->op == "++") {
+                if (auto id = dynamic_cast<ast::Identifier*>(unary->operand.get())) {
+                    if (id->name == indexVar) validIncrement = true;
+                }
+            }
+        } else if (auto preUnary = dynamic_cast<ast::PrefixUnaryExpression*>(node->incrementor.get())) {
+            if (preUnary->op == "++") {
+                if (auto id = dynamic_cast<ast::Identifier*>(preUnary->operand.get())) {
+                    if (id->name == indexVar) validIncrement = true;
+                }
+            }
+        } else if (auto bin = dynamic_cast<ast::BinaryExpression*>(node->incrementor.get())) {
+            if (bin->op == "+=") {
+                if (auto id = dynamic_cast<ast::Identifier*>(bin->left.get())) {
+                    if (id->name == indexVar) {
+                        if (auto lit = dynamic_cast<ast::NumericLiteral*>(bin->right.get())) {
+                            if (lit->value == 1) validIncrement = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!validIncrement) isSafeLoop = false;
+    }
+
     // Push loop info
-    loopStack.push_back({ incBB, afterBB });
+    LoopInfo info;
+    info.continueBlock = incBB;
+    info.breakBlock = afterBB;
+    if (isSafeLoop) {
+        info.safeIndices[indexVar] = arrayVar;
+    }
+    loopStack.push_back(info);
 
     // Emit loop body
     func->insert(func->end(), loopBB);

@@ -14,7 +14,9 @@ public:
     void Unshift(int64_t value);
     int64_t Shift();
     int64_t Get(size_t index);
+    int64_t GetUnchecked(size_t index) { return elements[index]; }
     void Set(size_t index, int64_t value);
+    void SetUnchecked(size_t index, int64_t value) { elements[index] = value; }
     int64_t Length();
     void Sort();
     int64_t IndexOf(int64_t value);
@@ -51,7 +53,9 @@ extern "C" {
     void ts_array_unshift(void* arr, void* value);
     void* ts_array_shift(void* arr);
     void* ts_array_get(void* arr, int64_t index);
+    void* ts_array_get_unchecked(void* arr, int64_t index);
     void ts_array_set(void* arr, int64_t index, void* value);
+    void ts_array_set_unchecked(void* arr, int64_t index, void* value);
     int64_t ts_array_length(void* arr);
     void ts_array_sort(void* arr);
     void* ts_array_slice(void* arr, int64_t start, int64_t end);

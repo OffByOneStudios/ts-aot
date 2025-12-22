@@ -79,6 +79,22 @@ add_executable(test_app examples/http-server/http-server.obj)
 target_link_libraries(test_app PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(test_app PRIVATE src/runtime/include)
 
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js" "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.ts" "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.ts" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dump_ast.js"
+)
+
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.obj" -O3 --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
+    DEPENDS ts-aot tsruntime_bc "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json"
+)
+
+add_executable(raytracer_bench examples/raytracer.obj)
+target_link_libraries(raytracer_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_include_directories(raytracer_bench PRIVATE src/runtime/include)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")
     add_executable(test_app_lto http-server-lto.obj)
     set_target_properties(test_app_lto PROPERTIES LINKER_LANGUAGE CXX)

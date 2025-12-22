@@ -357,8 +357,16 @@ extern "C" {
         return (void*)((TsArray*)arr)->Get(index);
     }
 
+    void* ts_array_get_unchecked(void* arr, int64_t index) {
+        return (void*)((TsArray*)arr)->GetUnchecked(index);
+    }
+
     void ts_array_set(void* arr, int64_t index, void* value) {
         ((TsArray*)arr)->Set(index, (int64_t)value);
+    }
+
+    void ts_array_set_unchecked(void* arr, int64_t index, void* value) {
+        ((TsArray*)arr)->SetUnchecked(index, (int64_t)value);
     }
 
     int64_t ts_array_length(void* arr) {

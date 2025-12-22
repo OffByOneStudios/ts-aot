@@ -152,25 +152,20 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             // Method signature: (context: ptr, this: ptr, args...) -> ret
             std::vector<llvm::Type*> paramTypes;
             paramTypes.push_back(builder->getPtrTy()); // context
-            paramTypes.push_back(llvm::PointerType::getUnqual(*context)); // this (opaque ptr)
-            for (const auto& param : methodType->paramTypes) {
-                paramTypes.push_back(getLLVMType(param));
-            }
+            paramTypes.push_back(builder->getPtrTy()); // this (opaque ptr)
             
-            llvm::FunctionType* ft = llvm::FunctionType::get(
-                getLLVMType(methodType->returnType), paramTypes, false);
-            
-            vtableFieldTypes.push_back(llvm::PointerType::getUnqual(ft));
-
             // Find which class actually defines this method
             std::shared_ptr<ClassType> definer = classType;
             bool isAbstract = false;
             std::string mangledName;
+            std::shared_ptr<FunctionType> actualMethodType = methodType;
+
             while (definer) {
                 if (methodName.substr(0, 4) == "get_") {
                     std::string propName = methodName.substr(4);
                     if (definer->getters.count(propName)) {
                         mangledName = definer->name + "_get_" + propName;
+                        actualMethodType = definer->getters[propName];
                         if (definer->abstractMethods.count(propName)) isAbstract = true;
                         break;
                     }
@@ -178,19 +173,30 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
                     std::string propName = methodName.substr(4);
                     if (definer->setters.count(propName)) {
                         mangledName = definer->name + "_set_" + propName;
+                        actualMethodType = definer->setters[propName];
                         if (definer->abstractMethods.count(propName)) isAbstract = true;
                         break;
                     }
                 } else if (definer->methods.count(methodName)) {
                     mangledName = definer->name + "_" + methodName;
+                    actualMethodType = definer->methods[methodName];
                     if (definer->abstractMethods.count(methodName)) isAbstract = true;
                     break;
                 }
                 definer = definer->baseClass;
             }
 
+            for (const auto& param : actualMethodType->paramTypes) {
+                paramTypes.push_back(getLLVMType(param));
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                getLLVMType(actualMethodType->returnType), paramTypes, false);
+            
+            vtableFieldTypes.push_back(builder->getPtrTy());
+
             if (isAbstract) {
-                vtableFuncs.push_back(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(ft)));
+                vtableFuncs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
             } else {
                 llvm::Function* methodFunc = module->getFunction(mangledName);
                 if (!methodFunc) {
@@ -341,10 +347,22 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         }
         
         // 4. Call Constructor
-        std::string ctorName = className + "_constructor";
-        llvm::Function* ctor = module->getFunction(ctorName);
+        std::string baseCtorName = className + "_constructor";
+        
+        // Try specialized constructor
+        std::vector<std::shared_ptr<Type>> argTypes;
+        argTypes.push_back(classType); // this
+        for (auto& arg : node->arguments) {
+            argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
+        }
+        std::string specializedCtorName = Monomorphizer::generateMangledName(baseCtorName, argTypes, {});
+        
+        llvm::Function* ctor = module->getFunction(specializedCtorName);
+        if (!ctor) {
+            ctor = module->getFunction(baseCtorName);
+        }
+
         if (ctor) {
-            llvm::errs() << "Calling constructor: " << ctorName << " with " << ctor->arg_size() << " args\n";
             std::vector<llvm::Value*> args;
             if (currentAsyncContext) {
                 args.push_back(currentAsyncContext);
@@ -360,7 +378,6 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 
                 // Cast if necessary (index + 2 because of context and this)
                 if (argIdx + 2 < (int)ctor->arg_size()) {
-                    llvm::errs() << "Casting arg " << argIdx << " to " << argIdx + 2 << "\n";
                     val = castValue(val, ctor->getArg(argIdx + 2)->getType());
                 }
                 
@@ -370,7 +387,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             
             createCall(ctor->getFunctionType(), ctor, args);
         } else {
-            llvm::errs() << "Constructor not found: " << ctorName << "\n";
+            llvm::errs() << "Constructor not found: " << baseCtorName << "\n";
         }
         
         lastValue = thisPtr;
