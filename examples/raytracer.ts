@@ -1,3 +1,6 @@
+function struct(constructor: Function) {}
+
+@struct
 class Vector3 {
     constructor(public x: number, public y: number, public z: number) {}
 
@@ -31,6 +34,7 @@ class Vector3 {
     }
 }
 
+@struct
 class Ray {
     constructor(public origin: Vector3, public direction: Vector3) {}
 }

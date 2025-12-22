@@ -35,15 +35,11 @@ JITs like V8 use "Inline Caches" (ICs) to optimize property access. Since we hav
 | ts-aot (Milestone 1) | ~11.0ms | 1100ms | Devirtualization |
 | ts-aot (Milestone 2) | 5.32ms | 532ms | Unboxed Arithmetic |
 | ts-aot (Milestone 3) | 2.98ms | 298ms | Fast Math + BCE |
+| ts-aot (Epic 70: @struct) | 0.28ms | 28ms | Value Types |
 
 ## Performance Analysis (ts-aot vs V8)
-With the completion of Epic 71, we have achieved a ~4x speedup over the baseline. V8 is now ~3.8x faster (down from 15x at the start of the project).
+With the completion of Epic 70 and 71, we have achieved a ~40x speedup over the baseline. We are now **~2.8x faster than V8** on this specific benchmark.
 
 Remaining bottlenecks:
-1.  **Allocation & GC Pressure:** Still the primary bottleneck. Boehm GC is not optimized for high-frequency short-lived allocations.
-2.  **Escape Analysis:** Objects like `Vector3` should be stack-allocated or scalar-replaced.
-3.  **Inlining:** While devirtualization helped, more aggressive inlining of small methods is needed.
-
-**Next Steps:**
-- **Epic 73:** Escape Analysis & Stack Allocation.
-- **Epic 74:** Generational GC / Bump-pointer allocation.
+1.  **Array Specialization:** The `spheres` array still contains `TsValue*` (boxed objects). Specializing arrays for specific types (e.g., `Sphere[]`) could further improve performance.
+2.  **Generational GC:** While `@struct` reduced allocation significantly, we still use Boehm GC for the remaining objects. A bump-pointer allocator for the nursery would be faster.

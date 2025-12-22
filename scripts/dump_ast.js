@@ -79,15 +79,36 @@ function isAsync(node) {
 }
 
 function hasDecorator(node, name) {
-    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : undefined;
+    // Check for actual decorators
+    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : (node.decorators);
     if (decorators) {
-        return decorators.some(d => {
+        const found = decorators.some(d => {
             const expr = d.expression;
             if (ts.isIdentifier(expr)) return expr.text === name;
             if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) return expr.expression.text === name;
             return false;
         });
+        if (found) return true;
     }
+
+    // Check for JSDoc @struct
+    const jsDoc = node.jsDoc;
+    if (jsDoc) {
+        for (const doc of jsDoc) {
+            if (doc.tags) {
+                for (const tag of doc.tags) {
+                    if (tag.tagName.text === name) return true;
+                }
+            }
+        }
+    }
+
+    // Check for comment-based @struct in the text if jsDoc is missing
+    const text = node.getFullText();
+    if (text.includes("@" + name)) {
+        return true;
+    }
+
     return false;
 }
 

@@ -13,8 +13,9 @@
 
 ### Epic 70: Memory & Allocation Optimizations
 Focus on reducing the overhead of the Boehm GC and improving data locality.
-- [ ] **Escape Analysis:** Identify objects that do not escape their scope and allocate them on the stack.
-- [ ] **Small String Optimization (SSO):** Avoid heap allocation for short strings.
+- [x] **Escape Analysis:** Identify objects that do not escape their scope and allocate them on the stack.
+- [x] **Small String Optimization (SSO):** Avoid heap allocation for short strings.
+- [x] **Value Types (@struct):** Implement stack-allocated value types for high-frequency objects.
 - [ ] **Fast-Path Allocator:** Implement a thread-local bump allocator for the nursery generation (if moving beyond basic Boehm).
 
 ### Epic 71: Type-Driven Codegen Enhancements

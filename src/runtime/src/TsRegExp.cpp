@@ -57,11 +57,11 @@ bool TsRegExp::Test(TsString* str) {
     if (!matcher) return false;
     
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString* input = (icu::UnicodeString*)str->GetImpl();
-    matcher->reset(*input);
+    icu::UnicodeString input = str->ToUnicodeString();
+    matcher->reset(input);
     
     if (global || sticky) {
-        matcher->region(lastIndex, input->length(), status);
+        matcher->region(lastIndex, input.length(), status);
     }
 
     bool found = matcher->find();
@@ -81,11 +81,11 @@ void* TsRegExp::Exec(TsString* str) {
     if (!matcher) return nullptr;
     
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString* input = (icu::UnicodeString*)str->GetImpl();
-    matcher->reset(*input);
+    icu::UnicodeString input = str->ToUnicodeString();
+    matcher->reset(input);
     
     if (global || sticky) {
-        matcher->region(lastIndex, input->length(), status);
+        matcher->region(lastIndex, input.length(), status);
     }
     
     if (matcher->find()) {

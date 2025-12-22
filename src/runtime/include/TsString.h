@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <unicode/unistr.h>
 
 class TsString {
 public:
@@ -13,7 +14,7 @@ public:
     const char* GetBuffer() { return ToUtf8(); }
 
     // Internal ICU access
-    void* GetImpl() { return impl; }
+    icu::UnicodeString ToUnicodeString() const;
 
     int64_t Length();
     int64_t CharCodeAt(int64_t index);
@@ -46,10 +47,18 @@ public:
 
 private:
     TsString(const char* utf8Str);
+    TsString(const char* utf8Str, uint32_t len);
     
     uint32_t magic = MAGIC;
-    void* impl;       // Pointer to icu::UnicodeString
-    char* utf8Buffer; // Cached UTF-8 buffer
+    uint32_t length = 0;
+    bool isSmall = false;
+    union {
+        struct {
+            void* impl;       // Pointer to icu::UnicodeString
+            char* utf8Buffer; // Cached UTF-8 buffer
+        } heap;
+        char inlineBuffer[16];
+    } data;
 };
 
 extern "C" {
