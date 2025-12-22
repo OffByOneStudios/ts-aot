@@ -47,6 +47,7 @@ The performance advantage over C++ is likely due to LLVM's more aggressive optim
 
 ## Future Work
 ### Milestone 4: Array Specialization
-- [ ] Implement specialized array types for primitives (e.g., `double[]`) and structs (e.g., `Sphere[]`).
-- [ ] Store elements contiguously in memory to improve cache locality.
-- [ ] Eliminate `TsValue` wrapping for array access.
+- [x] Implement specialized array types for primitives (e.g., `double[]`) and structs (e.g., `Vector3[]`).
+- [x] Store elements contiguously in memory to improve cache locality.
+- [x] Eliminate `TsValue` wrapping for array access.
+- [x] Verify with `array_spec_test.ts` (Verified direct access to `double[]`).

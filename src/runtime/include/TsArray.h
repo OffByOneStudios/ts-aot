@@ -8,15 +8,16 @@ public:
     static constexpr uint32_t MAGIC = 0x41525259; // "ARRY"
     static TsArray* Create(size_t initialCapacity = 4);
     static TsArray* CreateSized(size_t size);
+    static TsArray* CreateSpecialized(size_t size, size_t elementSize);
 
     void Push(int64_t value);
     int64_t Pop();
     void Unshift(int64_t value);
     int64_t Shift();
     int64_t Get(size_t index);
-    int64_t GetUnchecked(size_t index) { return elements[index]; }
+    int64_t GetUnchecked(size_t index) { return ((int64_t*)elements)[index]; }
     void Set(size_t index, int64_t value);
-    void SetUnchecked(size_t index, int64_t value) { elements[index] = value; }
+    void SetUnchecked(size_t index, int64_t value) { ((int64_t*)elements)[index] = value; }
     int64_t Length();
     void Sort();
     int64_t IndexOf(int64_t value);
@@ -26,6 +27,8 @@ public:
     void* Join(void* separator);
     void* Flat(int64_t depth = 1);
     void* FlatMap(void* callback, void* thisArg = nullptr);
+
+    void* GetElementsPtr() { return elements; }
 
     void ForEach(void* callback, void* thisArg = nullptr);
     void* Map(void* callback, void* thisArg = nullptr);
@@ -37,17 +40,20 @@ public:
     int64_t FindIndex(void* callback, void* thisArg = nullptr);
 
 private:
-    TsArray(size_t initialCapacity);
+    TsArray(size_t initialCapacity, size_t elementSize = 8);
 
     uint32_t magic = MAGIC;
-    int64_t* elements;
+    void* elements;
     size_t length;
     size_t capacity;
+    size_t elementSize;
 };
 
 extern "C" {
     void* ts_array_create();
     void* ts_array_create_sized(int64_t size);
+    void* ts_array_create_specialized(int64_t size, int64_t elementSize);
+    void* ts_array_get_elements_ptr(void* arr);
     void ts_array_push(void* arr, void* value);
     void* ts_array_pop(void* arr);
     void ts_array_unshift(void* arr, void* value);

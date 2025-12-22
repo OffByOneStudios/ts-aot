@@ -68,6 +68,46 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         }
     }
 
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+        auto arrayType = std::static_pointer_cast<ArrayType>(node->expression->inferredType);
+        auto elemType = arrayType->elementType;
+
+        bool isSpecialized = false;
+        llvm::Type* llvmElemType = nullptr;
+
+        if (elemType->kind == TypeKind::Double) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getDoubleTy(*context);
+        } else if (elemType->kind == TypeKind::Int) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getInt64Ty(*context);
+        } else if (elemType->kind == TypeKind::Class) {
+            auto cls = std::static_pointer_cast<ClassType>(elemType);
+            if (cls->isStruct) {
+                isSpecialized = true;
+                llvmElemType = llvm::StructType::getTypeByName(*context, cls->name);
+            }
+        }
+
+        if (isSpecialized) {
+            visit(node->expression.get());
+            llvm::Value* arr = lastValue;
+            visit(node->argumentExpression.get());
+            llvm::Value* index = lastValue;
+            if (index->getType()->isDoubleTy()) {
+                index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
+            llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
+
+            llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
+            lastValue = builder->CreateLoad(llvmElemType, ptr);
+            return;
+        }
+    }
+
     visit(node->expression.get());
     llvm::Value* arr = lastValue;
     
