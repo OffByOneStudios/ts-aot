@@ -37,6 +37,9 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("isAbstract")) {
             node->isAbstract = j["isAbstract"];
         }
+        if (j.contains("isStruct")) {
+            node->isStruct = j["isStruct"];
+        }
         return node;
     } else if (kind == "InterfaceDeclaration") {
         auto node = std::make_unique<InterfaceDeclaration>();

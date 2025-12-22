@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
     options.add_options()
         ("o,output", "Output file", cxxopts::value<std::string>())
         ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
+        ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
         ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
         ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
         ("h,help", "Print usage")

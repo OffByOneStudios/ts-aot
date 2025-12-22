@@ -78,7 +78,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             if (c->baseClass) layout = classLayouts[c->baseClass->name];
             
             for (const auto& [fname, ftype] : c->fields) {
-                layout.fieldIndices[fname] = (int)layout.allFields.size() + 1; // +1 for vptr
+                int offset = c->isStruct ? 0 : 1;
+                layout.fieldIndices[fname] = (int)layout.allFields.size() + offset; // +1 for vptr if not struct
                 layout.allFields.push_back({fname, ftype});
             }
             for (const auto& [mname, mtype] : c->methods) {
@@ -120,13 +121,25 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
 
+        if (classType->isStruct) {
+            // Define Class Body: { Fields... }
+            std::vector<llvm::Type*> fieldTypes;
+            for (const auto& [fieldName, fieldType] : layout.allFields) {
+                fieldTypes.push_back(getLLVMType(fieldType));
+            }
+            classStruct->setBody(fieldTypes);
+            continue;
+        }
+
         // Define VTable Type
         std::string vtableName = name + "_VTable";
         llvm::StructType* vtableStruct = llvm::StructType::create(*context, vtableName);
 
         // Define Class Body: { VTable*, Fields... }
         std::vector<llvm::Type*> fieldTypes;
-        fieldTypes.push_back(llvm::PointerType::getUnqual(vtableStruct)); // vptr
+        if (!classType->isStruct) {
+            fieldTypes.push_back(llvm::PointerType::getUnqual(vtableStruct)); // vptr
+        }
 
         for (const auto& [fieldName, fieldType] : layout.allFields) {
             fieldTypes.push_back(getLLVMType(fieldType));
@@ -326,24 +339,33 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         
         // 2. Allocate
         const llvm::DataLayout& dl = module->getDataLayout();
-        llvm::errs() << "Allocating class: " << className << " opaque: " << structType->isOpaque() << "\n";
-        uint64_t size = dl.getTypeAllocSize(structType);
         
-        llvm::FunctionType* allocFt = llvm::FunctionType::get(
-            llvm::PointerType::getUnqual(*context),
-            { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
-        
-        llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
-        llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
-        llvm::Value* thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
+        llvm::Value* thisPtr;
+        if (!node->escapes) {
+            llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+            llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+            thisPtr = entryBuilder.CreateAlloca(structType, nullptr, className + "_stack");
+            // Zero-initialize
+            builder->CreateMemSet(thisPtr, builder->getInt8(0), dl.getTypeAllocSize(structType), dl.getABITypeAlign(structType));
+        } else {
+            llvm::FunctionType* allocFt = llvm::FunctionType::get(
+                llvm::PointerType::getUnqual(*context),
+                { llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+            
+            llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), dl.getTypeAllocSize(structType));
+            llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
+            thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
+        }
         
         // 3. Initialize VPtr
-        std::string vtableName = className + "_VTable";
-        llvm::GlobalVariable* vtable = module->getGlobalVariable(vtableName + "_Global");
-        if (vtable) {
-            llvm::Value* vptrField = builder->CreateStructGEP(structType, thisPtr, 0);
-            builder->CreateStore(vtable, vptrField);
+        if (!classType->isStruct) {
+            std::string vtableName = className + "_VTable";
+            llvm::GlobalVariable* vtable = module->getGlobalVariable(vtableName + "_Global");
+            if (vtable) {
+                llvm::Value* vptrField = builder->CreateStructGEP(structType, thisPtr, 0);
+                builder->CreateStore(vtable, vptrField);
+            }
         }
         
         // 4. Call Constructor
@@ -390,7 +412,11 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::errs() << "Constructor not found: " << baseCtorName << "\n";
         }
         
-        lastValue = thisPtr;
+        if (classType->isStruct) {
+            lastValue = builder->CreateLoad(structType, thisPtr);
+        } else {
+            lastValue = thisPtr;
+        }
         return;
     }
 

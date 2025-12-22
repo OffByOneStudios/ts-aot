@@ -154,6 +154,9 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
                 // Should have been created in generateClasses, but fallback just in case
                 structType = llvm::StructType::create(*context, classType->name);
             }
+            if (classType->isStruct) {
+                return structType;
+            }
             return llvm::PointerType::getUnqual(structType);
         }
         case TypeKind::String:
@@ -483,6 +486,25 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         }
     }
 
+    if (type && type->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(type);
+        if (classType->isStruct) {
+            // Allocate on heap
+            llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+            
+            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
+            uint64_t size = module->getDataLayout().getTypeAllocSize(classStruct);
+            llvm::Value* heapPtr = createCall(allocFt, allocFn.getCallee(), { builder->getInt64(size) });
+            
+            builder->CreateStore(val, heapPtr);
+            
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
+            return createCall(boxFt, boxFn.getCallee(), { heapPtr });
+        }
+    }
+
     if (funcName.empty()) return val;
     
     llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { valType }, false);
@@ -510,8 +532,21 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_string", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
+    } else if (type->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(type);
+        if (classType->isStruct) {
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
+            
+            llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
+            return builder->CreateLoad(classStruct, objPtr);
+        }
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+        return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Class || type->kind == TypeKind::Array) {
+               type->kind == TypeKind::Array) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
@@ -707,6 +742,19 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     
     // Boxing: primitive -> ptr
     if (!val->getType()->isPointerTy() && expectedType->isPointerTy()) {
+        if (val->getType()->isStructTy()) {
+            // Box struct
+            llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+            
+            uint64_t size = module->getDataLayout().getTypeAllocSize(val->getType());
+            llvm::Value* heapPtr = createCall(allocFt, allocFn.getCallee(), { builder->getInt64(size) });
+            builder->CreateStore(val, heapPtr);
+            
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
+            return createCall(boxFt, boxFn.getCallee(), { heapPtr });
+        }
         if (val->getType()->isIntegerTy(64)) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", boxFt);
@@ -741,6 +789,12 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", unboxFt);
             return builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
+        } else if (expectedType->isStructTy()) {
+            // Unbox struct from TsValue*
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
+            return builder->CreateLoad(expectedType, objPtr);
         }
     }
 

@@ -8,6 +8,7 @@ using namespace ast;
 void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
     classType->isAbstract = node->isAbstract;
+    classType->isStruct = node->isStruct;
     classType->node = node;
     
     auto existing = symbols.lookupType(node->name);
@@ -21,6 +22,8 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
         }
     } else {
         classType = std::static_pointer_cast<ClassType>(existing);
+        classType->isStruct = node->isStruct;
+        classType->isAbstract = node->isAbstract;
     }
 
     symbols.enterScope();

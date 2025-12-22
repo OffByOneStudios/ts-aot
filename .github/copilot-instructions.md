@@ -25,7 +25,8 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 Follow this cycle for all development tasks:
 
 1.  **Context:** Always check the active Epic in `docs/epics/` to understand the current goal.
-2.  **Plan:** If the Epic is incomplete, help the user flesh out Milestones and Action Items.
+2.  **Search:** Use the `ctags-search` skill (via `.github/skills/ctags-search/search_tags.ps1`) to find symbol definitions and locations. This is PREFERRED over `grep_search` for symbol lookups.
+3.  **Plan:** If the Epic is incomplete, help the user flesh out Milestones and Action Items.
 3.  **Pick:** Identify the next unchecked Action Item.
 4.  **Implement:** Write the code, ensuring it compiles and follows the Technical Constraints.
 5.  **Verify:**

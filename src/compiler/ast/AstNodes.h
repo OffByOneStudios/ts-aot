@@ -367,6 +367,7 @@ struct ClassDeclaration : Statement {
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
     bool isAbstract = false;
+    bool isStruct = false;
     std::string getKind() const override { return "ClassDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitClassDeclaration(this); }
 };
@@ -496,6 +497,7 @@ struct NewExpression : Expression {
     std::vector<ExprPtr> arguments;
     std::vector<std::string> typeArguments;
     std::vector<std::shared_ptr<ts::Type>> resolvedTypeArguments;
+    bool escapes = true;
     std::string getKind() const override { return "NewExpression"; }
     void accept(Visitor* visitor) override { visitor->visitNewExpression(this); }
 };

@@ -21,6 +21,9 @@ public:
     // Run the analysis pass on the program
     void analyze(ast::Program* program, const std::string& path = "main");
 
+    // Run escape analysis to identify stack-allocatable objects
+    void performEscapeAnalysis(ast::Program* program);
+
     // Get the symbol table (for later passes)
     SymbolTable& getSymbolTable() { return symbols; }
     const SymbolTable& getSymbolTable() const { return symbols; }

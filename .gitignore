@@ -75,3 +75,6 @@ ir_output.txt
 # OS generated
 .DS_Store
 Thumbs.db
+
+# Ctags configuration
+.ctags.d/

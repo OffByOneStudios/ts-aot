@@ -13,8 +13,21 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         // Always add context argument first
         argTypes.push_back(builder->getPtrTy());
 
-        for (const auto& argType : spec.argTypes) {
-            argTypes.push_back(getLLVMType(argType));
+        bool isInstanceMethod = false;
+        if (spec.classType && spec.node) {
+            if (auto method = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+                if (!method->isStatic) isInstanceMethod = true;
+            }
+        }
+
+        for (size_t i = 0; i < spec.argTypes.size(); ++i) {
+            const auto& argType = spec.argTypes[i];
+            if (isInstanceMethod && i == 0) {
+                // 'this' is always a pointer
+                argTypes.push_back(builder->getPtrTy());
+            } else {
+                argTypes.push_back(getLLVMType(argType));
+            }
         }
 
         llvm::Type* returnType = getLLVMType(spec.returnType);

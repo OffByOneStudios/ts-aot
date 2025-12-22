@@ -366,14 +366,19 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         // Check if it's a field access
         if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
             visit(node->expression.get());
-            llvm::Value* objPtr = lastValue;
+            llvm::Value* obj = lastValue;
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
             if (!classStruct) return;
-            
-            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
-            
+
             int fieldIndex = classLayouts[className].fieldIndices[fieldName];
+
+            if (classType->isStruct && !obj->getType()->isPointerTy()) {
+                lastValue = builder->CreateExtractValue(obj, { (unsigned)fieldIndex }, fieldName.c_str());
+                return;
+            }
+            
+            llvm::Value* typedObjPtr = builder->CreateBitCast(obj, llvm::PointerType::getUnqual(classStruct));
             llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
             
             // We need the type of the field to load it correctly

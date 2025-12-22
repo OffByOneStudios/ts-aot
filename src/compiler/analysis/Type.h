@@ -144,6 +144,7 @@ struct ClassType : public Type {
     std::string name;
     ast::ClassDeclaration* node = nullptr;
     bool isAbstract = false;
+    bool isStruct = false;
     std::shared_ptr<ClassType> baseClass;
     std::vector<std::shared_ptr<InterfaceType>> implementsInterfaces;
     std::vector<std::shared_ptr<TypeParameterType>> typeParameters;

@@ -9,13 +9,13 @@ Currently, `ts-aot` allocates most objects (Classes, Arrays, Strings) on the GC 
 ## Action Items
 
 ### Milestone 1: Basic Escape Analysis
-- [ ] Implement a pass in the `Analyzer` to track object lifetimes.
-- [ ] Identify "Local-Only" objects: Objects that are created, used, and never passed to a function or stored in a heap-allocated structure.
-- [ ] Update `IRGenerator` to use `alloca` for Local-Only objects instead of `ts_alloc`.
+- [x] Implement a pass in the `Analyzer` to track object lifetimes.
+- [x] Identify "Local-Only" objects: Objects that are created, used, and never passed to a function or stored in a heap-allocated structure.
+- [x] Update `IRGenerator` to use `alloca` for Local-Only objects instead of `ts_alloc`.
 
 ### Milestone 2: Value Types (Structs)
-- [ ] Introduce a `@struct` decorator or heuristic to treat certain classes (like `Vector3`) as value types.
-- [ ] Pass these types by value in LLVM IR (registers/stack) rather than by pointer.
+- [x] Introduce a `@struct` decorator or heuristic to treat certain classes (like `Vector3`) as value types.
+- [x] Pass these types by value in LLVM IR (registers/stack) rather than by pointer.
 
 ### Milestone 3: String Optimizations
 - [ ] Implement a "Small String" representation within `TsString` that stores up to 14 bytes inline.
