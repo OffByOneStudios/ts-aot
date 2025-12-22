@@ -321,7 +321,11 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
                 methodType->paramTypes.push_back(substitute(parseType(p->type, symbols), env));
             }
             methodType->returnType = substitute(parseType(method->returnType, symbols), env);
-            classType->methods[method->name] = methodType;
+            if (method->isStatic) {
+                classType->staticMethods[method->name] = methodType;
+            } else {
+                classType->methods[method->name] = methodType;
+            }
         }
     }
 

@@ -142,6 +142,7 @@ private:
     struct LoopInfo {
         llvm::BasicBlock* continueBlock;
         llvm::BasicBlock* breakBlock;
+        std::map<std::string, std::string> safeIndices; // indexVar -> arrayVar
     };
     std::vector<LoopInfo> loopStack;
 

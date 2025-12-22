@@ -195,6 +195,8 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         else if (node->isSetter) classType->setters[node->name] = methodType;
         else if (node->name == "constructor") {
              // Handle constructor overloads if needed
+        } else if (node->isStatic) {
+            classType->staticMethods[node->name] = methodType;
         } else {
             classType->methods[node->name] = methodType;
         }

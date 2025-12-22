@@ -1,0 +1,246 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Point",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "x",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "y",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "x"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "y"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "x"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "x"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "y"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "y"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "draw",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "any",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console"
+                  },
+                  "name": "log"
+                },
+                "arguments": [
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "x"
+                  },
+                  {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "y"
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "doDraw",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "p"
+          },
+          "type": "Point",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "p"
+              },
+              "name": "draw"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "p"
+      },
+      "isExported": false,
+      "type": "any",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Point"
+        },
+        "arguments": [
+          {
+            "kind": "NumericLiteral",
+            "value": 1
+          },
+          {
+            "kind": "NumericLiteral",
+            "value": 2
+          }
+        ],
+        "typeArguments": []
+      }
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "doDraw"
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "p"
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

@@ -263,6 +263,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             // Specialize all methods
             for (const auto& member : classNode->members) {
                 if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                    if (method->isStatic) continue; // Static methods are not specialized per-instance
+
                     Specialization spec;
                     spec.originalName = method->name;
                     spec.specializedName = mangled + "_" + method->name;
@@ -273,9 +275,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     // Infer return type for method
                     spec.returnType = analyzer.analyzeMethodBody(method, specializedClass, typeArgs);
                     
-                    if (!method->isStatic) {
-                        spec.argTypes.push_back(specializedClass);
-                    }
+                    spec.argTypes.push_back(specializedClass);
                     for (const auto& p : method->parameters) {
                         auto pType = analyzer.parseType(p->type, analyzer.getSymbolTable());
                         spec.argTypes.push_back(analyzer.substitute(pType, env));

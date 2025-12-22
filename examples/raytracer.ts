@@ -93,7 +93,7 @@ function render() {
 }
 
 function main() {
-    const iterations = 5;
+    const iterations = 100;
     console.log("Starting Ray Tracer Benchmark...");
     
     // Warmup
