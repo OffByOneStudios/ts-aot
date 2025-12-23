@@ -53,6 +53,8 @@ struct ArrayLiteralExpression;
 struct ElementAccessExpression;
 struct PropertyAccessExpression;
 struct PropertyAssignment;
+struct ShorthandPropertyAssignment;
+struct ComputedPropertyName;
 struct ObjectLiteralExpression;
 struct Identifier;
 struct SuperExpression;
@@ -109,6 +111,10 @@ struct Visitor {
     virtual void visitElementAccessExpression(ElementAccessExpression* node) = 0;
     virtual void visitPropertyAccessExpression(PropertyAccessExpression* node) = 0;
     virtual void visitObjectLiteralExpression(ObjectLiteralExpression* node) = 0;
+    virtual void visitPropertyAssignment(PropertyAssignment* node) = 0;
+    virtual void visitShorthandPropertyAssignment(ShorthandPropertyAssignment* node) = 0;
+    virtual void visitComputedPropertyName(ComputedPropertyName* node) = 0;
+    virtual void visitMethodDefinition(MethodDefinition* node) = 0;
     virtual void visitIdentifier(Identifier* node) = 0;
     virtual void visitSuperExpression(SuperExpression* node) = 0;
     virtual void visitStringLiteral(StringLiteral* node) = 0;
@@ -349,6 +355,8 @@ struct PropertyDefinition : Node {
 
 struct MethodDefinition : Node {
     std::string name;
+    NodePtr nameNode;
+    std::shared_ptr<ts::Type> inferredType;
     bool isAsync = false;
     bool isGenerator = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
@@ -362,7 +370,7 @@ struct MethodDefinition : Node {
     bool isSetter = false;
     bool hasBody = true;
     std::string getKind() const override { return "MethodDefinition"; }
-    void accept(Visitor* visitor) override { /* Visited via ClassDeclaration */ }
+    void accept(Visitor* visitor) override { visitor->visitMethodDefinition(this); }
 };
 
 struct ClassDeclaration : Statement {
@@ -540,15 +548,29 @@ struct PropertyAccessExpression : Expression {
     void accept(Visitor* visitor) override { visitor->visitPropertyAccessExpression(this); }
 };
 
+struct ComputedPropertyName : Node {
+    ExprPtr expression;
+    std::string getKind() const override { return "ComputedPropertyName"; }
+    void accept(Visitor* visitor) override { visitor->visitComputedPropertyName(this); }
+};
+
 struct PropertyAssignment : Node {
     std::string name;
+    NodePtr nameNode;
     ExprPtr initializer;
     std::string getKind() const override { return "PropertyAssignment"; }
-    void accept(Visitor* visitor) override { /* Not visited directly */ }
+    void accept(Visitor* visitor) override { visitor->visitPropertyAssignment(this); }
+};
+
+struct ShorthandPropertyAssignment : Node {
+    std::string name;
+    NodePtr nameNode;
+    std::string getKind() const override { return "ShorthandPropertyAssignment"; }
+    void accept(Visitor* visitor) override { visitor->visitShorthandPropertyAssignment(this); }
 };
 
 struct ObjectLiteralExpression : Expression {
-    std::vector<std::unique_ptr<PropertyAssignment>> properties;
+    std::vector<NodePtr> properties; // PropertyAssignment, ShorthandPropertyAssignment, or MethodDefinition
     std::string getKind() const override { return "ObjectLiteralExpression"; }
     void accept(Visitor* visitor) override { visitor->visitObjectLiteralExpression(this); }
 };

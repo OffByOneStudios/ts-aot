@@ -5,9 +5,13 @@
 #include <vector>
 #include <functional>
 
+#include "TsMap.h"
+
 namespace ts {
 
 struct TsPromise;
+
+struct TsAsyncGenerator;
 
 struct AsyncContext : public TsObject {
     int state = 0;
@@ -16,13 +20,14 @@ struct AsyncContext : public TsObject {
     TsValue yieldedValue;
     TsPromise* promise = nullptr;
     TsPromise* pendingNextPromise = nullptr;
+    TsAsyncGenerator* generator = nullptr;
     void (*resumeFn)(AsyncContext*, TsValue*);
     void* data = nullptr; // For local variables
     
     AsyncContext();
 };
 
-struct TsGenerator : public TsObject {
+struct TsGenerator : public TsMap {
     AsyncContext* ctx;
     bool done = false;
     
@@ -30,7 +35,7 @@ struct TsGenerator : public TsObject {
     TsValue* next(TsValue* value = nullptr);
 };
 
-struct TsAsyncGenerator : public TsObject {
+struct TsAsyncGenerator : public TsMap {
     AsyncContext* ctx;
     bool done = false;
     std::vector<TsPromise*> nextQueue;
@@ -90,7 +95,8 @@ extern "C" {
     TsValue* Generator_next(TsValue* gen, TsValue* value);
     
     TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
-    TsPromise* AsyncGenerator_next(TsValue* gen, TsValue* value);
+    TsValue* AsyncGenerator_next(TsValue* gen, TsValue* value);
+    void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done);
 
 #ifdef __cplusplus
 }

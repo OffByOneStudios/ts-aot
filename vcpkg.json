@@ -12,6 +12,7 @@
     "catch2",
     "libsodium",
     "llhttp",
-    "openssl"
+    "openssl",
+    "spdlog"
   ]
 }

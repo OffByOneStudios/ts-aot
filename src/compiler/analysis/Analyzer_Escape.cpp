@@ -137,8 +137,14 @@ public:
 
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) override {
         for (auto& prop : node->properties) {
-            prop->initializer->accept(this);
-            markAsEscaping(prop->initializer.get());
+            if (auto pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                pa->initializer->accept(this);
+                markAsEscaping(pa->initializer.get());
+            } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+                // Shorthand properties are just identifiers, they escape if the object escapes
+            } else if (auto md = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+                // Methods escape
+            }
         }
     }
 
@@ -197,6 +203,19 @@ public:
     void visitImportDeclaration(ast::ImportDeclaration* node) override {}
     void visitExportDeclaration(ast::ExportDeclaration* node) override {}
     void visitExportAssignment(ast::ExportAssignment* node) override {}
+    void visitPropertyAssignment(ast::PropertyAssignment* node) override {
+        if (node->nameNode) node->nameNode->accept(this);
+        node->initializer->accept(this);
+    }
+    void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override {}
+    void visitComputedPropertyName(ast::ComputedPropertyName* node) override {
+        node->expression->accept(this);
+    }
+    void visitMethodDefinition(ast::MethodDefinition* node) override {
+        for (auto& stmt : node->body) {
+            stmt->accept(this);
+        }
+    }
     void visitArrowFunction(ast::ArrowFunction* node) override {}
     void visitFunctionExpression(ast::FunctionExpression* node) override {}
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override {}

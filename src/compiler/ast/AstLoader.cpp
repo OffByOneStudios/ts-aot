@@ -1,6 +1,8 @@
 #include "AstLoader.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 #include <stdexcept>
 
@@ -26,9 +28,9 @@ void setLocation(Node* node, const json& j) {
             } else if (j["line"].is_string()) {
                 node->line = std::stoi(j["line"].get<std::string>());
             }
-            // std::cerr << "DEBUG:   Set line=" << node->line << std::endl;
+            // SPDLOG_DEBUG("  Set line={}", node->line);
         } catch (const std::exception& e) {
-            std::cerr << "DEBUG: Error parsing line: " << e.what() << " for " << j.dump() << std::endl;
+            SPDLOG_DEBUG("Error parsing line: {} for {}", e.what(), j.dump());
         }
     }
     
@@ -141,7 +143,7 @@ NodePtr parseNode(const json& j) {
 ExprPtr parseExpression(const json& j) {
     if (j.is_null()) throw std::runtime_error("parseExpression called with null");
     if (!j.contains("kind")) {
-        std::cerr << "JSON missing kind: " << j.dump() << std::endl;
+        SPDLOG_ERROR("JSON missing kind: {}", j.dump());
         throw std::runtime_error("JSON missing kind");
     }
     std::string kind = j["kind"];
@@ -200,11 +202,21 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<ObjectLiteralExpression>();
         setLocation(node.get(), j);
         for (const auto& prop : j["properties"]) {
-            auto p = std::make_unique<PropertyAssignment>();
-            setLocation(p.get(), prop);
-            p->name = prop["name"];
-            p->initializer = parseExpression(prop["initializer"]);
-            node->properties.push_back(std::move(p));
+            std::string pKind = prop["kind"];
+            if (pKind == "PropertyAssignment") {
+                auto p = std::make_unique<PropertyAssignment>();
+                setLocation(p.get(), prop);
+                p->name = prop["name"];
+                p->initializer = parseExpression(prop["initializer"]);
+                node->properties.push_back(std::move(p));
+            } else if (pKind == "ShorthandPropertyAssignment") {
+                auto p = std::make_unique<ShorthandPropertyAssignment>();
+                setLocation(p.get(), prop);
+                p->name = prop["name"];
+                node->properties.push_back(std::move(p));
+            } else if (pKind == "MethodDefinition") {
+                node->properties.push_back(parseNode(prop));
+            }
         }
         return node;
     } else if (kind == "ElementAccessExpression") {

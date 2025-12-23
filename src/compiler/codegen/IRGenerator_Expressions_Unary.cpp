@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -59,7 +61,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 }
 
 void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
-    llvm::errs() << "visitPostfixUnaryExpression: " << node->op << "\n";
+    SPDLOG_DEBUG("visitPostfixUnaryExpression: {}", node->op);
     visit(node->operand.get());
     llvm::Value* val = lastValue;
     
@@ -83,11 +85,13 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
             }
 
             if (variable) {
-                llvm::errs() << "  Storing back to " << id->name << " type: ";
-                variable->getType()->print(llvm::errs());
-                llvm::errs() << " value type: ";
-                next->getType()->print(llvm::errs());
-                llvm::errs() << "\n";
+                if (verbose) {
+                std::string varTypeStr, nextTypeStr;
+                llvm::raw_string_ostream varOs(varTypeStr), nextOs(nextTypeStr);
+                variable->getType()->print(varOs);
+                next->getType()->print(nextOs);
+                SPDLOG_DEBUG("  Storing back to {} type: {} value type: {}", id->name, varTypeStr, nextTypeStr);
+            }
 
                 // Ensure types match for store
                 llvm::Type* varType = nullptr;
@@ -98,11 +102,11 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
                 }
 
                 if (varType && next->getType() != varType) {
-                    llvm::errs() << "  Casting for store: ";
-                    next->getType()->print(llvm::errs());
-                    llvm::errs() << " -> ";
-                    varType->print(llvm::errs());
-                    llvm::errs() << "\n";
+                    std::string nextTypeStr, varTypeStr;
+                    llvm::raw_string_ostream nextOs(nextTypeStr), varOs(varTypeStr);
+                    next->getType()->print(nextOs);
+                    varType->print(varOs);
+                    SPDLOG_DEBUG("  Casting for store: {} -> {}", nextTypeStr, varTypeStr);
                     next = castValue(next, varType);
                 }
                 builder->CreateStore(next, variable);
@@ -110,7 +114,7 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
         }
         lastValue = val; // Postfix returns old value
     }
-    llvm::errs() << "visitPostfixUnaryExpression done\n";
+    SPDLOG_DEBUG("visitPostfixUnaryExpression done");
 }
 
 void IRGenerator::visitAsExpression(ast::AsExpression* node) {

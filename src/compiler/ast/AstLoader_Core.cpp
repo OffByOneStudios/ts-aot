@@ -86,6 +86,13 @@ NodePtr parseNode(const json& j) {
         setLocation(node.get(), j);
         node->name = j["name"].get<std::string>();
         return node;
+    } else if (kind == "ComputedPropertyName") {
+        auto node = std::make_unique<ComputedPropertyName>();
+        setLocation(node.get(), j);
+        node->expression = parseExpression(j["expression"]);
+        return node;
+    } else if (kind == "MethodDefinition") {
+        return parseClassMember(j);
     } else if (kind == "ObjectBindingPattern") {
         auto node = std::make_unique<ObjectBindingPattern>();
         setLocation(node.get(), j);
@@ -111,6 +118,11 @@ NodePtr parseNode(const json& j) {
             node->initializer = parseExpression(j["initializer"]);
         }
         node->isSpread = j.value("isSpread", false);
+        return node;
+    } else if (kind == "ComputedPropertyName") {
+        auto node = std::make_unique<ComputedPropertyName>();
+        setLocation(node.get(), j);
+        node->expression = parseExpression(j["expression"]);
         return node;
     } else if (kind == "OmittedExpression") {
         auto node = std::make_unique<OmittedExpression>();
@@ -158,6 +170,9 @@ NodePtr parseClassMember(const json& j) {
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
         node->name = j["name"];
+        if (j.contains("nameNode") && !j["nameNode"].is_null()) {
+            node->nameNode = parseNode(j["nameNode"]);
+        }
         node->isAsync = j.value("isAsync", false);
         node->isGenerator = j.value("isGenerator", false);
         if (j.contains("parameters")) {

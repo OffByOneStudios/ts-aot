@@ -2,6 +2,8 @@
 #include "Monomorphizer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace ts {
@@ -28,12 +30,11 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
-    } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+    }
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
         calleeName = prop->name;
     }
-    if (verbose) {
-        fprintf(stderr, "Analyzer::visitCallExpression: %s\n", calleeName.c_str());
-    }
+    SPDLOG_DEBUG("Analyzer::visitCallExpression: {}", calleeName);
     
     // Check for property access calls (methods)
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {

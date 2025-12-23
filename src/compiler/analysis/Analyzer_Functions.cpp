@@ -92,17 +92,53 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
     }
 
+    functionDepth++;
+    std::shared_ptr<Type> oldReturnType = currentReturnType;
+    currentReturnType = nullptr;
+
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+
+    if (node->returnType.empty() && currentReturnType) {
+        // Update function return type based on inferred return type
+        funcType->returnType = currentReturnType;
+        
+        // Re-wrap in Promise/Generator if needed
+        if (node->isGenerator) {
+            auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+            auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+            wrapped->methods = genClass->methods;
+            wrapped->typeArguments = { funcType->returnType };
+            funcType->returnType = wrapped;
+        } else if (node->isAsync) {
+            auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+            auto wrapped = std::make_shared<ClassType>("Promise");
+            wrapped->methods = promiseClass->methods;
+            wrapped->typeArguments = { funcType->returnType };
+            funcType->returnType = wrapped;
+        }
+    }
+
+    currentReturnType = oldReturnType;
+    functionDepth--;
     symbols.exitScope();
 }
 
+void Analyzer::visitMethodDefinition(ast::MethodDefinition* node) {
+    visitMethodDefinition(node, nullptr);
+}
+
 void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<ClassType> classType) {
+    if (node->nameNode) {
+        if (dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
+            visit(node->nameNode.get());
+        }
+    }
     std::string oldMethod = currentMethodName;
     currentMethodName = node->name;
 
-    if (node->name == "constructor" && currentClass) {
+    if (node->name == "constructor" && classType) {
         std::vector<StmtPtr> injected;
         for (const auto& param : node->parameters) {
             if (param->isParameterProperty) {
@@ -212,9 +248,11 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
     }
 
+    functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+    functionDepth--;
     symbols.exitScope();
 
     // Add to class
@@ -266,12 +304,14 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
     
+    functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
         if (stmt->getKind() == "ReturnStatement") {
             inferredReturnType = lastType;
         }
     }
+    functionDepth--;
 
     if (node->isAsync) {
         bool isPromise = false;
@@ -326,7 +366,9 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
         }
     }
     
+    functionDepth++;
     visit(node->body.get());
+    functionDepth--;
     funcType->returnType = lastType;
 
     if (node->isAsync) {
@@ -439,9 +481,11 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
     }
 
+    functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+    functionDepth--;
     
     symbols.exitScope();
     

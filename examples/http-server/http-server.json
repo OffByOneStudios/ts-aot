@@ -139,7 +139,14 @@
                               "kind": "ObjectLiteralExpression",
                               "properties": [
                                 {
-                                  "name": "Content-Type",
+                                  "kind": "PropertyAssignment",
+                                  "name": "'Content-Type'",
+                                  "nameNode": {
+                                    "kind": "StringLiteral",
+                                    "value": "Content-Type",
+                                    "line": 5,
+                                    "column": 30
+                                  },
                                   "initializer": {
                                     "kind": "StringLiteral",
                                     "value": "application/json",
@@ -195,7 +202,14 @@
                                   "kind": "ObjectLiteralExpression",
                                   "properties": [
                                     {
+                                      "kind": "PropertyAssignment",
                                       "name": "message",
+                                      "nameNode": {
+                                        "kind": "Identifier",
+                                        "name": "message",
+                                        "line": 6,
+                                        "column": 34
+                                      },
                                       "initializer": {
                                         "kind": "StringLiteral",
                                         "value": "Hello, World!",
@@ -204,7 +218,14 @@
                                       }
                                     },
                                     {
+                                      "kind": "PropertyAssignment",
                                       "name": "timestamp",
+                                      "nameNode": {
+                                        "kind": "Identifier",
+                                        "name": "timestamp",
+                                        "line": 6,
+                                        "column": 60
+                                      },
                                       "initializer": {
                                         "kind": "CallExpression",
                                         "callee": {
@@ -276,7 +297,14 @@
                               "kind": "ObjectLiteralExpression",
                               "properties": [
                                 {
-                                  "name": "Content-Type",
+                                  "kind": "PropertyAssignment",
+                                  "name": "'Content-Type'",
+                                  "nameNode": {
+                                    "kind": "StringLiteral",
+                                    "value": "Content-Type",
+                                    "line": 8,
+                                    "column": 30
+                                  },
                                   "initializer": {
                                     "kind": "StringLiteral",
                                     "value": "text/plain",

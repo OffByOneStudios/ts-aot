@@ -2,6 +2,7 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -88,6 +89,7 @@ target_link_libraries(tscompiler_lib PUBLIC
     nlohmann_json::nlohmann_json
     fmt::fmt
     cxxopts::cxxopts
+    spdlog::spdlog
 )
 
 target_compile_definitions(tscompiler_lib PUBLIC ${LLVM_DEFINITIONS})
@@ -104,4 +106,5 @@ target_link_libraries(ts-aot
     cxxopts::cxxopts
     fmt::fmt
     nlohmann_json::nlohmann_json
+    spdlog::spdlog
 )

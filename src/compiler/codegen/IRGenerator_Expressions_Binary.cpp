@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace ts {
@@ -363,7 +365,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             }
         }
     }
-    llvm::errs() << "visitBinaryExpression done\n";
+    SPDLOG_DEBUG("visitBinaryExpression done");
 }
 
 void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
@@ -456,7 +458,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         }
 
         if (!variable) {
-            llvm::errs() << "Error: Unknown variable name " << id->name << "\n";
+            SPDLOG_ERROR("Error: Unknown variable name {}", id->name);
             return;
         }
 
@@ -811,9 +813,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 int fieldIndex = classLayouts[className].fieldIndices[fieldName];
                 llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
                 
-                if (verbose) {
-                    std::cout << "DEBUG: Assigning to " << className << "." << fieldName << " index=" << fieldIndex << std::endl;
-                }
+                SPDLOG_DEBUG("Assigning to {}.{} index={}", className, fieldName, fieldIndex);
 
                 // We need the type of the field to load it correctly
                 // The field could be in a base class, so we look it up in the layout's allFields
@@ -833,11 +833,11 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     lastValue = nullptr;
                 }
             } else {
-                llvm::errs() << "Error: Field " << fieldName << " not found in class " << className << "\n";
+                SPDLOG_ERROR("Error: Field {} not found in class {}", fieldName, className);
             }
         }
     } else {
-        llvm::errs() << "Error: LHS of assignment must be an identifier or element access\n";
+        SPDLOG_ERROR("Error: LHS of assignment must be an identifier or element access");
         return;
     }
     

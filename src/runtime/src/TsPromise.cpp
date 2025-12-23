@@ -7,6 +7,11 @@
 
 namespace ts {
 
+extern "C" {
+    TsValue* Generator_next_internal(void* context, TsValue* value);
+    TsValue* AsyncGenerator_next_internal(void* context, TsValue* value);
+}
+
 TsPromise::TsPromise() {
     state = PromiseState::Pending;
     handled = false;
@@ -36,6 +41,14 @@ TsValue* create_generator_result(TsValue value, bool done) {
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
+    
+    TsValue nextFunc = *ts_value_make_function((void*)Generator_next_internal, this);
+    this->Set(TsString::Create("next"), nextFunc);
+    
+    TsValue iterFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+        return ts_value_make_object(ctx);
+    }, this);
+    this->Set(TsString::Create("[Symbol.iterator]"), iterFunc);
 }
 
 TsValue* TsGenerator::next(TsValue* value) {
@@ -57,9 +70,18 @@ TsValue* TsGenerator::next(TsValue* value) {
 TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
+    
+    TsValue nextFunc = *ts_value_make_function((void*)AsyncGenerator_next_internal, this);
+    this->Set(TsString::Create("next"), nextFunc);
+    
+    TsValue iterFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+        return ts_value_make_object(ctx);
+    }, this);
+    this->Set(TsString::Create("[Symbol.asyncIterator]"), iterFunc);
 }
 
 TsPromise* TsAsyncGenerator::next(TsValue* value) {
+    printf("TsAsyncGenerator::next: this=%p, done=%d\n", this, (int)done);
     TsPromise* p = ts_promise_create();
     if (done) {
         ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
@@ -68,6 +90,7 @@ TsPromise* TsAsyncGenerator::next(TsValue* value) {
     
     ctx->pendingNextPromise = p;
     ctx->yielded = false;
+    printf("TsAsyncGenerator::next: resuming SM\n");
     ctx->resumeFn(ctx, value);
     
     return p;
@@ -90,29 +113,85 @@ TsGenerator* ts_generator_create(AsyncContext* ctx) {
     return new (mem) TsGenerator(ctx);
 }
 
-TsValue* Generator_next(TsValue* genVal, TsValue* value) {
-    if (!genVal) {
-        return nullptr;
-    }
-    TsGenerator* gen = (TsGenerator*)ts_value_get_object(genVal);
+TsValue* Generator_next_internal(void* context, TsValue* value) {
+    TsGenerator* gen = (TsGenerator*)context;
+    if (!gen) return nullptr;
     return gen->next(value);
+}
+
+TsValue* Generator_next(TsValue* genVal, TsValue* value) {
+    return Generator_next_internal(ts_value_get_object(genVal), value);
 }
 
 TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx) {
     void* mem = ts_alloc(sizeof(TsAsyncGenerator));
-    return new (mem) TsAsyncGenerator(ctx);
+    TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
+    ctx->generator = gen;
+    return gen;
 }
 
-TsPromise* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
-    TsAsyncGenerator* gen = (TsAsyncGenerator*)ts_value_get_object(genVal);
-    return gen->next(value);
+TsValue* AsyncGenerator_next_internal(void* context, TsValue* value) {
+    TsAsyncGenerator* gen = (TsAsyncGenerator*)context;
+    if (!gen) return nullptr;
+    TsPromise* p = gen->next(value);
+    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+    res->type = ValueType::PROMISE_PTR;
+    res->ptr_val = p;
+    return res;
+}
+
+TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
+    return AsyncGenerator_next_internal(ts_value_get_object(genVal), value);
+}
+
+extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
+    if (!iterable) return nullptr;
+    
+    if (iterable->type == ValueType::OBJECT_PTR) {
+        TsString* key = TsString::Create("[Symbol.asyncIterator]");
+        TsValue* method = ts_map_get(iterable->ptr_val, key);
+        if (method && method->type == ValueType::OBJECT_PTR) {
+             TsFunction* func = (TsFunction*)method->ptr_val;
+             typedef TsValue* (*AsyncIterFunc)(void*);
+             return ((AsyncIterFunc)func->funcPtr)(func->context);
+        }
+    }
+    
+    return iterable;
+}
+
+extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
+    if (!iterator) return nullptr;
+    
+    if (iterator->type == ValueType::OBJECT_PTR) {
+        TsString* key = TsString::Create("next");
+        TsValue* method = ts_map_get(iterator->ptr_val, key);
+        if (method && method->type == ValueType::OBJECT_PTR) {
+             TsFunction* func = (TsFunction*)method->ptr_val;
+             typedef TsValue* (*NextFunc)(void*, TsValue*);
+             return ((NextFunc)func->funcPtr)(func->context, value);
+        }
+    }
+    
+    return AsyncGenerator_next(iterator, value);
+}
+
+void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
+    if (!ctx->generator) return;
+    ctx->generator->done = done;
+    if (ctx->pendingNextPromise) {
+        TsValue* res = create_generator_result(*value, done);
+        ts_promise_resolve_internal(ctx->pendingNextPromise, res);
+        ctx->pendingNextPromise = nullptr;
+    }
 }
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
     if (ctx->resumeFn) {
-        // fprintf(stderr, "Resuming async context with value type %d\n", (int)value->type);
-        // fflush(stderr);
+        printf("ts_async_resume: ctx=%p, state=%d, value type=%d\n", ctx, ctx->state, (int)value->type);
         ctx->resumeFn(ctx, value);
+    } else {
+        printf("ts_async_resume: ctx=%p, NO resumeFn!\n", ctx);
     }
 }
 
@@ -339,6 +418,7 @@ TsValue* ts_promise_await(TsValue* promise) {
 }
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
+    printf("ts_async_await: promise=%p, ctx=%p\n", promise, ctx);
     if (!promise || promise->type != ValueType::PROMISE_PTR || !promise->ptr_val) {
         if (promise) printf("ts_async_await: not a promise, type=%d, ptr=%p\n", (int)promise->type, promise->ptr_val);
         else printf("ts_async_await: null promise\n");

@@ -1,6 +1,8 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
 #include <iostream>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -12,10 +14,17 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             type = alloca->getAllocatedType();
         } else if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(val)) {
             type = gep->getResultElementType();
+            SPDLOG_DEBUG("Identifier {} is GEP, result type: {}", node->name, (type ? std::to_string(type->getTypeID()) : "NULL"));
+        } else {
+            SPDLOG_DEBUG("Identifier {} val is not alloca or gep", node->name);
         }
         
         if (type) {
             lastValue = builder->CreateLoad(type, val, node->name.c_str());
+            
+            if (boxedVariables.count(node->name)) {
+                boxedValues.insert(lastValue);
+            }
         } else {
             lastValue = val;
         }
@@ -31,6 +40,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
     llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);
     if (gv) {
         lastValue = builder->CreateLoad(gv->getValueType(), gv, node->name.c_str());
+        if (boxedVariables.count(node->name)) {
+            boxedValues.insert(lastValue);
+        }
         return;
     }
 
@@ -393,7 +405,8 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 return;
             }
         } else if (cls->name == "Map") {
-            llvm::errs() << "Generating Map property: " << node->name << "\n";
+            SPDLOG_DEBUG("Generating Map property: {}", node->name);
+            auto propName = builder->CreateGlobalStringPtr(node->name);
             visit(node->expression.get());
             llvm::Value* mapObj = lastValue;
             emitNullCheckForExpression(node->expression.get(), mapObj);
@@ -429,6 +442,21 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
+        }
+        if (id->name == "Symbol") {
+            if (node->name == "asyncIterator") {
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.asyncIterator]") });
+                lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
+                return;
+            } else if (node->name == "iterator") {
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.iterator]") });
+                lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
+                return;
+            }
         }
     }
 
@@ -488,9 +516,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         std::string className = classType->name;
         std::string fieldName = node->name;
         
-        if (verbose) {
-            std::cout << "DEBUG: Accessing " << className << "." << fieldName << std::endl;
-        }
+        SPDLOG_DEBUG("Accessing {}.{}", className, fieldName);
         
         if (className == "URL") {
             visit(node->expression.get());
@@ -590,9 +616,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
         // Check if it's a field access
         if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
-            if (verbose) {
-                std::cout << "DEBUG: Field access " << className << "." << fieldName << " index=" << classLayouts[className].fieldIndices[fieldName] << std::endl;
-            }
+            SPDLOG_DEBUG("Field access {}.{} index={}", className, fieldName, classLayouts[className].fieldIndices[fieldName]);
             visit(node->expression.get());
             llvm::Value* obj = lastValue;
             emitNullCheckForExpression(node->expression.get(), obj);
@@ -613,13 +637,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             // We need the type of the field to load it correctly
             // The field could be in a base class, so we look it up in the layout's allFields
             std::shared_ptr<Type> fieldType;
-            if (verbose) {
-                std::cout << "DEBUG: Searching for field " << fieldName << " in " << className << " (fields: " << classLayouts[className].allFields.size() << ")" << std::endl;
-            }
+            SPDLOG_DEBUG("Searching for field {} in {} (fields: {})", fieldName, className, classLayouts[className].allFields.size());
             for (const auto& f : classLayouts[className].allFields) {
-                if (verbose) {
-                    std::cout << "DEBUG: Checking field " << f.first << std::endl;
-                }
+                SPDLOG_DEBUG("Checking field {}", f.first);
                 if (f.first == fieldName) {
                     fieldType = f.second;
                     break;

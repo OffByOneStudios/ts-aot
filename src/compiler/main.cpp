@@ -2,6 +2,8 @@
 #include <cxxopts.hpp>
 #include "Driver.h"
 #include <iostream>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <llvm/Support/TargetSelect.h>
 
@@ -39,6 +41,7 @@ int main(int argc, char** argv) {
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
             ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"))
+            ("log-level", "Set log level (trace, debug, info, warn, error, off)", cxxopts::value<std::string>()->default_value("info"))
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
             ("small-icu", "Use a smaller ICU data set (English only)", cxxopts::value<bool>()->default_value("false"))
@@ -47,6 +50,26 @@ int main(int argc, char** argv) {
 
         options.parse_positional({"input"});
         auto result = options.parse(argc, argv);
+
+        // Initialize logging
+        auto console = spdlog::stdout_color_mt("console");
+        spdlog::set_default_logger(console);
+        
+        // Set a cleaner, compiler-like pattern: [level] message
+        // %g: basename of source file, %#: line number
+        spdlog::set_pattern("[%^%l%$] %g:%# %v");
+        
+        std::string logLevel = result["log-level"].as<std::string>();
+        if (result["verbose"].as<bool>()) {
+            logLevel = "debug";
+        }
+
+        if (logLevel == "trace") spdlog::set_level(spdlog::level::trace);
+        else if (logLevel == "debug") spdlog::set_level(spdlog::level::debug);
+        else if (logLevel == "info") spdlog::set_level(spdlog::level::info);
+        else if (logLevel == "warn") spdlog::set_level(spdlog::level::warn);
+        else if (logLevel == "error") spdlog::set_level(spdlog::level::err);
+        else if (logLevel == "off") spdlog::set_level(spdlog::level::off);
 
         if (result.count("help")) {
             std::cout << options.help() << std::endl;

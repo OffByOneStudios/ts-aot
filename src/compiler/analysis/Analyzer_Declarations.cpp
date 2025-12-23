@@ -2,6 +2,8 @@
 #include "../ast/AstLoader.h"
 #include <iostream>
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <filesystem>
 
@@ -106,12 +108,12 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
         std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
         auto sym = module->exports->lookup(name);
         if (sym) {
-            fmt::print("Importing symbol {} as {} from {}\n", name, spec.name, node->moduleSpecifier);
+            SPDLOG_DEBUG("Importing symbol {} as {} from {}", name, spec.name, node->moduleSpecifier);
             symbols.define(spec.name, sym->type);
         } else {
             auto type = module->exports->lookupType(name);
             if (type) {
-                fmt::print("Importing type {} as {} from {}\n", name, spec.name, node->moduleSpecifier);
+                SPDLOG_DEBUG("Importing type {} as {} from {}", name, spec.name, node->moduleSpecifier);
                 symbols.defineType(spec.name, type);
             } else {
                 reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
@@ -140,7 +142,7 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
             std::string name = spec.propertyName.empty() ? spec.name : spec.propertyName;
             auto sym = module->exports->lookup(name);
             if (sym) {
-                fmt::print("Re-exporting symbol {} from {} in {}\n", name, node->moduleSpecifier, currentModule->path);
+                SPDLOG_DEBUG("Re-exporting symbol {} from {} in {}", name, node->moduleSpecifier, currentModule->path);
                 currentModule->exports->define(spec.name, sym->type);
             } else {
                 auto type = module->exports->lookupType(name);

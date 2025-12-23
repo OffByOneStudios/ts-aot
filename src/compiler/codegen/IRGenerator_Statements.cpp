@@ -31,8 +31,10 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         // Resolve promise and return void
         llvm::Value* boxedVal = val;
         if (!boxedVal) {
-            boxedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
-        } else if (!boxedVal->getType()->isPointerTy()) {
+            llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+            boxedVal = createCall(undefFt, undefFn.getCallee(), {});
+        } else {
             boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
         }
 
@@ -46,15 +48,21 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         }
 
         if (currentIsGenerator) {
-            // Set ctx->yieldedValue = boxedVal
-            // Set ctx->done = true
-            llvm::Value* yieldedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
-            // TsValue is a struct { type, data }
-            // boxedVal is a TsValue*
-            builder->CreateMemCpy(yieldedValuePtr, llvm::MaybeAlign(8), boxedVal, llvm::MaybeAlign(8), 16);
+            if (currentIsAsync) {
+                llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
+                llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
+                createCall(resolveFt, resolveFn.getCallee(), { currentAsyncContext, boxedVal, builder->getInt1(true) });
+            } else {
+                // Set ctx->yieldedValue = boxedVal
+                // Set ctx->done = true
+                llvm::Value* yieldedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+                // TsValue is a struct { type, data }
+                // boxedVal is a TsValue*
+                builder->CreateMemCpy(yieldedValuePtr, llvm::MaybeAlign(8), boxedVal, llvm::MaybeAlign(8), 16);
 
-            llvm::Value* donePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
-            builder->CreateStore(builder->getInt1(true), donePtr);
+                llvm::Value* donePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+                builder->CreateStore(builder->getInt1(true), donePtr);
+            }
         }
 
         builder->CreateRetVoid();

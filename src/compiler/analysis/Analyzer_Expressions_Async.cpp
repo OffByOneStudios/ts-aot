@@ -1,21 +1,27 @@
 #include "Analyzer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#include <iostream>
 
 namespace ts {
 using namespace ast;
 void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
+    if (functionDepth == 0 && currentModule) {
+        currentModule->isAsync = true;
+    }
     visit(node->expression.get());
     auto type = lastType;
     if (type->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(type);
-        if (cls->name == "Promise" && !cls->typeArguments.empty()) {
+        if (cls->name.find("Promise") == 0 && !cls->typeArguments.empty()) {
             lastType = cls->typeArguments[0];
+            node->inferredType = lastType;
             return;
         }
     }
     // If it's not a promise, await just returns the value (simplified)
     lastType = type;
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitYieldExpression(ast::YieldExpression* node) {

@@ -7,6 +7,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "number",
       "parameters": [
@@ -132,6 +133,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "string",
       "parameters": [
@@ -3491,6 +3493,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "string",
       "parameters": [
@@ -3654,6 +3657,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "",
       "parameters": [],

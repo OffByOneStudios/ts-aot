@@ -20,8 +20,9 @@ public:
     void* GetEntries();
     void ForEach(void* callback, void* thisArg = nullptr);
 
-private:
+protected:
     TsMap();
+private:
     uint32_t magic = MAGIC;
     void* impl; // Pointer to std::unordered_map
 };

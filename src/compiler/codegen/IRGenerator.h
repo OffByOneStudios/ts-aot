@@ -40,6 +40,8 @@ private:
 
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;
+    std::set<llvm::Value*> boxedValues;
+    std::set<std::string> boxedVariables;
     std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName
     std::string lastLengthArray;
 
@@ -108,6 +110,10 @@ private:
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
+    void visitPropertyAssignment(ast::PropertyAssignment* node) override;
+    void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;
+    void visitComputedPropertyName(ast::ComputedPropertyName* node) override;
+    void visitMethodDefinition(ast::MethodDefinition* node) override;
     void visitProgram(ast::Program* node);
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node);
     void visitEnumDeclaration(ast::EnumDeclaration* node);
@@ -120,6 +126,7 @@ private:
     llvm::Value* toUint32(llvm::Value* val);
     void generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern);
 
+    llvm::Value* emitAwait(llvm::Value* promiseVal, std::shared_ptr<Type> type);
     llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
     llvm::Value* emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type);

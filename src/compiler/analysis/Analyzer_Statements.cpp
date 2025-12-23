@@ -1,5 +1,7 @@
 #include "Analyzer.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace ts {
@@ -26,10 +28,12 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 type = lastType;
                 // Update the type in the symbol table
                 if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
-                    if (verbose) {
-                        std::cerr << "  Updating " << id->name << " to type: " << type->toString() << std::endl;
-                    }
+                    SPDLOG_DEBUG("  Updating {} to type: {}", id->name, type->toString());
                     symbols.update(id->name, type);
+                } else if (dynamic_cast<ast::ObjectBindingPattern*>(node->name.get()) || 
+                           dynamic_cast<ast::ArrayBindingPattern*>(node->name.get())) {
+                    // Re-declare with the correct type to update individual variables
+                    declareBindingPattern(node->name.get(), type);
                 }
             } else {
                 // Check assignability

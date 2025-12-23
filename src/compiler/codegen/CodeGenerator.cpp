@@ -15,6 +15,8 @@
 #include <llvm/Bitcode/BitcodeWriter.h>
 
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
@@ -28,7 +30,7 @@ bool CodeGenerator::setupTargetMachine(const std::string& optLevel) {
     auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
 
     if (!target) {
-        fmt::print(stderr, "Error: Could not find target for triple {}: {}\n", targetTriple, error);
+        SPDLOG_ERROR("Could not find target for triple {}: {}", targetTriple, error);
         return false;
     }
 
@@ -47,7 +49,7 @@ bool CodeGenerator::setupTargetMachine(const std::string& optLevel) {
         target->createTargetMachine(targetTriple, cpu, features, opt, rm, std::nullopt, optLvl));
 
     if (!targetMachine) {
-        fmt::print(stderr, "Error: Could not create target machine\n");
+        SPDLOG_ERROR("Could not create target machine");
         return false;
     }
 
@@ -79,7 +81,7 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
     else level = llvm::OptimizationLevel::O0;
 
     if (level != llvm::OptimizationLevel::O0) {
-        fmt::print("Running IR optimizations (Level O{})\n", optLevel);
+        SPDLOG_INFO("Running IR optimizations (Level O{})", optLevel);
         llvm::ModulePassManager MPM;
         
         MPM.addPass(llvm::ModuleInlinerWrapperPass());
@@ -107,7 +109,7 @@ bool CodeGenerator::emitObjectFile(const std::string& filename, const std::strin
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
 
     if (ec) {
-        fmt::print(stderr, "Error: Could not open file {}: {}\n", filename, ec.message());
+        SPDLOG_ERROR("Could not open file {}: {}", filename, ec.message());
         return false;
     }
 
@@ -115,7 +117,7 @@ bool CodeGenerator::emitObjectFile(const std::string& filename, const std::strin
     auto fileType = llvm::CodeGenFileType::ObjectFile;
 
     if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
-        fmt::print(stderr, "Error: TargetMachine can't emit a file of this type\n");
+        SPDLOG_ERROR("TargetMachine can't emit a file of this type");
         return false;
     }
 
@@ -129,7 +131,7 @@ bool CodeGenerator::emitBitcode(const std::string& filename) {
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
     if (ec) {
-        fmt::print(stderr, "Error: Could not open file {}: {}\n", filename, ec.message());
+        SPDLOG_ERROR("Could not open file {}: {}", filename, ec.message());
         return false;
     }
     llvm::WriteBitcodeToFile(*module, dest);
@@ -140,7 +142,7 @@ bool CodeGenerator::emitAssembly(const std::string& filename) {
     std::error_code ec;
     llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
     if (ec) {
-        fmt::print(stderr, "Error: Could not open file {}: {}\n", filename, ec.message());
+        SPDLOG_ERROR("Could not open file {}: {}", filename, ec.message());
         return false;
     }
     module->print(dest, nullptr);

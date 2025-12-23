@@ -1,6 +1,8 @@
 #include "Analyzer.h"
 #include "Monomorphizer.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
@@ -393,8 +395,16 @@ void Analyzer::visitNewExpression(NewExpression* node) {
 void Analyzer::visitObjectLiteralExpression(ObjectLiteralExpression* node) {
     auto objType = std::make_shared<ObjectType>();
     for (auto& prop : node->properties) {
-        visit(prop->initializer.get());
-        objType->fields[prop->name] = lastType;
+        if (auto pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+            visit(pa->initializer.get());
+            objType->fields[pa->name] = lastType;
+        } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+            auto sym = symbols.lookup(spa->name);
+            objType->fields[spa->name] = sym ? sym->type : std::make_shared<Type>(TypeKind::Any);
+        } else if (auto md = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+            // For now, treat methods as Any in object literals
+            objType->fields[md->name] = std::make_shared<Type>(TypeKind::Any);
+        }
     }
     lastType = objType;
 }
@@ -739,7 +749,7 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             auto inter = std::static_pointer_cast<InterfaceType>(objType);
             if (inter->fields.count(node->name)) {
                 lastType = inter->fields[node->name];
-                fmt::print("Found property {} on interface {} with type {}\n", node->name, inter->name, lastType->toString());
+                SPDLOG_DEBUG("Found property {} on interface {} with type {}", node->name, inter->name, lastType->toString());
                 return;
             } else if (inter->methods.count(node->name)) {
                 lastType = inter->methods[node->name];
@@ -933,7 +943,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
-            fmt::print("Failed to find identifier: {}\n", node->name);
+            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
             reportError("Undefined variable " + node->name);
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
@@ -964,20 +974,6 @@ void Analyzer::visitNullLiteral(ast::NullLiteral* node) {
 
 void Analyzer::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Undefined);
-}
-
-void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
-    visit(node->expression.get());
-    auto type = lastType;
-    if (type->kind == TypeKind::Class) {
-        auto cls = std::static_pointer_cast<ClassType>(type);
-        if (cls->name == "Promise" && !cls->typeArguments.empty()) {
-            lastType = cls->typeArguments[0];
-            return;
-        }
-    }
-    // If it's not a promise, await just returns the value (simplified)
-    lastType = type;
 }
 
 void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {

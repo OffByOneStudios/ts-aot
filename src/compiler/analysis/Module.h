@@ -14,6 +14,7 @@ struct Module {
     std::shared_ptr<ast::Program> ast;
     std::shared_ptr<SymbolTable> exports;
     bool analyzed = false;
+    bool isAsync = false;
 
     Module() : exports(std::make_shared<SymbolTable>()) {}
 };
