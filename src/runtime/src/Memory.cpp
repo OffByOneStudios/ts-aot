@@ -9,7 +9,10 @@
 extern "C" {
 
 void* ts_alloc(size_t size) {
-    return GC_malloc(size);
+    void* ptr = GC_malloc(size);
+    fprintf(stderr, "ts_alloc(%zu) = %p\n", size, ptr);
+    fflush(stderr);
+    return ptr;
 }
 
 void ts_gc_init() {

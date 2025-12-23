@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -75,7 +76,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         // Both are pointers. If it's an arithmetic or bitwise operation, we MUST unbox.
         // EXCEPT if it's a string concatenation!
         if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%" ||
-            node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>") {
+            node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>" ||
+            node->op == "+=" || node->op == "-=" || node->op == "*=" || node->op == "/=" || node->op == "%=" ||
+            node->op == "&=" || node->op == "|=" || node->op == "^=" || node->op == "<<=" || node->op == ">>=" || node->op == ">>>=") {
              left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
              right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
         }
@@ -158,8 +161,28 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         if (!right->getType()->isDoubleTy()) right = castValue(right, llvm::Type::getDoubleTy(*context));
         lastValue = builder->CreateFDiv(left, right, "divtmp");
     } else if (node->op == "%" || node->op == "%=") {
-        if (isDouble) lastValue = builder->CreateFRem(left, right, "remtmp");
-        else lastValue = builder->CreateSRem(left, right, "remtmp");
+        if (isDouble) {
+            lastValue = builder->CreateFRem(left, right, "remtmp");
+        } else {
+            // In JS, % can return double even for integers if operands are large, 
+            // but for our purposes, we'll stick to SRem if both are integers.
+            lastValue = builder->CreateSRem(left, right, "remtmp");
+        }
+    } else if (node->op == "<<" || node->op == "<<=") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateShl(left, right, "shltmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == ">>" || node->op == ">>=") {
+        left = toInt32(left);
+        right = toInt32(right);
+        lastValue = builder->CreateAShr(left, right, "ashrtmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
+    } else if (node->op == ">>>" || node->op == ">>>=") {
+        left = toUint32(left);
+        right = toUint32(right);
+        lastValue = builder->CreateLShr(left, right, "lshrtmp");
+        lastValue = castValue(lastValue, builder->getDoubleTy());
     } else if (node->op == "<") {
         if (isDouble) lastValue = builder->CreateFCmpOLT(left, right, "cmptmp");
         else lastValue = builder->CreateICmpSLT(left, right, "cmptmp");
@@ -479,23 +502,42 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 visit(elem->argumentExpression.get());
                 llvm::Value* index = castValue(lastValue, llvm::Type::getInt64Ty(*context));
 
-                llvm::Value* storeVal = val;
-                if (cls->name == "Uint8Array") {
-                    storeVal = toUint32(storeVal);
-                    storeVal = builder->CreateTrunc(storeVal, llvm::Type::getInt8Ty(*context));
-                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt8Ty(*context) }, false);
-                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_u8", setFt);
-                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
-                } else if (cls->name == "Uint32Array") {
-                    storeVal = toUint32(storeVal);
-                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
-                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_u32", setFt);
-                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
-                } else if (cls->name == "Float64Array") {
-                    storeVal = castValue(storeVal, llvm::Type::getDoubleTy(*context));
-                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getDoubleTy(*context) }, false);
-                    llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_typed_array_set_f64", setFt);
-                    createCall(setFt, setFn.getCallee(), { ta, index, storeVal });
+                llvm::Type* llvmElemType = nullptr;
+                if (cls->name == "Uint8Array") llvmElemType = llvm::Type::getInt8Ty(*context);
+                else if (cls->name == "Uint32Array") llvmElemType = llvm::Type::getInt32Ty(*context);
+                else if (cls->name == "Float64Array") llvmElemType = llvm::Type::getDoubleTy(*context);
+
+                if (llvmElemType) {
+                    llvm::StructType* tsTypedArrayType = llvm::StructType::getTypeByName(*context, cls->name);
+                    if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
+
+                    // Bounds check
+                    if (!isSafe) {
+                        llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
+                        llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                        emitBoundsCheck(index, length);
+                    }
+
+                    llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 1);
+                    llvm::Value* bufferPtr = builder->CreateLoad(builder->getPtrTy(), bufferPtrPtr);
+                    
+                    llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
+                    llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 2);
+                    llvm::Value* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
+                    
+                    llvm::Value* ptr = builder->CreateGEP(llvmElemType, dataPtr, { index });
+                    
+                    llvm::Value* storeVal = val;
+                    if (cls->name == "Uint8Array") {
+                        storeVal = toUint32(storeVal);
+                        storeVal = builder->CreateTrunc(storeVal, llvm::Type::getInt8Ty(*context));
+                    } else if (cls->name == "Uint32Array") {
+                        storeVal = toUint32(storeVal);
+                    } else if (cls->name == "Float64Array") {
+                        storeVal = castValue(storeVal, llvm::Type::getDoubleTy(*context));
+                    }
+                    
+                    builder->CreateStore(storeVal, ptr);
                 }
                 lastValue = val;
                 return;
@@ -723,6 +765,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 int fieldIndex = classLayouts[className].fieldIndices[fieldName];
                 llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
                 
+                std::cout << "DEBUG: Assigning to " << className << "." << fieldName << " index=" << fieldIndex << std::endl;
+
                 // We need the type of the field to load it correctly
                 // The field could be in a base class, so we look it up in the layout's allFields
                 std::shared_ptr<Type> fieldType;

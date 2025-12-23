@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -69,12 +70,17 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 2. Second pass: Compute layouts (recursive)
     for (const auto& classType : allClassTypes) {
+        std::cout << "DEBUG: Class " << classType->name << " isStruct=" << classType->isStruct << std::endl;
         std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
             if (classLayouts.count(c->name)) return;
             if (c->baseClass) compute(c->baseClass);
             
             ClassLayout layout;
             if (c->baseClass) layout = classLayouts[c->baseClass->name];
+            else {
+                layout.methodIndices["__get_property"] = 0;
+                layout.allMethods.push_back({"__get_property", nullptr});
+            }
             
             for (const auto& [fname, ftype] : c->fields) {
                 int offset = c->isStruct ? 0 : 1;
@@ -145,6 +151,56 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         }
         classStruct->setBody(fieldTypes);
 
+        // Generate __get_property implementation
+        std::string getPropName = name + "_get_property";
+        llvm::FunctionType* getPropFt = llvm::FunctionType::get(
+            builder->getPtrTy(), 
+            { builder->getPtrTy(), builder->getPtrTy() }, 
+            false
+        );
+        llvm::Function* getPropFunc = llvm::Function::Create(getPropFt, llvm::Function::ExternalLinkage, getPropName, module.get());
+        addStackProtection(getPropFunc);
+
+        {
+            llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+            llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(*context, "entry", getPropFunc);
+            builder->SetInsertPoint(entryBB);
+
+            llvm::Value* objArg = getPropFunc->getArg(0);
+            llvm::Value* keyArg = getPropFunc->getArg(1);
+            llvm::Value* typedObj = builder->CreateBitCast(objArg, llvm::PointerType::getUnqual(classStruct));
+
+            llvm::FunctionCallee strCreateFn = module->getOrInsertFunction("ts_string_create", 
+                llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false));
+            llvm::FunctionCallee strEqFn = module->getOrInsertFunction("ts_string_eq", 
+                llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false));
+            llvm::FunctionCallee makeUndefinedFn = module->getOrInsertFunction("ts_value_make_undefined", 
+                llvm::FunctionType::get(builder->getPtrTy(), {}, false));
+
+            for (const auto& [fname, ftype] : layout.allFields) {
+                llvm::Value* fieldNameStr = builder->CreateGlobalStringPtr(fname);
+                llvm::Value* tsStringKey = builder->CreateCall(strCreateFn, { fieldNameStr });
+                llvm::Value* isEqual = builder->CreateCall(strEqFn, { keyArg, tsStringKey });
+
+                llvm::BasicBlock* matchBB = llvm::BasicBlock::Create(*context, "match_" + fname, getPropFunc);
+                llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "next_" + fname, getPropFunc);
+
+                builder->CreateCondBr(isEqual, matchBB, nextBB);
+                builder->SetInsertPoint(matchBB);
+
+                int fieldIdx = layout.fieldIndices[fname];
+                llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObj, fieldIdx);
+                llvm::Value* fieldVal = builder->CreateLoad(getLLVMType(ftype), fieldPtr);
+                llvm::Value* boxedVal = boxValue(fieldVal, ftype);
+                builder->CreateRet(boxedVal);
+
+                builder->SetInsertPoint(nextBB);
+            }
+            builder->CreateRet(builder->CreateCall(makeUndefinedFn, {}));
+            
+            if (oldBB) builder->SetInsertPoint(oldBB);
+        }
+
         // Define VTable Body: { ParentVTable*, Function Pointers... }
         std::vector<llvm::Type*> vtableFieldTypes;
         std::vector<llvm::Constant*> vtableFuncs;
@@ -170,6 +226,12 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             bool isAbstract = false;
             std::string mangledName;
             std::shared_ptr<FunctionType> actualMethodType = methodType;
+
+            if (methodName == "__get_property") {
+                vtableFieldTypes.push_back(builder->getPtrTy());
+                vtableFuncs.push_back(getPropFunc);
+                continue;
+            }
 
             while (definer) {
                 if (methodName.substr(0, 4) == "get_") {
@@ -411,7 +473,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         const llvm::DataLayout& dl = module->getDataLayout();
         
         llvm::Value* thisPtr;
-        if (classType->isStruct || !node->escapes) {
+        if (classType->isStruct /* || !node->escapes */) {
             llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
             llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
             thisPtr = entryBuilder.CreateAlloca(structType, nullptr, className + "_stack");
@@ -423,7 +485,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 { llvm::Type::getInt64Ty(*context) }, false);
             llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
             
-            llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), dl.getTypeAllocSize(structType));
+            uint64_t size = dl.getTypeAllocSize(structType);
+            std::cout << "DEBUG: Allocating " << className << " size=" << size << std::endl;
+            llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
             llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
             thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
         }

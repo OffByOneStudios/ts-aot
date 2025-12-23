@@ -118,6 +118,7 @@ private:
 
     llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
+    llvm::Value* emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type);
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
@@ -129,6 +130,7 @@ private:
     void collectVariables(ast::Node* node, std::vector<VariableInfo>& vars);
 
     std::map<std::string, llvm::Value*> namedValues;
+    std::map<std::string, llvm::Type*> forcedVariableTypes;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;

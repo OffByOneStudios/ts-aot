@@ -2,6 +2,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsString.h"
+#include "TsBuffer.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -120,15 +121,22 @@ extern "C" {
     }
 
     void* ts_object_get_property(void* obj, void* key) {
+        fprintf(stderr, "ts_object_get_property obj=%p\n", obj);
         if (!obj) return nullptr;
         
-        // Try reading magic at offset 0 (for TsMap which doesn't have a vtable)
+        // Try reading magic at offset 0 (for objects without vtable)
         uint32_t magic0 = *(uint32_t*)obj;
         if (magic0 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsValue val = ((TsMap*)obj)->Get((TsString*)key);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
+        }
+        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+            return nullptr;
+        }
+        if (magic0 == 0x53545247) { // TsString::MAGIC ("STRG")
+            return nullptr;
         }
         
         // Try reading magic at offset 8 (for TsObjects which have a vtable)
@@ -145,6 +153,21 @@ extern "C" {
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
+        }
+        if (magic8 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
+            return nullptr;
+        }
+
+        // If no magic matches, assume it's a generated class with __get_property at vtable[1]
+        void** vtable = *(void***)obj;
+        printf("ts_object_get_property obj=%p vtable=%p\n", obj, vtable);
+        if (vtable) {
+            printf("vtable[1]=%p\n", vtable[1]);
+            typedef TsValue* (*GetPropertyFn)(void*, void*);
+            GetPropertyFn getProp = (GetPropertyFn)vtable[1];
+            if (getProp) {
+                return getProp(obj, key);
+            }
         }
         return nullptr;
     }
@@ -172,6 +195,22 @@ extern "C" {
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
         TsFunctionPtrNoArgs fn = (TsFunctionPtrNoArgs)func->funcPtr;
         return fn(func->context);
+    }
+
+    TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        typedef TsValue* (*Fn1)(void*, TsValue*);
+        Fn1 fn = (Fn1)func->funcPtr;
+        return fn(func->context, arg1);
+    }
+
+    TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
+        Fn2 fn = (Fn2)func->funcPtr;
+        return fn(func->context, arg1, arg2);
     }
 }
 

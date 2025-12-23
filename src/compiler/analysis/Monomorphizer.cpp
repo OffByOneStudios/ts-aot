@@ -13,15 +13,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     std::vector<std::string> moduleInitFunctions;
 
     for (const auto& path : analyzer.moduleOrder) {
-        fmt::print("Processing module: {}\n", path);
+        // fmt::print("Processing module: {}\n", path);
         auto it = analyzer.modules.find(path);
         if (it == analyzer.modules.end()) {
-            fmt::print("Module NOT FOUND in analyzer.modules: {}\n", path);
+            // fmt::print("Module NOT FOUND in analyzer.modules: {}\n", path);
             continue;
         }
         auto module = it->second;
         if (!module->ast) {
-            fmt::print("Module has no AST!\n");
+            // fmt::print("Module has no AST!\n");
             continue;
         }
 
@@ -41,7 +41,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 newBody.push_back(std::move(stmt));
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
-                fmt::print("Moving {} to module init\n", kind);
+                // fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
             }
         }
@@ -55,7 +55,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
-        fmt::print("Module init now has {} statements\n", moduleInit->body.size());
+        // fmt::print("Module init now has {} statements\n", moduleInit->body.size());
         module->ast->body = std::move(newBody);
 
         Specialization spec;
@@ -101,7 +101,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     specializations.push_back(mainSpec);
 
     for (const auto& [name, calls] : usages) {
-        fmt::print("Monomorphizing function: {}\n", name);
+        // fmt::print("Monomorphizing function: {}\n", name);
         ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
         if (!funcNode) continue; // Skip if not a user-defined function (e.g. console.log)
 

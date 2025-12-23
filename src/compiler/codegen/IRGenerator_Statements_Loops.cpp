@@ -24,13 +24,7 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
     }
 
     // Convert condition to bool
-    if (condValue->getType()->isDoubleTy()) {
-        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "whilecond");
-    } else if (condValue->getType()->isIntegerTy(64)) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "whilecond");
-    } else if (condValue->getType()->isPointerTy()) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "whilecond");
-    }
+    condValue = emitToBoolean(condValue, node->condition->inferredType);
 
     builder->CreateCondBr(condValue, loopBB, afterBB);
 
@@ -97,45 +91,6 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 void IRGenerator::visitForStatement(ast::ForStatement* node) {
     llvm::Function* func = builder->GetInsertBlock()->getParent();
 
-    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "forcond", func);
-    llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "forloop");
-    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "forinc");
-    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "forafter");
-
-    // Emit initializer
-    if (node->initializer) {
-        visit(node->initializer.get());
-    }
-
-    // Jump to condition
-    builder->CreateBr(condBB);
-
-    // Emit condition
-    builder->SetInsertPoint(condBB);
-    if (node->condition) {
-        visit(node->condition.get());
-        llvm::Value* condValue = lastValue;
-
-        if (!condValue) {
-            llvm::errs() << "Error: For condition evaluated to null\n";
-            return;
-        }
-
-        // Convert condition to bool
-        if (condValue->getType()->isDoubleTy()) {
-            condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "forcond");
-        } else if (condValue->getType()->isIntegerTy(64)) {
-            condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "forcond");
-        } else if (condValue->getType()->isPointerTy()) {
-            condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(condValue->getType())), "forcond");
-        }
-
-        builder->CreateCondBr(condValue, loopBB, afterBB);
-    } else {
-        // Infinite loop
-        builder->CreateBr(loopBB);
-    }
-
     // Detect for (let i = 0; i < arr.length; i++)
     std::string indexVar;
     std::string arrayVar;
@@ -148,13 +103,6 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
                 bool isZero = false;
                 if (auto lit = dynamic_cast<ast::NumericLiteral*>(varDecl->initializer.get())) {
                     if (lit->value == 0) isZero = true;
-                } else if (varDecl->initializer) {
-                    visit(varDecl->initializer.get());
-                    if (auto constInt = llvm::dyn_cast<llvm::ConstantInt>(lastValue)) {
-                        if (constInt->isZero()) isZero = true;
-                    } else if (auto constFP = llvm::dyn_cast<llvm::ConstantFP>(lastValue)) {
-                        if (constFP->isZero()) isZero = true;
-                    }
                 }
                 
                 if (isZero) {
@@ -166,7 +114,7 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 
     if (!indexVar.empty() && node->condition) {
         if (auto bin = dynamic_cast<ast::BinaryExpression*>(node->condition.get())) {
-            if (bin->op == "<") {
+            if (bin->op == "<" || bin->op == "<=") {
                 if (auto leftId = dynamic_cast<ast::Identifier*>(bin->left.get())) {
                     if (leftId->name == indexVar) {
                         if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(bin->right.get())) {
@@ -191,6 +139,9 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
                                     isSafeLoop = true;
                                 }
                             }
+                        } else if (auto lit = dynamic_cast<ast::NumericLiteral*>(bin->right.get())) {
+                            // Constant bound is also safe for promotion
+                            isSafeLoop = true;
                         }
                     }
                 }
@@ -225,6 +176,49 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
             }
         }
         if (!validIncrement) isSafeLoop = false;
+    }
+
+    // If safe, promote indexVar to i64
+    if (isSafeLoop) {
+        forcedVariableTypes[indexVar] = llvm::Type::getInt64Ty(*context);
+    }
+
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "forcond", func);
+    llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(*context, "forloop");
+    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "forinc");
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "forafter");
+
+    // Emit initializer
+    if (node->initializer) {
+        visit(node->initializer.get());
+    }
+
+    // Clear promotion hint after initializer (it's now in namedValues as an i64 alloca)
+    if (isSafeLoop) {
+        forcedVariableTypes.erase(indexVar);
+    }
+
+    // Jump to condition
+    builder->CreateBr(condBB);
+
+    // Emit condition
+    builder->SetInsertPoint(condBB);
+    if (node->condition) {
+        visit(node->condition.get());
+        llvm::Value* condValue = lastValue;
+
+        if (!condValue) {
+            llvm::errs() << "Error: For condition evaluated to null\n";
+            return;
+        }
+
+        // Convert condition to bool
+        condValue = emitToBoolean(condValue, node->condition->inferredType);
+
+        builder->CreateCondBr(condValue, loopBB, afterBB);
+    } else {
+        // Infinite loop
+        builder->CreateBr(loopBB);
     }
 
     // Push loop info

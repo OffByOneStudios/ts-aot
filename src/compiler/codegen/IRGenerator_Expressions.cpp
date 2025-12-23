@@ -631,6 +631,13 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             if (objType->kind == TypeKind::Map) {
                 visit(prop->expression.get());
                 llvm::Value* mapObj = lastValue;
+                
+                // DEBUG: Print mapObj
+                llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+                llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+                llvm::Value* fmt = builder->CreateGlobalStringPtr("Map method call (Expressions.cpp) target: %p\n");
+                createCall(printfFt, printfFn.getCallee(), { fmt, mapObj });
+
                 std::string methodName = prop->name;
 
                 if (methodName == "set") {

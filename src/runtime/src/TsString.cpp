@@ -50,6 +50,8 @@ TsString::TsString(const char* utf8Str) {
 }
 
 const char* TsString::ToUtf8() {
+    // fprintf(stderr, "ToUtf8 %p isSmall=%d\n", this, isSmall);
+    // fflush(stderr);
     if (isSmall) return data.inlineBuffer;
     if (data.heap.utf8Buffer) return data.heap.utf8Buffer;
     

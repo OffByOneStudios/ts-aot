@@ -77,6 +77,8 @@ void* ts_function_get_ptr(TsValue* val);
 
 int64_t ts_value_get_int(TsValue* v);
 double ts_value_get_double(TsValue* v);
+void* ts_value_get_string(TsValue* v);
+bool ts_value_to_bool(TsValue* v);
 
 // --- Promises ---
 TsValue* ts_promise_all(TsValue* iterable);

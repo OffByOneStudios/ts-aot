@@ -30,26 +30,54 @@ bool operator!=(const TsAllocator<T>&, const TsAllocator<U>&) { return false; }
 // Hash and Equal
 struct TsStringHash {
     std::size_t operator()(TsString* const& s) const {
-        return std::hash<std::string>{}(s->ToUtf8());
+        const char* str = s->ToUtf8();
+        size_t h = 5381;
+        int c;
+        while ((c = *str++))
+            h = ((h << 5) + h) + c;
+        return h;
     }
 };
 
 struct TsStringEqual {
     bool operator()(TsString* const& lhs, TsString* const& rhs) const {
+        // fprintf(stderr, "Equal %p %p\n", lhs, rhs);
         return std::strcmp(lhs->ToUtf8(), rhs->ToUtf8()) == 0;
     }
 };
 
 using MapType = std::unordered_map<TsString*, TsValue, TsStringHash, TsStringEqual, TsAllocator<std::pair<TsString* const, TsValue>>>;
 
+void* TsMap_VTable[2] = { nullptr, nullptr };
+extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
+
 TsMap* TsMap::Create() {
+    fprintf(stderr, "TsMap::Create start\n");
+    fflush(stderr);
     void* mem = ts_alloc(sizeof(TsMap));
-    return new(mem) TsMap();
+    fprintf(stderr, "TsMap allocated at %p\n", mem);
+    fflush(stderr);
+    TsMap* map = new(mem) TsMap();
+    fprintf(stderr, "TsMap constructed\n");
+    fflush(stderr);
+    
+    if (!TsMap_VTable[1]) {
+        TsMap_VTable[1] = (void*)ts_map_get_property;
+    }
+    map->vtable = TsMap_VTable;
+    
+    return map;
 }
 
 TsMap::TsMap() {
+    fprintf(stderr, "TsMap::TsMap start\n");
+    fflush(stderr);
     void* mem = ts_alloc(sizeof(MapType));
+    fprintf(stderr, "MapType allocated at %p\n", mem);
+    fflush(stderr);
     impl = new(mem) MapType();
+    fprintf(stderr, "MapType constructed\n");
+    fflush(stderr);
 }
 
 void TsMap::Set(TsString* key, TsValue value) {
@@ -137,13 +165,27 @@ void TsMap::ForEach(void* callback, void* thisArg) {
 
 extern "C" {
     void* ts_map_create() {
+        fprintf(stderr, "ts_map_create\n");
+        fflush(stderr);
         return TsMap::Create();
     }
 
     void ts_map_set(void* map, void* key, TsValue* value) {
+        fprintf(stderr, "ts_map_set map=%p key=%p value=%p\n", map, key, value);
+        fflush(stderr);
+        if (!map || !key) return;
         ((TsMap*)map)->Set((TsString*)key, *value);
     }
+
     TsValue* ts_map_get(void* map, void* key) {
+        fprintf(stderr, "ts_map_get map=%p key=%p\n", map, key);
+        fflush(stderr);
+        if (!map || !key) {
+             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+             res->type = ValueType::UNDEFINED;
+             return res;
+        }
+        
         TsValue val = ((TsMap*)map)->Get((TsString*)key);
         TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
         *res = val;
@@ -179,5 +221,52 @@ extern "C" {
 
     void ts_map_forEach(void* map, void* callback, void* thisArg) {
         static_cast<TsMap*>(map)->ForEach(callback, thisArg);
+    }
+
+    TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
+        TsString* k = (TsString*)ts_value_get_string(key);
+        ts_map_set(context, k, value);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
+        TsString* k = (TsString*)ts_value_get_string(key);
+        return ts_map_get(context, k);
+    }
+
+    TsValue* ts_map_has_wrapper(void* context, TsValue* key) {
+        TsString* k = (TsString*)ts_value_get_string(key);
+        return ts_value_make_bool(ts_map_has(context, k));
+    }
+
+    TsValue* ts_map_delete_wrapper(void* context, TsValue* key) {
+        TsString* k = (TsString*)ts_value_get_string(key);
+        return ts_value_make_bool(ts_map_delete(context, k));
+    }
+
+    TsValue* ts_map_clear_wrapper(void* context) {
+        ts_map_clear(context);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* ts_map_get_property(void* obj, void* propName) {
+        TsString* prop = (TsString*)propName;
+        const char* name = prop->ToUtf8();
+        
+        if (strcmp(name, "get") == 0) {
+            return ts_value_make_function((void*)ts_map_get_wrapper, obj);
+        } else if (strcmp(name, "set") == 0) {
+            return ts_value_make_function((void*)ts_map_set_wrapper, obj);
+        } else if (strcmp(name, "has") == 0) {
+            return ts_value_make_function((void*)ts_map_has_wrapper, obj);
+        } else if (strcmp(name, "delete") == 0) {
+            return ts_value_make_function((void*)ts_map_delete_wrapper, obj);
+        } else if (strcmp(name, "clear") == 0) {
+            return ts_value_make_function((void*)ts_map_clear_wrapper, obj);
+        } else if (strcmp(name, "size") == 0) {
+            return ts_value_make_int(ts_map_size(obj));
+        }
+        
+        return ts_value_make_undefined();
     }
 }
