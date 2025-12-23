@@ -1,6 +1,6 @@
 # Epic 82: Node.js Benchmarking Suite
 
-**Status:** Planned
+**Status:** Completed
 **Goal:** Create a reproducible, automated benchmarking suite to compare `ts-aot` against Node.js (V8).
 
 ## Background

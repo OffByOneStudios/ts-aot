@@ -4,6 +4,7 @@ import subprocess
 import json
 import shutil
 import argparse
+import re
 
 def run_command(cmd, shell=True, timeout=None, env=None):
     print(f"Running: {cmd}", flush=True)
@@ -27,9 +28,91 @@ def run_command(cmd, shell=True, timeout=None, env=None):
         sys.exit(1)
     
     if result.stderr:
+        # Filter out common LLVM warnings or noise if needed
         print("STDERR:", result.stderr, flush=True)
 
     return result.stdout
+
+def verify_ir(input_ts, ir_text):
+    patterns = []
+    with open(input_ts, 'r') as f:
+        for line in f:
+            # Match // CHECK: pattern or // CHECK-NEXT: pattern
+            match = re.search(r'//\s*(CHECK(?:-NEXT|-NOT|-LABEL)?):\s*(.*)', line)
+            if match:
+                patterns.append((match.group(1), match.group(2).strip()))
+    
+    if not patterns:
+        return True
+
+    print(f"--- Verifying IR ({len(patterns)} patterns) ---", flush=True)
+    
+    ir_lines = ir_text.splitlines()
+    current_line_idx = 0
+    
+    for i, (p_type, p_pattern) in enumerate(patterns):
+        found = False
+        
+        # Support {{regex}} syntax and be flexible with whitespace
+        parts = re.split(r'(\{\{.*?\}\})', p_pattern)
+        regex_parts = []
+        for part in parts:
+            if part.startswith('{{') and part.endswith('}}'):
+                regex_parts.append(part[2:-2])
+            else:
+                escaped = re.escape(part)
+                # Replace escaped spaces with '\s*' to be flexible with IR whitespace
+                escaped = escaped.replace(r'\ ', r'\s*')
+                regex_parts.append(escaped)
+        processed_pattern = "".join(regex_parts)
+        
+        if p_type == 'CHECK' or p_type == 'CHECK-LABEL':
+            for j in range(current_line_idx, len(ir_lines)):
+                if re.search(p_pattern, ir_lines[j]):
+                    current_line_idx = j + 1
+                    found = True
+                    break
+        elif p_type == 'CHECK-NEXT':
+            if current_line_idx < len(ir_lines):
+                if re.search(processed_pattern, ir_lines[current_line_idx]):
+                    current_line_idx += 1
+                    found = True
+                else:
+                    print(f"CHECK-NEXT failed at pattern {i+1}: {p_pattern}")
+                    print(f"  Expected on line {current_line_idx + 1}")
+                    print(f"  Actual line: {ir_lines[current_line_idx].strip()}")
+            else:
+                print(f"CHECK-NEXT failed: End of IR reached")
+        elif p_type == 'CHECK-NOT':
+            # Find the next CHECK/LABEL to define the range
+            end_idx = len(ir_lines)
+            for k in range(i + 1, len(patterns)):
+                if patterns[k][0] in ['CHECK', 'CHECK-LABEL']:
+                    # We need to find where THIS pattern matches to set the end_idx
+                    # But that's recursive. Let's just check until the end for now
+                    # or until the next match of a CHECK pattern.
+                    break
+            
+            for j in range(current_line_idx, end_idx):
+                if re.search(p_pattern, ir_lines[j]):
+                    print(f"CHECK-NOT failed: Found forbidden pattern '{p_pattern}' on line {j+1}")
+                    print(f"  Line: {ir_lines[j].strip()}")
+                    return False
+            found = True # CHECK-NOT "succeeds" if it doesn't find anything
+            
+        if not found:
+            print(f"Verification FAILED: Could not find {p_type}: {p_pattern}")
+            # Print some context
+            start = max(0, current_line_idx - 5)
+            end = min(len(ir_lines), current_line_idx + 10)
+            print("Context (around current position):")
+            for k in range(start, end):
+                prefix = ">>" if k == current_line_idx else "  "
+                print(f"{prefix} {ir_lines[k]}")
+            return False
+            
+    print("Verification SUCCESS", flush=True)
+    return True
 
 def main():
     parser = argparse.ArgumentParser(description="Compile and run a TypeScript file.")
@@ -75,11 +158,14 @@ def main():
 
     # Step 2: Compile to Object Code
     print("--- Step 2: Compile ---", flush=True)
-    compile_cmd = [compiler_exe, json_file, "-o", obj_file, "-d"]
+    compile_cmd = [compiler_exe, json_file, "-o", obj_file, "-d", "--dump-ir"]
     if args.compiler_opts:
         compile_cmd.extend(args.compiler_opts.split())
     compiler_output = run_command(compile_cmd, shell=False, timeout=60)
-    print(compiler_output, flush=True)
+    
+    # Verify IR if patterns exist
+    if not verify_ir(input_ts, compiler_output):
+        sys.exit(1)
 
     # Step 3: Link (using CMake)
     print("--- Step 3: Link ---", flush=True)

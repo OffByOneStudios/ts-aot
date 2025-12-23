@@ -32,6 +32,12 @@ Remove redundant array bounds checks using static analysis.
 
 ### Epic 82: Node.js Benchmarking Suite
 Establish a "Ground Truth" for performance comparison.
-- [ ] **Standardized Benchmarks:** Port Raytracer, Crypto, and HTTP benchmarks to a unified format.
-- [ ] **Automated Runner:** Create a script to run benchmarks in both `ts-aot` and `node`, reporting execution time, memory usage, and P99 latency.
-- [ ] **Performance Regression Tracking:** Ensure new optimizations don't regress existing gains.
+- [x] **Standardized Benchmarks:** Port Raytracer, Crypto, and HTTP benchmarks to a unified format.
+- [x] **Automated Runner:** Create a script to run benchmarks in both `ts-aot` and `node`, reporting execution time, memory usage, and P99 latency.
+- [x] **Performance Regression Tracking:** Ensure new optimizations don't regress existing gains.
+
+### Epic 83: IR Verification & Regression Guard
+Ensure optimizations stay active and don't silently regress.
+- [ ] **LLVM FileCheck:** Implement embedded IR assertions in TypeScript tests.
+- [ ] **Type Snapshots:** Lock down the Analyzer's inference logic.
+- [ ] **Optimization Guards:** Verify that critical paths (like SHA-256) remain specialized.
