@@ -165,7 +165,7 @@ function visit(node) {
                 isDefaultExport: isDefaultExport(node),
                 isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
-                returnType: node.type ? node.type.getText(currentSourceFile) : "any",
+                returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 parameters: node.parameters.map(visitParameter),
                 body: visitBlock(node.body)
             };
@@ -216,7 +216,7 @@ function visit(node) {
             return {
                 kind: "PropertyDefinition",
                 name: node.name.text,
-                type: node.type ? node.type.getText(currentSourceFile) : "any",
+                type: node.type ? node.type.getText(currentSourceFile) : "",
                 initializer: node.initializer ? visit(node.initializer) : null,
                 access: getAccessModifier(node),
                 isStatic: isStatic(node),
@@ -232,7 +232,7 @@ function visit(node) {
                 isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
                 parameters: node.parameters.map(visitParameter),
-                returnType: node.type ? node.type.getText(currentSourceFile) : "any",
+                returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 body: node.body ? visitBlock(node.body) : [],
                 hasBody: !!node.body,
                 access: getAccessModifier(node),
@@ -258,7 +258,7 @@ function visit(node) {
                 kind: "VariableDeclaration",
                 name: visit(decl.name),
                 isExported: isExported(node),
-                type: decl.type ? decl.type.getText(currentSourceFile) : "any",
+                type: decl.type ? decl.type.getText(currentSourceFile) : "",
                 initializer: decl.initializer ? visit(decl.initializer) : null
             };
         case ts.SyntaxKind.ObjectBindingPattern:
@@ -535,7 +535,7 @@ function visit(node) {
                 name: node.name ? node.name.text : null,
                 isAsync: isAsync(node),
                 typeParameters: getTypeParameters(node),
-                returnType: node.type ? node.type.getText(currentSourceFile) : "any",
+                returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 parameters: node.parameters.map(visitParameter),
                 body: visitBlock(node.body)
             };
@@ -621,7 +621,7 @@ function visitParameter(p) {
         return {
             kind: "Parameter",
             name: visit(p.name),
-            type: p.type ? p.type.getText(currentSourceFile) : "any",
+            type: p.type ? p.type.getText(currentSourceFile) : "",
             isOptional: !!p.questionToken || !!p.initializer,
             isRest: !!p.dotDotDotToken,
             initializer: p.initializer ? visit(p.initializer) : null,

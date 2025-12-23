@@ -8,7 +8,7 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [
         {
           "kind": "Parameter",
@@ -766,7 +766,7 @@
                 "name": "len"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "CallExpression",
                 "callee": {
@@ -991,7 +991,7 @@
                 "name": "oc"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "CallExpression",
                 "callee": {
@@ -1030,7 +1030,7 @@
                 "name": "a"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "CallExpression",
                 "callee": {
@@ -1069,7 +1069,7 @@
                 "name": "b"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "BinaryExpression",
                 "operator": "*",
@@ -1112,7 +1112,7 @@
                 "name": "c"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "BinaryExpression",
                 "operator": "-",
@@ -1167,7 +1167,7 @@
                 "name": "discriminant"
               },
               "isExported": false,
-              "type": "any",
+              "type": "",
               "initializer": {
                 "kind": "BinaryExpression",
                 "operator": "-",
@@ -1315,7 +1315,7 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [],
       "body": [
         {
@@ -1325,7 +1325,7 @@
             "name": "width"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NumericLiteral",
             "value": 200
@@ -1338,7 +1338,7 @@
             "name": "height"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NumericLiteral",
             "value": 100
@@ -1621,7 +1621,7 @@
             "name": "origin"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NewExpression",
             "expression": {
@@ -1652,7 +1652,7 @@
             "name": "checksum"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NumericLiteral",
             "value": 0
@@ -1737,7 +1737,7 @@
                         "name": "u"
                       },
                       "isExported": false,
-                      "type": "any",
+                      "type": "",
                       "initializer": {
                         "kind": "BinaryExpression",
                         "operator": "/",
@@ -1777,7 +1777,7 @@
                         "name": "v"
                       },
                       "isExported": false,
-                      "type": "any",
+                      "type": "",
                       "initializer": {
                         "kind": "BinaryExpression",
                         "operator": "/",
@@ -1817,7 +1817,7 @@
                         "name": "dir"
                       },
                       "isExported": false,
-                      "type": "any",
+                      "type": "",
                       "initializer": {
                         "kind": "CallExpression",
                         "callee": {
@@ -1866,7 +1866,7 @@
                         "name": "ray"
                       },
                       "isExported": false,
-                      "type": "any",
+                      "type": "",
                       "initializer": {
                         "kind": "NewExpression",
                         "expression": {
@@ -1893,7 +1893,7 @@
                         "name": "closestT"
                       },
                       "isExported": false,
-                      "type": "any",
+                      "type": "",
                       "initializer": {
                         "kind": "NumericLiteral",
                         "value": 1000000
@@ -1958,7 +1958,7 @@
                               "name": "t"
                             },
                             "isExported": false,
-                            "type": "any",
+                            "type": "",
                             "initializer": {
                               "kind": "CallExpression",
                               "callee": {
@@ -2150,7 +2150,7 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [],
       "body": [
         {
@@ -2160,7 +2160,7 @@
             "name": "iterations"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NumericLiteral",
             "value": 100
@@ -2245,7 +2245,7 @@
             "name": "start"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "CallExpression",
             "callee": {
@@ -2267,7 +2267,7 @@
             "name": "totalChecksum"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "NumericLiteral",
             "value": 0
@@ -2339,7 +2339,7 @@
             "name": "end"
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "CallExpression",
             "callee": {

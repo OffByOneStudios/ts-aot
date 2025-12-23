@@ -1,0 +1,1446 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "ListNode",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "key",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "value",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "prev",
+          "type": "ListNode | null",
+          "initializer": {
+            "kind": "NullLiteral"
+          },
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "next",
+          "type": "ListNode | null",
+          "initializer": {
+            "kind": "NullLiteral"
+          },
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "key"
+              },
+              "type": "string",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "value"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "key"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "key"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "value"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "value"
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false
+    },
+    {
+      "kind": "ClassDeclaration",
+      "name": "LRUCache",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "capacity",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "map",
+          "type": "Map<string, ListNode>",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "head",
+          "type": "any",
+          "initializer": {
+            "kind": "NullLiteral"
+          },
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "tail",
+          "type": "any",
+          "initializer": {
+            "kind": "NullLiteral"
+          },
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "capacity"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "capacity"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "capacity"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "map"
+                },
+                "right": {
+                  "kind": "NewExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Map"
+                  },
+                  "arguments": [],
+                  "typeArguments": [
+                    "string",
+                    "ListNode"
+                  ]
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "public"
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "get",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "key"
+              },
+              "type": "string",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "map"
+                  },
+                  "name": "get"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "key"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "moveToHead"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "Identifier",
+                          "name": "node"
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  },
+                  {
+                    "kind": "ReturnStatement",
+                    "expression": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "node"
+                      },
+                      "name": "value"
+                    }
+                  }
+                ]
+              },
+              "elseStatement": null
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PrefixUnaryExpression",
+                "operator": "-",
+                "operand": {
+                  "kind": "NumericLiteral",
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "put",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "key"
+              },
+              "type": "string",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "value"
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "this"
+                    },
+                    "name": "map"
+                  },
+                  "name": "get"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "key"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "node"
+                        },
+                        "name": "value"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "value"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "node"
+                      },
+                      "right": {
+                        "kind": "NewExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "ListNode"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "key"
+                          },
+                          {
+                            "kind": "Identifier",
+                            "name": "value"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  },
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "this"
+                          },
+                          "name": "map"
+                        },
+                        "name": "set"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "Identifier",
+                          "name": "key"
+                        },
+                        {
+                          "kind": "Identifier",
+                          "name": "node"
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  },
+                  {
+                    "kind": "IfStatement",
+                    "condition": {
+                      "kind": "BinaryExpression",
+                      "operator": ">",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "this"
+                          },
+                          "name": "map"
+                        },
+                        "name": "size"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "capacity"
+                      }
+                    },
+                    "thenStatement": {
+                      "kind": "BlockStatement",
+                      "body": [
+                        {
+                          "kind": "VariableDeclaration",
+                          "name": {
+                            "kind": "Identifier",
+                            "name": "removed"
+                          },
+                          "isExported": false,
+                          "type": "any",
+                          "initializer": {
+                            "kind": "CallExpression",
+                            "callee": {
+                              "kind": "PropertyAccessExpression",
+                              "expression": {
+                                "kind": "Identifier",
+                                "name": "this"
+                              },
+                              "name": "removeTail"
+                            },
+                            "arguments": [],
+                            "typeArguments": []
+                          }
+                        },
+                        {
+                          "kind": "IfStatement",
+                          "condition": {
+                            "kind": "Identifier",
+                            "name": "removed"
+                          },
+                          "thenStatement": {
+                            "kind": "BlockStatement",
+                            "body": [
+                              {
+                                "kind": "ExpressionStatement",
+                                "expression": {
+                                  "kind": "CallExpression",
+                                  "callee": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "PropertyAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "this"
+                                      },
+                                      "name": "map"
+                                    },
+                                    "name": "delete"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "kind": "PropertyAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "removed"
+                                      },
+                                      "name": "key"
+                                    }
+                                  ],
+                                  "typeArguments": []
+                                }
+                              }
+                            ]
+                          },
+                          "elseStatement": null
+                        }
+                      ]
+                    },
+                    "elseStatement": null
+                  }
+                ]
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "addToHead",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "type": "ListNode",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "node"
+                  },
+                  "name": "next"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "head"
+                }
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "node"
+                  },
+                  "name": "prev"
+                },
+                "right": {
+                  "kind": "NullLiteral"
+                }
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this"
+                },
+                "name": "head"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "this"
+                          },
+                          "name": "head"
+                        },
+                        "name": "prev"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "node"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": null
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "head"
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "node"
+                }
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "PrefixUnaryExpression",
+                "operator": "!",
+                "operand": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "tail"
+                }
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "tail"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "node"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": null
+            }
+          ],
+          "hasBody": true,
+          "access": "private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "removeNode",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "type": "ListNode",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "node"
+                },
+                "name": "prev"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "node"
+                          },
+                          "name": "prev"
+                        },
+                        "name": "next"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "node"
+                        },
+                        "name": "next"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "head"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "node"
+                        },
+                        "name": "next"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "node"
+                },
+                "name": "next"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "node"
+                          },
+                          "name": "next"
+                        },
+                        "name": "prev"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "node"
+                        },
+                        "name": "prev"
+                      }
+                    }
+                  }
+                ]
+              },
+              "elseStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "AssignmentExpression",
+                      "left": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "tail"
+                      },
+                      "right": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "node"
+                        },
+                        "name": "prev"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "moveToHead",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "type": "ListNode",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "removeNode"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "node"
+                  }
+                ],
+                "typeArguments": []
+              }
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this"
+                  },
+                  "name": "addToHead"
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "node"
+                  }
+                ],
+                "typeArguments": []
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "removeTail",
+          "isAsync": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "ListNode | null",
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "isExported": false,
+              "type": "any",
+              "initializer": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this"
+                },
+                "name": "tail"
+              }
+            },
+            {
+              "kind": "IfStatement",
+              "condition": {
+                "kind": "Identifier",
+                "name": "node"
+              },
+              "thenStatement": {
+                "kind": "BlockStatement",
+                "body": [
+                  {
+                    "kind": "ExpressionStatement",
+                    "expression": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "this"
+                        },
+                        "name": "removeNode"
+                      },
+                      "arguments": [
+                        {
+                          "kind": "Identifier",
+                          "name": "node"
+                        }
+                      ],
+                      "typeArguments": []
+                    }
+                  }
+                ]
+              },
+              "elseStatement": null
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "Identifier",
+                "name": "node"
+              }
+            }
+          ],
+          "hasBody": true,
+          "access": "private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "runBenchmark",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "capacity"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1000
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "iterations"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 1000000
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "cache"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "LRUCache"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "capacity"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "start"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "iterations"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "key"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "key_"
+                  },
+                  "right": {
+                    "kind": "ParenthesizedExpression",
+                    "expression": {
+                      "kind": "BinaryExpression",
+                      "operator": "%",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "i"
+                      },
+                      "right": {
+                        "kind": "ParenthesizedExpression",
+                        "expression": {
+                          "kind": "BinaryExpression",
+                          "operator": "*",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "capacity"
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "IfStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "===",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "%",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i"
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 3
+                    }
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 0
+                  }
+                },
+                "thenStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "cache"
+                          },
+                          "name": "put"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "key"
+                          },
+                          {
+                            "kind": "Identifier",
+                            "name": "i"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                },
+                "elseStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "cache"
+                          },
+                          "name": "get"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "key"
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "end"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "LRU Cache Benchmark: "
+                  },
+                  "right": {
+                    "kind": "ParenthesizedExpression",
+                    "expression": {
+                      "kind": "BinaryExpression",
+                      "operator": "-",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "end"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "start"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "ms"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "runBenchmark"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

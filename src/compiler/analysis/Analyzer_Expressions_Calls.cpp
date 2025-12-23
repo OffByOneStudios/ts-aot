@@ -2,6 +2,7 @@
 #include "Monomorphizer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -23,6 +24,14 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     // 2. Evaluate callee
     visit(node->callee.get());
     auto calleeType = lastType;
+
+    std::string calleeName;
+    if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+        calleeName = id->name;
+    } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        calleeName = prop->name;
+    }
+    fprintf(stderr, "Analyzer::visitCallExpression: %s\n", calleeName.c_str());
     
     // Check for property access calls (methods)
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
@@ -305,7 +314,6 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
-    std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
     } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
@@ -342,8 +350,10 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments});
     }
     
-    // For now, assume calls return Any unless we know better
-    lastType = std::make_shared<Type>(TypeKind::Any);
+    // If we haven't determined a more specific type, default to Any
+    if (!lastType) {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+    }
 }
 
 void Analyzer::visitNewExpression(ast::NewExpression* node) {

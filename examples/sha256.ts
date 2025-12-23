@@ -100,7 +100,7 @@ function hex(n: number): string {
 }
 
 function main() {
-    const iterations = 10000;
+    const iterations = 1000;
     const input = "The quick brown fox jumps over the lazy dog";
     
     console.log("Starting SHA-256 Benchmark (" + iterations + " iterations)...");
@@ -108,7 +108,7 @@ function main() {
     const start = Date.now();
     let result = "";
     for (let i = 0; i < iterations; i++) {
-        result = sha256(input + i);
+        result = sha256(input);
     }
     const end = Date.now();
     

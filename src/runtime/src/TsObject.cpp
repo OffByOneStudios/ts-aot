@@ -19,8 +19,7 @@ TsValue* ts_value_make_undefined() {
     return v;
 }
 
-extern "C" {
-    TsValue* ts_value_make_int(int64_t i) {
+TsValue* ts_value_make_int(int64_t i) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::NUMBER_INT;
         v->i_val = i;
@@ -213,5 +212,3 @@ extern "C" {
         return fn(func->context, arg1, arg2);
     }
 }
-
-} // extern "C"

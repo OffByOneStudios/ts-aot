@@ -7,8 +7,6 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
-    symbols.enterScope();
-
     auto funcType = std::make_shared<FunctionType>();
     funcType->node = node;
     
@@ -276,7 +274,6 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 }
 
 void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
-    std::cerr << "Visiting arrow function, async: " << node->isAsync << std::endl;
     auto funcType = std::make_shared<FunctionType>();
     
     symbols.enterScope();
@@ -328,8 +325,6 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
 }
 
 void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
-    std::cerr << "Visiting function expression: " << (node->name.empty() ? "anonymous" : node->name) << std::endl;
-    
     auto funcType = std::make_shared<FunctionType>();
     funcType->node = node;
 

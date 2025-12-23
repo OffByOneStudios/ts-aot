@@ -6,10 +6,24 @@ namespace ts {
 using namespace ast;
 void Analyzer::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     visit(node->operand.get());
+    if (node->op == "!") {
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "~") {
+        lastType = std::make_shared<Type>(TypeKind::Int);
+    } else if (node->op == "typeof") {
+        lastType = std::make_shared<Type>(TypeKind::String);
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Double);
+    }
 }
 
 void Analyzer::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
     visit(node->operand.get());
+    if (lastType && lastType->kind == TypeKind::Int) {
+        // Keep as Int
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Double);
+    }
 }
 
 void Analyzer::visitAsExpression(ast::AsExpression* node) {

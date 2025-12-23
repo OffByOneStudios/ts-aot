@@ -100,41 +100,40 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     mainSpec.node = userMain.get();
     specializations.push_back(mainSpec);
 
-    for (const auto& [name, calls] : usages) {
-        // fmt::print("Monomorphizing function: {}\n", name);
-        ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
-        if (!funcNode) continue; // Skip if not a user-defined function (e.g. console.log)
+    std::set<std::string> processedSpecializations;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        auto currentUsages = analyzer.getFunctionUsages(); // Copy the map to avoid iterator invalidation
 
-        // Deduplicate signatures
-        struct Sig {
-            std::vector<std::shared_ptr<Type>> argTypes;
-            std::vector<std::shared_ptr<Type>> typeArguments;
-        };
-        std::map<std::string, Sig> uniqueSignatures;
+        for (const auto& [name, calls] : currentUsages) {
+            ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
+            if (!funcNode) continue;
 
-        for (const auto& call : calls) {
-            std::string mangled = generateMangledName(name, call.argTypes, call.typeArguments);
-            uniqueSignatures[mangled] = {call.argTypes, call.typeArguments};
-        }
+            for (const auto& call : calls) {
+                std::string mangled = generateMangledName(name, call.argTypes, call.typeArguments);
+                if (processedSpecializations.count(mangled)) continue;
+                
+                processedSpecializations.insert(mangled);
+                changed = true;
 
-        for (const auto& [mangled, sig] : uniqueSignatures) {
-            Specialization spec;
-            spec.originalName = name;
-            spec.specializedName = mangled;
-            
-            // Rename main to avoid conflict with C main
-            if (spec.specializedName == "main") {
-                spec.specializedName = "__ts_main";
+                Specialization spec;
+                spec.originalName = name;
+                spec.specializedName = mangled;
+                
+                if (spec.specializedName == "main") {
+                    spec.specializedName = "__ts_main";
+                }
+
+                spec.argTypes = call.argTypes;
+                spec.typeArguments = call.typeArguments;
+                spec.node = funcNode;
+                
+                // Infer return type - this might record NEW usages in analyzer.functionUsages
+                spec.returnType = analyzer.analyzeFunctionBody(funcNode, call.argTypes, call.typeArguments);
+                
+                specializations.push_back(spec);
             }
-
-            spec.argTypes = sig.argTypes;
-            spec.typeArguments = sig.typeArguments;
-            spec.node = funcNode;
-            
-            // Infer return type
-            spec.returnType = analyzer.analyzeFunctionBody(funcNode, sig.argTypes, sig.typeArguments);
-            
-            specializations.push_back(spec);
         }
     }
 
@@ -205,7 +204,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             
                             if (method->name == "constructor" && !ct->constructorOverloads.empty()) {
                                 auto ctorType = ct->constructorOverloads[0];
-                                fmt::print("Monomorphizer: Adding {} params to constructor {}\n", ctorType->paramTypes.size(), spec.specializedName);
                                 spec.argTypes.insert(spec.argTypes.end(), 
                                     ctorType->paramTypes.begin(), ctorType->paramTypes.end());
                                 spec.returnType = std::make_shared<Type>(TypeKind::Void);
@@ -251,7 +249,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         for (const auto& [key, typeArgs] : uniqueInstances) {
             std::string mangled = generateMangledName(name, {}, typeArgs);
-            fmt::print("Monomorphizer: Specializing class {} as {}\n", name, mangled);
             
             // Specialize the class type
             auto specializedClass = analyzer.analyzeClassBody(classNode, typeArgs);

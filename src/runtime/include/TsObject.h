@@ -58,4 +58,7 @@ extern "C" {
     TsValue* ts_value_make_promise(void* promise);
     TsValue* ts_value_make_array(void* arr);
     TsValue* ts_value_make_function(void* funcPtr, void* context);
+    TsValue* ts_call_0(TsValue* boxedFunc);
+    TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
+    TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
 }

@@ -5,7 +5,11 @@
 namespace ts {
 using namespace ast;
 void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
-    lastType = std::make_shared<Type>(TypeKind::Double);
+    if (node->value == (int64_t)node->value) {
+        lastType = std::make_shared<Type>(TypeKind::Int);
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Double);
+    }
 }
 
 void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {

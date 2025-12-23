@@ -8,7 +8,7 @@
         "name": "n"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "NumericLiteral",
         "value": 255
@@ -126,7 +126,7 @@
         "name": "f"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "NumericLiteral",
         "value": 1.23456
@@ -244,7 +244,7 @@
         "name": "neg"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "PrefixUnaryExpression",
         "operator": "-",

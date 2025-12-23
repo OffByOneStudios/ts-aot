@@ -9,16 +9,16 @@ To claim "production-grade" performance, we need a direct comparison with the in
 ## Action Items
 
 ### Milestone 1: Benchmark Suite Development
-- [ ] **SHA-256 (Numeric/Bitwise):** Implement pure TS SHA-256 to test `Uint32Array` and bitwise ops.
-- [ ] **LRU Cache (Collections):** Implement a Map-based LRU cache to test `TsMap` and GC.
-- [ ] **JSON Transformer (Strings/JSON):** Parse, modify, and stringify large JSON objects.
-- [ ] **Data Pipeline (HOFs):** Use `map/filter/reduce` on large datasets to test closures and calls.
-- [ ] **Async Ping-Pong (Event Loop):** Stress `Promises` and `libuv` integration.
+- [x] **SHA-256 (Numeric/Bitwise):** Implement pure TS SHA-256 to test `Uint32Array` and bitwise ops.
+- [x] **LRU Cache (Collections):** Implement a Map-based LRU cache to test `TsMap` and GC.
+- [x] **JSON Transformer (Strings/JSON):** Parse, modify, and stringify large JSON objects.
+- [x] **Data Pipeline (HOFs):** Use `map/filter/reduce` on large datasets to test closures and calls.
+- [x] **Async Ping-Pong (Event Loop):** Stress `Promises` and `libuv` integration.
 
 ### Milestone 2: Automated Runner
-- [ ] Create `scripts/benchmark_compare.py`.
+- [x] Create `scripts/benchmark_compare.py`.
 - [ ] Support flags for `--compiler-opts` (to test different `ts-aot` levels) and `--node-opts`.
-- [ ] Generate a comparison table (Execution Time, Memory, Speedup/Slowdown).
+- [x] Generate a comparison table (Execution Time, Memory, Speedup/Slowdown).
 
 ### Milestone 3: Standardization & CI
 - [ ] Ensure all benchmarks run unmodified in both `ts-aot` and `node`.

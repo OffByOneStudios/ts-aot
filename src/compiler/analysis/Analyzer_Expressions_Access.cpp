@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -19,6 +20,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     auto sym = symbols.lookup(node->name);
     if (sym) {
         lastType = sym->type;
+        fprintf(stderr, "  Lookup %s: %s\n", node->name.c_str(), lastType->toString().c_str());
     } else {
         // Check if it's a class name
         auto type = symbols.lookupType(node->name);
@@ -76,6 +78,15 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
     auto arrayType = std::dynamic_pointer_cast<ArrayType>(objType);
     if (arrayType) {
         lastType = arrayType->elementType;
+    } else if (objType->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(objType);
+        if (cls->name == "Uint8Array" || cls->name == "Uint32Array") {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+        } else if (cls->name == "Float64Array") {
+            lastType = std::make_shared<Type>(TypeKind::Double);
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
     } else {
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
@@ -123,9 +134,12 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
     
-    if (node->name == "length" && (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple)) {
-        lastType = std::make_shared<Type>(TypeKind::Int);
-        return;
+    if (node->name == "length") {
+        std::cerr << "  Accessing .length on type: " << objType->toString() << std::endl;
+        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
+            lastType = std::make_shared<Type>(TypeKind::Int);
+            return;
+        }
     }
 
     if (objType->kind == TypeKind::Int || objType->kind == TypeKind::Double) {

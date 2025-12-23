@@ -11,6 +11,7 @@ namespace ts {
 
 using namespace ast;
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
+    fprintf(stderr, "Analyzer::analyze starting for %s\n", path.c_str());
     currentFilePath = fs::absolute(path).string();
     auto mainModule = std::make_shared<Module>();
     mainModule->path = currentFilePath;

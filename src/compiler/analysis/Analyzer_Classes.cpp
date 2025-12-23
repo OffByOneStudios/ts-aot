@@ -86,7 +86,6 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
                             auto fieldType = parseType(param->type, symbols);
                             classType->fields[id->name] = fieldType;
                             classType->fieldAccess[id->name] = param->access;
-                            fmt::print("DEBUG: Registered parameter property {} on class {}\n", id->name, classType->name);
                             if (param->isReadonly) {
                                 classType->readonlyFields.insert(id->name);
                             }

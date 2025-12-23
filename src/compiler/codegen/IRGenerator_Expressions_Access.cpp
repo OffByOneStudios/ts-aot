@@ -129,7 +129,11 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
                 
                 lastValue = builder->CreateLoad(llvmElemType, ptr);
                 if (cls->name != "Float64Array") {
-                    lastValue = builder->CreateUIToFP(lastValue, llvm::Type::getDoubleTy(*context));
+                    if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+                        lastValue = builder->CreateIntCast(lastValue, llvm::Type::getInt64Ty(*context), false);
+                    } else {
+                        lastValue = builder->CreateUIToFP(lastValue, llvm::Type::getDoubleTy(*context));
+                    }
                 }
                 return;
             }
@@ -617,32 +621,6 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             if (fieldType) {
                 lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
                 
-                // DEBUG: Print loaded value to stderr
-                llvm::FunctionType* fprintfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, true);
-                llvm::FunctionCallee fprintfFn = module->getOrInsertFunction("fprintf", fprintfFt);
-                
-                // Get stderr
-                llvm::FunctionCallee getStderr = module->getOrInsertFunction("__acrt_iob_func", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt32Ty(*context) }, false));
-                llvm::Value* stderrVal = createCall(getStderr.getFunctionType(), getStderr.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 2) });
-
-                llvm::Value* fmt = builder->CreateGlobalStringPtr("DEBUG: Loaded field %s: %p\n");
-                llvm::Value* nameVal = builder->CreateGlobalStringPtr(fieldName);
-                
-                llvm::Value* valToPrint = lastValue;
-                if (valToPrint->getType()->isPointerTy()) {
-                     createCall(fprintfFt, fprintfFn.getCallee(), { stderrVal, fmt, nameVal, valToPrint });
-                } else {
-                     llvm::Value* fmtNotPtr = builder->CreateGlobalStringPtr("DEBUG: Loaded field %s: (not a pointer)\n");
-                     createCall(fprintfFt, fprintfFn.getCallee(), { stderrVal, fmtNotPtr, nameVal });
-                }
-
-                if (fieldName == "map") {
-                     llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-                     llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-                     llvm::Value* fmt = builder->CreateGlobalStringPtr("Loaded map: %p\n");
-                     createCall(printfFt, printfFn.getCallee(), { fmt, lastValue });
-                }
-
                 if (fieldType->kind == TypeKind::Class) {
                     concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(fieldType).get();
                 }

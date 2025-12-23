@@ -50,7 +50,11 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     } else if (node->op == "~") {
         operandV = toInt32(operandV);
         lastValue = builder->CreateNot(operandV, "bitnot");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     }
 }
 

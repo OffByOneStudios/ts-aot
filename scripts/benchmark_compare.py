@@ -20,16 +20,15 @@ def run_command(cmd, cwd=None, shell=False, capture=True):
 def extract_time(output):
     if not output:
         return None
-    # Look for "Benchmark: Xms" or "Total Time: Xms"
+    # Look for "Benchmark: Xms", "Total Time: Xms", or "Average Time: Xms"
     for line in output.splitlines():
-        if "Benchmark:" in line and "ms" in line:
+        if any(k in line for k in ["Benchmark:", "Total Time:", "Average Time:"]) and "ms" in line:
             try:
-                return float(line.split(":")[1].strip().replace("ms", ""))
-            except:
-                pass
-        if "Total Time:" in line and "ms" in line:
-            try:
-                return float(line.split(":")[1].strip().replace("ms", ""))
+                # Handle cases like "Average Time: 7.15ms"
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    val = parts[1].strip().replace("ms", "")
+                    return float(val)
             except:
                 pass
     return None
@@ -39,6 +38,8 @@ def main():
     parser.add_argument("--benchmarks", nargs="+", help="Specific benchmarks to run.")
     parser.add_argument("--config", default="Release", choices=["Debug", "Release"], help="Build configuration.")
     parser.add_argument("--iterations", type=int, default=1, help="Number of iterations to run.")
+    parser.add_argument("--compiler-opts", default="", help="Extra options for ts-aot (e.g., '-O3').")
+    parser.add_argument("--node-opts", default="", help="Extra options for Node.js.")
     args = parser.parse_known_args()[0]
 
     all_benchmarks = [
@@ -86,8 +87,13 @@ def main():
         
         node_times = []
         if os.path.exists(js_file):
+            node_cmd = ["node"]
+            if args.node_opts:
+                node_cmd.extend(args.node_opts.split())
+            node_cmd.append(js_file)
+            
             for _ in range(args.iterations):
-                node_output = run_command(["node", js_file])
+                node_output = run_command(node_cmd)
                 t = extract_time(node_output)
                 if t is not None: node_times.append(t)
         
@@ -97,7 +103,11 @@ def main():
         aot_times = []
         # test_runner.py handles compilation and linking
         runner_path = os.path.abspath("scripts/test_runner.py")
-        compile_output = run_command([sys.executable, runner_path, ts_file, "--config", args.config], shell=False)
+        runner_cmd = [sys.executable, runner_path, ts_file, "--config", args.config]
+        if args.compiler_opts:
+            runner_cmd.append(f"--compiler-opts={args.compiler_opts}")
+            
+        compile_output = run_command(runner_cmd, shell=False)
         
         # Try to extract time from test_runner output first
         t = extract_time(compile_output)

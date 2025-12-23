@@ -19,7 +19,7 @@
         "name": "server"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "CallExpression",
         "callee": {

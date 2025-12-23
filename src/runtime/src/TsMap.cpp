@@ -52,14 +52,8 @@ void* TsMap_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 
 TsMap* TsMap::Create() {
-    fprintf(stderr, "TsMap::Create start\n");
-    fflush(stderr);
     void* mem = ts_alloc(sizeof(TsMap));
-    fprintf(stderr, "TsMap allocated at %p\n", mem);
-    fflush(stderr);
     TsMap* map = new(mem) TsMap();
-    fprintf(stderr, "TsMap constructed\n");
-    fflush(stderr);
     
     if (!TsMap_VTable[1]) {
         TsMap_VTable[1] = (void*)ts_map_get_property;
@@ -70,14 +64,8 @@ TsMap* TsMap::Create() {
 }
 
 TsMap::TsMap() {
-    fprintf(stderr, "TsMap::TsMap start\n");
-    fflush(stderr);
     void* mem = ts_alloc(sizeof(MapType));
-    fprintf(stderr, "MapType allocated at %p\n", mem);
-    fflush(stderr);
     impl = new(mem) MapType();
-    fprintf(stderr, "MapType constructed\n");
-    fflush(stderr);
 }
 
 void TsMap::Set(TsString* key, TsValue value) {
@@ -165,21 +153,15 @@ void TsMap::ForEach(void* callback, void* thisArg) {
 
 extern "C" {
     void* ts_map_create() {
-        fprintf(stderr, "ts_map_create\n");
-        fflush(stderr);
         return TsMap::Create();
     }
 
     void ts_map_set(void* map, void* key, TsValue* value) {
-        fprintf(stderr, "ts_map_set map=%p key=%p value=%p\n", map, key, value);
-        fflush(stderr);
         if (!map || !key) return;
         ((TsMap*)map)->Set((TsString*)key, *value);
     }
 
     TsValue* ts_map_get(void* map, void* key) {
-        fprintf(stderr, "ts_map_get map=%p key=%p\n", map, key);
-        fflush(stderr);
         if (!map || !key) {
              TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
              res->type = ValueType::UNDEFINED;
