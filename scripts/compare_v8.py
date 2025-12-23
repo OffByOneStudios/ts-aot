@@ -22,9 +22,11 @@ def main():
     # Ensure build is up to date
     subprocess.run(["cmake", "--build", "build", "--config", "Release"])
     
+    compiler_exe = os.path.abspath("build/src/compiler/Release/ts-aot.exe")
+    
     start_time = time.time()
-    # test_runner.py handles AST dumping, compilation, linking, and execution
-    aot_output = run_command([sys.executable, "scripts/test_runner.py", ts_file, "--config", "Release"])
+    # ts-aot handles AST dumping, compilation, and linking
+    aot_output = run_command([compiler_exe, ts_file, "-o", f"{base_name}.exe", "-r"])
     aot_time = time.time() - start_time
     print(aot_output)
     

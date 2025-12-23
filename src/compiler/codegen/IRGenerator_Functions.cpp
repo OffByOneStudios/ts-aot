@@ -67,17 +67,25 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         if (!function->empty()) continue;
 
         bool isAsync = false;
+        bool isGenerator = false;
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
             isAsync = funcNode->isAsync;
+            isGenerator = funcNode->isGenerator;
         } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
             isAsync = methodNode->isAsync;
+            isGenerator = methodNode->isGenerator;
+        } else if (auto arrowNode = dynamic_cast<ast::ArrowFunction*>(spec.node)) {
+            isAsync = arrowNode->isAsync;
+        } else if (auto funcExpr = dynamic_cast<ast::FunctionExpression*>(spec.node)) {
+            isAsync = funcExpr->isAsync;
+            isGenerator = funcExpr->isGenerator;
         }
 
         if (verbose) {
-            llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << "\n";
+            llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << " isGenerator: " << isGenerator << "\n";
         }
 
-        if (isAsync) {
+        if (isAsync || isGenerator) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);
             continue;
         }

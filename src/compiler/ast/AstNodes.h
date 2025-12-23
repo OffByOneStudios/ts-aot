@@ -70,6 +70,7 @@ struct ConditionalExpression;
 struct PrefixUnaryExpression;
 struct PostfixUnaryExpression;
 struct AwaitExpression;
+struct YieldExpression;
 struct ClassDeclaration;
 struct MethodDefinition;
 struct PropertyDefinition;
@@ -117,6 +118,7 @@ struct Visitor {
     virtual void visitNullLiteral(NullLiteral* node) = 0;
     virtual void visitUndefinedLiteral(UndefinedLiteral* node) = 0;
     virtual void visitAwaitExpression(AwaitExpression* node) = 0;
+    virtual void visitYieldExpression(YieldExpression* node) = 0;
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
     virtual void visitFunctionExpression(FunctionExpression* node) = 0;
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
@@ -184,6 +186,7 @@ struct FunctionDeclaration : Statement {
     bool isExported = false;
     bool isDefaultExport = false;
     bool isAsync = false;
+    bool isGenerator = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;
@@ -320,6 +323,7 @@ struct ForOfStatement : Statement {
     StmtPtr initializer; // VariableDeclaration
     ExprPtr expression;  // Iterable
     StmtPtr body;
+    bool isAwait = false;
     std::string getKind() const override { return "ForOfStatement"; }
     void accept(Visitor* visitor) override { visitor->visitForOfStatement(this); }
 };
@@ -346,6 +350,7 @@ struct PropertyDefinition : Node {
 struct MethodDefinition : Node {
     std::string name;
     bool isAsync = false;
+    bool isGenerator = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;
@@ -599,6 +604,13 @@ struct AwaitExpression : Expression {
     void accept(Visitor* visitor) override { visitor->visitAwaitExpression(this); }
 };
 
+struct YieldExpression : Expression {
+    ExprPtr expression;
+    bool isAsterisk = false;
+    std::string getKind() const override { return "YieldExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitYieldExpression(this); }
+};
+
 struct ArrowFunction : Expression {
     bool isAsync = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
@@ -610,6 +622,7 @@ struct ArrowFunction : Expression {
 struct FunctionExpression : Expression {
     std::string name;
     bool isAsync = false;
+    bool isGenerator = false;
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;

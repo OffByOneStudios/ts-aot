@@ -105,6 +105,7 @@ private:
     void visitNullLiteral(ast::NullLiteral* node);
     void visitUndefinedLiteral(ast::UndefinedLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
+    void visitYieldExpression(ast::YieldExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);

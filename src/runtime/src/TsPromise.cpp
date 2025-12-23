@@ -14,11 +14,99 @@ TsPromise::TsPromise() {
 
 AsyncContext::AsyncContext() {
     state = 0;
+    error = false;
+    yielded = false;
     promise = ts_promise_create();
+    pendingNextPromise = nullptr;
     resumeFn = nullptr;
+    data = nullptr;
+}
+
+TsValue* create_generator_result(TsValue value, bool done) {
+    TsMap* map = TsMap::Create();
+    map->Set(TsString::Create("value"), value);
+    map->Set(TsString::Create("done"), TsValue(done));
+    
+    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+    res->type = ValueType::OBJECT_PTR;
+    res->ptr_val = map;
+    return res;
+}
+
+TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
+    vtable = nullptr;
+    done = false;
+}
+
+TsValue* TsGenerator::next(TsValue* value) {
+    if (done) {
+        return create_generator_result(TsValue(), true);
+    }
+    
+    ctx->yielded = false;
+    ctx->resumeFn(ctx, value);
+    
+    if (ctx->yielded) {
+        return create_generator_result(ctx->yieldedValue, false);
+    } else {
+        done = true;
+        return create_generator_result(ctx->yieldedValue, true);
+    }
+}
+
+TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
+    vtable = nullptr;
+    done = false;
+}
+
+TsPromise* TsAsyncGenerator::next(TsValue* value) {
+    TsPromise* p = ts_promise_create();
+    if (done) {
+        ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
+        return p;
+    }
+    
+    ctx->pendingNextPromise = p;
+    ctx->yielded = false;
+    ctx->resumeFn(ctx, value);
+    
+    return p;
 }
 
 extern "C" {
+
+void ts_async_yield(TsValue* value, AsyncContext* ctx) {
+    ctx->yielded = true;
+    ctx->yieldedValue = *value;
+    
+    if (ctx->pendingNextPromise) {
+        ts_promise_resolve_internal(ctx->pendingNextPromise, create_generator_result(*value, false));
+        ctx->pendingNextPromise = nullptr;
+    }
+}
+
+TsGenerator* ts_generator_create(AsyncContext* ctx) {
+    void* mem = ts_alloc(sizeof(TsGenerator));
+    return new (mem) TsGenerator(ctx);
+}
+
+TsValue* Generator_next(TsValue* genVal, TsValue* value) {
+    if (!genVal) {
+        return nullptr;
+    }
+    TsGenerator* gen = (TsGenerator*)ts_value_get_object(genVal);
+    return gen->next(value);
+}
+
+TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx) {
+    void* mem = ts_alloc(sizeof(TsAsyncGenerator));
+    return new (mem) TsAsyncGenerator(ctx);
+}
+
+TsPromise* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
+    TsAsyncGenerator* gen = (TsAsyncGenerator*)ts_value_get_object(genVal);
+    return gen->next(value);
+}
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
     if (ctx->resumeFn) {

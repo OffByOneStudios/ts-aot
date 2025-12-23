@@ -1,16 +1,17 @@
 # Active Project State
 
 **Last Updated:** 2025-12-22
-**Current Phase:** Phase 15 (Node.js Parity)
+**Current Phase:** Phase 17 (Language Completeness)
 
 ## Current Focus
-We have completed **Embedded Linker (Epic 85)** and **Compiler Driver (Epic 86)**. The compiler now supports a single-binary static build and a polished CLI.
+We are starting **Phase 17: Language Completeness**, focusing on high-performance implementations of modern TypeScript features. The immediate focus is **Epic 90: Async/Await**.
 
 ## Active Tasks
-1.  **UX Refinement:** Silence busy debug info unless `-v/--verbose` is set (Completed).
-2.  **UX Refinement:** Gate IR dump behind `--dump-ir` (Completed).
+1.  **Epic 90:** Implement Async State Machine generation (Task 90.1).
 
 ## Recent Accomplishments
+*   **Phase 16:** Completed Single Binary Static Build and CLI Driver. `ts-aot` is now a production-ready compiler driver.
+*   **UX Refinement:** Silenced debug info and gated IR dump behind flags.
 *   **Epic 86:** Completed Compiler Driver. `ts-aot` now handles parsing, analysis, codegen, and linking in one command.
 *   **Epic 85:** Completed Embedded Linker. `ts-aot` now links against `tsruntime.lib` using LLD.
 *   **Epic 84:** Completed Object File Emission. `ts-aot` can now generate `.obj` files directly.

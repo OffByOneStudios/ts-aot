@@ -5,9 +5,10 @@
       "kind": "FunctionDeclaration",
       "name": "test",
       "isExported": false,
+      "isDefaultExport": false,
       "isAsync": true,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [],
       "body": [
         {
@@ -18,61 +19,91 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 2,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 2,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "StringLiteral",
-                "value": "Start"
+                "value": "Start",
+                "line": 2,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 2,
+            "column": 5
+          },
+          "line": 2,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "p"
+            "name": "p",
+            "line": 3,
+            "column": 11
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "CallExpression",
             "callee": {
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "Promise"
+                "name": "Promise",
+                "line": 3,
+                "column": 15
               },
-              "name": "resolve"
+              "name": "resolve",
+              "line": 3,
+              "column": 15
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 42
+                "value": 42,
+                "line": 3,
+                "column": 31
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 3,
+            "column": 15
+          },
+          "line": 3,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "val"
+            "name": "val",
+            "line": 4,
+            "column": 11
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "AwaitExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "p"
-            }
-          }
+              "name": "p",
+              "line": 4,
+              "column": 23
+            },
+            "line": 4,
+            "column": 17
+          },
+          "line": 4,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -82,9 +113,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 5,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 5,
+              "column": 5
             },
             "arguments": [
               {
@@ -92,18 +127,30 @@
                 "operator": "+",
                 "left": {
                   "kind": "StringLiteral",
-                  "value": "Promise resolved with: "
+                  "value": "Promise resolved with: ",
+                  "line": 5,
+                  "column": 17
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "val"
-                }
+                  "name": "val",
+                  "line": 5,
+                  "column": 45
+                },
+                "line": 5,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 5,
+            "column": 5
+          },
+          "line": 5,
+          "column": 5
         }
-      ]
+      ],
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -111,11 +158,17 @@
         "kind": "CallExpression",
         "callee": {
           "kind": "Identifier",
-          "name": "test"
+          "name": "test",
+          "line": 8,
+          "column": 1
         },
         "arguments": [],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 8,
+        "column": 1
+      },
+      "line": 8,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -125,18 +178,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 9,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 9,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "StringLiteral",
-            "value": "End of script"
+            "value": "End of script",
+            "line": 9,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 9,
+        "column": 1
+      },
+      "line": 9,
+      "column": 1
     }
   ]
 }

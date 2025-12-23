@@ -12,11 +12,31 @@ struct TsPromise;
 struct AsyncContext : public TsObject {
     int state = 0;
     bool error = false;
+    bool yielded = false;
+    TsValue yieldedValue;
     TsPromise* promise = nullptr;
+    TsPromise* pendingNextPromise = nullptr;
     void (*resumeFn)(AsyncContext*, TsValue*);
     void* data = nullptr; // For local variables
     
     AsyncContext();
+};
+
+struct TsGenerator : public TsObject {
+    AsyncContext* ctx;
+    bool done = false;
+    
+    TsGenerator(AsyncContext* ctx);
+    TsValue* next(TsValue* value = nullptr);
+};
+
+struct TsAsyncGenerator : public TsObject {
+    AsyncContext* ctx;
+    bool done = false;
+    std::vector<TsPromise*> nextQueue;
+    
+    TsAsyncGenerator(AsyncContext* ctx);
+    TsPromise* next(TsValue* value = nullptr);
 };
 
 enum class PromiseState {
@@ -64,6 +84,13 @@ extern "C" {
     AsyncContext* ts_async_context_create();
     TsPromise* ts_async_get_promise(AsyncContext* ctx);
     void ts_async_resume(AsyncContext* ctx, TsValue* value);
+    void ts_async_yield(TsValue* value, AsyncContext* ctx);
+
+    TsGenerator* ts_generator_create(AsyncContext* ctx);
+    TsValue* Generator_next(TsValue* gen, TsValue* value);
+    
+    TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
+    TsPromise* AsyncGenerator_next(TsValue* gen, TsValue* value);
 
 #ifdef __cplusplus
 }

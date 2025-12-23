@@ -175,6 +175,13 @@ public:
         markAsEscaping(node->expression.get());
     }
 
+    void visitYieldExpression(ast::YieldExpression* node) override {
+        if (node->expression) {
+            node->expression->accept(this);
+            markAsEscaping(node->expression.get());
+        }
+    }
+
     void visitFunctionDeclaration(ast::FunctionDeclaration* node) override {
         // For now, assume everything in a function escapes if it's not local
         // We could do intra-procedural analysis here

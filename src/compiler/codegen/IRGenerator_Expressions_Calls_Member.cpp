@@ -247,6 +247,50 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 lastValue = createCall(rejectFt, rejectFn.getCallee(), { boxedVal });
                 return true;
             }
+        } else if (className == "Generator") {
+            visit(prop->expression.get());
+            llvm::Value* genObj = lastValue;
+            emitNullCheckForExpression(prop->expression.get(), genObj);
+
+            if (methodName == "next") {
+                llvm::FunctionType* nextFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee nextFn = module->getOrInsertFunction("Generator_next", nextFt);
+
+                llvm::Value* boxedGen = boxValue(genObj, prop->expression->inferredType);
+
+                llvm::Value* val;
+                if (node->arguments.empty()) {
+                    val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                } else {
+                    visit(node->arguments[0].get());
+                    val = boxValue(lastValue, node->arguments[0]->inferredType);
+                }
+
+                lastValue = createCall(nextFt, nextFn.getCallee(), { boxedGen, val });
+                return true;
+            }
+        } else if (className == "AsyncGenerator") {
+            visit(prop->expression.get());
+            llvm::Value* genObj = lastValue;
+            emitNullCheckForExpression(prop->expression.get(), genObj);
+
+            if (methodName == "next") {
+                llvm::FunctionType* nextFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee nextFn = module->getOrInsertFunction("AsyncGenerator_next", nextFt);
+
+                llvm::Value* boxedGen = boxValue(genObj, prop->expression->inferredType);
+
+                llvm::Value* val;
+                if (node->arguments.empty()) {
+                    val = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                } else {
+                    visit(node->arguments[0].get());
+                    val = boxValue(lastValue, node->arguments[0]->inferredType);
+                }
+
+                lastValue = createCall(nextFt, nextFn.getCallee(), { boxedGen, val });
+                return true;
+            }
         } else if (className == "Map") {
             llvm::errs() << "Generating Map method: " << methodName << " for object of class: " << className << "\n";
             visit(prop->expression.get());

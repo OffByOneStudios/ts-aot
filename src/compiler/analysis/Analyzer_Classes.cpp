@@ -398,6 +398,14 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
             }
         }
     }
+
+    if (node->isGenerator) {
+        auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+        auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+        wrapped->methods = genClass->methods;
+        wrapped->typeArguments = { inferredReturnType };
+        inferredReturnType = wrapped;
+    }
     
     symbols.exitScope();
     currentClass = oldClass;

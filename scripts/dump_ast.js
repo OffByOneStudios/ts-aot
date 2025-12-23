@@ -174,6 +174,7 @@ function visitInternal(node) {
                 isExported: isExported(node),
                 isDefaultExport: isDefaultExport(node),
                 isAsync: isAsync(node),
+                isGenerator: !!node.asteriskToken,
                 typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 parameters: node.parameters.map(visitParameter),
@@ -240,6 +241,7 @@ function visitInternal(node) {
                 kind: "MethodDefinition",
                 name: node.name.text,
                 isAsync: isAsync(node),
+                isGenerator: !!node.asteriskToken,
                 typeParameters: getTypeParameters(node),
                 parameters: node.parameters.map(visitParameter),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "",
@@ -347,6 +349,12 @@ function visitInternal(node) {
             return {
                 kind: "AwaitExpression",
                 expression: visit(node.expression)
+            };
+        case ts.SyntaxKind.YieldExpression:
+            return {
+                kind: "YieldExpression",
+                expression: node.expression ? visit(node.expression) : null,
+                isAsterisk: !!node.asteriskToken
             };
         case ts.SyntaxKind.StringLiteral:
             return {
@@ -486,7 +494,8 @@ function visitInternal(node) {
                 kind: "ForOfStatement",
                 initializer: forOfInit,
                 expression: visit(node.expression),
-                body: visit(node.statement)
+                body: visit(node.statement),
+                isAwait: !!node.awaitModifier
             };
         case ts.SyntaxKind.ForInStatement:
             let forInInit = null;
@@ -544,6 +553,7 @@ function visitInternal(node) {
                 kind: "FunctionExpression",
                 name: node.name ? node.name.text : null,
                 isAsync: isAsync(node),
+                isGenerator: !!node.asteriskToken,
                 typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 parameters: node.parameters.map(visitParameter),

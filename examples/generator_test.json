@@ -1,0 +1,241 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "simpleGen",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": true,
+      "typeParameters": [],
+      "returnType": "",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "YieldExpression",
+            "expression": {
+              "kind": "NumericLiteral",
+              "value": 1,
+              "line": 2,
+              "column": 11
+            },
+            "isAsterisk": false,
+            "line": 2,
+            "column": 5
+          },
+          "line": 2,
+          "column": 5
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "YieldExpression",
+            "expression": {
+              "kind": "NumericLiteral",
+              "value": 2,
+              "line": 3,
+              "column": 11
+            },
+            "isAsterisk": false,
+            "line": 3,
+            "column": 5
+          },
+          "line": 3,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "NumericLiteral",
+            "value": 3,
+            "line": 4,
+            "column": 12
+          },
+          "line": 4,
+          "column": 5
+        }
+      ],
+      "line": 1,
+      "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "g",
+        "line": 7,
+        "column": 7
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "simpleGen",
+          "line": 7,
+          "column": 11
+        },
+        "arguments": [],
+        "typeArguments": [],
+        "line": 7,
+        "column": 11
+      },
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 8,
+            "column": 1
+          },
+          "name": "log",
+          "line": 8,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "g",
+                  "line": 8,
+                  "column": 13
+                },
+                "name": "next",
+                "line": 8,
+                "column": 13
+              },
+              "arguments": [],
+              "typeArguments": [],
+              "line": 8,
+              "column": 13
+            },
+            "name": "value",
+            "line": 8,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 8,
+        "column": 1
+      },
+      "line": 8,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 9,
+            "column": 1
+          },
+          "name": "log",
+          "line": 9,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "g",
+                  "line": 9,
+                  "column": 13
+                },
+                "name": "next",
+                "line": 9,
+                "column": 13
+              },
+              "arguments": [],
+              "typeArguments": [],
+              "line": 9,
+              "column": 13
+            },
+            "name": "value",
+            "line": 9,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 9,
+        "column": 1
+      },
+      "line": 9,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 10,
+            "column": 1
+          },
+          "name": "log",
+          "line": 10,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "g",
+                  "line": 10,
+                  "column": 13
+                },
+                "name": "next",
+                "line": 10,
+                "column": 13
+              },
+              "arguments": [],
+              "typeArguments": [],
+              "line": 10,
+              "column": 13
+            },
+            "name": "value",
+            "line": 10,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 10,
+        "column": 1
+      },
+      "line": 10,
+      "column": 1
+    }
+  ]
+}

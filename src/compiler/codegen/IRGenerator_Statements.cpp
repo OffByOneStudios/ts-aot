@@ -30,15 +30,33 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
     if (currentAsyncContext) {
         // Resolve promise and return void
         llvm::Value* boxedVal = val;
-        if (!boxedVal) boxedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
-        else boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
+        if (!boxedVal) {
+            boxedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        } else if (!boxedVal->getType()->isPointerTy()) {
+            boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
+        }
 
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 3);
-        llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
-        
-        llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
-        createCall(resolveFt, resolveFn.getCallee(), { promise, boxedVal });
+        if (currentIsAsync && !currentIsGenerator) {
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 5);
+            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+            
+            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+            createCall(resolveFt, resolveFn.getCallee(), { promise, boxedVal });
+        }
+
+        if (currentIsGenerator) {
+            // Set ctx->yieldedValue = boxedVal
+            // Set ctx->done = true
+            llvm::Value* yieldedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+            // TsValue is a struct { type, data }
+            // boxedVal is a TsValue*
+            builder->CreateMemCpy(yieldedValuePtr, llvm::MaybeAlign(8), boxedVal, llvm::MaybeAlign(8), 16);
+
+            llvm::Value* donePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
+            builder->CreateStore(builder->getInt1(true), donePtr);
+        }
+
         builder->CreateRetVoid();
     } else {
         if (val) {

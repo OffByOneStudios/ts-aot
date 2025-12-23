@@ -101,23 +101,23 @@ def main():
 
         # 2. Run with ts-aot
         aot_times = []
-        # test_runner.py handles compilation and linking
-        runner_path = os.path.abspath("scripts/test_runner.py")
-        runner_cmd = [sys.executable, runner_path, ts_file, "--config", args.config]
+        # ts-aot handles compilation and linking
+        compiler_exe = os.path.abspath(f"build/src/compiler/{args.config}/ts-aot.exe")
+        exe_path = os.path.abspath(f"{base_name}.exe")
+        
+        runner_cmd = [compiler_exe, ts_file, "-o", exe_path]
         if args.compiler_opts:
-            runner_cmd.append(f"--compiler-opts={args.compiler_opts}")
+            runner_cmd.extend(args.compiler_opts.split())
             
         compile_output = run_command(runner_cmd, shell=False)
         
-        # Try to extract time from test_runner output first
-        t = extract_time(compile_output)
-        if t is not None:
-            aot_times.append(t)
-        
-        # If we need more iterations, run the executable directly
-        if len(aot_times) < args.iterations:
-            exe_path = os.path.abspath(f"build/tests/{base_name}/{args.config}/test_app.exe")
+        # Run the executable directly
+        for _ in range(args.iterations):
             if os.path.exists(exe_path):
+                exe_output = run_command([exe_path])
+                t = extract_time(exe_output)
+                if t is not None:
+                    aot_times.append(t)
                 for _ in range(args.iterations - len(aot_times)):
                     aot_output = run_command([exe_path])
                     t = extract_time(aot_output)
