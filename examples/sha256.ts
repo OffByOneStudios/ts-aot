@@ -132,3 +132,8 @@ main();
 // TYPE-CHECK: L51:C45 CallExpression -> double
 // TYPE-CHECK: L66:C24 CallExpression -> double
 // TYPE-CHECK: L69:C24 CallExpression -> double
+
+// CHECK: define ptr @sha256_str(ptr %context, ptr %message)
+// CHECK: ret ptr %356
+
+// PERF-BASELINE: 10ms

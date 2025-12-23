@@ -127,3 +127,8 @@ main();
 // TYPE-CHECK: L78:C25 NewExpression -> Ray
 // TYPE-CHECK: L84:C27 CallExpression -> double
 // TYPE-CHECK: L92:C29 BinaryExpression -> double
+
+// CHECK: define double @Sphere_intersect(ptr %context, ptr %this, %Ray %ray)
+// CHECK: ret double %divtmp
+
+// PERF-BASELINE: 2.5ms

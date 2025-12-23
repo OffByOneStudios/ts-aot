@@ -1,6 +1,6 @@
 # Epic 83: IR Verification & Regression Guard
 
-**Status:** In Progress
+**Status:** Completed
 **Parent:** [Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -21,9 +21,10 @@ Prevent regressions in the `Analyzer` by snapshotting inferred types for complex
 - [x] **Benchmark Guarding:** Added type snapshots to `sha256.ts` and `raytracer.ts`.
 
 ### Milestone 83.3: Performance Regression Guard
-Automate the detection of performance regressions in core benchmarks.
-- [ ] **Baseline Tracking:** Store baseline execution times for `sha256`, `raytracer`, and `grep`.
-- [ ] **CI Integration:** Fail the build if performance regresses by more than 5% without an explicit baseline update.
+Automate the detection of performance regressions in core benchmarks. **Mandatory: Must use Release builds.**
+- [x] **Baseline Tracking:** Store baseline execution times for `sha256`, `raytracer`, and `grep` using `// PERF-BASELINE:`.
+- [x] **CI Integration:** Fail the build if performance regresses by more than 5% without an explicit baseline update.
+- [x] **Release Enforcement:** Ensure performance checks only run when `--config Release` is specified.
 
 ## Action Items
 - [x] **Task 83.1:** Implement `// CHECK:` directive parsing in `test_runner.py`.
@@ -31,3 +32,5 @@ Automate the detection of performance regressions in core benchmarks.
 - [x] **Task 83.3:** Create `examples/ir_verify_test.ts` with `FileCheck` assertions for integer specialization.
 - [x] **Task 83.4:** Integrate `FileCheck` into the local development loop.
 - [x] **Task 83.5:** Snapshot type inference for `sha256` and `raytracer`.
+- [x] **Task 83.6:** Implement performance regression guard in `test_runner.py`.
+- [x] **Task 83.7:** Establish baselines for `sha256.ts` and `raytracer.ts`.

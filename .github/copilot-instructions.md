@@ -34,6 +34,7 @@ Follow this cycle for all development tasks:
 5.  **Verify:**
     *   Run `cmake --build build` to ensure the compiler and runtime are up to date.
     *   Run the integration test runner: `python scripts/test_runner.py examples/your_test.ts`.
+    *   **Performance Testing:** Performance regression guards MUST be run against Release builds. Use `python scripts/test_runner.py examples/benchmark.ts --config Release`.
     *   **Regression Guard:** Use `// CHECK:` for IR verification and `// TYPE-CHECK:` for type inference snapshots in the `.ts` file footer.
     *   **Stop** if the build or verification fails and fix it.
 6.  **Commit:** Run `git add .` and `git commit` with a descriptive message referencing the task.

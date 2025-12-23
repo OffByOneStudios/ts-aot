@@ -111,6 +111,45 @@ def verify_output(input_ts, output_text, prefix='CHECK'):
     print(f"Verification {prefix} SUCCESS", flush=True)
     return True
 
+def verify_performance(input_ts, output_text, config):
+    baseline = None
+    with open(input_ts, 'r', encoding='utf-8') as f:
+        for line in f:
+            match = re.search(r'//\s*PERF-BASELINE:\s*([\d.]+)\s*ms', line)
+            if match:
+                baseline = float(match.group(1))
+                break
+    
+    if baseline is None:
+        return True
+
+    print(f"--- Verifying Performance (Baseline: {baseline}ms) ---", flush=True)
+    
+    if config != "Release":
+        print(f"  Skipping performance check: Current config is '{config}', but performance guards require 'Release'.")
+        return True
+
+    # Extract actual time: "Average Time: 0.007ms"
+    match = re.search(r'Average Time:\s*([\d.]+)\s*ms', output_text)
+    if not match:
+        print("  Error: Could not find 'Average Time: ...ms' in output.")
+        return False
+    
+    actual = float(match.group(1))
+    print(f"  Actual Time: {actual}ms")
+
+    # Allow 5% regression
+    threshold = baseline * 1.05
+    if actual > threshold:
+        print(f"  Verification FAILED: Performance regressed!")
+        print(f"  Baseline: {baseline}ms")
+        print(f"  Actual:   {actual}ms")
+        print(f"  Threshold: {threshold:.4f}ms (5% margin)")
+        return False
+    
+    print(f"  Performance SUCCESS: {actual}ms <= {threshold:.4f}ms")
+    return True
+
 def main():
     parser = argparse.ArgumentParser(description="Compile and run a TypeScript file.")
     parser.add_argument("input_ts", help="The input TypeScript file to compile and run.")
@@ -234,6 +273,11 @@ def main():
             sys.exit(1)
         print("Output:", flush=True)
         print(result.stdout, flush=True)
+        
+        # Verify performance if baseline exists
+        if not verify_performance(input_ts, result.stdout, config):
+            sys.exit(1)
+
         return result.stdout
     except subprocess.TimeoutExpired:
         print(f"Command timed out after {args.timeout} seconds")

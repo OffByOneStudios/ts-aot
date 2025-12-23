@@ -38,6 +38,7 @@ Establish a "Ground Truth" for performance comparison.
 
 ### Epic 83: IR Verification & Regression Guard
 Ensure optimizations stay active and don't silently regress.
-- [ ] **LLVM FileCheck:** Implement embedded IR assertions in TypeScript tests.
-- [ ] **Type Snapshots:** Lock down the Analyzer's inference logic.
-- [ ] **Optimization Guards:** Verify that critical paths (like SHA-256) remain specialized.
+- [x] **LLVM FileCheck:** Implement embedded IR assertions in TypeScript tests.
+- [x] **Type Snapshots:** Lock down the Analyzer's inference logic.
+- [x] **Optimization Guards:** Verify that critical paths (like SHA-256) remain specialized.
+- [x] **Performance Baselines:** Automated regression detection for core benchmarks.
