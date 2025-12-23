@@ -32,9 +32,10 @@ Follow this cycle for all development tasks:
 4.  **Pick:** Identify the next unchecked Action Item.
 4.  **Implement:** Write the code, ensuring it compiles and follows the Technical Constraints.
 5.  **Verify:**
-    *   Run `cmake --build build`.
-    *   Run tests (create new ones if needed).
-    *   **Stop** if the build fails and fix it.
+    *   Run `cmake --build build` to ensure the compiler and runtime are up to date.
+    *   Run the integration test runner: `python scripts/test_runner.py examples/your_test.ts`.
+    *   **Regression Guard:** Use `// CHECK:` for IR verification and `// TYPE-CHECK:` for type inference snapshots in the `.ts` file footer.
+    *   **Stop** if the build or verification fails and fix it.
 6.  **Commit:** Run `git add .` and `git commit` with a descriptive message referencing the task.
 7.  **Update:** Check off `[x]` the completed task in the Epic markdown file.
 8.  **Loop:** Report completion to the user and ask to proceed to the next Action Item.
