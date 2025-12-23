@@ -48,6 +48,7 @@ CMakeUserPresets.json
 *.lastbuildstate
 
 # Temporary/Generated files
+*.txt
 *.tmp
 *.log
 *error.txt
