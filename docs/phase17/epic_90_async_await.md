@@ -34,4 +34,4 @@ Implement the state machine transformation for `async`/`await` and `for await...
 - [x] **Task 90.4:** Verify with `ts-aot examples/async_test.ts`.
 - [x] **Task 90.5:** Implement `for await...of` and Async Generators.
 - [x] **Task 90.6:** Implement generic `Symbol.asyncIterator` lookup and fix boxing bugs.
-- [ ] **Task 90.7:** Verify with `ts-aot examples/async_iteration_test.ts`.
+- [x] **Task 90.7:** Verify with `ts-aot examples/async_iteration_test.ts`.
