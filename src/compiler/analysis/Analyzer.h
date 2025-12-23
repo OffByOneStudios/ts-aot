@@ -36,6 +36,7 @@ public:
     const std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>>& getClassUsages() const { return classUsages; }
 
     int getErrorCount() const { return errorCount; }
+    void setVerbose(bool v) { verbose = v; }
 
     // Analyze a function body with specific argument types to determine return type
     std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {});
@@ -58,6 +59,7 @@ private:
     std::map<std::string, std::vector<CallSignature>> functionUsages;
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;
     int errorCount = 0;
+    bool verbose = false;
 
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node);

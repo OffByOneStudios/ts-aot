@@ -133,9 +133,6 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     generateBodies(specializations);
 
     generateEntryPoint();
-
-    // DEBUG: Dump IR
-    module->print(llvm::errs(), nullptr);
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {

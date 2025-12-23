@@ -4,12 +4,15 @@
 **Current Phase:** Phase 15 (Node.js Parity)
 
 ## Current Focus
-We have completed **Object File Emission (Epic 84)**. The next focus is **Embedded Linker (Epic 85)**.
+We have completed **Embedded Linker (Epic 85)** and **Compiler Driver (Epic 86)**. The compiler now supports a single-binary static build and a polished CLI.
 
 ## Active Tasks
-1.  **Milestone 85.1:** Build System Integration for LLD.
+1.  **UX Refinement:** Silence busy debug info unless `-v/--verbose` is set (Completed).
+2.  **UX Refinement:** Gate IR dump behind `--dump-ir` (Completed).
 
 ## Recent Accomplishments
+*   **Epic 86:** Completed Compiler Driver. `ts-aot` now handles parsing, analysis, codegen, and linking in one command.
+*   **Epic 85:** Completed Embedded Linker. `ts-aot` now links against `tsruntime.lib` using LLD.
 *   **Epic 84:** Completed Object File Emission. `ts-aot` can now generate `.obj` files directly.
 *   **Epic 83:** Completed IR Verification, Type Inference Snapshots, and Performance Regression Guards.
 

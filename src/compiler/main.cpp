@@ -1,76 +1,13 @@
 #include <fmt/core.h>
 #include <cxxopts.hpp>
-#include "ast/AstLoader.h"
-#include "analysis/Analyzer.h"
-#include "analysis/Monomorphizer.h"
-#include "codegen/IRGenerator.h"
-#include "codegen/CodeGenerator.h"
-#include "codegen/LinkerDriver.h"
+#include "Driver.h"
 #include <iostream>
 
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/TargetParser/Host.h>
-#include <llvm/MC/TargetRegistry.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/Target/TargetMachine.h>
 
 #ifdef _MSC_VER
 #include <crtdbg.h>
 #endif
-
-void printAst(const ast::Node* node, int indent = 0) {
-    std::string padding(indent * 2, ' ');
-    fmt::print("{}{}\n", padding, node->getKind());
-    
-    if (auto prog = dynamic_cast<const ast::Program*>(node)) {
-        for (const auto& stmt : prog->body) printAst(stmt.get(), indent + 1);
-    } else if (auto func = dynamic_cast<const ast::FunctionDeclaration*>(node)) {
-        fmt::print("{}  Name: {}{}\n", padding, func->name, func->isExported ? " (exported)" : "");
-        for (const auto& stmt : func->body) printAst(stmt.get(), indent + 1);
-    } else if (auto var = dynamic_cast<const ast::VariableDeclaration*>(node)) {
-        if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
-            fmt::print("{}  Name: {}{}\n", padding, id->name, var->isExported ? " (exported)" : "");
-        } else {
-            fmt::print("{}  Name: <pattern>{}\n", padding, var->isExported ? " (exported)" : "");
-            printAst(var->name.get(), indent + 1);
-        }
-        if (var->initializer) printAst(var->initializer.get(), indent + 1);
-    } else if (auto exprStmt = dynamic_cast<const ast::ExpressionStatement*>(node)) {
-        printAst(exprStmt->expression.get(), indent + 1);
-    } else if (auto bin = dynamic_cast<const ast::BinaryExpression*>(node)) {
-        fmt::print("{}  Op: {}\n", padding, bin->op);
-        printAst(bin->left.get(), indent + 1);
-        printAst(bin->right.get(), indent + 1);
-    } else if (auto call = dynamic_cast<const ast::CallExpression*>(node)) {
-        printAst(call->callee.get(), indent + 1);
-        for (const auto& arg : call->arguments) printAst(arg.get(), indent + 1);
-    } else if (auto cls = dynamic_cast<const ast::ClassDeclaration*>(node)) {
-        fmt::print("{}  Name: {}{}\n", padding, cls->name, cls->isExported ? " (exported)" : "");
-        for (const auto& member : cls->members) printAst(member.get(), indent + 1);
-    } else if (auto prop = dynamic_cast<const ast::PropertyDefinition*>(node)) {
-        fmt::print("{}  Name: {}\n", padding, prop->name);
-        if (prop->initializer) printAst(prop->initializer.get(), indent + 1);
-    } else if (auto method = dynamic_cast<const ast::MethodDefinition*>(node)) {
-        fmt::print("{}  Name: {}\n", padding, method->name);
-        for (const auto& stmt : method->body) printAst(stmt.get(), indent + 1);
-    } else if (auto imp = dynamic_cast<const ast::ImportDeclaration*>(node)) {
-        fmt::print("{}  Module: {}\n", padding, imp->moduleSpecifier);
-        if (!imp->defaultImport.empty()) fmt::print("{}  Default: {}\n", padding, imp->defaultImport);
-        if (!imp->namespaceImport.empty()) fmt::print("{}  Namespace: {}\n", padding, imp->namespaceImport);
-        for (const auto& spec : imp->namedImports) {
-            fmt::print("{}  Named: {} (as {})\n", padding, spec.propertyName.empty() ? spec.name : spec.propertyName, spec.name);
-        }
-    } else if (auto exp = dynamic_cast<const ast::ExportDeclaration*>(node)) {
-        if (!exp->moduleSpecifier.empty()) fmt::print("{}  Module: {}\n", padding, exp->moduleSpecifier);
-        if (exp->isStarExport) fmt::print("{}  Star Export\n", padding);
-        for (const auto& spec : exp->namedExports) {
-            fmt::print("{}  Named: {} (as {})\n", padding, spec.propertyName.empty() ? spec.name : spec.propertyName, spec.name);
-        }
-    } else if (auto iface = dynamic_cast<const ast::InterfaceDeclaration*>(node)) {
-        fmt::print("{}  Name: {}{}\n", padding, iface->name, iface->isExported ? " (exported)" : "");
-        for (const auto& member : iface->members) printAst(member.get(), indent + 1);
-    }
-}
 
 int main(int argc, char** argv) {
 #ifdef _MSC_VER
@@ -89,18 +26,19 @@ int main(int argc, char** argv) {
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
 
-    std::cerr << "Compiler starting..." << std::endl;
-
     try {
         cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
         options.add_options()
             ("o,output", "Output file", cxxopts::value<std::string>())
-            ("emit-obj", "Emit object file", cxxopts::value<std::string>())
-            ("emit-exe", "Emit executable", cxxopts::value<std::string>())
+            ("c,compile", "Compile only (emit .obj)", cxxopts::value<bool>()->default_value("false"))
+            ("r,run", "Run the executable after linking", cxxopts::value<bool>()->default_value("false"))
+            ("emit-obj", "Emit object file (legacy)", cxxopts::value<std::string>())
+            ("emit-exe", "Emit executable (legacy)", cxxopts::value<std::string>())
             ("lib-path", "Additional library search path", cxxopts::value<std::vector<std::string>>())
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
+            ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"))
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
             ("small-icu", "Use a smaller ICU data set (English only)", cxxopts::value<bool>()->default_value("false"))
@@ -120,134 +58,44 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::string inputFile = result["input"].as<std::string>();
+        ts::DriverOptions driverOpts;
+        driverOpts.inputFile = result["input"].as<std::string>();
         
-        std::cerr << "Loading AST from " << inputFile << "..." << std::endl;
-        auto program = ast::loadAst(inputFile);
-        if (result["debug-ast"].as<bool>()) {
-            printAst(program.get());
+        if (result.count("output")) {
+            driverOpts.outputFile = result["output"].as<std::string>();
+        } else if (result.count("emit-exe")) {
+            driverOpts.outputFile = result["emit-exe"].as<std::string>();
+        } else if (result.count("emit-obj")) {
+            driverOpts.outputFile = result["emit-obj"].as<std::string>();
+            driverOpts.compileOnly = true;
         }
 
-        std::cerr << "Analyzing..." << std::endl;
-        ts::Analyzer analyzer;
-        analyzer.analyze(program.get(), inputFile);
-
-        if (result["dump-types"].as<bool>()) {
-            analyzer.dumpTypes(program.get());
+        if (result["compile"].as<bool>()) {
+            driverOpts.compileOnly = true;
         }
 
-        if (analyzer.getErrorCount() > 0) {
-            fmt::print(stderr, "Compilation failed with {} errors.\n", analyzer.getErrorCount());
-            return 1;
+        if (result["run"].as<bool>()) {
+            driverOpts.runAfterLink = true;
         }
 
-        std::cerr << "Monomorphizing..." << std::endl;
-        ts::Monomorphizer monomorphizer;
-        monomorphizer.monomorphize(program.get(), analyzer);
+        driverOpts.optLevel = result["opt"].as<std::string>();
+        driverOpts.debugAst = result["debug-ast"].as<bool>();
+        driverOpts.dumpIR = result["dump-ir"].as<bool>();
+        driverOpts.dumpTypes = result["dump-types"].as<bool>();
+        driverOpts.smallIcu = result["small-icu"].as<bool>();
+        driverOpts.verbose = result["verbose"].as<bool>();
         
-        std::cerr << "Generating IR..." << std::endl;
-        ts::IRGenerator irGen;
-        irGen.setOptLevel(result["opt"].as<std::string>());
         if (result.count("runtime-bc")) {
-            irGen.setRuntimeBitcode(result["runtime-bc"].as<std::string>());
-        }
-        irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
-        
-        if (result["dump-ir"].as<bool>()) {
-            irGen.dumpIR();
+            driverOpts.runtimeBitcode = result["runtime-bc"].as<std::string>();
         }
 
-        std::string outputFile;
-        if (result.count("emit-obj")) {
-            outputFile = result["emit-obj"].as<std::string>();
-        } else if (result.count("output")) {
-            outputFile = result["output"].as<std::string>();
+        if (result.count("lib-path")) {
+            driverOpts.libraryPaths = result["lib-path"].as<std::vector<std::string>>();
         }
 
-        if (!outputFile.empty()) {
-            std::cerr << "Emitting object code to " << outputFile << "..." << std::endl;
-            ts::CodeGenerator codeGen(irGen.getModule());
-            if (!codeGen.emitObjectFile(outputFile, result["opt"].as<std::string>())) {
-                return 1;
-            }
-        }
+        ts::Driver driver(driverOpts);
+        return driver.run();
 
-        if (result.count("emit-exe")) {
-            std::string exeOutput = result["emit-exe"].as<std::string>();
-            std::string objFile = exeOutput + ".obj";
-            
-            std::cerr << "Emitting temporary object code to " << objFile << "..." << std::endl;
-            ts::CodeGenerator codeGen(irGen.getModule());
-            if (!codeGen.emitObjectFile(objFile, result["opt"].as<std::string>())) {
-                return 1;
-            }
-
-            std::cerr << "Linking " << exeOutput << "..." << std::endl;
-            ts::LinkerDriver::Options linkOpts;
-            linkOpts.outputPath = exeOutput;
-            linkOpts.objectFiles.push_back(objFile);
-            
-            // Add compiler directory to library paths
-            try {
-                std::filesystem::path compilerPath = std::filesystem::absolute(std::filesystem::path(argv[0])).parent_path();
-                linkOpts.libraryPaths.push_back(compilerPath.string());
-                
-                // Also check for a 'lib' directory relative to the compiler
-                linkOpts.libraryPaths.push_back((compilerPath / "lib").string());
-                
-                // For development: check the build directory structure
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
-            } catch (...) {}
-
-            if (result.count("lib-path")) {
-                auto extraPaths = result["lib-path"].as<std::vector<std::string>>();
-                linkOpts.libraryPaths.insert(linkOpts.libraryPaths.end(), extraPaths.begin(), extraPaths.end());
-            }
-
-            linkOpts.libraries.push_back("tsruntime.lib");
-            
-            // If we are NOT in fat mode, we need to link dependencies explicitly.
-            // For now, we'll always add them, LLD will ignore them if they are already in tsruntime.lib
-            // or if they are not found but not needed.
-            linkOpts.libraries.push_back("gc.lib");
-            linkOpts.libraries.push_back("libuv.lib");
-            linkOpts.libraries.push_back("llhttp.lib");
-            linkOpts.libraries.push_back("libsodium.lib");
-            linkOpts.libraries.push_back("libcrypto.lib");
-            linkOpts.libraries.push_back("libssl.lib");
-            linkOpts.libraries.push_back("zlib.lib");
-            
-            // ICU libraries
-            linkOpts.libraries.push_back("icuuc.lib");
-            if (!result["small-icu"].as<bool>()) {
-                linkOpts.libraries.push_back("icuin.lib");
-            }
-            linkOpts.libraries.push_back("icudt.lib");
-
-            // Windows system libraries
-            linkOpts.libraries.push_back("ws2_32.lib");
-            linkOpts.libraries.push_back("user32.lib");
-            linkOpts.libraries.push_back("advapi32.lib");
-            linkOpts.libraries.push_back("iphlpapi.lib");
-            linkOpts.libraries.push_back("shell32.lib");
-            linkOpts.libraries.push_back("crypt32.lib");
-            linkOpts.libraries.push_back("bcrypt.lib");
-
-            if (!ts::LinkerDriver::link(linkOpts)) {
-                std::cerr << "Linking failed." << std::endl;
-                return 1;
-            }
-            
-            // Clean up temporary object file
-            try {
-                std::filesystem::remove(objFile);
-            } catch (...) {
-                // Ignore cleanup errors
-            }
-
-            std::cerr << "Successfully created " << exeOutput << std::endl;
-        }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

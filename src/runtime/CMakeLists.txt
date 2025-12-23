@@ -1,8 +1,29 @@
 find_package(Python3 REQUIRED)
 find_package(libuv CONFIG REQUIRED)
 find_package(BDWgc CONFIG REQUIRED)
-find_package(ICU COMPONENTS uc i18n REQUIRED)
+find_package(ICU COMPONENTS uc i18n data REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
+
+# Fix broken unofficial-sodium target in some vcpkg versions
+if (TARGET unofficial-sodium::sodium)
+    get_target_property(SODIUM_INC unofficial-sodium::sodium INTERFACE_INCLUDE_DIRECTORIES)
+    if (SODIUM_INC STREQUAL "/x64-windows-static/include")
+        set_target_properties(unofficial-sodium::sodium PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/include")
+    endif()
+    
+    # Ensure IMPORTED_LOCATION is set for static libraries
+    get_target_property(SODIUM_LOC unofficial-sodium::sodium IMPORTED_LOCATION_RELEASE)
+    if (NOT SODIUM_LOC)
+        find_library(SODIUM_LIB_RELEASE libsodium PATHS "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/lib" NO_DEFAULT_PATH)
+        find_library(SODIUM_LIB_DEBUG libsodium PATHS "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/debug/lib" NO_DEFAULT_PATH)
+        if (SODIUM_LIB_RELEASE)
+            set_target_properties(unofficial-sodium::sodium PROPERTIES IMPORTED_LOCATION_RELEASE "${SODIUM_LIB_RELEASE}")
+        endif()
+        if (SODIUM_LIB_DEBUG)
+            set_target_properties(unofficial-sodium::sodium PROPERTIES IMPORTED_LOCATION_DEBUG "${SODIUM_LIB_DEBUG}")
+        endif()
+    endif()
+endif()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -86,6 +107,7 @@ if (TS_FAT_RUNTIME AND MSVC)
 
     set(MERGE_LIBS "")
     foreach(dep ${FAT_DEPS})
+        # Use a generator expression that only evaluates if the target exists and has a location
         list(APPEND MERGE_LIBS "$<TARGET_FILE:${dep}>")
     endforeach()
 

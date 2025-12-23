@@ -877,7 +877,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 
     if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
-        std::cout << "DEBUG: NewExpression inferred type: " << cls->name << std::endl;
+        if (verbose) {
+            std::cout << "DEBUG: NewExpression inferred type: " << cls->name << std::endl;
+        }
         concreteTypes[lastValue] = cls;
     }
 }

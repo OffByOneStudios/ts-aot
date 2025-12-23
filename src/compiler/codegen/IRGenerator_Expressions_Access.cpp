@@ -488,7 +488,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         std::string className = classType->name;
         std::string fieldName = node->name;
         
-        std::cout << "DEBUG: Accessing " << className << "." << fieldName << std::endl;
+        if (verbose) {
+            std::cout << "DEBUG: Accessing " << className << "." << fieldName << std::endl;
+        }
         
         if (className == "URL") {
             visit(node->expression.get());
@@ -588,7 +590,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
         // Check if it's a field access
         if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
-            std::cout << "DEBUG: Field access " << className << "." << fieldName << " index=" << classLayouts[className].fieldIndices[fieldName] << std::endl;
+            if (verbose) {
+                std::cout << "DEBUG: Field access " << className << "." << fieldName << " index=" << classLayouts[className].fieldIndices[fieldName] << std::endl;
+            }
             visit(node->expression.get());
             llvm::Value* obj = lastValue;
             emitNullCheckForExpression(node->expression.get(), obj);
@@ -609,9 +613,13 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             // We need the type of the field to load it correctly
             // The field could be in a base class, so we look it up in the layout's allFields
             std::shared_ptr<Type> fieldType;
-            std::cout << "DEBUG: Searching for field " << fieldName << " in " << className << " (fields: " << classLayouts[className].allFields.size() << ")" << std::endl;
+            if (verbose) {
+                std::cout << "DEBUG: Searching for field " << fieldName << " in " << className << " (fields: " << classLayouts[className].allFields.size() << ")" << std::endl;
+            }
             for (const auto& f : classLayouts[className].allFields) {
-                std::cout << "DEBUG: Checking field " << f.first << std::endl;
+                if (verbose) {
+                    std::cout << "DEBUG: Checking field " << f.first << std::endl;
+                }
                 if (f.first == fieldName) {
                     fieldType = f.second;
                     break;
