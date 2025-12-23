@@ -142,6 +142,8 @@ struct Node {
     virtual ~Node() = default;
     virtual std::string getKind() const = 0;
     virtual void accept(Visitor* visitor) = 0;
+    int line = 0;
+    int column = 0;
 };
 
 struct Statement : Node {};

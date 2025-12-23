@@ -5,7 +5,9 @@
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "buf"
+        "name": "buf",
+        "line": 1,
+        "column": 7
       },
       "isExported": false,
       "type": "",
@@ -15,18 +17,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "Buffer"
+            "name": "Buffer",
+            "line": 1,
+            "column": 13
           },
-          "name": "alloc"
+          "name": "alloc",
+          "line": 1,
+          "column": 13
         },
         "arguments": [
           {
             "kind": "NumericLiteral",
-            "value": 10
+            "value": 10,
+            "line": 1,
+            "column": 26
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 1,
+        "column": 13
+      },
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -36,28 +48,42 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 2,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 2,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "PropertyAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "buf"
+              "name": "buf",
+              "line": 2,
+              "column": 13
             },
-            "name": "length"
+            "name": "length",
+            "line": 2,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 2,
+        "column": 1
+      },
+      "line": 2,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "buf2"
+        "name": "buf2",
+        "line": 4,
+        "column": 7
       },
       "isExported": false,
       "type": "",
@@ -67,18 +93,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "Buffer"
+            "name": "Buffer",
+            "line": 4,
+            "column": 14
           },
-          "name": "from"
+          "name": "from",
+          "line": 4,
+          "column": 14
         },
         "arguments": [
           {
             "kind": "StringLiteral",
-            "value": "Hello"
+            "value": "Hello",
+            "line": 4,
+            "column": 26
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 4,
+        "column": 14
+      },
+      "line": 4,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -88,9 +124,13 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 5,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 5,
+          "column": 1
         },
         "arguments": [
           {
@@ -99,35 +139,53 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "buf2"
+                "name": "buf2",
+                "line": 5,
+                "column": 13
               },
-              "name": "toString"
+              "name": "toString",
+              "line": 5,
+              "column": 13
             },
             "arguments": [],
-            "typeArguments": []
+            "typeArguments": [],
+            "line": 5,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 5,
+        "column": 1
+      },
+      "line": 5,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "s"
+        "name": "s",
+        "line": 7,
+        "column": 7
       },
       "isExported": false,
       "type": "",
       "initializer": {
         "kind": "StringLiteral",
-        "value": "a,b,c"
-      }
+        "value": "a,b,c",
+        "line": 7,
+        "column": 11
+      },
+      "line": 7,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "parts"
+        "name": "parts",
+        "line": 8,
+        "column": 7
       },
       "isExported": false,
       "type": "",
@@ -137,18 +195,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "s"
+            "name": "s",
+            "line": 8,
+            "column": 15
           },
-          "name": "split"
+          "name": "split",
+          "line": 8,
+          "column": 15
         },
         "arguments": [
           {
             "kind": "StringLiteral",
-            "value": ","
+            "value": ",",
+            "line": 8,
+            "column": 23
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 8,
+        "column": 15
+      },
+      "line": 8,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -158,22 +226,34 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 9,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 9,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "PropertyAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "parts"
+              "name": "parts",
+              "line": 9,
+              "column": 13
             },
-            "name": "length"
+            "name": "length",
+            "line": 9,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 9,
+        "column": 1
+      },
+      "line": 9,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -183,44 +263,66 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 10,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 10,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "ElementAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "parts"
+              "name": "parts",
+              "line": 10,
+              "column": 13
             },
             "argumentExpression": {
               "kind": "NumericLiteral",
-              "value": 0
-            }
+              "value": 0,
+              "line": 10,
+              "column": 19
+            },
+            "line": 10,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 10,
+        "column": 1
+      },
+      "line": 10,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "s2"
+        "name": "s2",
+        "line": 12,
+        "column": 7
       },
       "isExported": false,
       "type": "",
       "initializer": {
         "kind": "StringLiteral",
-        "value": "a1b2c"
-      }
+        "value": "a1b2c",
+        "line": 12,
+        "column": 12
+      },
+      "line": 12,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "parts2"
+        "name": "parts2",
+        "line": 13,
+        "column": 7
       },
       "isExported": false,
       "type": "",
@@ -230,18 +332,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "s2"
+            "name": "s2",
+            "line": 13,
+            "column": 16
           },
-          "name": "split"
+          "name": "split",
+          "line": 13,
+          "column": 16
         },
         "arguments": [
           {
             "kind": "RegularExpressionLiteral",
-            "text": "/[0-9]/"
+            "text": "/[0-9]/",
+            "line": 13,
+            "column": 25
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 13,
+        "column": 16
+      },
+      "line": 13,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -251,22 +363,34 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 14,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 14,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "PropertyAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "parts2"
+              "name": "parts2",
+              "line": 14,
+              "column": 13
             },
-            "name": "length"
+            "name": "length",
+            "line": 14,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 14,
+        "column": 1
+      },
+      "line": 14,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -276,25 +400,39 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 15,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 15,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "ElementAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "parts2"
+              "name": "parts2",
+              "line": 15,
+              "column": 13
             },
             "argumentExpression": {
               "kind": "NumericLiteral",
-              "value": 1
-            }
+              "value": 1,
+              "line": 15,
+              "column": 20
+            },
+            "line": 15,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 15,
+        "column": 1
+      },
+      "line": 15,
+      "column": 1
     }
   ]
 }

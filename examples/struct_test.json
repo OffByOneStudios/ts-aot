@@ -8,13 +8,15 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "constructor"
+            "name": "constructor",
+            "line": 2,
+            "column": 17
           },
           "type": "Function",
           "isOptional": false,
@@ -22,10 +24,14 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 2,
+          "column": 17
         }
       ],
-      "body": []
+      "body": [],
+      "line": 2,
+      "column": 1
     },
     {
       "kind": "ClassDeclaration",
@@ -43,7 +49,9 @@
           "initializer": null,
           "access": null,
           "isStatic": false,
-          "isReadonly": false
+          "isReadonly": false,
+          "line": 6,
+          "column": 5
         },
         {
           "kind": "PropertyDefinition",
@@ -52,7 +60,9 @@
           "initializer": null,
           "access": null,
           "isStatic": false,
-          "isReadonly": false
+          "isReadonly": false,
+          "line": 7,
+          "column": 5
         },
         {
           "kind": "PropertyDefinition",
@@ -61,7 +71,9 @@
           "initializer": null,
           "access": null,
           "isStatic": false,
-          "isReadonly": false
+          "isReadonly": false,
+          "line": 8,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -71,7 +83,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "x"
+                "name": "x",
+                "line": 10,
+                "column": 17
               },
               "type": "number",
               "isOptional": false,
@@ -79,13 +93,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 10,
+              "column": 17
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "y"
+                "name": "y",
+                "line": 10,
+                "column": 28
               },
               "type": "number",
               "isOptional": false,
@@ -93,13 +111,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 10,
+              "column": 28
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "z"
+                "name": "z",
+                "line": 10,
+                "column": 39
               },
               "type": "number",
               "isOptional": false,
@@ -107,7 +129,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 10,
+              "column": 39
             }
           ],
           "returnType": "void",
@@ -120,15 +144,25 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "this"
+                    "name": "this",
+                    "line": 11,
+                    "column": 9
                   },
-                  "name": "x"
+                  "name": "x",
+                  "line": 11,
+                  "column": 9
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "x"
-                }
-              }
+                  "name": "x",
+                  "line": 11,
+                  "column": 18
+                },
+                "line": 11,
+                "column": 9
+              },
+              "line": 11,
+              "column": 9
             },
             {
               "kind": "ExpressionStatement",
@@ -138,15 +172,25 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "this"
+                    "name": "this",
+                    "line": 12,
+                    "column": 9
                   },
-                  "name": "y"
+                  "name": "y",
+                  "line": 12,
+                  "column": 9
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "y"
-                }
-              }
+                  "name": "y",
+                  "line": 12,
+                  "column": 18
+                },
+                "line": 12,
+                "column": 9
+              },
+              "line": 12,
+              "column": 9
             },
             {
               "kind": "ExpressionStatement",
@@ -156,23 +200,37 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "this"
+                    "name": "this",
+                    "line": 13,
+                    "column": 9
                   },
-                  "name": "z"
+                  "name": "z",
+                  "line": 13,
+                  "column": 9
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "z"
-                }
-              }
+                  "name": "z",
+                  "line": 13,
+                  "column": 18
+                },
+                "line": 13,
+                "column": 9
+              },
+              "line": 13,
+              "column": 9
             }
           ],
           "hasBody": true,
-          "access": "public"
+          "access": "public",
+          "line": 10,
+          "column": 5
         }
       ],
       "isAbstract": false,
-      "isStruct": true
+      "isStruct": true,
+      "line": 4,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -181,13 +239,15 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "v"
+            "name": "v",
+            "line": 17,
+            "column": 17
           },
           "type": "Vector3",
           "isOptional": false,
@@ -195,7 +255,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 17,
+          "column": 17
         }
       ],
       "body": [
@@ -207,22 +269,34 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 18,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 18,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "PropertyAccessExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "v"
+                  "name": "v",
+                  "line": 18,
+                  "column": 17
                 },
-                "name": "x"
+                "name": "x",
+                "line": 18,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 18,
+            "column": 5
+          },
+          "line": 18,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -232,17 +306,29 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "v"
+                "name": "v",
+                "line": 19,
+                "column": 5
               },
-              "name": "x"
+              "name": "x",
+              "line": 19,
+              "column": 5
             },
             "right": {
               "kind": "NumericLiteral",
-              "value": 100
-            }
-          }
+              "value": 100,
+              "line": 19,
+              "column": 11
+            },
+            "line": 19,
+            "column": 5
+          },
+          "line": 19,
+          "column": 5
         }
-      ]
+      ],
+      "line": 17,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -251,17 +337,19 @@
       "isDefaultExport": false,
       "isAsync": false,
       "typeParameters": [],
-      "returnType": "any",
+      "returnType": "",
       "parameters": [],
       "body": [
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "arr"
+            "name": "arr",
+            "line": 23,
+            "column": 11
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "ArrayLiteralExpression",
             "elements": [
@@ -269,46 +357,70 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Vector3"
+                  "name": "Vector3",
+                  "line": 23,
+                  "column": 22
                 },
                 "arguments": [
                   {
                     "kind": "NumericLiteral",
-                    "value": 1
+                    "value": 1,
+                    "line": 23,
+                    "column": 30
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2
+                    "value": 2,
+                    "line": 23,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3
+                    "value": 3,
+                    "line": 23,
+                    "column": 36
                   }
                 ],
-                "typeArguments": []
+                "typeArguments": [],
+                "line": 23,
+                "column": 18
               }
-            ]
-          }
+            ],
+            "line": 23,
+            "column": 17
+          },
+          "line": 23,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "v"
+            "name": "v",
+            "line": 24,
+            "column": 11
           },
           "isExported": false,
-          "type": "any",
+          "type": "",
           "initializer": {
             "kind": "ElementAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "arr"
+              "name": "arr",
+              "line": 24,
+              "column": 15
             },
             "argumentExpression": {
               "kind": "NumericLiteral",
-              "value": 0
-            }
-          }
+              "value": 0,
+              "line": 24,
+              "column": 19
+            },
+            "line": 24,
+            "column": 15
+          },
+          "line": 24,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -318,24 +430,38 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 25,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 25,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "PropertyAccessExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "v"
+                  "name": "v",
+                  "line": 25,
+                  "column": 17
                 },
-                "name": "x"
+                "name": "x",
+                "line": 25,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 25,
+            "column": 5
+          },
+          "line": 25,
+          "column": 5
         }
-      ]
+      ],
+      "line": 22,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -343,11 +469,17 @@
         "kind": "CallExpression",
         "callee": {
           "kind": "Identifier",
-          "name": "main"
+          "name": "main",
+          "line": 28,
+          "column": 1
         },
         "arguments": [],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 28,
+        "column": 1
+      },
+      "line": 28,
+      "column": 1
     }
   ]
 }

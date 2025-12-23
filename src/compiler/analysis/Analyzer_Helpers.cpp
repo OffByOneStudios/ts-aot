@@ -4,12 +4,52 @@
 #include <fmt/core.h>
 #include <sstream>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
 namespace ts {
 
 using namespace ast;
+
+void Analyzer::dumpTypes(ast::Program* program) {
+    fprintf(stderr, "Analyzer::dumpTypes starting with %zu expressions\n", expressions.size());
+    struct TypeEntry {
+        int line;
+        int column;
+        std::string kind;
+        std::string type;
+
+        bool operator<(const TypeEntry& other) const {
+            if (line != other.line) return line < other.line;
+            if (column != other.column) return column < other.column;
+            if (kind != other.kind) return kind < other.kind;
+            return type < other.type;
+        }
+    };
+
+    std::vector<TypeEntry> entries;
+    for (auto expr : expressions) {
+        if (expr->inferredType) {
+            entries.push_back({
+                expr->line,
+                expr->column,
+                expr->getKind(),
+                expr->inferredType->toString()
+            });
+        } else {
+            // fprintf(stderr, "Expression %s at L%d:C%d has no inferred type\n", expr->getKind().c_str(), expr->line, expr->column);
+        }
+    }
+    fprintf(stderr, "Collected %zu type entries\n", entries.size());
+
+    std::sort(entries.begin(), entries.end());
+
+    for (const auto& entry : entries) {
+        fmt::print("L{}:C{} {} -> {}\n", entry.line, entry.column, entry.kind, entry.type);
+    }
+}
+
 void Analyzer::visitOmittedExpression(ast::OmittedExpression* node) {
     lastType = std::make_shared<Type>(TypeKind::Any);
 }

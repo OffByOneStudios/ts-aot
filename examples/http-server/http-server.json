@@ -10,13 +10,17 @@
           "kind": "NamespaceImport",
           "name": "http"
         }
-      }
+      },
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "VariableDeclaration",
       "name": {
         "kind": "Identifier",
-        "name": "server"
+        "name": "server",
+        "line": 3,
+        "column": 7
       },
       "isExported": false,
       "type": "",
@@ -26,9 +30,13 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "http"
+            "name": "http",
+            "line": 3,
+            "column": 16
           },
-          "name": "createServer"
+          "name": "createServer",
+          "line": 3,
+          "column": 16
         },
         "arguments": [
           {
@@ -39,7 +47,9 @@
                 "kind": "Parameter",
                 "name": {
                   "kind": "Identifier",
-                  "name": "req"
+                  "name": "req",
+                  "line": 3,
+                  "column": 35
                 },
                 "type": "IncomingMessage",
                 "isOptional": false,
@@ -47,13 +57,17 @@
                 "initializer": null,
                 "access": null,
                 "isReadonly": false,
-                "isParameterProperty": false
+                "isParameterProperty": false,
+                "line": 3,
+                "column": 35
               },
               {
                 "kind": "Parameter",
                 "name": {
                   "kind": "Identifier",
-                  "name": "res"
+                  "name": "res",
+                  "line": 3,
+                  "column": 57
                 },
                 "type": "ServerResponse",
                 "isOptional": false,
@@ -61,7 +75,9 @@
                 "initializer": null,
                 "access": null,
                 "isReadonly": false,
-                "isParameterProperty": false
+                "isParameterProperty": false,
+                "line": 3,
+                "column": 57
               }
             ],
             "body": {
@@ -76,14 +92,22 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "req"
+                        "name": "req",
+                        "line": 4,
+                        "column": 9
                       },
-                      "name": "url"
+                      "name": "url",
+                      "line": 4,
+                      "column": 9
                     },
                     "right": {
                       "kind": "StringLiteral",
-                      "value": "/json"
-                    }
+                      "value": "/json",
+                      "line": 4,
+                      "column": 21
+                    },
+                    "line": 4,
+                    "column": 9
                   },
                   "thenStatement": {
                     "kind": "BlockStatement",
@@ -96,14 +120,20 @@
                             "kind": "PropertyAccessExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "res"
+                              "name": "res",
+                              "line": 5,
+                              "column": 9
                             },
-                            "name": "writeHead"
+                            "name": "writeHead",
+                            "line": 5,
+                            "column": 9
                           },
                           "arguments": [
                             {
                               "kind": "NumericLiteral",
-                              "value": 200
+                              "value": 200,
+                              "line": 5,
+                              "column": 23
                             },
                             {
                               "kind": "ObjectLiteralExpression",
@@ -112,14 +142,22 @@
                                   "name": "Content-Type",
                                   "initializer": {
                                     "kind": "StringLiteral",
-                                    "value": "application/json"
+                                    "value": "application/json",
+                                    "line": 5,
+                                    "column": 46
                                   }
                                 }
-                              ]
+                              ],
+                              "line": 5,
+                              "column": 28
                             }
                           ],
-                          "typeArguments": []
-                        }
+                          "typeArguments": [],
+                          "line": 5,
+                          "column": 9
+                        },
+                        "line": 5,
+                        "column": 9
                       },
                       {
                         "kind": "ExpressionStatement",
@@ -129,9 +167,13 @@
                             "kind": "PropertyAccessExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "res"
+                              "name": "res",
+                              "line": 6,
+                              "column": 9
                             },
-                            "name": "end"
+                            "name": "end",
+                            "line": 6,
+                            "column": 9
                           },
                           "arguments": [
                             {
@@ -140,9 +182,13 @@
                                 "kind": "PropertyAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "JSON"
+                                  "name": "JSON",
+                                  "line": 6,
+                                  "column": 17
                                 },
-                                "name": "stringify"
+                                "name": "stringify",
+                                "line": 6,
+                                "column": 17
                               },
                               "arguments": [
                                 {
@@ -152,7 +198,9 @@
                                       "name": "message",
                                       "initializer": {
                                         "kind": "StringLiteral",
-                                        "value": "Hello, World!"
+                                        "value": "Hello, World!",
+                                        "line": 6,
+                                        "column": 43
                                       }
                                     },
                                     {
@@ -163,24 +211,40 @@
                                           "kind": "PropertyAccessExpression",
                                           "expression": {
                                             "kind": "Identifier",
-                                            "name": "Date"
+                                            "name": "Date",
+                                            "line": 6,
+                                            "column": 71
                                           },
-                                          "name": "now"
+                                          "name": "now",
+                                          "line": 6,
+                                          "column": 71
                                         },
                                         "arguments": [],
-                                        "typeArguments": []
+                                        "typeArguments": [],
+                                        "line": 6,
+                                        "column": 71
                                       }
                                     }
-                                  ]
+                                  ],
+                                  "line": 6,
+                                  "column": 32
                                 }
                               ],
-                              "typeArguments": []
+                              "typeArguments": [],
+                              "line": 6,
+                              "column": 17
                             }
                           ],
-                          "typeArguments": []
-                        }
+                          "typeArguments": [],
+                          "line": 6,
+                          "column": 9
+                        },
+                        "line": 6,
+                        "column": 9
                       }
-                    ]
+                    ],
+                    "line": 4,
+                    "column": 30
                   },
                   "elseStatement": {
                     "kind": "BlockStatement",
@@ -193,14 +257,20 @@
                             "kind": "PropertyAccessExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "res"
+                              "name": "res",
+                              "line": 8,
+                              "column": 9
                             },
-                            "name": "writeHead"
+                            "name": "writeHead",
+                            "line": 8,
+                            "column": 9
                           },
                           "arguments": [
                             {
                               "kind": "NumericLiteral",
-                              "value": 404
+                              "value": 404,
+                              "line": 8,
+                              "column": 23
                             },
                             {
                               "kind": "ObjectLiteralExpression",
@@ -209,14 +279,22 @@
                                   "name": "Content-Type",
                                   "initializer": {
                                     "kind": "StringLiteral",
-                                    "value": "text/plain"
+                                    "value": "text/plain",
+                                    "line": 8,
+                                    "column": 46
                                   }
                                 }
-                              ]
+                              ],
+                              "line": 8,
+                              "column": 28
                             }
                           ],
-                          "typeArguments": []
-                        }
+                          "typeArguments": [],
+                          "line": 8,
+                          "column": 9
+                        },
+                        "line": 8,
+                        "column": 9
                       },
                       {
                         "kind": "ExpressionStatement",
@@ -226,28 +304,50 @@
                             "kind": "PropertyAccessExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "res"
+                              "name": "res",
+                              "line": 9,
+                              "column": 9
                             },
-                            "name": "end"
+                            "name": "end",
+                            "line": 9,
+                            "column": 9
                           },
                           "arguments": [
                             {
                               "kind": "StringLiteral",
-                              "value": "Not Found"
+                              "value": "Not Found",
+                              "line": 9,
+                              "column": 17
                             }
                           ],
-                          "typeArguments": []
-                        }
+                          "typeArguments": [],
+                          "line": 9,
+                          "column": 9
+                        },
+                        "line": 9,
+                        "column": 9
                       }
-                    ]
-                  }
+                    ],
+                    "line": 7,
+                    "column": 12
+                  },
+                  "line": 4,
+                  "column": 5
                 }
-              ]
-            }
+              ],
+              "line": 3,
+              "column": 81
+            },
+            "line": 3,
+            "column": 34
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 3,
+        "column": 16
+      },
+      "line": 3,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -257,18 +357,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 13,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 13,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "StringLiteral",
-            "value": "Server listening on port 8080..."
+            "value": "Server listening on port 8080...",
+            "line": 13,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 13,
+        "column": 1
+      },
+      "line": 13,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -278,18 +388,28 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "server"
+            "name": "server",
+            "line": 14,
+            "column": 1
           },
-          "name": "listen"
+          "name": "listen",
+          "line": 14,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "NumericLiteral",
-            "value": 8080
+            "value": 8080,
+            "line": 14,
+            "column": 15
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 14,
+        "column": 1
+      },
+      "line": 14,
+      "column": 1
     }
   ]
 }

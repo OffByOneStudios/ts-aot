@@ -14,7 +14,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "a"
+            "name": "a",
+            "line": 1,
+            "column": 14
           },
           "type": "number",
           "isOptional": false,
@@ -22,13 +24,17 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 1,
+          "column": 14
         },
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "b"
+            "name": "b",
+            "line": 1,
+            "column": 25
           },
           "type": "number",
           "isOptional": false,
@@ -36,7 +42,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 1,
+          "column": 25
         }
       ],
       "body": [
@@ -47,15 +55,25 @@
             "operator": "+",
             "left": {
               "kind": "Identifier",
-              "name": "a"
+              "name": "a",
+              "line": 2,
+              "column": 12
             },
             "right": {
               "kind": "Identifier",
-              "name": "b"
-            }
-          }
+              "name": "b",
+              "line": 2,
+              "column": 16
+            },
+            "line": 2,
+            "column": 12
+          },
+          "line": 2,
+          "column": 5
         }
-      ]
+      ],
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -65,32 +83,48 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 4,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 4,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "CallExpression",
             "callee": {
               "kind": "Identifier",
-              "name": "add"
+              "name": "add",
+              "line": 4,
+              "column": 13
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 1
+                "value": 1,
+                "line": 4,
+                "column": 17
               },
               {
                 "kind": "NumericLiteral",
-                "value": 2
+                "value": 2,
+                "line": 4,
+                "column": 20
               }
             ],
-            "typeArguments": []
+            "typeArguments": [],
+            "line": 4,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 4,
+        "column": 1
+      },
+      "line": 4,
+      "column": 1
     }
   ]
 }

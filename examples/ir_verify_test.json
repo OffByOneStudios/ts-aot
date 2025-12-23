@@ -14,7 +14,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "a"
+            "name": "a",
+            "line": 1,
+            "column": 21
           },
           "type": "number",
           "isOptional": false,
@@ -22,13 +24,17 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 1,
+          "column": 21
         },
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "b"
+            "name": "b",
+            "line": 1,
+            "column": 32
           },
           "type": "number",
           "isOptional": false,
@@ -36,7 +42,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 1,
+          "column": 32
         }
       ],
       "body": [
@@ -52,13 +60,21 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "a"
+                  "name": "a",
+                  "line": 2,
+                  "column": 13
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
+                  "value": 0,
+                  "line": 2,
+                  "column": 17
+                },
+                "line": 2,
+                "column": 13
+              },
+              "line": 2,
+              "column": 12
             },
             "right": {
               "kind": "ParenthesizedExpression",
@@ -67,17 +83,31 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "b"
+                  "name": "b",
+                  "line": 2,
+                  "column": 23
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
-            }
-          }
+                  "value": 0,
+                  "line": 2,
+                  "column": 27
+                },
+                "line": 2,
+                "column": 23
+              },
+              "line": 2,
+              "column": 22
+            },
+            "line": 2,
+            "column": 12
+          },
+          "line": 2,
+          "column": 5
         }
-      ]
+      ],
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -87,32 +117,48 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 5,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 5,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "CallExpression",
             "callee": {
               "kind": "Identifier",
-              "name": "add_simple"
+              "name": "add_simple",
+              "line": 5,
+              "column": 13
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 1
+                "value": 1,
+                "line": 5,
+                "column": 24
               },
               {
                 "kind": "NumericLiteral",
-                "value": 2
+                "value": 2,
+                "line": 5,
+                "column": 27
               }
             ],
-            "typeArguments": []
+            "typeArguments": [],
+            "line": 5,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 5,
+        "column": 1
+      },
+      "line": 5,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -127,7 +173,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "a"
+            "name": "a",
+            "line": 12,
+            "column": 22
           },
           "type": "number",
           "isOptional": false,
@@ -135,13 +183,17 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 12,
+          "column": 22
         },
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "b"
+            "name": "b",
+            "line": 12,
+            "column": 33
           },
           "type": "number",
           "isOptional": false,
@@ -149,7 +201,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 12,
+          "column": 33
         }
       ],
       "body": [
@@ -157,7 +211,9 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "x"
+            "name": "x",
+            "line": 13,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -171,13 +227,21 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "a"
+                  "name": "a",
+                  "line": 13,
+                  "column": 16
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
+                  "value": 0,
+                  "line": 13,
+                  "column": 20
+                },
+                "line": 13,
+                "column": 16
+              },
+              "line": 13,
+              "column": 15
             },
             "right": {
               "kind": "ParenthesizedExpression",
@@ -186,21 +250,35 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "b"
+                  "name": "b",
+                  "line": 13,
+                  "column": 26
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
-            }
-          }
+                  "value": 0,
+                  "line": 13,
+                  "column": 30
+                },
+                "line": 13,
+                "column": 26
+              },
+              "line": 13,
+              "column": 25
+            },
+            "line": 13,
+            "column": 15
+          },
+          "line": 13,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "y"
+            "name": "y",
+            "line": 14,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -214,13 +292,21 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "a"
+                  "name": "a",
+                  "line": 14,
+                  "column": 16
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
+                  "value": 0,
+                  "line": 14,
+                  "column": 20
+                },
+                "line": 14,
+                "column": 16
+              },
+              "line": 14,
+              "column": 15
             },
             "right": {
               "kind": "ParenthesizedExpression",
@@ -229,15 +315,27 @@
                 "operator": "|",
                 "left": {
                   "kind": "Identifier",
-                  "name": "b"
+                  "name": "b",
+                  "line": 14,
+                  "column": 26
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
-              }
-            }
-          }
+                  "value": 0,
+                  "line": 14,
+                  "column": 30
+                },
+                "line": 14,
+                "column": 26
+              },
+              "line": 14,
+              "column": 25
+            },
+            "line": 14,
+            "column": 15
+          },
+          "line": 14,
+          "column": 5
         },
         {
           "kind": "ReturnStatement",
@@ -246,15 +344,25 @@
             "operator": "+",
             "left": {
               "kind": "Identifier",
-              "name": "x"
+              "name": "x",
+              "line": 15,
+              "column": 12
             },
             "right": {
               "kind": "Identifier",
-              "name": "y"
-            }
-          }
+              "name": "y",
+              "line": 15,
+              "column": 16
+            },
+            "line": 15,
+            "column": 12
+          },
+          "line": 15,
+          "column": 5
         }
-      ]
+      ],
+      "line": 12,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -264,32 +372,48 @@
           "kind": "PropertyAccessExpression",
           "expression": {
             "kind": "Identifier",
-            "name": "console"
+            "name": "console",
+            "line": 18,
+            "column": 1
           },
-          "name": "log"
+          "name": "log",
+          "line": 18,
+          "column": 1
         },
         "arguments": [
           {
             "kind": "CallExpression",
             "callee": {
               "kind": "Identifier",
-              "name": "bitwise_ops"
+              "name": "bitwise_ops",
+              "line": 18,
+              "column": 13
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 10
+                "value": 10,
+                "line": 18,
+                "column": 25
               },
               {
                 "kind": "NumericLiteral",
-                "value": 20
+                "value": 20,
+                "line": 18,
+                "column": 29
               }
             ],
-            "typeArguments": []
+            "typeArguments": [],
+            "line": 18,
+            "column": 13
           }
         ],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 18,
+        "column": 1
+      },
+      "line": 18,
+      "column": 1
     }
   ]
 }

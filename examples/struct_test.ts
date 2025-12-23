@@ -26,3 +26,12 @@ function main() {
 }
 
 main();
+
+// TYPE-CHECK: L11:C9 AssignmentExpression -> double
+// TYPE-CHECK: L11:C9 PropertyAccessExpression -> double
+// TYPE-CHECK: L18:C5 CallExpression -> void
+// TYPE-CHECK: L18:C17 PropertyAccessExpression -> double
+// TYPE-CHECK: L23:C17 ArrayLiteralExpression -> [Vector3]
+// TYPE-CHECK: L23:C18 NewExpression -> Vector3
+// TYPE-CHECK: L24:C15 ElementAccessExpression -> Vector3
+// TYPE-CHECK: L25:C17 PropertyAccessExpression -> double

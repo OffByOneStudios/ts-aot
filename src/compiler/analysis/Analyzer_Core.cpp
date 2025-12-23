@@ -66,8 +66,7 @@ void Analyzer::visit(Node* node) {
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
         expr->inferredType = lastType;
-        if (auto id = dynamic_cast<Identifier*>(expr)) {
-        }
+        expressions.push_back(expr);
     }
 }
 

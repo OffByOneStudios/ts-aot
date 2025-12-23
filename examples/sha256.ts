@@ -119,3 +119,16 @@ function main() {
 }
 
 main();
+
+// TYPE-CHECK: L7:C12 BinaryExpression -> int
+// TYPE-CHECK: L7:C31 BinaryExpression -> double
+// TYPE-CHECK: L11:C15 NewExpression -> Uint32Array
+// TYPE-CHECK: L32:C20 PropertyAccessExpression -> int
+// TYPE-CHECK: L33:C21 BinaryExpression -> int
+// TYPE-CHECK: L34:C17 NewExpression -> Uint8Array
+// TYPE-CHECK: L40:C18 NewExpression -> DataView
+// TYPE-CHECK: L43:C15 NewExpression -> Uint32Array
+// TYPE-CHECK: L51:C24 CallExpression -> double
+// TYPE-CHECK: L51:C45 CallExpression -> double
+// TYPE-CHECK: L66:C24 CallExpression -> double
+// TYPE-CHECK: L69:C24 CallExpression -> double

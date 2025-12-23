@@ -1,4 +1,4 @@
-#include "AstLoader.h"
+﻿#include "AstLoader.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <stdexcept>
@@ -17,23 +17,27 @@ ExprPtr parseExpression(const json& j) {
     
     if (kind == "BinaryExpression") {
         auto node = std::make_unique<BinaryExpression>();
+        setLocation(node.get(), j);
         node->op = j["operator"];
         node->left = parseExpression(j["left"]);
         node->right = parseExpression(j["right"]);
         return node;
     } else if (kind == "ConditionalExpression") {
         auto node = std::make_unique<ConditionalExpression>();
+        setLocation(node.get(), j);
         node->condition = parseExpression(j["condition"]);
         node->whenTrue = parseExpression(j["whenTrue"]);
         node->whenFalse = parseExpression(j["whenFalse"]);
         return node;
     } else if (kind == "AssignmentExpression") {
         auto node = std::make_unique<AssignmentExpression>();
+        setLocation(node.get(), j);
         node->left = parseExpression(j["left"]);
         node->right = parseExpression(j["right"]);
         return node;
     } else if (kind == "CallExpression") {
         auto node = std::make_unique<CallExpression>();
+        setLocation(node.get(), j);
         node->callee = parseExpression(j["callee"]);
         if (j.contains("arguments")) {
             for (const auto& arg : j["arguments"]) {
@@ -48,6 +52,7 @@ ExprPtr parseExpression(const json& j) {
         return node;
     } else if (kind == "NewExpression") {
         auto node = std::make_unique<NewExpression>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         if (j.contains("arguments")) {
             for (const auto& arg : j["arguments"]) {
@@ -62,12 +67,14 @@ ExprPtr parseExpression(const json& j) {
         return node;
     } else if (kind == "ArrayLiteralExpression") {
         auto node = std::make_unique<ArrayLiteralExpression>();
+        setLocation(node.get(), j);
         for (const auto& el : j["elements"]) {
             node->elements.push_back(parseExpression(el));
         }
         return node;
     } else if (kind == "ObjectLiteralExpression") {
         auto node = std::make_unique<ObjectLiteralExpression>();
+        setLocation(node.get(), j);
         for (const auto& prop : j["properties"]) {
             auto p = std::make_unique<PropertyAssignment>();
             p->name = prop["name"];
@@ -77,67 +84,86 @@ ExprPtr parseExpression(const json& j) {
         return node;
     } else if (kind == "ElementAccessExpression") {
         auto node = std::make_unique<ElementAccessExpression>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->argumentExpression = parseExpression(j["argumentExpression"]);
         return node;
     } else if (kind == "PropertyAccessExpression") {
         auto node = std::make_unique<PropertyAccessExpression>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->name = j["name"];
         return node;
     } else if (kind == "Identifier") {
         auto node = std::make_unique<Identifier>();
+        setLocation(node.get(), j);
         node->name = j["name"];
         return node;
     } else if (kind == "StringLiteral") {
         auto node = std::make_unique<StringLiteral>();
+        setLocation(node.get(), j);
         node->value = j["value"];
         return node;
     } else if (kind == "RegularExpressionLiteral") {
         auto node = std::make_unique<RegularExpressionLiteral>();
+        setLocation(node.get(), j);
         node->text = j["text"];
         return node;
     } else if (kind == "NumericLiteral") {
         auto node = std::make_unique<NumericLiteral>();
+        setLocation(node.get(), j);
         node->value = j["value"];
         return node;
     } else if (kind == "ParenthesizedExpression") {
         return parseExpression(j["expression"]);
     } else if (kind == "BooleanLiteral") {
         auto node = std::make_unique<BooleanLiteral>();
+        setLocation(node.get(), j);
         node->value = j["value"];
         return node;
     } else if (kind == "NullLiteral") {
-        return std::make_unique<NullLiteral>();
+        auto node = std::make_unique<NullLiteral>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "UndefinedLiteral") {
-        return std::make_unique<UndefinedLiteral>();
+        auto node = std::make_unique<UndefinedLiteral>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "AwaitExpression") {
         auto node = std::make_unique<AwaitExpression>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         return node;
     } else if (kind == "PrefixUnaryExpression") {
         auto node = std::make_unique<PrefixUnaryExpression>();
+        setLocation(node.get(), j);
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
     } else if (kind == "PostfixUnaryExpression") {
         auto node = std::make_unique<PostfixUnaryExpression>();
+        setLocation(node.get(), j);
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
     } else if (kind == "AsExpression") {
         auto node = std::make_unique<AsExpression>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->type = j["type"];
         return node;
     } else if (kind == "SpreadElement") {
         auto node = std::make_unique<SpreadElement>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         return node;
     } else if (kind == "OmittedExpression") {
-        return std::make_unique<OmittedExpression>();
+        auto node = std::make_unique<OmittedExpression>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "ArrowFunction") {
         auto node = std::make_unique<ArrowFunction>();
+        setLocation(node.get(), j);
         node->isAsync = j.value("isAsync", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
@@ -148,6 +174,7 @@ ExprPtr parseExpression(const json& j) {
         return node;
     } else if (kind == "FunctionExpression") {
         auto node = std::make_unique<FunctionExpression>();
+        setLocation(node.get(), j);
         if (j.contains("name") && !j["name"].is_null()) {
             node->name = j["name"];
         }
@@ -171,6 +198,7 @@ ExprPtr parseExpression(const json& j) {
         return node;
     } else if (kind == "TemplateExpression") {
         auto node = std::make_unique<TemplateExpression>();
+        setLocation(node.get(), j);
         node->head = j["head"];
         for (const auto& span : j["templateSpans"]) {
             TemplateSpan s;
@@ -180,7 +208,9 @@ ExprPtr parseExpression(const json& j) {
         }
         return node;
     } else if (kind == "SuperExpression") {
-        return std::make_unique<SuperExpression>();
+        auto node = std::make_unique<SuperExpression>();
+        setLocation(node.get(), j);
+        return node;
     }
     
     throw std::runtime_error("Unknown expression kind: " + kind);
