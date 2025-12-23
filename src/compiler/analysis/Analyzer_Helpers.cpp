@@ -191,8 +191,39 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
         return result;
     }
 
-    // For classes and interfaces, we might need to substitute their type arguments if they are generic
-    // But for now, let's keep it simple.
+    if (type->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(type);
+        if (cls->typeArguments.empty()) return type;
+        
+        auto result = std::make_shared<ClassType>(cls->name);
+        result->node = cls->node;
+        result->baseClass = cls->baseClass;
+        result->fields = cls->fields;
+        result->methods = cls->methods;
+        result->staticMethods = cls->staticMethods;
+        result->staticFields = cls->staticFields;
+        result->typeParameters = cls->typeParameters;
+        for (const auto& arg : cls->typeArguments) {
+            result->typeArguments.push_back(substitute(arg, env));
+        }
+        return result;
+    }
+
+    if (type->kind == TypeKind::Interface) {
+        auto inter = std::static_pointer_cast<InterfaceType>(type);
+        if (inter->typeArguments.empty()) return type;
+
+        auto result = std::make_shared<InterfaceType>(inter->name);
+        result->node = inter->node;
+        result->fields = inter->fields;
+        result->methods = inter->methods;
+        result->typeParameters = inter->typeParameters;
+        for (const auto& arg : inter->typeArguments) {
+            result->typeArguments.push_back(substitute(arg, env));
+        }
+        return result;
+    }
+
     return type;
 }
 

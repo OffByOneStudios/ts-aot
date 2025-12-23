@@ -122,26 +122,50 @@ if (TS_FAT_RUNTIME AND MSVC)
 import sys
 import subprocess
 import os
+import shutil
 
 def merge():
     output = sys.argv[1]
-    libs = sys.argv[2:]
+    raw_libs = sys.argv[2:]
     
-    valid_libs = []
+    # Handle semicolon-separated lists from CMake
+    libs = []
+    for l in raw_libs:
+        if ';' in l:
+            libs.extend(l.split(';'))
+        else:
+            libs.append(l)
+    
+    # Filter out empty strings and duplicates, preserving order
+    seen = set()
+    unique_libs = []
     for l in libs:
         if not l: continue
-        if os.path.exists(l):
-            valid_libs.append(l)
-        else:
-            print(f'Warning: Library not found: {l}')
+        # Normalize path for comparison
+        abs_l = os.path.abspath(l).lower()
+        if abs_l not in seen:
+            if os.path.exists(l):
+                unique_libs.append(l)
+                seen.add(abs_l)
+            else:
+                print(f'Warning: Library not found: {l}')
     
-    if not valid_libs:
+    if not unique_libs:
         print('No libraries to merge!')
         return
     
-    cmd = [r'${MSVC_LIB}', '/NOLOGO', f'/OUT:{output}'] + valid_libs
-    print(f'Merging {len(valid_libs)} libraries into {output}...')
+    print(f'Merging {len(unique_libs)} libraries into {output}...')
+    for l in unique_libs:
+        print(f'  - {l}')
+        
+    temp_output = output + '.fat.lib'
+    cmd = [r'${MSVC_LIB}', '/NOLOGO', f'/OUT:{temp_output}'] + unique_libs
     subprocess.check_call(cmd)
+    
+    # Replace original with fat library
+    if os.path.exists(output):
+        os.remove(output)
+    os.rename(temp_output, output)
 
 if __name__ == '__main__':
     merge()
@@ -152,7 +176,7 @@ if __name__ == '__main__':
         COMMAND ${CMAKE_COMMAND} -E echo "Merging dependencies into tsruntime.lib (Fat Build)..."
         COMMAND ${Python3_EXECUTABLE} ${MERGE_LIB_SCRIPT} 
                 $<TARGET_FILE:tsruntime>
-                $<TARGET_FILE:tsruntime>
+                $<TARGET_OBJECTS:tsruntime>
                 ${MERGE_LIBS}
         COMMENT "Merging dependencies into tsruntime.lib (Fat Build)"
     )

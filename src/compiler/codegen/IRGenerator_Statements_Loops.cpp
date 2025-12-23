@@ -257,6 +257,9 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 }
 
 void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
+    if (node->isAwait) {
+        llvm::errs() << "for await...of is not yet implemented\n";
+    }
     llvm::Function* function = builder->GetInsertBlock()->getParent();
     
     // Create loop variables

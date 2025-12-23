@@ -123,7 +123,10 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         builder->getPtrTy(), // vtable
         llvm::Type::getInt32Ty(*context), // state
         llvm::Type::getInt1Ty(*context), // error
+        llvm::Type::getInt1Ty(*context), // yielded
+        llvm::StructType::get(*context, { llvm::Type::getInt8Ty(*context), llvm::Type::getInt64Ty(*context) }), // yieldedValue (TsValue)
         builder->getPtrTy(), // promise
+        builder->getPtrTy(), // pendingNextPromise
         builder->getPtrTy(), // resumeFn
         builder->getPtrTy()  // data
     });

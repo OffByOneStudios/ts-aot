@@ -73,6 +73,7 @@ StmtPtr parseStatement(const json& j) {
         node->isExported = j.value("isExported", false);
         node->isDefaultExport = j.value("isDefaultExport", false);
         node->isAsync = j.value("isAsync", false);
+        node->isGenerator = j.value("isGenerator", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 node->parameters.push_back(parseParameter(param));
@@ -156,6 +157,7 @@ StmtPtr parseStatement(const json& j) {
         }
         node->expression = parseExpression(j["expression"]);
         node->body = parseStatement(j["body"]);
+        node->isAwait = j.value("isAwait", false);
         return node;
     } else if (kind == "ForInStatement") {
         auto node = std::make_unique<ForInStatement>();

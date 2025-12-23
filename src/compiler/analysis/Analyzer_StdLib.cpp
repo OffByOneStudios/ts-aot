@@ -274,6 +274,12 @@ Analyzer::Analyzer() {
     auto tParam = std::make_shared<TypeParameterType>("T");
     promiseClass->typeParameters.push_back(tParam);
 
+    auto promiseOfT = std::make_shared<ClassType>("Promise");
+    promiseOfT->typeArguments.push_back(tParam);
+
+    auto promiseOfAny = std::make_shared<ClassType>("Promise");
+    promiseOfAny->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
+
     auto thenType = std::make_shared<FunctionType>();
     auto thenCallback = std::make_shared<FunctionType>();
     thenCallback->paramTypes.push_back(tParam);
@@ -285,48 +291,48 @@ Analyzer::Analyzer() {
     catchCallback->returnType = std::make_shared<Type>(TypeKind::Any);
     thenType->paramTypes.push_back(catchCallback);
     
-    thenType->returnType = promiseClass; // Returns Promise<any> for now
+    thenType->returnType = promiseOfAny; // Returns Promise<any> for now
     promiseClass->methods["then"] = thenType;
 
     auto catchType = std::make_shared<FunctionType>();
     catchType->paramTypes.push_back(catchCallback);
-    catchType->returnType = promiseClass;
+    catchType->returnType = promiseOfAny;
     promiseClass->methods["catch"] = catchType;
 
     auto finallyType = std::make_shared<FunctionType>();
     auto finallyCallback = std::make_shared<FunctionType>();
     finallyType->paramTypes.push_back(finallyCallback);
-    finallyType->returnType = promiseClass;
+    finallyType->returnType = promiseOfAny;
     promiseClass->methods["finally"] = finallyType;
 
     auto resolveType = std::make_shared<FunctionType>();
     resolveType->paramTypes.push_back(tParam);
-    resolveType->returnType = promiseClass;
+    resolveType->returnType = promiseOfT;
     promiseClass->staticMethods["resolve"] = resolveType;
 
     auto rejectStaticType = std::make_shared<FunctionType>();
     rejectStaticType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    rejectStaticType->returnType = promiseClass;
+    rejectStaticType->returnType = promiseOfAny;
     promiseClass->staticMethods["reject"] = rejectStaticType;
 
     auto allType = std::make_shared<FunctionType>();
     allType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    allType->returnType = promiseClass;
+    allType->returnType = promiseOfAny;
     promiseClass->staticMethods["all"] = allType;
 
     auto raceType = std::make_shared<FunctionType>();
     raceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    raceType->returnType = promiseClass;
+    raceType->returnType = promiseOfAny;
     promiseClass->staticMethods["race"] = raceType;
 
     auto allSettledType = std::make_shared<FunctionType>();
     allSettledType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    allSettledType->returnType = promiseClass;
+    allSettledType->returnType = promiseOfAny;
     promiseClass->staticMethods["allSettled"] = allSettledType;
 
     auto anyType = std::make_shared<FunctionType>();
     anyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    anyType->returnType = promiseClass;
+    anyType->returnType = promiseOfAny;
     promiseClass->staticMethods["any"] = anyType;
 
     symbols.defineType("Promise", promiseClass);
@@ -334,6 +340,35 @@ Analyzer::Analyzer() {
     auto promiseCtor = std::make_shared<FunctionType>();
     promiseCtor->returnType = promiseClass;
     symbols.define("Promise", promiseCtor);
+
+    // Register IteratorResult
+    auto iteratorResultType = std::make_shared<ObjectType>();
+    iteratorResultType->fields["value"] = std::make_shared<Type>(TypeKind::Any);
+    iteratorResultType->fields["done"] = std::make_shared<Type>(TypeKind::Boolean);
+    symbols.defineType("IteratorResult", iteratorResultType);
+
+    // Register Generator
+    auto generatorClass = std::make_shared<ClassType>("Generator");
+    auto nextMethod = std::make_shared<FunctionType>();
+    nextMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    nextMethod->returnType = iteratorResultType;
+    generatorClass->methods["next"] = nextMethod;
+    symbols.defineType("Generator", generatorClass);
+
+    // Register AsyncGenerator
+    auto asyncGeneratorClass = std::make_shared<ClassType>("AsyncGenerator");
+    auto asyncNextMethod = std::make_shared<FunctionType>();
+    asyncNextMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    
+    auto wrappedResult = std::make_shared<ClassType>("Promise");
+    wrappedResult->typeParameters = promiseClass->typeParameters;
+    wrappedResult->methods = promiseClass->methods;
+    wrappedResult->staticMethods = promiseClass->staticMethods;
+    wrappedResult->typeArguments = { iteratorResultType };
+    
+    asyncNextMethod->returnType = wrappedResult;
+    asyncGeneratorClass->methods["next"] = asyncNextMethod;
+    symbols.defineType("AsyncGenerator", asyncGeneratorClass);
 
     // Register fs global
     auto fsType = std::make_shared<ObjectType>();

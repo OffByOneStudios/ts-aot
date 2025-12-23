@@ -190,6 +190,7 @@ struct InterfaceType : public Type {
     std::map<std::string, std::shared_ptr<Type>> fields;
     std::map<std::string, std::shared_ptr<FunctionType>> methods;
     std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
+    std::vector<std::shared_ptr<Type>> typeArguments;
 
     InterfaceType(std::string n) : Type(TypeKind::Interface), name(n) {}
 

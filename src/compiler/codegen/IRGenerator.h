@@ -70,6 +70,7 @@ private:
     void visitStringLiteral(ast::StringLiteral* node);
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
+    void visitYieldExpression(ast::YieldExpression* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);
@@ -148,6 +149,8 @@ private:
     std::map<std::string, int> currentAsyncFrameMap;
     llvm::BasicBlock* asyncDispatcherBB = nullptr;
     std::vector<llvm::BasicBlock*> asyncStateBlocks;
+    bool currentIsGenerator = false;
+    bool currentIsAsync = false;
     std::vector<llvm::BasicBlock*> catchStack;
 
     struct ClassLayout {

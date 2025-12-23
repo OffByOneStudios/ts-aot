@@ -134,6 +134,16 @@ ExprPtr parseExpression(const json& j) {
         setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         return node;
+    } else if (kind == "YieldExpression") {
+        auto node = std::make_unique<YieldExpression>();
+        setLocation(node.get(), j);
+        if (j.contains("expression") && !j["expression"].is_null()) {
+            node->expression = parseExpression(j["expression"]);
+        }
+        if (j.contains("isAsterisk")) {
+            node->isAsterisk = j["isAsterisk"];
+        }
+        return node;
     } else if (kind == "PrefixUnaryExpression") {
         auto node = std::make_unique<PrefixUnaryExpression>();
         setLocation(node.get(), j);
@@ -179,6 +189,7 @@ ExprPtr parseExpression(const json& j) {
             node->name = j["name"];
         }
         node->isAsync = j.value("isAsync", false);
+        node->isGenerator = j.value("isGenerator", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 node->parameters.push_back(parseParameter(param));

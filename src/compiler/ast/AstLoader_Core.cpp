@@ -159,6 +159,7 @@ NodePtr parseClassMember(const json& j) {
         auto node = std::make_unique<MethodDefinition>();
         node->name = j["name"];
         node->isAsync = j.value("isAsync", false);
+        node->isGenerator = j.value("isGenerator", false);
         if (j.contains("parameters")) {
             for (const auto& param : j["parameters"]) {
                 node->parameters.push_back(parseParameter(param));

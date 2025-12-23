@@ -26,7 +26,13 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
-    if (node->isAsync) {
+    if (node->isGenerator) {
+        auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+        auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+        wrapped->methods = genClass->methods;
+        wrapped->typeArguments = { funcType->returnType };
+        funcType->returnType = wrapped;
+    } else if (node->isAsync) {
         // Wrap return type in Promise if it's not already a Promise
         bool isPromise = false;
         if (funcType->returnType->kind == TypeKind::Class) {
@@ -156,6 +162,31 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         } else {
             methodType->returnType = std::make_shared<Type>(TypeKind::Void);
         }
+
+        if (node->isGenerator) {
+            auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+            auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+            wrapped->methods = genClass->methods;
+            wrapped->typeArguments = { methodType->returnType };
+            methodType->returnType = wrapped;
+        } else if (node->isAsync) {
+            // Wrap return type in Promise if it's not already a Promise
+            bool isPromise = false;
+            if (methodType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(methodType->returnType);
+                if (cls->name == "Promise") isPromise = true;
+            }
+            
+            if (!isPromise) {
+                auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+                auto wrapped = std::make_shared<ClassType>("Promise");
+                wrapped->typeParameters = promiseClass->typeParameters;
+                wrapped->methods = promiseClass->methods;
+                wrapped->staticMethods = promiseClass->staticMethods;
+                wrapped->typeArguments = { methodType->returnType };
+                methodType->returnType = wrapped;
+            }
+        }
         
         for (const auto& param : node->parameters) {
             if (!param->type.empty()) {
@@ -268,6 +299,14 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             }
         }
     }
+
+    if (node->isGenerator) {
+        auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+        auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+        wrapped->methods = genClass->methods;
+        wrapped->typeArguments = { inferredReturnType };
+        inferredReturnType = wrapped;
+    }
     
     symbols.exitScope();
     return inferredReturnType;
@@ -346,7 +385,13 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
-    if (node->isAsync) {
+    if (node->isGenerator) {
+        auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
+        auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
+        wrapped->methods = genClass->methods;
+        wrapped->typeArguments = { funcType->returnType };
+        funcType->returnType = wrapped;
+    } else if (node->isAsync) {
         // Wrap return type in Promise if it's not already a Promise
         bool isPromise = false;
         if (funcType->returnType->kind == TypeKind::Class) {

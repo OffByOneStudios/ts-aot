@@ -18,6 +18,16 @@ void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
     lastType = type;
 }
 
+void Analyzer::visitYieldExpression(ast::YieldExpression* node) {
+    if (node->expression) {
+        visit(node->expression.get());
+    } else {
+        lastType = std::make_shared<Type>(TypeKind::Undefined);
+    }
+    // yield returns any for now (the value passed to next())
+    lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
 } // namespace ts
 
 

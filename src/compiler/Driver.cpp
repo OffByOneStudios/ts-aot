@@ -154,21 +154,6 @@ int Driver::run() {
 
             linkOpts.libraries.push_back("tsruntime.lib");
             
-            // Dependencies (mostly for non-fat runtime, but harmless in fat mode)
-            linkOpts.libraries.push_back("gc.lib");
-            linkOpts.libraries.push_back("libuv.lib");
-            linkOpts.libraries.push_back("llhttp.lib");
-            linkOpts.libraries.push_back("libsodium.lib");
-            linkOpts.libraries.push_back("libcrypto.lib");
-            linkOpts.libraries.push_back("libssl.lib");
-            linkOpts.libraries.push_back("zlib.lib");
-            
-            linkOpts.libraries.push_back("icuuc.lib");
-            if (!options.smallIcu) {
-                linkOpts.libraries.push_back("icuin.lib");
-            }
-            linkOpts.libraries.push_back("icudt.lib");
-
             // Windows system libraries
             linkOpts.libraries.push_back("ws2_32.lib");
             linkOpts.libraries.push_back("user32.lib");

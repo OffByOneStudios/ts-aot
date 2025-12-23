@@ -653,7 +653,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
     } else {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
-            llvm::Value* objPtr = lastValue;
+            llvm::Value* objPtr = unboxValue(lastValue, node->expression->inferredType);
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -672,7 +672,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
             }
             
-            lastValue = unboxValue(lastValue, fieldType);
+            if (fieldType->kind != TypeKind::Object && fieldType->kind != TypeKind::Any && fieldType->kind != TypeKind::Intersection) {
+                lastValue = unboxValue(lastValue, fieldType);
+            }
             return;
         }
 
