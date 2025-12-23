@@ -118,3 +118,12 @@ function main() {
 }
 
 main();
+
+// TYPE-CHECK: L32:C31 CallExpression -> double
+// TYPE-CHECK: L33:C16 CallExpression -> Vector3
+// TYPE-CHECK: L46:C20 CallExpression -> Vector3
+// TYPE-CHECK: L47:C19 CallExpression -> double
+// TYPE-CHECK: L77:C25 CallExpression -> Vector3
+// TYPE-CHECK: L78:C25 NewExpression -> Ray
+// TYPE-CHECK: L84:C27 CallExpression -> double
+// TYPE-CHECK: L92:C29 BinaryExpression -> double

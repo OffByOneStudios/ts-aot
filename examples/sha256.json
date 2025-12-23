@@ -14,7 +14,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "n"
+            "name": "n",
+            "line": 6,
+            "column": 15
           },
           "type": "number",
           "isOptional": false,
@@ -22,13 +24,17 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 6,
+          "column": 15
         },
         {
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "x"
+            "name": "x",
+            "line": 6,
+            "column": 26
           },
           "type": "number",
           "isOptional": false,
@@ -36,7 +42,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 6,
+          "column": 26
         }
       ],
       "body": [
@@ -52,13 +60,21 @@
                 "operator": ">>>",
                 "left": {
                   "kind": "Identifier",
-                  "name": "x"
+                  "name": "x",
+                  "line": 7,
+                  "column": 13
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "n"
-                }
-              }
+                  "name": "n",
+                  "line": 7,
+                  "column": 19
+                },
+                "line": 7,
+                "column": 13
+              },
+              "line": 7,
+              "column": 12
             },
             "right": {
               "kind": "ParenthesizedExpression",
@@ -67,7 +83,9 @@
                 "operator": "<<",
                 "left": {
                   "kind": "Identifier",
-                  "name": "x"
+                  "name": "x",
+                  "line": 7,
+                  "column": 25
                 },
                 "right": {
                   "kind": "ParenthesizedExpression",
@@ -76,19 +94,37 @@
                     "operator": "-",
                     "left": {
                       "kind": "NumericLiteral",
-                      "value": 32
+                      "value": 32,
+                      "line": 7,
+                      "column": 31
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "n"
-                    }
-                  }
-                }
-              }
-            }
-          }
+                      "name": "n",
+                      "line": 7,
+                      "column": 36
+                    },
+                    "line": 7,
+                    "column": 31
+                  },
+                  "line": 7,
+                  "column": 30
+                },
+                "line": 7,
+                "column": 25
+              },
+              "line": 7,
+              "column": 24
+            },
+            "line": 7,
+            "column": 12
+          },
+          "line": 7,
+          "column": 5
         }
-      ]
+      ],
+      "line": 6,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -103,7 +139,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "message"
+            "name": "message",
+            "line": 10,
+            "column": 17
           },
           "type": "string",
           "isOptional": false,
@@ -111,7 +149,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 10,
+          "column": 17
         }
       ],
       "body": [
@@ -119,7 +159,9 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "K"
+            "name": "K",
+            "line": 11,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -127,7 +169,9 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "Uint32Array"
+              "name": "Uint32Array",
+              "line": 11,
+              "column": 19
             },
             "arguments": [
               {
@@ -135,375 +179,559 @@
                 "elements": [
                   {
                     "kind": "NumericLiteral",
-                    "value": 1116352408
+                    "value": 1116352408,
+                    "line": 12,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1899447441
+                    "value": 1899447441,
+                    "line": 12,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3049323471
+                    "value": 3049323471,
+                    "line": 12,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3921009573
+                    "value": 3921009573,
+                    "line": 12,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 961987163
+                    "value": 961987163,
+                    "line": 12,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1508970993
+                    "value": 1508970993,
+                    "line": 12,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2453635748
+                    "value": 2453635748,
+                    "line": 12,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2870763221
+                    "value": 2870763221,
+                    "line": 12,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3624381080
+                    "value": 3624381080,
+                    "line": 13,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 310598401
+                    "value": 310598401,
+                    "line": 13,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 607225278
+                    "value": 607225278,
+                    "line": 13,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1426881987
+                    "value": 1426881987,
+                    "line": 13,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1925078388
+                    "value": 1925078388,
+                    "line": 13,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2162078206
+                    "value": 2162078206,
+                    "line": 13,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2614888103
+                    "value": 2614888103,
+                    "line": 13,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3248222580
+                    "value": 3248222580,
+                    "line": 13,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3835390401
+                    "value": 3835390401,
+                    "line": 14,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 4022224774
+                    "value": 4022224774,
+                    "line": 14,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 264347078
+                    "value": 264347078,
+                    "line": 14,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 604807628
+                    "value": 604807628,
+                    "line": 14,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 770255983
+                    "value": 770255983,
+                    "line": 14,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1249150122
+                    "value": 1249150122,
+                    "line": 14,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1555081692
+                    "value": 1555081692,
+                    "line": 14,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1996064986
+                    "value": 1996064986,
+                    "line": 14,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2554220882
+                    "value": 2554220882,
+                    "line": 15,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2821834349
+                    "value": 2821834349,
+                    "line": 15,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2952996808
+                    "value": 2952996808,
+                    "line": 15,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3210313671
+                    "value": 3210313671,
+                    "line": 15,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3336571891
+                    "value": 3336571891,
+                    "line": 15,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3584528711
+                    "value": 3584528711,
+                    "line": 15,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 113926993
+                    "value": 113926993,
+                    "line": 15,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 338241895
+                    "value": 338241895,
+                    "line": 15,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 666307205
+                    "value": 666307205,
+                    "line": 16,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 773529912
+                    "value": 773529912,
+                    "line": 16,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1294757372
+                    "value": 1294757372,
+                    "line": 16,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1396182291
+                    "value": 1396182291,
+                    "line": 16,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1695183700
+                    "value": 1695183700,
+                    "line": 16,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1986661051
+                    "value": 1986661051,
+                    "line": 16,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2177026350
+                    "value": 2177026350,
+                    "line": 16,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2456956037
+                    "value": 2456956037,
+                    "line": 16,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2730485921
+                    "value": 2730485921,
+                    "line": 17,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2820302411
+                    "value": 2820302411,
+                    "line": 17,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3259730800
+                    "value": 3259730800,
+                    "line": 17,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3345764771
+                    "value": 3345764771,
+                    "line": 17,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3516065817
+                    "value": 3516065817,
+                    "line": 17,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3600352804
+                    "value": 3600352804,
+                    "line": 17,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 4094571909
+                    "value": 4094571909,
+                    "line": 17,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 275423344
+                    "value": 275423344,
+                    "line": 17,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 430227734
+                    "value": 430227734,
+                    "line": 18,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 506948616
+                    "value": 506948616,
+                    "line": 18,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 659060556
+                    "value": 659060556,
+                    "line": 18,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 883997877
+                    "value": 883997877,
+                    "line": 18,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 958139571
+                    "value": 958139571,
+                    "line": 18,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1322822218
+                    "value": 1322822218,
+                    "line": 18,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1537002063
+                    "value": 1537002063,
+                    "line": 18,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1747873779
+                    "value": 1747873779,
+                    "line": 18,
+                    "column": 93
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1955562222
+                    "value": 1955562222,
+                    "line": 19,
+                    "column": 9
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2024104815
+                    "value": 2024104815,
+                    "line": 19,
+                    "column": 21
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2227730452
+                    "value": 2227730452,
+                    "line": 19,
+                    "column": 33
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2361852424
+                    "value": 2361852424,
+                    "line": 19,
+                    "column": 45
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2428436474
+                    "value": 2428436474,
+                    "line": 19,
+                    "column": 57
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 2756734187
+                    "value": 2756734187,
+                    "line": 19,
+                    "column": 69
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3204031479
+                    "value": 3204031479,
+                    "line": 19,
+                    "column": 81
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 3329325298
+                    "value": 3329325298,
+                    "line": 19,
+                    "column": 93
                   }
-                ]
+                ],
+                "line": 11,
+                "column": 31
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 11,
+            "column": 15
+          },
+          "line": 11,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h0"
+            "name": "h0",
+            "line": 22,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 1779033703
-          }
+            "value": 1779033703,
+            "line": 22,
+            "column": 14
+          },
+          "line": 22,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h1"
+            "name": "h1",
+            "line": 23,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 3144134277
-          }
+            "value": 3144134277,
+            "line": 23,
+            "column": 14
+          },
+          "line": 23,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h2"
+            "name": "h2",
+            "line": 24,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 1013904242
-          }
+            "value": 1013904242,
+            "line": 24,
+            "column": 14
+          },
+          "line": 24,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h3"
+            "name": "h3",
+            "line": 25,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 2773480762
-          }
+            "value": 2773480762,
+            "line": 25,
+            "column": 14
+          },
+          "line": 25,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h4"
+            "name": "h4",
+            "line": 26,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 1359893119
-          }
+            "value": 1359893119,
+            "line": 26,
+            "column": 14
+          },
+          "line": 26,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h5"
+            "name": "h5",
+            "line": 27,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 2600822924
-          }
+            "value": 2600822924,
+            "line": 27,
+            "column": 14
+          },
+          "line": 27,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h6"
+            "name": "h6",
+            "line": 28,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 528734635
-          }
+            "value": 528734635,
+            "line": 28,
+            "column": 14
+          },
+          "line": 28,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "h7"
+            "name": "h7",
+            "line": 29,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 1541459225
-          }
+            "value": 1541459225,
+            "line": 29,
+            "column": 14
+          },
+          "line": 29,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "msgLen"
+            "name": "msgLen",
+            "line": 32,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -511,16 +739,24 @@
             "kind": "PropertyAccessExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "message"
+              "name": "message",
+              "line": 32,
+              "column": 20
             },
-            "name": "length"
-          }
+            "name": "length",
+            "line": 32,
+            "column": 20
+          },
+          "line": 32,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "nBlocks"
+            "name": "nBlocks",
+            "line": 33,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -539,31 +775,53 @@
                     "operator": "+",
                     "left": {
                       "kind": "Identifier",
-                      "name": "msgLen"
+                      "name": "msgLen",
+                      "line": 33,
+                      "column": 23
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 8
-                    }
-                  }
+                      "value": 8,
+                      "line": 33,
+                      "column": 32
+                    },
+                    "line": 33,
+                    "column": 23
+                  },
+                  "line": 33,
+                  "column": 22
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 6
-                }
-              }
+                  "value": 6,
+                  "line": 33,
+                  "column": 38
+                },
+                "line": 33,
+                "column": 22
+              },
+              "line": 33,
+              "column": 21
             },
             "right": {
               "kind": "NumericLiteral",
-              "value": 1
-            }
-          }
+              "value": 1,
+              "line": 33,
+              "column": 43
+            },
+            "line": 33,
+            "column": 21
+          },
+          "line": 33,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "msg"
+            "name": "msg",
+            "line": 34,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -571,7 +829,9 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "Uint8Array"
+              "name": "Uint8Array",
+              "line": 34,
+              "column": 21
             },
             "arguments": [
               {
@@ -579,16 +839,26 @@
                 "operator": "<<",
                 "left": {
                   "kind": "Identifier",
-                  "name": "nBlocks"
+                  "name": "nBlocks",
+                  "line": 34,
+                  "column": 32
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 6
-                }
+                  "value": 6,
+                  "line": 34,
+                  "column": 43
+                },
+                "line": 34,
+                "column": 32
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 34,
+            "column": 17
+          },
+          "line": 34,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -596,11 +866,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 35,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 35,
+              "column": 18
             }
           },
           "condition": {
@@ -608,20 +882,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 35,
+              "column": 21
             },
             "right": {
               "kind": "Identifier",
-              "name": "msgLen"
-            }
+              "name": "msgLen",
+              "line": 35,
+              "column": 25
+            },
+            "line": 35,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "i"
-            }
+              "name": "i",
+              "line": 35,
+              "column": 33
+            },
+            "line": 35,
+            "column": 33
           },
           "body": {
             "kind": "BlockStatement",
@@ -634,12 +918,18 @@
                     "kind": "ElementAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "msg"
+                      "name": "msg",
+                      "line": 36,
+                      "column": 9
                     },
                     "argumentExpression": {
                       "kind": "Identifier",
-                      "name": "i"
-                    }
+                      "name": "i",
+                      "line": 36,
+                      "column": 13
+                    },
+                    "line": 36,
+                    "column": 9
                   },
                   "right": {
                     "kind": "CallExpression",
@@ -647,22 +937,38 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "message"
+                        "name": "message",
+                        "line": 36,
+                        "column": 18
                       },
-                      "name": "charCodeAt"
+                      "name": "charCodeAt",
+                      "line": 36,
+                      "column": 18
                     },
                     "arguments": [
                       {
                         "kind": "Identifier",
-                        "name": "i"
+                        "name": "i",
+                        "line": 36,
+                        "column": 37
                       }
                     ],
-                    "typeArguments": []
-                  }
-                }
+                    "typeArguments": [],
+                    "line": 36,
+                    "column": 18
+                  },
+                  "line": 36,
+                  "column": 9
+                },
+                "line": 36,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 35,
+            "column": 38
+          },
+          "line": 35,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -672,24 +978,38 @@
               "kind": "ElementAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "msg"
+                "name": "msg",
+                "line": 38,
+                "column": 5
               },
               "argumentExpression": {
                 "kind": "Identifier",
-                "name": "msgLen"
-              }
+                "name": "msgLen",
+                "line": 38,
+                "column": 9
+              },
+              "line": 38,
+              "column": 5
             },
             "right": {
               "kind": "NumericLiteral",
-              "value": 128
-            }
-          }
+              "value": 128,
+              "line": 38,
+              "column": 19
+            },
+            "line": 38,
+            "column": 5
+          },
+          "line": 38,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "view"
+            "name": "view",
+            "line": 40,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -697,20 +1017,30 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "DataView"
+              "name": "DataView",
+              "line": 40,
+              "column": 22
             },
             "arguments": [
               {
                 "kind": "PropertyAccessExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "msg"
+                  "name": "msg",
+                  "line": 40,
+                  "column": 31
                 },
-                "name": "buffer"
+                "name": "buffer",
+                "line": 40,
+                "column": 31
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 40,
+            "column": 18
+          },
+          "line": 40,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -720,9 +1050,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "view"
+                "name": "view",
+                "line": 41,
+                "column": 5
               },
-              "name": "setUint32"
+              "name": "setUint32",
+              "line": 41,
+              "column": 5
             },
             "arguments": [
               {
@@ -735,40 +1069,64 @@
                     "operator": "<<",
                     "left": {
                       "kind": "Identifier",
-                      "name": "nBlocks"
+                      "name": "nBlocks",
+                      "line": 41,
+                      "column": 21
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 6
-                    }
-                  }
+                      "value": 6,
+                      "line": 41,
+                      "column": 32
+                    },
+                    "line": 41,
+                    "column": 21
+                  },
+                  "line": 41,
+                  "column": 20
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 4
-                }
+                  "value": 4,
+                  "line": 41,
+                  "column": 37
+                },
+                "line": 41,
+                "column": 20
               },
               {
                 "kind": "BinaryExpression",
                 "operator": "*",
                 "left": {
                   "kind": "Identifier",
-                  "name": "msgLen"
+                  "name": "msgLen",
+                  "line": 41,
+                  "column": 40
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 8
-                }
+                  "value": 8,
+                  "line": 41,
+                  "column": 49
+                },
+                "line": 41,
+                "column": 40
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 41,
+            "column": 5
+          },
+          "line": 41,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "w"
+            "name": "w",
+            "line": 43,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -776,16 +1134,24 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "Uint32Array"
+              "name": "Uint32Array",
+              "line": 43,
+              "column": 19
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 64
+                "value": 64,
+                "line": 43,
+                "column": 31
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 43,
+            "column": 15
+          },
+          "line": 43,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -793,11 +1159,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "b"
+              "name": "b",
+              "line": 45,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 45,
+              "column": 18
             }
           },
           "condition": {
@@ -805,20 +1175,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "b"
+              "name": "b",
+              "line": 45,
+              "column": 21
             },
             "right": {
               "kind": "Identifier",
-              "name": "nBlocks"
-            }
+              "name": "nBlocks",
+              "line": 45,
+              "column": 25
+            },
+            "line": 45,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "b"
-            }
+              "name": "b",
+              "line": 45,
+              "column": 34
+            },
+            "line": 45,
+            "column": 34
           },
           "body": {
             "kind": "BlockStatement",
@@ -829,11 +1209,15 @@
                   "kind": "VariableDeclaration",
                   "name": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 46,
+                    "column": 18
                   },
                   "initializer": {
                     "kind": "NumericLiteral",
-                    "value": 0
+                    "value": 0,
+                    "line": 46,
+                    "column": 22
                   }
                 },
                 "condition": {
@@ -841,20 +1225,30 @@
                   "operator": "<",
                   "left": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 46,
+                    "column": 25
                   },
                   "right": {
                     "kind": "NumericLiteral",
-                    "value": 16
-                  }
+                    "value": 16,
+                    "line": 46,
+                    "column": 29
+                  },
+                  "line": 46,
+                  "column": 25
                 },
                 "incrementor": {
                   "kind": "PostfixUnaryExpression",
                   "operator": "++",
                   "operand": {
                     "kind": "Identifier",
-                    "name": "t"
-                  }
+                    "name": "t",
+                    "line": 46,
+                    "column": 33
+                  },
+                  "line": 46,
+                  "column": 33
                 },
                 "body": {
                   "kind": "BlockStatement",
@@ -867,12 +1261,18 @@
                           "kind": "ElementAccessExpression",
                           "expression": {
                             "kind": "Identifier",
-                            "name": "w"
+                            "name": "w",
+                            "line": 47,
+                            "column": 13
                           },
                           "argumentExpression": {
                             "kind": "Identifier",
-                            "name": "t"
-                          }
+                            "name": "t",
+                            "line": 47,
+                            "column": 15
+                          },
+                          "line": 47,
+                          "column": 13
                         },
                         "right": {
                           "kind": "CallExpression",
@@ -880,9 +1280,13 @@
                             "kind": "PropertyAccessExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "view"
+                              "name": "view",
+                              "line": 47,
+                              "column": 20
                             },
-                            "name": "getUint32"
+                            "name": "getUint32",
+                            "line": 47,
+                            "column": 20
                           },
                           "arguments": [
                             {
@@ -895,13 +1299,21 @@
                                   "operator": "<<",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "b"
+                                    "name": "b",
+                                    "line": 47,
+                                    "column": 36
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 6
-                                  }
-                                }
+                                    "value": 6,
+                                    "line": 47,
+                                    "column": 41
+                                  },
+                                  "line": 47,
+                                  "column": 36
+                                },
+                                "line": 47,
+                                "column": 35
                               },
                               "right": {
                                 "kind": "ParenthesizedExpression",
@@ -910,22 +1322,42 @@
                                   "operator": "<<",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "t"
+                                    "name": "t",
+                                    "line": 47,
+                                    "column": 47
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 2
-                                  }
-                                }
-                              }
+                                    "value": 2,
+                                    "line": 47,
+                                    "column": 52
+                                  },
+                                  "line": 47,
+                                  "column": 47
+                                },
+                                "line": 47,
+                                "column": 46
+                              },
+                              "line": 47,
+                              "column": 35
                             }
                           ],
-                          "typeArguments": []
-                        }
-                      }
+                          "typeArguments": [],
+                          "line": 47,
+                          "column": 20
+                        },
+                        "line": 47,
+                        "column": 13
+                      },
+                      "line": 47,
+                      "column": 13
                     }
-                  ]
-                }
+                  ],
+                  "line": 46,
+                  "column": 38
+                },
+                "line": 46,
+                "column": 9
               },
               {
                 "kind": "ForStatement",
@@ -933,11 +1365,15 @@
                   "kind": "VariableDeclaration",
                   "name": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 50,
+                    "column": 18
                   },
                   "initializer": {
                     "kind": "NumericLiteral",
-                    "value": 16
+                    "value": 16,
+                    "line": 50,
+                    "column": 22
                   }
                 },
                 "condition": {
@@ -945,20 +1381,30 @@
                   "operator": "<",
                   "left": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 50,
+                    "column": 26
                   },
                   "right": {
                     "kind": "NumericLiteral",
-                    "value": 64
-                  }
+                    "value": 64,
+                    "line": 50,
+                    "column": 30
+                  },
+                  "line": 50,
+                  "column": 26
                 },
                 "incrementor": {
                   "kind": "PostfixUnaryExpression",
                   "operator": "++",
                   "operand": {
                     "kind": "Identifier",
-                    "name": "t"
-                  }
+                    "name": "t",
+                    "line": 50,
+                    "column": 34
+                  },
+                  "line": 50,
+                  "column": 34
                 },
                 "body": {
                   "kind": "BlockStatement",
@@ -967,7 +1413,9 @@
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "s0"
+                        "name": "s0",
+                        "line": 51,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -981,68 +1429,102 @@
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 51,
+                              "column": 24
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 7
+                                "value": 7,
+                                "line": 51,
+                                "column": 29
                               },
                               {
                                 "kind": "ElementAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "w"
+                                  "name": "w",
+                                  "line": 51,
+                                  "column": 32
                                 },
                                 "argumentExpression": {
                                   "kind": "BinaryExpression",
                                   "operator": "-",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "t"
+                                    "name": "t",
+                                    "line": 51,
+                                    "column": 34
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 15
-                                  }
-                                }
+                                    "value": 15,
+                                    "line": 51,
+                                    "column": 38
+                                  },
+                                  "line": 51,
+                                  "column": 34
+                                },
+                                "line": 51,
+                                "column": 32
                               }
                             ],
-                            "typeArguments": []
+                            "typeArguments": [],
+                            "line": 51,
+                            "column": 24
                           },
                           "right": {
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 51,
+                              "column": 45
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 18
+                                "value": 18,
+                                "line": 51,
+                                "column": 50
                               },
                               {
                                 "kind": "ElementAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "w"
+                                  "name": "w",
+                                  "line": 51,
+                                  "column": 54
                                 },
                                 "argumentExpression": {
                                   "kind": "BinaryExpression",
                                   "operator": "-",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "t"
+                                    "name": "t",
+                                    "line": 51,
+                                    "column": 56
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 15
-                                  }
-                                }
+                                    "value": 15,
+                                    "line": 51,
+                                    "column": 60
+                                  },
+                                  "line": 51,
+                                  "column": 56
+                                },
+                                "line": 51,
+                                "column": 54
                               }
                             ],
-                            "typeArguments": []
-                          }
+                            "typeArguments": [],
+                            "line": 51,
+                            "column": 45
+                          },
+                          "line": 51,
+                          "column": 24
                         },
                         "right": {
                           "kind": "ParenthesizedExpression",
@@ -1053,34 +1535,56 @@
                               "kind": "ElementAccessExpression",
                               "expression": {
                                 "kind": "Identifier",
-                                "name": "w"
+                                "name": "w",
+                                "line": 51,
+                                "column": 68
                               },
                               "argumentExpression": {
                                 "kind": "BinaryExpression",
                                 "operator": "-",
                                 "left": {
                                   "kind": "Identifier",
-                                  "name": "t"
+                                  "name": "t",
+                                  "line": 51,
+                                  "column": 70
                                 },
                                 "right": {
                                   "kind": "NumericLiteral",
-                                  "value": 15
-                                }
-                              }
+                                  "value": 15,
+                                  "line": 51,
+                                  "column": 74
+                                },
+                                "line": 51,
+                                "column": 70
+                              },
+                              "line": 51,
+                              "column": 68
                             },
                             "right": {
                               "kind": "NumericLiteral",
-                              "value": 3
-                            }
-                          }
-                        }
-                      }
+                              "value": 3,
+                              "line": 51,
+                              "column": 82
+                            },
+                            "line": 51,
+                            "column": 68
+                          },
+                          "line": 51,
+                          "column": 67
+                        },
+                        "line": 51,
+                        "column": 24
+                      },
+                      "line": 51,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "s1"
+                        "name": "s1",
+                        "line": 52,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1094,68 +1598,102 @@
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 52,
+                              "column": 24
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 17
+                                "value": 17,
+                                "line": 52,
+                                "column": 29
                               },
                               {
                                 "kind": "ElementAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "w"
+                                  "name": "w",
+                                  "line": 52,
+                                  "column": 33
                                 },
                                 "argumentExpression": {
                                   "kind": "BinaryExpression",
                                   "operator": "-",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "t"
+                                    "name": "t",
+                                    "line": 52,
+                                    "column": 35
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 2
-                                  }
-                                }
+                                    "value": 2,
+                                    "line": 52,
+                                    "column": 39
+                                  },
+                                  "line": 52,
+                                  "column": 35
+                                },
+                                "line": 52,
+                                "column": 33
                               }
                             ],
-                            "typeArguments": []
+                            "typeArguments": [],
+                            "line": 52,
+                            "column": 24
                           },
                           "right": {
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 52,
+                              "column": 45
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 19
+                                "value": 19,
+                                "line": 52,
+                                "column": 50
                               },
                               {
                                 "kind": "ElementAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "w"
+                                  "name": "w",
+                                  "line": 52,
+                                  "column": 54
                                 },
                                 "argumentExpression": {
                                   "kind": "BinaryExpression",
                                   "operator": "-",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "t"
+                                    "name": "t",
+                                    "line": 52,
+                                    "column": 56
                                   },
                                   "right": {
                                     "kind": "NumericLiteral",
-                                    "value": 2
-                                  }
-                                }
+                                    "value": 2,
+                                    "line": 52,
+                                    "column": 60
+                                  },
+                                  "line": 52,
+                                  "column": 56
+                                },
+                                "line": 52,
+                                "column": 54
                               }
                             ],
-                            "typeArguments": []
-                          }
+                            "typeArguments": [],
+                            "line": 52,
+                            "column": 45
+                          },
+                          "line": 52,
+                          "column": 24
                         },
                         "right": {
                           "kind": "ParenthesizedExpression",
@@ -1166,28 +1704,48 @@
                               "kind": "ElementAccessExpression",
                               "expression": {
                                 "kind": "Identifier",
-                                "name": "w"
+                                "name": "w",
+                                "line": 52,
+                                "column": 67
                               },
                               "argumentExpression": {
                                 "kind": "BinaryExpression",
                                 "operator": "-",
                                 "left": {
                                   "kind": "Identifier",
-                                  "name": "t"
+                                  "name": "t",
+                                  "line": 52,
+                                  "column": 69
                                 },
                                 "right": {
                                   "kind": "NumericLiteral",
-                                  "value": 2
-                                }
-                              }
+                                  "value": 2,
+                                  "line": 52,
+                                  "column": 73
+                                },
+                                "line": 52,
+                                "column": 69
+                              },
+                              "line": 52,
+                              "column": 67
                             },
                             "right": {
                               "kind": "NumericLiteral",
-                              "value": 10
-                            }
-                          }
-                        }
-                      }
+                              "value": 10,
+                              "line": 52,
+                              "column": 80
+                            },
+                            "line": 52,
+                            "column": 67
+                          },
+                          "line": 52,
+                          "column": 66
+                        },
+                        "line": 52,
+                        "column": 24
+                      },
+                      "line": 52,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1197,12 +1755,18 @@
                           "kind": "ElementAccessExpression",
                           "expression": {
                             "kind": "Identifier",
-                            "name": "w"
+                            "name": "w",
+                            "line": 53,
+                            "column": 13
                           },
                           "argumentExpression": {
                             "kind": "Identifier",
-                            "name": "t"
-                          }
+                            "name": "t",
+                            "line": 53,
+                            "column": 15
+                          },
+                          "line": 53,
+                          "column": 13
                         },
                         "right": {
                           "kind": "BinaryExpression",
@@ -1222,165 +1786,257 @@
                                     "kind": "ElementAccessExpression",
                                     "expression": {
                                       "kind": "Identifier",
-                                      "name": "w"
+                                      "name": "w",
+                                      "line": 53,
+                                      "column": 21
                                     },
                                     "argumentExpression": {
                                       "kind": "BinaryExpression",
                                       "operator": "-",
                                       "left": {
                                         "kind": "Identifier",
-                                        "name": "t"
+                                        "name": "t",
+                                        "line": 53,
+                                        "column": 23
                                       },
                                       "right": {
                                         "kind": "NumericLiteral",
-                                        "value": 16
-                                      }
-                                    }
+                                        "value": 16,
+                                        "line": 53,
+                                        "column": 27
+                                      },
+                                      "line": 53,
+                                      "column": 23
+                                    },
+                                    "line": 53,
+                                    "column": 21
                                   },
                                   "right": {
                                     "kind": "Identifier",
-                                    "name": "s0"
-                                  }
+                                    "name": "s0",
+                                    "line": 53,
+                                    "column": 33
+                                  },
+                                  "line": 53,
+                                  "column": 21
                                 },
                                 "right": {
                                   "kind": "ElementAccessExpression",
                                   "expression": {
                                     "kind": "Identifier",
-                                    "name": "w"
+                                    "name": "w",
+                                    "line": 53,
+                                    "column": 38
                                   },
                                   "argumentExpression": {
                                     "kind": "BinaryExpression",
                                     "operator": "-",
                                     "left": {
                                       "kind": "Identifier",
-                                      "name": "t"
+                                      "name": "t",
+                                      "line": 53,
+                                      "column": 40
                                     },
                                     "right": {
                                       "kind": "NumericLiteral",
-                                      "value": 7
-                                    }
-                                  }
-                                }
+                                      "value": 7,
+                                      "line": 53,
+                                      "column": 44
+                                    },
+                                    "line": 53,
+                                    "column": 40
+                                  },
+                                  "line": 53,
+                                  "column": 38
+                                },
+                                "line": 53,
+                                "column": 21
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "s1"
-                              }
-                            }
+                                "name": "s1",
+                                "line": 53,
+                                "column": 49
+                              },
+                              "line": 53,
+                              "column": 21
+                            },
+                            "line": 53,
+                            "column": 20
                           },
                           "right": {
                             "kind": "NumericLiteral",
-                            "value": 0
-                          }
-                        }
-                      }
+                            "value": 0,
+                            "line": 53,
+                            "column": 55
+                          },
+                          "line": 53,
+                          "column": 20
+                        },
+                        "line": 53,
+                        "column": 13
+                      },
+                      "line": 53,
+                      "column": 13
                     }
-                  ]
-                }
+                  ],
+                  "line": 50,
+                  "column": 39
+                },
+                "line": 50,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "a"
+                  "name": "a",
+                  "line": 56,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h0"
-                }
+                  "name": "h0",
+                  "line": 56,
+                  "column": 17
+                },
+                "line": 56,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "b_"
+                  "name": "b_",
+                  "line": 57,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h1"
-                }
+                  "name": "h1",
+                  "line": 57,
+                  "column": 18
+                },
+                "line": 57,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "c"
+                  "name": "c",
+                  "line": 58,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h2"
-                }
+                  "name": "h2",
+                  "line": 58,
+                  "column": 17
+                },
+                "line": 58,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "d"
+                  "name": "d",
+                  "line": 59,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h3"
-                }
+                  "name": "h3",
+                  "line": 59,
+                  "column": 17
+                },
+                "line": 59,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "e"
+                  "name": "e",
+                  "line": 60,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h4"
-                }
+                  "name": "h4",
+                  "line": 60,
+                  "column": 17
+                },
+                "line": 60,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "f"
+                  "name": "f",
+                  "line": 61,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h5"
-                }
+                  "name": "h5",
+                  "line": 61,
+                  "column": 17
+                },
+                "line": 61,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "g"
+                  "name": "g",
+                  "line": 62,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h6"
-                }
+                  "name": "h6",
+                  "line": 62,
+                  "column": 17
+                },
+                "line": 62,
+                "column": 9
               },
               {
                 "kind": "VariableDeclaration",
                 "name": {
                   "kind": "Identifier",
-                  "name": "h"
+                  "name": "h",
+                  "line": 63,
+                  "column": 13
                 },
                 "isExported": false,
                 "type": "",
                 "initializer": {
                   "kind": "Identifier",
-                  "name": "h7"
-                }
+                  "name": "h7",
+                  "line": 63,
+                  "column": 17
+                },
+                "line": 63,
+                "column": 9
               },
               {
                 "kind": "ForStatement",
@@ -1388,11 +2044,15 @@
                   "kind": "VariableDeclaration",
                   "name": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 65,
+                    "column": 18
                   },
                   "initializer": {
                     "kind": "NumericLiteral",
-                    "value": 0
+                    "value": 0,
+                    "line": 65,
+                    "column": 22
                   }
                 },
                 "condition": {
@@ -1400,20 +2060,30 @@
                   "operator": "<",
                   "left": {
                     "kind": "Identifier",
-                    "name": "t"
+                    "name": "t",
+                    "line": 65,
+                    "column": 25
                   },
                   "right": {
                     "kind": "NumericLiteral",
-                    "value": 64
-                  }
+                    "value": 64,
+                    "line": 65,
+                    "column": 29
+                  },
+                  "line": 65,
+                  "column": 25
                 },
                 "incrementor": {
                   "kind": "PostfixUnaryExpression",
                   "operator": "++",
                   "operand": {
                     "kind": "Identifier",
-                    "name": "t"
-                  }
+                    "name": "t",
+                    "line": 65,
+                    "column": 33
+                  },
+                  "line": 65,
+                  "column": 33
                 },
                 "body": {
                   "kind": "BlockStatement",
@@ -1422,7 +2092,9 @@
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "s1"
+                        "name": "s1",
+                        "line": 66,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1436,64 +2108,96 @@
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 66,
+                              "column": 24
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 6
+                                "value": 6,
+                                "line": 66,
+                                "column": 29
                               },
                               {
                                 "kind": "Identifier",
-                                "name": "e"
+                                "name": "e",
+                                "line": 66,
+                                "column": 32
                               }
                             ],
-                            "typeArguments": []
+                            "typeArguments": [],
+                            "line": 66,
+                            "column": 24
                           },
                           "right": {
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 66,
+                              "column": 37
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 11
+                                "value": 11,
+                                "line": 66,
+                                "column": 42
                               },
                               {
                                 "kind": "Identifier",
-                                "name": "e"
+                                "name": "e",
+                                "line": 66,
+                                "column": 46
                               }
                             ],
-                            "typeArguments": []
-                          }
+                            "typeArguments": [],
+                            "line": 66,
+                            "column": 37
+                          },
+                          "line": 66,
+                          "column": 24
                         },
                         "right": {
                           "kind": "CallExpression",
                           "callee": {
                             "kind": "Identifier",
-                            "name": "rotr"
+                            "name": "rotr",
+                            "line": 66,
+                            "column": 51
                           },
                           "arguments": [
                             {
                               "kind": "NumericLiteral",
-                              "value": 25
+                              "value": 25,
+                              "line": 66,
+                              "column": 56
                             },
                             {
                               "kind": "Identifier",
-                              "name": "e"
+                              "name": "e",
+                              "line": 66,
+                              "column": 60
                             }
                           ],
-                          "typeArguments": []
-                        }
-                      }
+                          "typeArguments": [],
+                          "line": 66,
+                          "column": 51
+                        },
+                        "line": 66,
+                        "column": 24
+                      },
+                      "line": 66,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "ch"
+                        "name": "ch",
+                        "line": 67,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1507,13 +2211,21 @@
                             "operator": "&",
                             "left": {
                               "kind": "Identifier",
-                              "name": "e"
+                              "name": "e",
+                              "line": 67,
+                              "column": 25
                             },
                             "right": {
                               "kind": "Identifier",
-                              "name": "f"
-                            }
-                          }
+                              "name": "f",
+                              "line": 67,
+                              "column": 29
+                            },
+                            "line": 67,
+                            "column": 25
+                          },
+                          "line": 67,
+                          "column": 24
                         },
                         "right": {
                           "kind": "ParenthesizedExpression",
@@ -1527,23 +2239,41 @@
                                 "operator": "~",
                                 "operand": {
                                   "kind": "Identifier",
-                                  "name": "e"
-                                }
-                              }
+                                  "name": "e",
+                                  "line": 67,
+                                  "column": 37
+                                },
+                                "line": 67,
+                                "column": 36
+                              },
+                              "line": 67,
+                              "column": 35
                             },
                             "right": {
                               "kind": "Identifier",
-                              "name": "g"
-                            }
-                          }
-                        }
-                      }
+                              "name": "g",
+                              "line": 67,
+                              "column": 42
+                            },
+                            "line": 67,
+                            "column": 35
+                          },
+                          "line": 67,
+                          "column": 34
+                        },
+                        "line": 67,
+                        "column": 24
+                      },
+                      "line": 67,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "temp1"
+                        "name": "temp1",
+                        "line": 68,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1566,54 +2296,90 @@
                                   "operator": "+",
                                   "left": {
                                     "kind": "Identifier",
-                                    "name": "h"
+                                    "name": "h",
+                                    "line": 68,
+                                    "column": 28
                                   },
                                   "right": {
                                     "kind": "Identifier",
-                                    "name": "s1"
-                                  }
+                                    "name": "s1",
+                                    "line": 68,
+                                    "column": 32
+                                  },
+                                  "line": 68,
+                                  "column": 28
                                 },
                                 "right": {
                                   "kind": "Identifier",
-                                  "name": "ch"
-                                }
+                                  "name": "ch",
+                                  "line": 68,
+                                  "column": 37
+                                },
+                                "line": 68,
+                                "column": 28
                               },
                               "right": {
                                 "kind": "ElementAccessExpression",
                                 "expression": {
                                   "kind": "Identifier",
-                                  "name": "K"
+                                  "name": "K",
+                                  "line": 68,
+                                  "column": 42
                                 },
                                 "argumentExpression": {
                                   "kind": "Identifier",
-                                  "name": "t"
-                                }
-                              }
+                                  "name": "t",
+                                  "line": 68,
+                                  "column": 44
+                                },
+                                "line": 68,
+                                "column": 42
+                              },
+                              "line": 68,
+                              "column": 28
                             },
                             "right": {
                               "kind": "ElementAccessExpression",
                               "expression": {
                                 "kind": "Identifier",
-                                "name": "w"
+                                "name": "w",
+                                "line": 68,
+                                "column": 49
                               },
                               "argumentExpression": {
                                 "kind": "Identifier",
-                                "name": "t"
-                              }
-                            }
-                          }
+                                "name": "t",
+                                "line": 68,
+                                "column": 51
+                              },
+                              "line": 68,
+                              "column": 49
+                            },
+                            "line": 68,
+                            "column": 28
+                          },
+                          "line": 68,
+                          "column": 27
                         },
                         "right": {
                           "kind": "NumericLiteral",
-                          "value": 0
-                        }
-                      }
+                          "value": 0,
+                          "line": 68,
+                          "column": 57
+                        },
+                        "line": 68,
+                        "column": 27
+                      },
+                      "line": 68,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "s0"
+                        "name": "s0",
+                        "line": 69,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1627,64 +2393,96 @@
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 69,
+                              "column": 24
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 2
+                                "value": 2,
+                                "line": 69,
+                                "column": 29
                               },
                               {
                                 "kind": "Identifier",
-                                "name": "a"
+                                "name": "a",
+                                "line": 69,
+                                "column": 32
                               }
                             ],
-                            "typeArguments": []
+                            "typeArguments": [],
+                            "line": 69,
+                            "column": 24
                           },
                           "right": {
                             "kind": "CallExpression",
                             "callee": {
                               "kind": "Identifier",
-                              "name": "rotr"
+                              "name": "rotr",
+                              "line": 69,
+                              "column": 37
                             },
                             "arguments": [
                               {
                                 "kind": "NumericLiteral",
-                                "value": 13
+                                "value": 13,
+                                "line": 69,
+                                "column": 42
                               },
                               {
                                 "kind": "Identifier",
-                                "name": "a"
+                                "name": "a",
+                                "line": 69,
+                                "column": 46
                               }
                             ],
-                            "typeArguments": []
-                          }
+                            "typeArguments": [],
+                            "line": 69,
+                            "column": 37
+                          },
+                          "line": 69,
+                          "column": 24
                         },
                         "right": {
                           "kind": "CallExpression",
                           "callee": {
                             "kind": "Identifier",
-                            "name": "rotr"
+                            "name": "rotr",
+                            "line": 69,
+                            "column": 51
                           },
                           "arguments": [
                             {
                               "kind": "NumericLiteral",
-                              "value": 22
+                              "value": 22,
+                              "line": 69,
+                              "column": 56
                             },
                             {
                               "kind": "Identifier",
-                              "name": "a"
+                              "name": "a",
+                              "line": 69,
+                              "column": 60
                             }
                           ],
-                          "typeArguments": []
-                        }
-                      }
+                          "typeArguments": [],
+                          "line": 69,
+                          "column": 51
+                        },
+                        "line": 69,
+                        "column": 24
+                      },
+                      "line": 69,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "maj"
+                        "name": "maj",
+                        "line": 70,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1701,13 +2499,21 @@
                               "operator": "&",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "a"
+                                "name": "a",
+                                "line": 70,
+                                "column": 26
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "b_"
-                              }
-                            }
+                                "name": "b_",
+                                "line": 70,
+                                "column": 30
+                              },
+                              "line": 70,
+                              "column": 26
+                            },
+                            "line": 70,
+                            "column": 25
                           },
                           "right": {
                             "kind": "ParenthesizedExpression",
@@ -1716,14 +2522,24 @@
                               "operator": "&",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "a"
+                                "name": "a",
+                                "line": 70,
+                                "column": 37
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "c"
-                              }
-                            }
-                          }
+                                "name": "c",
+                                "line": 70,
+                                "column": 41
+                              },
+                              "line": 70,
+                              "column": 37
+                            },
+                            "line": 70,
+                            "column": 36
+                          },
+                          "line": 70,
+                          "column": 25
                         },
                         "right": {
                           "kind": "ParenthesizedExpression",
@@ -1732,21 +2548,35 @@
                             "operator": "&",
                             "left": {
                               "kind": "Identifier",
-                              "name": "b_"
+                              "name": "b_",
+                              "line": 70,
+                              "column": 47
                             },
                             "right": {
                               "kind": "Identifier",
-                              "name": "c"
-                            }
-                          }
-                        }
-                      }
+                              "name": "c",
+                              "line": 70,
+                              "column": 52
+                            },
+                            "line": 70,
+                            "column": 47
+                          },
+                          "line": 70,
+                          "column": 46
+                        },
+                        "line": 70,
+                        "column": 25
+                      },
+                      "line": 70,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "temp2"
+                        "name": "temp2",
+                        "line": 71,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1760,19 +2590,33 @@
                             "operator": "+",
                             "left": {
                               "kind": "Identifier",
-                              "name": "s0"
+                              "name": "s0",
+                              "line": 71,
+                              "column": 28
                             },
                             "right": {
                               "kind": "Identifier",
-                              "name": "maj"
-                            }
-                          }
+                              "name": "maj",
+                              "line": 71,
+                              "column": 33
+                            },
+                            "line": 71,
+                            "column": 28
+                          },
+                          "line": 71,
+                          "column": 27
                         },
                         "right": {
                           "kind": "NumericLiteral",
-                          "value": 0
-                        }
-                      }
+                          "value": 0,
+                          "line": 71,
+                          "column": 40
+                        },
+                        "line": 71,
+                        "column": 27
+                      },
+                      "line": 71,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1780,13 +2624,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h"
+                          "name": "h",
+                          "line": 73,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "g"
-                        }
-                      }
+                          "name": "g",
+                          "line": 73,
+                          "column": 17
+                        },
+                        "line": 73,
+                        "column": 13
+                      },
+                      "line": 73,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1794,13 +2646,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "g"
+                          "name": "g",
+                          "line": 74,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "f"
-                        }
-                      }
+                          "name": "f",
+                          "line": 74,
+                          "column": 17
+                        },
+                        "line": 74,
+                        "column": 13
+                      },
+                      "line": 74,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1808,13 +2668,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "f"
+                          "name": "f",
+                          "line": 75,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "e"
-                        }
-                      }
+                          "name": "e",
+                          "line": 75,
+                          "column": 17
+                        },
+                        "line": 75,
+                        "column": 13
+                      },
+                      "line": 75,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1822,7 +2690,9 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "e"
+                          "name": "e",
+                          "line": 76,
+                          "column": 13
                         },
                         "right": {
                           "kind": "BinaryExpression",
@@ -1834,20 +2704,36 @@
                               "operator": "+",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "d"
+                                "name": "d",
+                                "line": 76,
+                                "column": 18
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "temp1"
-                              }
-                            }
+                                "name": "temp1",
+                                "line": 76,
+                                "column": 22
+                              },
+                              "line": 76,
+                              "column": 18
+                            },
+                            "line": 76,
+                            "column": 17
                           },
                           "right": {
                             "kind": "NumericLiteral",
-                            "value": 0
-                          }
-                        }
-                      }
+                            "value": 0,
+                            "line": 76,
+                            "column": 31
+                          },
+                          "line": 76,
+                          "column": 17
+                        },
+                        "line": 76,
+                        "column": 13
+                      },
+                      "line": 76,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1855,13 +2741,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "d"
+                          "name": "d",
+                          "line": 77,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "c"
-                        }
-                      }
+                          "name": "c",
+                          "line": 77,
+                          "column": 17
+                        },
+                        "line": 77,
+                        "column": 13
+                      },
+                      "line": 77,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1869,13 +2763,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "c"
+                          "name": "c",
+                          "line": 78,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "b_"
-                        }
-                      }
+                          "name": "b_",
+                          "line": 78,
+                          "column": 17
+                        },
+                        "line": 78,
+                        "column": 13
+                      },
+                      "line": 78,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1883,13 +2785,21 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "b_"
+                          "name": "b_",
+                          "line": 79,
+                          "column": 13
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "a"
-                        }
-                      }
+                          "name": "a",
+                          "line": 79,
+                          "column": 18
+                        },
+                        "line": 79,
+                        "column": 13
+                      },
+                      "line": 79,
+                      "column": 13
                     },
                     {
                       "kind": "ExpressionStatement",
@@ -1897,7 +2807,9 @@
                         "kind": "AssignmentExpression",
                         "left": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 80,
+                          "column": 13
                         },
                         "right": {
                           "kind": "BinaryExpression",
@@ -1909,23 +2821,43 @@
                               "operator": "+",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "temp1"
+                                "name": "temp1",
+                                "line": 80,
+                                "column": 18
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "temp2"
-                              }
-                            }
+                                "name": "temp2",
+                                "line": 80,
+                                "column": 26
+                              },
+                              "line": 80,
+                              "column": 18
+                            },
+                            "line": 80,
+                            "column": 17
                           },
                           "right": {
                             "kind": "NumericLiteral",
-                            "value": 0
-                          }
-                        }
-                      }
+                            "value": 0,
+                            "line": 80,
+                            "column": 35
+                          },
+                          "line": 80,
+                          "column": 17
+                        },
+                        "line": 80,
+                        "column": 13
+                      },
+                      "line": 80,
+                      "column": 13
                     }
-                  ]
-                }
+                  ],
+                  "line": 65,
+                  "column": 38
+                },
+                "line": 65,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -1933,7 +2865,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h0"
+                    "name": "h0",
+                    "line": 83,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -1945,20 +2879,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h0"
+                          "name": "h0",
+                          "line": 83,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "a"
-                        }
-                      }
+                          "name": "a",
+                          "line": 83,
+                          "column": 20
+                        },
+                        "line": 83,
+                        "column": 15
+                      },
+                      "line": 83,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 83,
+                      "column": 25
+                    },
+                    "line": 83,
+                    "column": 14
+                  },
+                  "line": 83,
+                  "column": 9
+                },
+                "line": 83,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -1966,7 +2916,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h1"
+                    "name": "h1",
+                    "line": 84,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -1978,20 +2930,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h1"
+                          "name": "h1",
+                          "line": 84,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "b_"
-                        }
-                      }
+                          "name": "b_",
+                          "line": 84,
+                          "column": 20
+                        },
+                        "line": 84,
+                        "column": 15
+                      },
+                      "line": 84,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 84,
+                      "column": 26
+                    },
+                    "line": 84,
+                    "column": 14
+                  },
+                  "line": 84,
+                  "column": 9
+                },
+                "line": 84,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -1999,7 +2967,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h2"
+                    "name": "h2",
+                    "line": 85,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2011,20 +2981,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h2"
+                          "name": "h2",
+                          "line": 85,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "c"
-                        }
-                      }
+                          "name": "c",
+                          "line": 85,
+                          "column": 20
+                        },
+                        "line": 85,
+                        "column": 15
+                      },
+                      "line": 85,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 85,
+                      "column": 25
+                    },
+                    "line": 85,
+                    "column": 14
+                  },
+                  "line": 85,
+                  "column": 9
+                },
+                "line": 85,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -2032,7 +3018,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h3"
+                    "name": "h3",
+                    "line": 86,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2044,20 +3032,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h3"
+                          "name": "h3",
+                          "line": 86,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "d"
-                        }
-                      }
+                          "name": "d",
+                          "line": 86,
+                          "column": 20
+                        },
+                        "line": 86,
+                        "column": 15
+                      },
+                      "line": 86,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 86,
+                      "column": 25
+                    },
+                    "line": 86,
+                    "column": 14
+                  },
+                  "line": 86,
+                  "column": 9
+                },
+                "line": 86,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -2065,7 +3069,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h4"
+                    "name": "h4",
+                    "line": 87,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2077,20 +3083,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h4"
+                          "name": "h4",
+                          "line": 87,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "e"
-                        }
-                      }
+                          "name": "e",
+                          "line": 87,
+                          "column": 20
+                        },
+                        "line": 87,
+                        "column": 15
+                      },
+                      "line": 87,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 87,
+                      "column": 25
+                    },
+                    "line": 87,
+                    "column": 14
+                  },
+                  "line": 87,
+                  "column": 9
+                },
+                "line": 87,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -2098,7 +3120,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h5"
+                    "name": "h5",
+                    "line": 88,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2110,20 +3134,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h5"
+                          "name": "h5",
+                          "line": 88,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "f"
-                        }
-                      }
+                          "name": "f",
+                          "line": 88,
+                          "column": 20
+                        },
+                        "line": 88,
+                        "column": 15
+                      },
+                      "line": 88,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 88,
+                      "column": 25
+                    },
+                    "line": 88,
+                    "column": 14
+                  },
+                  "line": 88,
+                  "column": 9
+                },
+                "line": 88,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -2131,7 +3171,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h6"
+                    "name": "h6",
+                    "line": 89,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2143,20 +3185,36 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h6"
+                          "name": "h6",
+                          "line": 89,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "g"
-                        }
-                      }
+                          "name": "g",
+                          "line": 89,
+                          "column": 20
+                        },
+                        "line": 89,
+                        "column": 15
+                      },
+                      "line": 89,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 89,
+                      "column": 25
+                    },
+                    "line": 89,
+                    "column": 14
+                  },
+                  "line": 89,
+                  "column": 9
+                },
+                "line": 89,
+                "column": 9
               },
               {
                 "kind": "ExpressionStatement",
@@ -2164,7 +3222,9 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "h7"
+                    "name": "h7",
+                    "line": 90,
+                    "column": 9
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2176,23 +3236,43 @@
                         "operator": "+",
                         "left": {
                           "kind": "Identifier",
-                          "name": "h7"
+                          "name": "h7",
+                          "line": 90,
+                          "column": 15
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "h"
-                        }
-                      }
+                          "name": "h",
+                          "line": 90,
+                          "column": 20
+                        },
+                        "line": 90,
+                        "column": 15
+                      },
+                      "line": 90,
+                      "column": 14
                     },
                     "right": {
                       "kind": "NumericLiteral",
-                      "value": 0
-                    }
-                  }
-                }
+                      "value": 0,
+                      "line": 90,
+                      "column": 25
+                    },
+                    "line": 90,
+                    "column": 14
+                  },
+                  "line": 90,
+                  "column": 9
+                },
+                "line": 90,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 45,
+            "column": 39
+          },
+          "line": 45,
+          "column": 5
         },
         {
           "kind": "ReturnStatement",
@@ -2221,123 +3301,189 @@
                           "kind": "CallExpression",
                           "callee": {
                             "kind": "Identifier",
-                            "name": "hex"
+                            "name": "hex",
+                            "line": 93,
+                            "column": 12
                           },
                           "arguments": [
                             {
                               "kind": "Identifier",
-                              "name": "h0"
+                              "name": "h0",
+                              "line": 93,
+                              "column": 16
                             }
                           ],
-                          "typeArguments": []
+                          "typeArguments": [],
+                          "line": 93,
+                          "column": 12
                         },
                         "right": {
                           "kind": "CallExpression",
                           "callee": {
                             "kind": "Identifier",
-                            "name": "hex"
+                            "name": "hex",
+                            "line": 93,
+                            "column": 22
                           },
                           "arguments": [
                             {
                               "kind": "Identifier",
-                              "name": "h1"
+                              "name": "h1",
+                              "line": 93,
+                              "column": 26
                             }
                           ],
-                          "typeArguments": []
-                        }
+                          "typeArguments": [],
+                          "line": 93,
+                          "column": 22
+                        },
+                        "line": 93,
+                        "column": 12
                       },
                       "right": {
                         "kind": "CallExpression",
                         "callee": {
                           "kind": "Identifier",
-                          "name": "hex"
+                          "name": "hex",
+                          "line": 93,
+                          "column": 32
                         },
                         "arguments": [
                           {
                             "kind": "Identifier",
-                            "name": "h2"
+                            "name": "h2",
+                            "line": 93,
+                            "column": 36
                           }
                         ],
-                        "typeArguments": []
-                      }
+                        "typeArguments": [],
+                        "line": 93,
+                        "column": 32
+                      },
+                      "line": 93,
+                      "column": 12
                     },
                     "right": {
                       "kind": "CallExpression",
                       "callee": {
                         "kind": "Identifier",
-                        "name": "hex"
+                        "name": "hex",
+                        "line": 93,
+                        "column": 42
                       },
                       "arguments": [
                         {
                           "kind": "Identifier",
-                          "name": "h3"
+                          "name": "h3",
+                          "line": 93,
+                          "column": 46
                         }
                       ],
-                      "typeArguments": []
-                    }
+                      "typeArguments": [],
+                      "line": 93,
+                      "column": 42
+                    },
+                    "line": 93,
+                    "column": 12
                   },
                   "right": {
                     "kind": "CallExpression",
                     "callee": {
                       "kind": "Identifier",
-                      "name": "hex"
+                      "name": "hex",
+                      "line": 93,
+                      "column": 52
                     },
                     "arguments": [
                       {
                         "kind": "Identifier",
-                        "name": "h4"
+                        "name": "h4",
+                        "line": 93,
+                        "column": 56
                       }
                     ],
-                    "typeArguments": []
-                  }
+                    "typeArguments": [],
+                    "line": 93,
+                    "column": 52
+                  },
+                  "line": 93,
+                  "column": 12
                 },
                 "right": {
                   "kind": "CallExpression",
                   "callee": {
                     "kind": "Identifier",
-                    "name": "hex"
+                    "name": "hex",
+                    "line": 93,
+                    "column": 62
                   },
                   "arguments": [
                     {
                       "kind": "Identifier",
-                      "name": "h5"
+                      "name": "h5",
+                      "line": 93,
+                      "column": 66
                     }
                   ],
-                  "typeArguments": []
-                }
+                  "typeArguments": [],
+                  "line": 93,
+                  "column": 62
+                },
+                "line": 93,
+                "column": 12
               },
               "right": {
                 "kind": "CallExpression",
                 "callee": {
                   "kind": "Identifier",
-                  "name": "hex"
+                  "name": "hex",
+                  "line": 93,
+                  "column": 72
                 },
                 "arguments": [
                   {
                     "kind": "Identifier",
-                    "name": "h6"
+                    "name": "h6",
+                    "line": 93,
+                    "column": 76
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 93,
+                "column": 72
+              },
+              "line": 93,
+              "column": 12
             },
             "right": {
               "kind": "CallExpression",
               "callee": {
                 "kind": "Identifier",
-                "name": "hex"
+                "name": "hex",
+                "line": 93,
+                "column": 82
               },
               "arguments": [
                 {
                   "kind": "Identifier",
-                  "name": "h7"
+                  "name": "h7",
+                  "line": 93,
+                  "column": 86
                 }
               ],
-              "typeArguments": []
-            }
-          }
+              "typeArguments": [],
+              "line": 93,
+              "column": 82
+            },
+            "line": 93,
+            "column": 12
+          },
+          "line": 93,
+          "column": 5
         }
-      ]
+      ],
+      "line": 10,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -2352,7 +3498,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "n"
+            "name": "n",
+            "line": 96,
+            "column": 14
           },
           "type": "number",
           "isOptional": false,
@@ -2360,7 +3508,9 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 96,
+          "column": 14
         }
       ],
       "body": [
@@ -2368,7 +3518,9 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "s"
+            "name": "s",
+            "line": 97,
+            "column": 9
           },
           "isExported": false,
           "type": "",
@@ -2383,24 +3535,40 @@
                   "operator": ">>>",
                   "left": {
                     "kind": "Identifier",
-                    "name": "n"
+                    "name": "n",
+                    "line": 97,
+                    "column": 14
                   },
                   "right": {
                     "kind": "NumericLiteral",
-                    "value": 0
-                  }
-                }
+                    "value": 0,
+                    "line": 97,
+                    "column": 20
+                  },
+                  "line": 97,
+                  "column": 14
+                },
+                "line": 97,
+                "column": 13
               },
-              "name": "toString"
+              "name": "toString",
+              "line": 97,
+              "column": 13
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 16
+                "value": 16,
+                "line": 97,
+                "column": 32
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 97,
+            "column": 13
+          },
+          "line": 97,
+          "column": 5
         },
         {
           "kind": "WhileStatement",
@@ -2411,14 +3579,22 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "s"
+                "name": "s",
+                "line": 98,
+                "column": 12
               },
-              "name": "length"
+              "name": "length",
+              "line": 98,
+              "column": 12
             },
             "right": {
               "kind": "NumericLiteral",
-              "value": 8
-            }
+              "value": 8,
+              "line": 98,
+              "column": 23
+            },
+            "line": 98,
+            "column": 12
           },
           "statement": {
             "kind": "ExpressionStatement",
@@ -2426,31 +3602,51 @@
               "kind": "AssignmentExpression",
               "left": {
                 "kind": "Identifier",
-                "name": "s"
+                "name": "s",
+                "line": 98,
+                "column": 26
               },
               "right": {
                 "kind": "BinaryExpression",
                 "operator": "+",
                 "left": {
                   "kind": "StringLiteral",
-                  "value": "0"
+                  "value": "0",
+                  "line": 98,
+                  "column": 30
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "s"
-                }
-              }
-            }
-          }
+                  "name": "s",
+                  "line": 98,
+                  "column": 36
+                },
+                "line": 98,
+                "column": 30
+              },
+              "line": 98,
+              "column": 26
+            },
+            "line": 98,
+            "column": 26
+          },
+          "line": 98,
+          "column": 5
         },
         {
           "kind": "ReturnStatement",
           "expression": {
             "kind": "Identifier",
-            "name": "s"
-          }
+            "name": "s",
+            "line": 99,
+            "column": 12
+          },
+          "line": 99,
+          "column": 5
         }
-      ]
+      ],
+      "line": 96,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -2466,27 +3662,39 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "iterations"
+            "name": "iterations",
+            "line": 103,
+            "column": 11
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 1000
-          }
+            "value": 1000,
+            "line": 103,
+            "column": 24
+          },
+          "line": 103,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "input"
+            "name": "input",
+            "line": 104,
+            "column": 11
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "StringLiteral",
-            "value": "The quick brown fox jumps over the lazy dog"
-          }
+            "value": "The quick brown fox jumps over the lazy dog",
+            "line": 104,
+            "column": 19
+          },
+          "line": 104,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2496,9 +3704,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 106,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 106,
+              "column": 5
             },
             "arguments": [
               {
@@ -2509,27 +3721,43 @@
                   "operator": "+",
                   "left": {
                     "kind": "StringLiteral",
-                    "value": "Starting SHA-256 Benchmark ("
+                    "value": "Starting SHA-256 Benchmark (",
+                    "line": 106,
+                    "column": 17
                   },
                   "right": {
                     "kind": "Identifier",
-                    "name": "iterations"
-                  }
+                    "name": "iterations",
+                    "line": 106,
+                    "column": 50
+                  },
+                  "line": 106,
+                  "column": 17
                 },
                 "right": {
                   "kind": "StringLiteral",
-                  "value": " iterations)..."
-                }
+                  "value": " iterations)...",
+                  "line": 106,
+                  "column": 63
+                },
+                "line": 106,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 106,
+            "column": 5
+          },
+          "line": 106,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "start"
+            "name": "start",
+            "line": 108,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -2539,26 +3767,40 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "Date"
+                "name": "Date",
+                "line": 108,
+                "column": 19
               },
-              "name": "now"
+              "name": "now",
+              "line": 108,
+              "column": 19
             },
             "arguments": [],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 108,
+            "column": 19
+          },
+          "line": 108,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "result"
+            "name": "result",
+            "line": 109,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "StringLiteral",
-            "value": ""
-          }
+            "value": "",
+            "line": 109,
+            "column": 18
+          },
+          "line": 109,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -2566,11 +3808,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 110,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 110,
+              "column": 18
             }
           },
           "condition": {
@@ -2578,20 +3824,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 110,
+              "column": 21
             },
             "right": {
               "kind": "Identifier",
-              "name": "iterations"
-            }
+              "name": "iterations",
+              "line": 110,
+              "column": 25
+            },
+            "line": 110,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "i"
-            }
+              "name": "i",
+              "line": 110,
+              "column": 37
+            },
+            "line": 110,
+            "column": 37
           },
           "body": {
             "kind": "BlockStatement",
@@ -2602,32 +3858,50 @@
                   "kind": "AssignmentExpression",
                   "left": {
                     "kind": "Identifier",
-                    "name": "result"
+                    "name": "result",
+                    "line": 111,
+                    "column": 9
                   },
                   "right": {
                     "kind": "CallExpression",
                     "callee": {
                       "kind": "Identifier",
-                      "name": "sha256"
+                      "name": "sha256",
+                      "line": 111,
+                      "column": 18
                     },
                     "arguments": [
                       {
                         "kind": "Identifier",
-                        "name": "input"
+                        "name": "input",
+                        "line": 111,
+                        "column": 25
                       }
                     ],
-                    "typeArguments": []
-                  }
-                }
+                    "typeArguments": [],
+                    "line": 111,
+                    "column": 18
+                  },
+                  "line": 111,
+                  "column": 9
+                },
+                "line": 111,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 110,
+            "column": 42
+          },
+          "line": 110,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "end"
+            "name": "end",
+            "line": 113,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -2637,13 +3911,21 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "Date"
+                "name": "Date",
+                "line": 113,
+                "column": 17
               },
-              "name": "now"
+              "name": "now",
+              "line": 113,
+              "column": 17
             },
             "arguments": [],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 113,
+            "column": 17
+          },
+          "line": 113,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2653,18 +3935,28 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 115,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 115,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "StringLiteral",
-                "value": "Benchmark Complete."
+                "value": "Benchmark Complete.",
+                "line": 115,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 115,
+            "column": 5
+          },
+          "line": 115,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2674,9 +3966,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 116,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 116,
+              "column": 5
             },
             "arguments": [
               {
@@ -2684,16 +3980,26 @@
                 "operator": "+",
                 "left": {
                   "kind": "StringLiteral",
-                  "value": "Last Hash: "
+                  "value": "Last Hash: ",
+                  "line": 116,
+                  "column": 17
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "result"
-                }
+                  "name": "result",
+                  "line": 116,
+                  "column": 33
+                },
+                "line": 116,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 116,
+            "column": 5
+          },
+          "line": 116,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2703,9 +4009,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 117,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 117,
+              "column": 5
             },
             "arguments": [
               {
@@ -2716,7 +4026,9 @@
                   "operator": "+",
                   "left": {
                     "kind": "StringLiteral",
-                    "value": "Total Time: "
+                    "value": "Total Time: ",
+                    "line": 117,
+                    "column": 17
                   },
                   "right": {
                     "kind": "ParenthesizedExpression",
@@ -2725,23 +4037,41 @@
                       "operator": "-",
                       "left": {
                         "kind": "Identifier",
-                        "name": "end"
+                        "name": "end",
+                        "line": 117,
+                        "column": 35
                       },
                       "right": {
                         "kind": "Identifier",
-                        "name": "start"
-                      }
-                    }
-                  }
+                        "name": "start",
+                        "line": 117,
+                        "column": 41
+                      },
+                      "line": 117,
+                      "column": 35
+                    },
+                    "line": 117,
+                    "column": 34
+                  },
+                  "line": 117,
+                  "column": 17
                 },
                 "right": {
                   "kind": "StringLiteral",
-                  "value": "ms"
-                }
+                  "value": "ms",
+                  "line": 117,
+                  "column": 50
+                },
+                "line": 117,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 117,
+            "column": 5
+          },
+          "line": 117,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2751,9 +4081,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 118,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 118,
+              "column": 5
             },
             "arguments": [
               {
@@ -2764,7 +4098,9 @@
                   "operator": "+",
                   "left": {
                     "kind": "StringLiteral",
-                    "value": "Average Time: "
+                    "value": "Average Time: ",
+                    "line": 118,
+                    "column": 17
                   },
                   "right": {
                     "kind": "CallExpression",
@@ -2782,41 +4118,73 @@
                               "operator": "-",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "end"
+                                "name": "end",
+                                "line": 118,
+                                "column": 38
                               },
                               "right": {
                                 "kind": "Identifier",
-                                "name": "start"
-                              }
-                            }
+                                "name": "start",
+                                "line": 118,
+                                "column": 44
+                              },
+                              "line": 118,
+                              "column": 38
+                            },
+                            "line": 118,
+                            "column": 37
                           },
                           "right": {
                             "kind": "Identifier",
-                            "name": "iterations"
-                          }
-                        }
+                            "name": "iterations",
+                            "line": 118,
+                            "column": 53
+                          },
+                          "line": 118,
+                          "column": 37
+                        },
+                        "line": 118,
+                        "column": 36
                       },
-                      "name": "toFixed"
+                      "name": "toFixed",
+                      "line": 118,
+                      "column": 36
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 4
+                        "value": 4,
+                        "line": 118,
+                        "column": 73
                       }
                     ],
-                    "typeArguments": []
-                  }
+                    "typeArguments": [],
+                    "line": 118,
+                    "column": 36
+                  },
+                  "line": 118,
+                  "column": 17
                 },
                 "right": {
                   "kind": "StringLiteral",
-                  "value": "ms"
-                }
+                  "value": "ms",
+                  "line": 118,
+                  "column": 78
+                },
+                "line": 118,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 118,
+            "column": 5
+          },
+          "line": 118,
+          "column": 5
         }
-      ]
+      ],
+      "line": 102,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -2824,11 +4192,17 @@
         "kind": "CallExpression",
         "callee": {
           "kind": "Identifier",
-          "name": "main"
+          "name": "main",
+          "line": 121,
+          "column": 1
         },
         "arguments": [],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 121,
+        "column": 1
+      },
+      "line": 121,
+      "column": 1
     }
   ]
 }

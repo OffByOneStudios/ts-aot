@@ -1,4 +1,4 @@
-#include "AstLoader.h"
+﻿#include "AstLoader.h"
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
@@ -11,6 +11,7 @@ StmtPtr parseStatement(const json& j) {
 
     if (kind == "ClassDeclaration") {
         auto node = std::make_unique<ClassDeclaration>();
+        setLocation(node.get(), j);
         node->name = j["name"].get<std::string>();
         if (j.contains("isExported")) {
             node->isExported = j["isExported"];
@@ -43,6 +44,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "InterfaceDeclaration") {
         auto node = std::make_unique<InterfaceDeclaration>();
+        setLocation(node.get(), j);
         node->name = j["name"].get<std::string>();
         if (j.contains("isExported")) {
             node->isExported = j["isExported"];
@@ -66,6 +68,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "FunctionDeclaration") {
         auto node = std::make_unique<FunctionDeclaration>();
+        setLocation(node.get(), j);
         node->name = j["name"];
         node->isExported = j.value("isExported", false);
         node->isDefaultExport = j.value("isDefaultExport", false);
@@ -87,6 +90,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "VariableDeclaration") {
         auto node = std::make_unique<VariableDeclaration>();
+        setLocation(node.get(), j);
         node->name = parseNode(j["name"]);
         if (j.contains("isExported")) {
             node->isExported = j["isExported"];
@@ -98,22 +102,26 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ExpressionStatement") {
         auto node = std::make_unique<ExpressionStatement>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         return node;
     } else if (kind == "BlockStatement") {
         auto node = std::make_unique<BlockStatement>();
+        setLocation(node.get(), j);
         for (const auto& stmt : j["body"]) {
             node->statements.push_back(parseStatement(stmt));
         }
         return node;
     } else if (kind == "ReturnStatement") {
         auto node = std::make_unique<ReturnStatement>();
+        setLocation(node.get(), j);
         if (j.contains("expression") && !j["expression"].is_null()) {
             node->expression = parseExpression(j["expression"]);
         }
         return node;
     } else if (kind == "IfStatement") {
         auto node = std::make_unique<IfStatement>();
+        setLocation(node.get(), j);
         node->condition = parseExpression(j["condition"]);
         node->thenStatement = parseStatement(j["thenStatement"]);
         if (j.contains("elseStatement") && !j["elseStatement"].is_null()) {
@@ -122,11 +130,13 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "WhileStatement") {
         auto node = std::make_unique<WhileStatement>();
+        setLocation(node.get(), j);
         node->condition = parseExpression(j["condition"]);
         node->body = parseStatement(j["statement"]);
         return node;
     } else if (kind == "ForStatement") {
         auto node = std::make_unique<ForStatement>();
+        setLocation(node.get(), j);
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseStatement(j["initializer"]);
         }
@@ -140,6 +150,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ForOfStatement") {
         auto node = std::make_unique<ForOfStatement>();
+        setLocation(node.get(), j);
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseStatement(j["initializer"]);
         }
@@ -148,6 +159,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ForInStatement") {
         auto node = std::make_unique<ForInStatement>();
+        setLocation(node.get(), j);
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseStatement(j["initializer"]);
         }
@@ -156,6 +168,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "SwitchStatement") {
         auto node = std::make_unique<SwitchStatement>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         for (const auto& clause : j["clauses"]) {
             if (clause["kind"] == "CaseClause") {
@@ -176,6 +189,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "TryStatement") {
         auto node = std::make_unique<TryStatement>();
+        setLocation(node.get(), j);
         for (const auto& stmt : j["tryBlock"]) {
             node->tryBlock.push_back(parseStatement(stmt));
         }
@@ -196,14 +210,20 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ThrowStatement") {
         auto node = std::make_unique<ThrowStatement>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         return node;
     } else if (kind == "BreakStatement") {
-        return std::make_unique<BreakStatement>();
+        auto node = std::make_unique<BreakStatement>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "ContinueStatement") {
-        return std::make_unique<ContinueStatement>();
+        auto node = std::make_unique<ContinueStatement>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "ImportDeclaration") {
         auto node = std::make_unique<ImportDeclaration>();
+        setLocation(node.get(), j);
         node->moduleSpecifier = j["moduleSpecifier"].get<std::string>();
         
         if (j.contains("importClause") && !j["importClause"].is_null()) {
@@ -231,6 +251,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ExportDeclaration") {
         auto node = std::make_unique<ExportDeclaration>();
+        setLocation(node.get(), j);
         if (j.contains("moduleSpecifier") && !j["moduleSpecifier"].is_null()) {
             node->moduleSpecifier = j["moduleSpecifier"].get<std::string>();
         }
@@ -250,11 +271,13 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "ExportAssignment") {
         auto node = std::make_unique<ExportAssignment>();
+        setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->isExportEquals = j.value("isExportEquals", false);
         return node;
     } else if (kind == "TypeAliasDeclaration") {
         auto node = std::make_unique<TypeAliasDeclaration>();
+        setLocation(node.get(), j);
         node->name = j["name"];
         node->type = j["type"];
         if (j.contains("typeParameters")) {
@@ -266,6 +289,7 @@ StmtPtr parseStatement(const json& j) {
         return node;
     } else if (kind == "EnumDeclaration") {
         auto node = std::make_unique<EnumDeclaration>();
+        setLocation(node.get(), j);
         node->name = j["name"];
         for (const auto& m : j["members"]) {
             EnumMember member;
@@ -278,7 +302,7 @@ StmtPtr parseStatement(const json& j) {
         node->isExported = j.value("isExported", false);
         return node;
     }
-
+    
     throw std::runtime_error("Unknown statement kind: " + kind);
 }
 

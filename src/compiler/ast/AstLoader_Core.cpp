@@ -8,8 +8,34 @@ using json = nlohmann::json;
 
 namespace ast {
 
+void setLocation(Node* node, const json& j) {
+    if (!node) return;
+    if (!j.is_object()) return;
+    
+    if (j.contains("line") && !j["line"].is_null()) {
+        try {
+            if (j["line"].is_number()) {
+                node->line = j["line"].get<int>();
+            } else if (j["line"].is_string()) {
+                node->line = std::stoi(j["line"].get<std::string>());
+            }
+        } catch (...) {}
+    }
+    
+    if (j.contains("column") && !j["column"].is_null()) {
+        try {
+            if (j["column"].is_number()) {
+                node->column = j["column"].get<int>();
+            } else if (j["column"].is_string()) {
+                node->column = std::stoi(j["column"].get<std::string>());
+            }
+        } catch (...) {}
+    }
+}
+
 std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
     auto node = std::make_unique<TypeParameter>();
+    setLocation(node.get(), j);
     node->name = j["name"].get<std::string>();
     if (j.contains("constraint") && !j["constraint"].is_null()) {
         node->constraint = j["constraint"].get<std::string>();
@@ -19,6 +45,7 @@ std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
 
 std::unique_ptr<Parameter> parseParameter(const json& j) {
     auto node = std::make_unique<Parameter>();
+    setLocation(node.get(), j);
     node->name = parseNode(j["name"]);
     node->type = j["type"].get<std::string>();
     if (j.contains("isOptional")) {
@@ -56,22 +83,26 @@ NodePtr parseNode(const json& j) {
     std::string kind = j["kind"];
     if (kind == "Identifier") {
         auto node = std::make_unique<Identifier>();
+        setLocation(node.get(), j);
         node->name = j["name"].get<std::string>();
         return node;
     } else if (kind == "ObjectBindingPattern") {
         auto node = std::make_unique<ObjectBindingPattern>();
+        setLocation(node.get(), j);
         for (const auto& el : j["elements"]) {
             node->elements.push_back(parseNode(el));
         }
         return node;
     } else if (kind == "ArrayBindingPattern") {
         auto node = std::make_unique<ArrayBindingPattern>();
+        setLocation(node.get(), j);
         for (const auto& el : j["elements"]) {
             node->elements.push_back(parseNode(el));
         }
         return node;
     } else if (kind == "BindingElement") {
         auto node = std::make_unique<BindingElement>();
+        setLocation(node.get(), j);
         node->name = parseNode(j["name"]);
         if (j.contains("propertyName") && !j["propertyName"].is_null()) {
             node->propertyName = j["propertyName"];
@@ -82,7 +113,9 @@ NodePtr parseNode(const json& j) {
         node->isSpread = j.value("isSpread", false);
         return node;
     } else if (kind == "OmittedExpression") {
-        return std::make_unique<OmittedExpression>();
+        auto node = std::make_unique<OmittedExpression>();
+        setLocation(node.get(), j);
+        return node;
     } else if (kind == "BlockStatement") {
         return parseStatement(j);
     }

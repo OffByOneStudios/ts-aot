@@ -16,8 +16,9 @@ Adopt the industry-standard `FileCheck` methodology to verify IR patterns direct
 
 ### Milestone 83.2: Type Inference Snapshots
 Prevent regressions in the `Analyzer` by snapshotting inferred types for complex expressions.
-- [ ] **Compiler Flag:** Add `--dump-types` to `ts-aot` to output a JSON map of inferred types.
-- [ ] **Snapshot Testing:** Implement a mechanism to compare current type inference against "Golden" snapshots.
+- [x] **Compiler Flag:** Added `--dump-types` to `ts-aot` to output a stable, sorted list of inferred types with source locations.
+- [x] **Snapshot Testing:** Integrated `// TYPE-CHECK:` assertions into `test_runner.py`.
+- [x] **Benchmark Guarding:** Added type snapshots to `sha256.ts` and `raytracer.ts`.
 
 ### Milestone 83.3: Performance Regression Guard
 Automate the detection of performance regressions in core benchmarks.
@@ -26,6 +27,7 @@ Automate the detection of performance regressions in core benchmarks.
 
 ## Action Items
 - [x] **Task 83.1:** Implement `// CHECK:` directive parsing in `test_runner.py`.
-- [ ] **Task 83.2:** Add `IRGenerator::dumpTypes()` to output type inference results.
+- [x] **Task 83.2:** Add `Analyzer::dumpTypes()` to output type inference results with source locations.
 - [x] **Task 83.3:** Create `examples/ir_verify_test.ts` with `FileCheck` assertions for integer specialization.
 - [x] **Task 83.4:** Integrate `FileCheck` into the local development loop.
+- [x] **Task 83.5:** Snapshot type inference for `sha256` and `raytracer`.

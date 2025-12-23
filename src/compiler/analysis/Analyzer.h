@@ -21,6 +21,9 @@ public:
     // Run the analysis pass on the program
     void analyze(ast::Program* program, const std::string& path = "main");
 
+    // Dump inferred types to stdout as JSON
+    void dumpTypes(ast::Program* program);
+
     // Run escape analysis to identify stack-allocatable objects
     void performEscapeAnalysis(ast::Program* program);
 
@@ -46,6 +49,7 @@ public:
 
     std::map<std::string, std::shared_ptr<Module>> modules;
     std::vector<std::string> moduleOrder;
+    std::vector<ast::Expression*> expressions;
 
 private:
     SymbolTable symbols;

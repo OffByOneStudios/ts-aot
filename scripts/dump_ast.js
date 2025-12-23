@@ -126,6 +126,16 @@ function getTypeArguments(node) {
 }
 
 function visit(node) {
+    let result = visitInternal(node);
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+        const { line, character } = currentSourceFile.getLineAndCharacterOfPosition(node.getStart());
+        result.line = line + 1;
+        result.column = character + 1;
+    }
+    return result;
+}
+
+function visitInternal(node) {
     switch (node.kind) {
         case ts.SyntaxKind.ImportDeclaration:
             return {
@@ -616,20 +626,23 @@ function visitBlock(node) {
 }
 
 function visitParameter(p) {
-        const access = getAccessModifier(p);
-        const readonly = isReadonly(p);
-        return {
-            kind: "Parameter",
-            name: visit(p.name),
-            type: p.type ? p.type.getText(currentSourceFile) : "",
-            isOptional: !!p.questionToken || !!p.initializer,
-            isRest: !!p.dotDotDotToken,
-            initializer: p.initializer ? visit(p.initializer) : null,
-            access: access,
-            isReadonly: readonly,
-            isParameterProperty: !!access || readonly
-        };
-    }
+    const access = getAccessModifier(p);
+    const readonly = isReadonly(p);
+    const { line, character } = currentSourceFile.getLineAndCharacterOfPosition(p.getStart());
+    return {
+        kind: "Parameter",
+        name: visit(p.name),
+        type: p.type ? p.type.getText(currentSourceFile) : "",
+        isOptional: !!p.questionToken || !!p.initializer,
+        isRest: !!p.dotDotDotToken,
+        initializer: p.initializer ? visit(p.initializer) : null,
+        access: access,
+        isReadonly: readonly,
+        isParameterProperty: !!access || readonly,
+        line: line + 1,
+        column: character + 1
+    };
+}
 
 const fileName = process.argv[2];
 if (!fileName) {

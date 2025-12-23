@@ -14,7 +14,9 @@
           "kind": "Parameter",
           "name": {
             "kind": "Identifier",
-            "name": "constructor"
+            "name": "constructor",
+            "line": 1,
+            "column": 17
           },
           "type": "Function",
           "isOptional": false,
@@ -22,10 +24,14 @@
           "initializer": null,
           "access": null,
           "isReadonly": false,
-          "isParameterProperty": false
+          "isParameterProperty": false,
+          "line": 1,
+          "column": 17
         }
       ],
-      "body": []
+      "body": [],
+      "line": 1,
+      "column": 1
     },
     {
       "kind": "ClassDeclaration",
@@ -44,7 +50,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "x"
+                "name": "x",
+                "line": 5,
+                "column": 24
               },
               "type": "number",
               "isOptional": false,
@@ -52,13 +60,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 5,
+              "column": 17
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "y"
+                "name": "y",
+                "line": 5,
+                "column": 42
               },
               "type": "number",
               "isOptional": false,
@@ -66,13 +78,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 5,
+              "column": 35
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "z"
+                "name": "z",
+                "line": 5,
+                "column": 60
               },
               "type": "number",
               "isOptional": false,
@@ -80,13 +96,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 5,
+              "column": 53
             }
           ],
           "returnType": "void",
           "body": [],
           "hasBody": true,
-          "access": "public"
+          "access": "public",
+          "line": 5,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -98,7 +118,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 7,
+                "column": 16
               },
               "type": "Vector3",
               "isOptional": false,
@@ -106,13 +128,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 7,
+              "column": 16
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 7,
+                "column": 28
               },
               "type": "Vector3",
               "isOptional": false,
@@ -120,7 +146,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 7,
+              "column": 28
             }
           ],
           "returnType": "Vector3",
@@ -131,7 +159,9 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Vector3"
+                  "name": "Vector3",
+                  "line": 8,
+                  "column": 20
                 },
                 "arguments": [
                   {
@@ -141,18 +171,28 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 8,
+                        "column": 28
                       },
-                      "name": "x"
+                      "name": "x",
+                      "line": 8,
+                      "column": 28
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 8,
+                        "column": 34
                       },
-                      "name": "x"
-                    }
+                      "name": "x",
+                      "line": 8,
+                      "column": 34
+                    },
+                    "line": 8,
+                    "column": 28
                   },
                   {
                     "kind": "BinaryExpression",
@@ -161,18 +201,28 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 8,
+                        "column": 39
                       },
-                      "name": "y"
+                      "name": "y",
+                      "line": 8,
+                      "column": 39
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 8,
+                        "column": 45
                       },
-                      "name": "y"
-                    }
+                      "name": "y",
+                      "line": 8,
+                      "column": 45
+                    },
+                    "line": 8,
+                    "column": 39
                   },
                   {
                     "kind": "BinaryExpression",
@@ -181,22 +231,36 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 8,
+                        "column": 50
                       },
-                      "name": "z"
+                      "name": "z",
+                      "line": 8,
+                      "column": 50
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 8,
+                        "column": 56
                       },
-                      "name": "z"
-                    }
+                      "name": "z",
+                      "line": 8,
+                      "column": 56
+                    },
+                    "line": 8,
+                    "column": 50
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 8,
+                "column": 16
+              },
+              "line": 8,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -204,7 +268,9 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 7,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -216,7 +282,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 11,
+                "column": 16
               },
               "type": "Vector3",
               "isOptional": false,
@@ -224,13 +292,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 11,
+              "column": 16
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 11,
+                "column": 28
               },
               "type": "Vector3",
               "isOptional": false,
@@ -238,7 +310,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 11,
+              "column": 28
             }
           ],
           "returnType": "Vector3",
@@ -249,7 +323,9 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Vector3"
+                  "name": "Vector3",
+                  "line": 12,
+                  "column": 20
                 },
                 "arguments": [
                   {
@@ -259,18 +335,28 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 12,
+                        "column": 28
                       },
-                      "name": "x"
+                      "name": "x",
+                      "line": 12,
+                      "column": 28
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 12,
+                        "column": 34
                       },
-                      "name": "x"
-                    }
+                      "name": "x",
+                      "line": 12,
+                      "column": 34
+                    },
+                    "line": 12,
+                    "column": 28
                   },
                   {
                     "kind": "BinaryExpression",
@@ -279,18 +365,28 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 12,
+                        "column": 39
                       },
-                      "name": "y"
+                      "name": "y",
+                      "line": 12,
+                      "column": 39
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 12,
+                        "column": 45
                       },
-                      "name": "y"
-                    }
+                      "name": "y",
+                      "line": 12,
+                      "column": 45
+                    },
+                    "line": 12,
+                    "column": 39
                   },
                   {
                     "kind": "BinaryExpression",
@@ -299,22 +395,36 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 12,
+                        "column": 50
                       },
-                      "name": "z"
+                      "name": "z",
+                      "line": 12,
+                      "column": 50
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 12,
+                        "column": 56
                       },
-                      "name": "z"
-                    }
+                      "name": "z",
+                      "line": 12,
+                      "column": 56
+                    },
+                    "line": 12,
+                    "column": 50
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 12,
+                "column": 16
+              },
+              "line": 12,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -322,7 +432,9 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 11,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -334,7 +446,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 15,
+                "column": 16
               },
               "type": "Vector3",
               "isOptional": false,
@@ -342,13 +456,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 15,
+              "column": 16
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 15,
+                "column": 28
               },
               "type": "number",
               "isOptional": false,
@@ -356,7 +474,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 15,
+              "column": 28
             }
           ],
           "returnType": "Vector3",
@@ -367,7 +487,9 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Vector3"
+                  "name": "Vector3",
+                  "line": 16,
+                  "column": 20
                 },
                 "arguments": [
                   {
@@ -377,14 +499,22 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 16,
+                        "column": 28
                       },
-                      "name": "x"
+                      "name": "x",
+                      "line": 16,
+                      "column": 28
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "b"
-                    }
+                      "name": "b",
+                      "line": 16,
+                      "column": 34
+                    },
+                    "line": 16,
+                    "column": 28
                   },
                   {
                     "kind": "BinaryExpression",
@@ -393,14 +523,22 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 16,
+                        "column": 37
                       },
-                      "name": "y"
+                      "name": "y",
+                      "line": 16,
+                      "column": 37
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "b"
-                    }
+                      "name": "b",
+                      "line": 16,
+                      "column": 43
+                    },
+                    "line": 16,
+                    "column": 37
                   },
                   {
                     "kind": "BinaryExpression",
@@ -409,18 +547,30 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 16,
+                        "column": 46
                       },
-                      "name": "z"
+                      "name": "z",
+                      "line": 16,
+                      "column": 46
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "b"
-                    }
+                      "name": "b",
+                      "line": 16,
+                      "column": 52
+                    },
+                    "line": 16,
+                    "column": 46
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 16,
+                "column": 16
+              },
+              "line": 16,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -428,7 +578,9 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 15,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -440,7 +592,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 19,
+                "column": 16
               },
               "type": "Vector3",
               "isOptional": false,
@@ -448,13 +602,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 19,
+              "column": 16
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 19,
+                "column": 28
               },
               "type": "Vector3",
               "isOptional": false,
@@ -462,7 +620,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 19,
+              "column": 28
             }
           ],
           "returnType": "number",
@@ -482,18 +642,28 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 20,
+                        "column": 16
                       },
-                      "name": "x"
+                      "name": "x",
+                      "line": 20,
+                      "column": 16
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 20,
+                        "column": 22
                       },
-                      "name": "x"
-                    }
+                      "name": "x",
+                      "line": 20,
+                      "column": 22
+                    },
+                    "line": 20,
+                    "column": 16
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -502,19 +672,31 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 20,
+                        "column": 28
                       },
-                      "name": "y"
+                      "name": "y",
+                      "line": 20,
+                      "column": 28
                     },
                     "right": {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "b"
+                        "name": "b",
+                        "line": 20,
+                        "column": 34
                       },
-                      "name": "y"
-                    }
-                  }
+                      "name": "y",
+                      "line": 20,
+                      "column": 34
+                    },
+                    "line": 20,
+                    "column": 28
+                  },
+                  "line": 20,
+                  "column": 16
                 },
                 "right": {
                   "kind": "BinaryExpression",
@@ -523,20 +705,34 @@
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "a"
+                      "name": "a",
+                      "line": 20,
+                      "column": 40
                     },
-                    "name": "z"
+                    "name": "z",
+                    "line": 20,
+                    "column": 40
                   },
                   "right": {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "b"
+                      "name": "b",
+                      "line": 20,
+                      "column": 46
                     },
-                    "name": "z"
-                  }
-                }
-              }
+                    "name": "z",
+                    "line": 20,
+                    "column": 46
+                  },
+                  "line": 20,
+                  "column": 40
+                },
+                "line": 20,
+                "column": 16
+              },
+              "line": 20,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -544,7 +740,9 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 19,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -556,7 +754,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 23,
+                "column": 18
               },
               "type": "Vector3",
               "isOptional": false,
@@ -564,13 +764,17 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 23,
+              "column": 18
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 23,
+                "column": 30
               },
               "type": "Vector3",
               "isOptional": false,
@@ -578,7 +782,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 23,
+              "column": 30
             }
           ],
           "returnType": "Vector3",
@@ -589,7 +795,9 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Vector3"
+                  "name": "Vector3",
+                  "line": 24,
+                  "column": 20
                 },
                 "arguments": [
                   {
@@ -602,18 +810,28 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 25,
+                          "column": 13
                         },
-                        "name": "y"
+                        "name": "y",
+                        "line": 25,
+                        "column": 13
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 25,
+                          "column": 19
                         },
-                        "name": "z"
-                      }
+                        "name": "z",
+                        "line": 25,
+                        "column": 19
+                      },
+                      "line": 25,
+                      "column": 13
                     },
                     "right": {
                       "kind": "BinaryExpression",
@@ -622,19 +840,31 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 25,
+                          "column": 25
                         },
-                        "name": "z"
+                        "name": "z",
+                        "line": 25,
+                        "column": 25
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 25,
+                          "column": 31
                         },
-                        "name": "y"
-                      }
-                    }
+                        "name": "y",
+                        "line": 25,
+                        "column": 31
+                      },
+                      "line": 25,
+                      "column": 25
+                    },
+                    "line": 25,
+                    "column": 13
                   },
                   {
                     "kind": "BinaryExpression",
@@ -646,18 +876,28 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 26,
+                          "column": 13
                         },
-                        "name": "z"
+                        "name": "z",
+                        "line": 26,
+                        "column": 13
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 26,
+                          "column": 19
                         },
-                        "name": "x"
-                      }
+                        "name": "x",
+                        "line": 26,
+                        "column": 19
+                      },
+                      "line": 26,
+                      "column": 13
                     },
                     "right": {
                       "kind": "BinaryExpression",
@@ -666,19 +906,31 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 26,
+                          "column": 25
                         },
-                        "name": "x"
+                        "name": "x",
+                        "line": 26,
+                        "column": 25
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 26,
+                          "column": 31
                         },
-                        "name": "z"
-                      }
-                    }
+                        "name": "z",
+                        "line": 26,
+                        "column": 31
+                      },
+                      "line": 26,
+                      "column": 25
+                    },
+                    "line": 26,
+                    "column": 13
                   },
                   {
                     "kind": "BinaryExpression",
@@ -690,18 +942,28 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 27,
+                          "column": 13
                         },
-                        "name": "x"
+                        "name": "x",
+                        "line": 27,
+                        "column": 13
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 27,
+                          "column": 19
                         },
-                        "name": "y"
-                      }
+                        "name": "y",
+                        "line": 27,
+                        "column": 19
+                      },
+                      "line": 27,
+                      "column": 13
                     },
                     "right": {
                       "kind": "BinaryExpression",
@@ -710,23 +972,39 @@
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "a"
+                          "name": "a",
+                          "line": 27,
+                          "column": 25
                         },
-                        "name": "y"
+                        "name": "y",
+                        "line": 27,
+                        "column": 25
                       },
                       "right": {
                         "kind": "PropertyAccessExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "b"
+                          "name": "b",
+                          "line": 27,
+                          "column": 31
                         },
-                        "name": "x"
-                      }
-                    }
+                        "name": "x",
+                        "line": 27,
+                        "column": 31
+                      },
+                      "line": 27,
+                      "column": 25
+                    },
+                    "line": 27,
+                    "column": 13
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 24,
+                "column": 16
+              },
+              "line": 24,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -734,7 +1012,9 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 23,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -746,7 +1026,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 31,
+                "column": 22
               },
               "type": "Vector3",
               "isOptional": false,
@@ -754,7 +1036,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 31,
+              "column": 22
             }
           ],
           "returnType": "Vector3",
@@ -763,7 +1047,9 @@
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "len"
+                "name": "len",
+                "line": 32,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -773,9 +1059,13 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "Math"
+                    "name": "Math",
+                    "line": 32,
+                    "column": 21
                   },
-                  "name": "sqrt"
+                  "name": "sqrt",
+                  "line": 32,
+                  "column": 21
                 },
                 "arguments": [
                   {
@@ -784,25 +1074,39 @@
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "Vector3"
+                        "name": "Vector3",
+                        "line": 32,
+                        "column": 31
                       },
-                      "name": "dot"
+                      "name": "dot",
+                      "line": 32,
+                      "column": 31
                     },
                     "arguments": [
                       {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 32,
+                        "column": 43
                       },
                       {
                         "kind": "Identifier",
-                        "name": "a"
+                        "name": "a",
+                        "line": 32,
+                        "column": 46
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 32,
+                    "column": 31
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 32,
+                "column": 21
+              },
+              "line": 32,
+              "column": 9
             },
             {
               "kind": "ReturnStatement",
@@ -812,30 +1116,46 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "Vector3"
+                    "name": "Vector3",
+                    "line": 33,
+                    "column": 16
                   },
-                  "name": "mul"
+                  "name": "mul",
+                  "line": 33,
+                  "column": 16
                 },
                 "arguments": [
                   {
                     "kind": "Identifier",
-                    "name": "a"
+                    "name": "a",
+                    "line": 33,
+                    "column": 28
                   },
                   {
                     "kind": "BinaryExpression",
                     "operator": "/",
                     "left": {
                       "kind": "NumericLiteral",
-                      "value": 1
+                      "value": 1,
+                      "line": 33,
+                      "column": 31
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "len"
-                    }
+                      "name": "len",
+                      "line": 33,
+                      "column": 35
+                    },
+                    "line": 33,
+                    "column": 31
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 33,
+                "column": 16
+              },
+              "line": 33,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -843,11 +1163,15 @@
           "isStatic": true,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 31,
+          "column": 5
         }
       ],
       "isAbstract": false,
-      "isStruct": true
+      "isStruct": true,
+      "line": 3,
+      "column": 1
     },
     {
       "kind": "ClassDeclaration",
@@ -866,7 +1190,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "origin"
+                "name": "origin",
+                "line": 39,
+                "column": 24
               },
               "type": "Vector3",
               "isOptional": false,
@@ -874,13 +1200,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 39,
+              "column": 17
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "direction"
+                "name": "direction",
+                "line": 39,
+                "column": 48
               },
               "type": "Vector3",
               "isOptional": false,
@@ -888,17 +1218,23 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 39,
+              "column": 41
             }
           ],
           "returnType": "void",
           "body": [],
           "hasBody": true,
-          "access": "public"
+          "access": "public",
+          "line": 39,
+          "column": 5
         }
       ],
       "isAbstract": false,
-      "isStruct": true
+      "isStruct": true,
+      "line": 37,
+      "column": 1
     },
     {
       "kind": "ClassDeclaration",
@@ -917,7 +1253,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "center"
+                "name": "center",
+                "line": 43,
+                "column": 24
               },
               "type": "Vector3",
               "isOptional": false,
@@ -925,13 +1263,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 43,
+              "column": 17
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "radius"
+                "name": "radius",
+                "line": 43,
+                "column": 48
               },
               "type": "number",
               "isOptional": false,
@@ -939,13 +1281,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 43,
+              "column": 41
             },
             {
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "color"
+                "name": "color",
+                "line": 43,
+                "column": 71
               },
               "type": "Vector3",
               "isOptional": false,
@@ -953,13 +1299,17 @@
               "initializer": null,
               "access": "public",
               "isReadonly": false,
-              "isParameterProperty": true
+              "isParameterProperty": true,
+              "line": 43,
+              "column": 64
             }
           ],
           "returnType": "void",
           "body": [],
           "hasBody": true,
-          "access": "public"
+          "access": "public",
+          "line": 43,
+          "column": 5
         },
         {
           "kind": "MethodDefinition",
@@ -971,7 +1321,9 @@
               "kind": "Parameter",
               "name": {
                 "kind": "Identifier",
-                "name": "ray"
+                "name": "ray",
+                "line": 45,
+                "column": 15
               },
               "type": "Ray",
               "isOptional": false,
@@ -979,7 +1331,9 @@
               "initializer": null,
               "access": null,
               "isReadonly": false,
-              "isParameterProperty": false
+              "isParameterProperty": false,
+              "line": 45,
+              "column": 15
             }
           ],
           "returnType": "number",
@@ -988,7 +1342,9 @@
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "oc"
+                "name": "oc",
+                "line": 46,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -998,36 +1354,54 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "Vector3"
+                    "name": "Vector3",
+                    "line": 46,
+                    "column": 20
                   },
-                  "name": "sub"
+                  "name": "sub",
+                  "line": 46,
+                  "column": 20
                 },
                 "arguments": [
                   {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "ray"
+                      "name": "ray",
+                      "line": 46,
+                      "column": 32
                     },
-                    "name": "origin"
+                    "name": "origin",
+                    "line": 46,
+                    "column": 32
                   },
                   {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "this"
+                      "name": "this",
+                      "line": 46,
+                      "column": 44
                     },
-                    "name": "center"
+                    "name": "center",
+                    "line": 46,
+                    "column": 44
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 46,
+                "column": 20
+              },
+              "line": 46,
+              "column": 9
             },
             {
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "a"
+                "name": "a",
+                "line": 47,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -1037,36 +1411,54 @@
                   "kind": "PropertyAccessExpression",
                   "expression": {
                     "kind": "Identifier",
-                    "name": "Vector3"
+                    "name": "Vector3",
+                    "line": 47,
+                    "column": 19
                   },
-                  "name": "dot"
+                  "name": "dot",
+                  "line": 47,
+                  "column": 19
                 },
                 "arguments": [
                   {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "ray"
+                      "name": "ray",
+                      "line": 47,
+                      "column": 31
                     },
-                    "name": "direction"
+                    "name": "direction",
+                    "line": 47,
+                    "column": 31
                   },
                   {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "ray"
+                      "name": "ray",
+                      "line": 47,
+                      "column": 46
                     },
-                    "name": "direction"
+                    "name": "direction",
+                    "line": 47,
+                    "column": 46
                   }
                 ],
-                "typeArguments": []
-              }
+                "typeArguments": [],
+                "line": 47,
+                "column": 19
+              },
+              "line": 47,
+              "column": 9
             },
             {
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "b"
+                "name": "b",
+                "line": 48,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -1075,7 +1467,9 @@
                 "operator": "*",
                 "left": {
                   "kind": "NumericLiteral",
-                  "value": 2
+                  "value": 2,
+                  "line": 48,
+                  "column": 19
                 },
                 "right": {
                   "kind": "CallExpression",
@@ -1083,33 +1477,51 @@
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 48,
+                      "column": 23
                     },
-                    "name": "dot"
+                    "name": "dot",
+                    "line": 48,
+                    "column": 23
                   },
                   "arguments": [
                     {
                       "kind": "Identifier",
-                      "name": "oc"
+                      "name": "oc",
+                      "line": 48,
+                      "column": 35
                     },
                     {
                       "kind": "PropertyAccessExpression",
                       "expression": {
                         "kind": "Identifier",
-                        "name": "ray"
+                        "name": "ray",
+                        "line": 48,
+                        "column": 39
                       },
-                      "name": "direction"
+                      "name": "direction",
+                      "line": 48,
+                      "column": 39
                     }
                   ],
-                  "typeArguments": []
-                }
-              }
+                  "typeArguments": [],
+                  "line": 48,
+                  "column": 23
+                },
+                "line": 48,
+                "column": 19
+              },
+              "line": 48,
+              "column": 9
             },
             {
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "c"
+                "name": "c",
+                "line": 49,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -1122,21 +1534,31 @@
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 49,
+                      "column": 19
                     },
-                    "name": "dot"
+                    "name": "dot",
+                    "line": 49,
+                    "column": 19
                   },
                   "arguments": [
                     {
                       "kind": "Identifier",
-                      "name": "oc"
+                      "name": "oc",
+                      "line": 49,
+                      "column": 31
                     },
                     {
                       "kind": "Identifier",
-                      "name": "oc"
+                      "name": "oc",
+                      "line": 49,
+                      "column": 35
                     }
                   ],
-                  "typeArguments": []
+                  "typeArguments": [],
+                  "line": 49,
+                  "column": 19
                 },
                 "right": {
                   "kind": "BinaryExpression",
@@ -1145,26 +1567,42 @@
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "this"
+                      "name": "this",
+                      "line": 49,
+                      "column": 41
                     },
-                    "name": "radius"
+                    "name": "radius",
+                    "line": 49,
+                    "column": 41
                   },
                   "right": {
                     "kind": "PropertyAccessExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "this"
+                      "name": "this",
+                      "line": 49,
+                      "column": 55
                     },
-                    "name": "radius"
-                  }
-                }
-              }
+                    "name": "radius",
+                    "line": 49,
+                    "column": 55
+                  },
+                  "line": 49,
+                  "column": 41
+                },
+                "line": 49,
+                "column": 19
+              },
+              "line": 49,
+              "column": 9
             },
             {
               "kind": "VariableDeclaration",
               "name": {
                 "kind": "Identifier",
-                "name": "discriminant"
+                "name": "discriminant",
+                "line": 50,
+                "column": 15
               },
               "isExported": false,
               "type": "",
@@ -1176,12 +1614,18 @@
                   "operator": "*",
                   "left": {
                     "kind": "Identifier",
-                    "name": "b"
+                    "name": "b",
+                    "line": 50,
+                    "column": 30
                   },
                   "right": {
                     "kind": "Identifier",
-                    "name": "b"
-                  }
+                    "name": "b",
+                    "line": 50,
+                    "column": 34
+                  },
+                  "line": 50,
+                  "column": 30
                 },
                 "right": {
                   "kind": "BinaryExpression",
@@ -1191,19 +1635,33 @@
                     "operator": "*",
                     "left": {
                       "kind": "NumericLiteral",
-                      "value": 4
+                      "value": 4,
+                      "line": 50,
+                      "column": 38
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "a"
-                    }
+                      "name": "a",
+                      "line": 50,
+                      "column": 42
+                    },
+                    "line": 50,
+                    "column": 38
                   },
                   "right": {
                     "kind": "Identifier",
-                    "name": "c"
-                  }
-                }
-              }
+                    "name": "c",
+                    "line": 50,
+                    "column": 46
+                  },
+                  "line": 50,
+                  "column": 38
+                },
+                "line": 50,
+                "column": 30
+              },
+              "line": 50,
+              "column": 9
             },
             {
               "kind": "IfStatement",
@@ -1212,12 +1670,18 @@
                 "operator": "<",
                 "left": {
                   "kind": "Identifier",
-                  "name": "discriminant"
+                  "name": "discriminant",
+                  "line": 52,
+                  "column": 13
                 },
                 "right": {
                   "kind": "NumericLiteral",
-                  "value": 0
-                }
+                  "value": 0,
+                  "line": 52,
+                  "column": 28
+                },
+                "line": 52,
+                "column": 13
               },
               "thenStatement": {
                 "kind": "BlockStatement",
@@ -1229,11 +1693,19 @@
                       "operator": "-",
                       "operand": {
                         "kind": "NumericLiteral",
-                        "value": 1
-                      }
-                    }
+                        "value": 1,
+                        "line": 53,
+                        "column": 21
+                      },
+                      "line": 53,
+                      "column": 20
+                    },
+                    "line": 53,
+                    "column": 13
                   }
-                ]
+                ],
+                "line": 52,
+                "column": 31
               },
               "elseStatement": {
                 "kind": "BlockStatement",
@@ -1253,8 +1725,12 @@
                             "operator": "-",
                             "operand": {
                               "kind": "Identifier",
-                              "name": "b"
-                            }
+                              "name": "b",
+                              "line": 55,
+                              "column": 22
+                            },
+                            "line": 55,
+                            "column": 21
                           },
                           "right": {
                             "kind": "CallExpression",
@@ -1262,19 +1738,31 @@
                               "kind": "PropertyAccessExpression",
                               "expression": {
                                 "kind": "Identifier",
-                                "name": "Math"
+                                "name": "Math",
+                                "line": 55,
+                                "column": 26
                               },
-                              "name": "sqrt"
+                              "name": "sqrt",
+                              "line": 55,
+                              "column": 26
                             },
                             "arguments": [
                               {
                                 "kind": "Identifier",
-                                "name": "discriminant"
+                                "name": "discriminant",
+                                "line": 55,
+                                "column": 36
                               }
                             ],
-                            "typeArguments": []
-                          }
-                        }
+                            "typeArguments": [],
+                            "line": 55,
+                            "column": 26
+                          },
+                          "line": 55,
+                          "column": 21
+                        },
+                        "line": 55,
+                        "column": 20
                       },
                       "right": {
                         "kind": "ParenthesizedExpression",
@@ -1283,18 +1771,34 @@
                           "operator": "*",
                           "left": {
                             "kind": "NumericLiteral",
-                            "value": 2
+                            "value": 2,
+                            "line": 55,
+                            "column": 54
                           },
                           "right": {
                             "kind": "Identifier",
-                            "name": "a"
-                          }
-                        }
-                      }
-                    }
+                            "name": "a",
+                            "line": 55,
+                            "column": 58
+                          },
+                          "line": 55,
+                          "column": 54
+                        },
+                        "line": 55,
+                        "column": 53
+                      },
+                      "line": 55,
+                      "column": 20
+                    },
+                    "line": 55,
+                    "column": 13
                   }
-                ]
-              }
+                ],
+                "line": 54,
+                "column": 16
+              },
+              "line": 52,
+              "column": 9
             }
           ],
           "hasBody": true,
@@ -1302,11 +1806,15 @@
           "isStatic": false,
           "isAbstract": false,
           "isGetter": false,
-          "isSetter": false
+          "isSetter": false,
+          "line": 45,
+          "column": 5
         }
       ],
       "isAbstract": false,
-      "isStruct": false
+      "isStruct": false,
+      "line": 42,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -1322,33 +1830,47 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "width"
+            "name": "width",
+            "line": 61,
+            "column": 11
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 200
-          }
+            "value": 200,
+            "line": 61,
+            "column": 19
+          },
+          "line": 61,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "height"
+            "name": "height",
+            "line": 62,
+            "column": 11
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 100
-          }
+            "value": 100,
+            "line": 62,
+            "column": 20
+          },
+          "line": 62,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "spheres"
+            "name": "spheres",
+            "line": 63,
+            "column": 11
           },
           "isExported": false,
           "type": "Sphere[]",
@@ -1359,138 +1881,198 @@
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Sphere"
+                  "name": "Sphere",
+                  "line": 64,
+                  "column": 13
                 },
                 "arguments": [
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 64,
+                      "column": 24
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 64,
+                        "column": 32
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 64,
+                        "column": 35
                       },
                       {
                         "kind": "PrefixUnaryExpression",
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 5
-                        }
+                          "value": 5,
+                          "line": 64,
+                          "column": 39
+                        },
+                        "line": 64,
+                        "column": 38
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 64,
+                    "column": 20
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1
+                    "value": 1,
+                    "line": 64,
+                    "column": 43
                   },
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 64,
+                      "column": 50
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 1
+                        "value": 1,
+                        "line": 64,
+                        "column": 58
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 64,
+                        "column": 61
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 64,
+                        "column": 64
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 64,
+                    "column": 46
                   }
                 ],
-                "typeArguments": []
+                "typeArguments": [],
+                "line": 64,
+                "column": 9
               },
               {
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Sphere"
+                  "name": "Sphere",
+                  "line": 65,
+                  "column": 13
                 },
                 "arguments": [
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 65,
+                      "column": 24
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 2
+                        "value": 2,
+                        "line": 65,
+                        "column": 32
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 65,
+                        "column": 35
                       },
                       {
                         "kind": "PrefixUnaryExpression",
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 5
-                        }
+                          "value": 5,
+                          "line": 65,
+                          "column": 39
+                        },
+                        "line": 65,
+                        "column": 38
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 65,
+                    "column": 20
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1
+                    "value": 1,
+                    "line": 65,
+                    "column": 43
                   },
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 65,
+                      "column": 50
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 65,
+                        "column": 58
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 1
+                        "value": 1,
+                        "line": 65,
+                        "column": 61
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 65,
+                        "column": 64
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 65,
+                    "column": 46
                   }
                 ],
-                "typeArguments": []
+                "typeArguments": [],
+                "line": 65,
+                "column": 9
               },
               {
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Sphere"
+                  "name": "Sphere",
+                  "line": 66,
+                  "column": 13
                 },
                 "arguments": [
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 66,
+                      "column": 24
                     },
                     "arguments": [
                       {
@@ -1498,127 +2080,189 @@
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 2
-                        }
+                          "value": 2,
+                          "line": 66,
+                          "column": 33
+                        },
+                        "line": 66,
+                        "column": 32
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 66,
+                        "column": 36
                       },
                       {
                         "kind": "PrefixUnaryExpression",
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 5
-                        }
+                          "value": 5,
+                          "line": 66,
+                          "column": 40
+                        },
+                        "line": 66,
+                        "column": 39
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 66,
+                    "column": 20
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1
+                    "value": 1,
+                    "line": 66,
+                    "column": 44
                   },
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 66,
+                      "column": 51
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 66,
+                        "column": 59
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 66,
+                        "column": 62
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 1
+                        "value": 1,
+                        "line": 66,
+                        "column": 65
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 66,
+                    "column": 47
                   }
                 ],
-                "typeArguments": []
+                "typeArguments": [],
+                "line": 66,
+                "column": 9
               },
               {
                 "kind": "NewExpression",
                 "expression": {
                   "kind": "Identifier",
-                  "name": "Sphere"
+                  "name": "Sphere",
+                  "line": 67,
+                  "column": 13
                 },
                 "arguments": [
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 67,
+                      "column": 24
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 0
+                        "value": 0,
+                        "line": 67,
+                        "column": 32
                       },
                       {
                         "kind": "PrefixUnaryExpression",
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 1001
-                        }
+                          "value": 1001,
+                          "line": 67,
+                          "column": 36
+                        },
+                        "line": 67,
+                        "column": 35
                       },
                       {
                         "kind": "PrefixUnaryExpression",
                         "operator": "-",
                         "operand": {
                           "kind": "NumericLiteral",
-                          "value": 5
-                        }
+                          "value": 5,
+                          "line": 67,
+                          "column": 43
+                        },
+                        "line": 67,
+                        "column": 42
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 67,
+                    "column": 20
                   },
                   {
                     "kind": "NumericLiteral",
-                    "value": 1000
+                    "value": 1000,
+                    "line": 67,
+                    "column": 47
                   },
                   {
                     "kind": "NewExpression",
                     "expression": {
                       "kind": "Identifier",
-                      "name": "Vector3"
+                      "name": "Vector3",
+                      "line": 67,
+                      "column": 57
                     },
                     "arguments": [
                       {
                         "kind": "NumericLiteral",
-                        "value": 0.5
+                        "value": 0.5,
+                        "line": 67,
+                        "column": 65
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0.5
+                        "value": 0.5,
+                        "line": 67,
+                        "column": 70
                       },
                       {
                         "kind": "NumericLiteral",
-                        "value": 0.5
+                        "value": 0.5,
+                        "line": 67,
+                        "column": 75
                       }
                     ],
-                    "typeArguments": []
+                    "typeArguments": [],
+                    "line": 67,
+                    "column": 53
                   }
                 ],
-                "typeArguments": []
+                "typeArguments": [],
+                "line": 67,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 63,
+            "column": 31
+          },
+          "line": 63,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "origin"
+            "name": "origin",
+            "line": 70,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -1626,37 +2270,55 @@
             "kind": "NewExpression",
             "expression": {
               "kind": "Identifier",
-              "name": "Vector3"
+              "name": "Vector3",
+              "line": 70,
+              "column": 24
             },
             "arguments": [
               {
                 "kind": "NumericLiteral",
-                "value": 0
+                "value": 0,
+                "line": 70,
+                "column": 32
               },
               {
                 "kind": "NumericLiteral",
-                "value": 0
+                "value": 0,
+                "line": 70,
+                "column": 35
               },
               {
                 "kind": "NumericLiteral",
-                "value": 0
+                "value": 0,
+                "line": 70,
+                "column": 38
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 70,
+            "column": 20
+          },
+          "line": 70,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "checksum"
+            "name": "checksum",
+            "line": 71,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 0
-          }
+            "value": 0,
+            "line": 71,
+            "column": 20
+          },
+          "line": 71,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -1664,11 +2326,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "y"
+              "name": "y",
+              "line": 73,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 73,
+              "column": 18
             }
           },
           "condition": {
@@ -1676,20 +2342,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "y"
+              "name": "y",
+              "line": 73,
+              "column": 21
             },
             "right": {
               "kind": "Identifier",
-              "name": "height"
-            }
+              "name": "height",
+              "line": 73,
+              "column": 25
+            },
+            "line": 73,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "y"
-            }
+              "name": "y",
+              "line": 73,
+              "column": 33
+            },
+            "line": 73,
+            "column": 33
           },
           "body": {
             "kind": "BlockStatement",
@@ -1700,11 +2376,15 @@
                   "kind": "VariableDeclaration",
                   "name": {
                     "kind": "Identifier",
-                    "name": "x"
+                    "name": "x",
+                    "line": 74,
+                    "column": 18
                   },
                   "initializer": {
                     "kind": "NumericLiteral",
-                    "value": 0
+                    "value": 0,
+                    "line": 74,
+                    "column": 22
                   }
                 },
                 "condition": {
@@ -1712,20 +2392,30 @@
                   "operator": "<",
                   "left": {
                     "kind": "Identifier",
-                    "name": "x"
+                    "name": "x",
+                    "line": 74,
+                    "column": 25
                   },
                   "right": {
                     "kind": "Identifier",
-                    "name": "width"
-                  }
+                    "name": "width",
+                    "line": 74,
+                    "column": 29
+                  },
+                  "line": 74,
+                  "column": 25
                 },
                 "incrementor": {
                   "kind": "PostfixUnaryExpression",
                   "operator": "++",
                   "operand": {
                     "kind": "Identifier",
-                    "name": "x"
-                  }
+                    "name": "x",
+                    "line": 74,
+                    "column": 36
+                  },
+                  "line": 74,
+                  "column": 36
                 },
                 "body": {
                   "kind": "BlockStatement",
@@ -1734,7 +2424,9 @@
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "u"
+                        "name": "u",
+                        "line": 75,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1748,33 +2440,53 @@
                             "operator": "-",
                             "left": {
                               "kind": "Identifier",
-                              "name": "x"
+                              "name": "x",
+                              "line": 75,
+                              "column": 24
                             },
                             "right": {
                               "kind": "BinaryExpression",
                               "operator": "/",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "width"
+                                "name": "width",
+                                "line": 75,
+                                "column": 28
                               },
                               "right": {
                                 "kind": "NumericLiteral",
-                                "value": 2
-                              }
-                            }
-                          }
+                                "value": 2,
+                                "line": 75,
+                                "column": 36
+                              },
+                              "line": 75,
+                              "column": 28
+                            },
+                            "line": 75,
+                            "column": 24
+                          },
+                          "line": 75,
+                          "column": 23
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "width"
-                        }
-                      }
+                          "name": "width",
+                          "line": 75,
+                          "column": 41
+                        },
+                        "line": 75,
+                        "column": 23
+                      },
+                      "line": 75,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "v"
+                        "name": "v",
+                        "line": 76,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1788,33 +2500,53 @@
                             "operator": "-",
                             "left": {
                               "kind": "Identifier",
-                              "name": "y"
+                              "name": "y",
+                              "line": 76,
+                              "column": 24
                             },
                             "right": {
                               "kind": "BinaryExpression",
                               "operator": "/",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "height"
+                                "name": "height",
+                                "line": 76,
+                                "column": 28
                               },
                               "right": {
                                 "kind": "NumericLiteral",
-                                "value": 2
-                              }
-                            }
-                          }
+                                "value": 2,
+                                "line": 76,
+                                "column": 37
+                              },
+                              "line": 76,
+                              "column": 28
+                            },
+                            "line": 76,
+                            "column": 24
+                          },
+                          "line": 76,
+                          "column": 23
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "height"
-                        }
-                      }
+                          "name": "height",
+                          "line": 76,
+                          "column": 42
+                        },
+                        "line": 76,
+                        "column": 23
+                      },
+                      "line": 76,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "dir"
+                        "name": "dir",
+                        "line": 77,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1824,46 +2556,68 @@
                           "kind": "PropertyAccessExpression",
                           "expression": {
                             "kind": "Identifier",
-                            "name": "Vector3"
+                            "name": "Vector3",
+                            "line": 77,
+                            "column": 25
                           },
-                          "name": "normalize"
+                          "name": "normalize",
+                          "line": 77,
+                          "column": 25
                         },
                         "arguments": [
                           {
                             "kind": "NewExpression",
                             "expression": {
                               "kind": "Identifier",
-                              "name": "Vector3"
+                              "name": "Vector3",
+                              "line": 77,
+                              "column": 47
                             },
                             "arguments": [
                               {
                                 "kind": "Identifier",
-                                "name": "u"
+                                "name": "u",
+                                "line": 77,
+                                "column": 55
                               },
                               {
                                 "kind": "Identifier",
-                                "name": "v"
+                                "name": "v",
+                                "line": 77,
+                                "column": 58
                               },
                               {
                                 "kind": "PrefixUnaryExpression",
                                 "operator": "-",
                                 "operand": {
                                   "kind": "NumericLiteral",
-                                  "value": 1
-                                }
+                                  "value": 1,
+                                  "line": 77,
+                                  "column": 62
+                                },
+                                "line": 77,
+                                "column": 61
                               }
                             ],
-                            "typeArguments": []
+                            "typeArguments": [],
+                            "line": 77,
+                            "column": 43
                           }
                         ],
-                        "typeArguments": []
-                      }
+                        "typeArguments": [],
+                        "line": 77,
+                        "column": 25
+                      },
+                      "line": 77,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "ray"
+                        "name": "ray",
+                        "line": 78,
+                        "column": 19
                       },
                       "isExported": false,
                       "type": "",
@@ -1871,45 +2625,67 @@
                         "kind": "NewExpression",
                         "expression": {
                           "kind": "Identifier",
-                          "name": "Ray"
+                          "name": "Ray",
+                          "line": 78,
+                          "column": 29
                         },
                         "arguments": [
                           {
                             "kind": "Identifier",
-                            "name": "origin"
+                            "name": "origin",
+                            "line": 78,
+                            "column": 33
                           },
                           {
                             "kind": "Identifier",
-                            "name": "dir"
+                            "name": "dir",
+                            "line": 78,
+                            "column": 41
                           }
                         ],
-                        "typeArguments": []
-                      }
+                        "typeArguments": [],
+                        "line": 78,
+                        "column": 25
+                      },
+                      "line": 78,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "closestT"
+                        "name": "closestT",
+                        "line": 80,
+                        "column": 17
                       },
                       "isExported": false,
                       "type": "",
                       "initializer": {
                         "kind": "NumericLiteral",
-                        "value": 1000000
-                      }
+                        "value": 1000000,
+                        "line": 80,
+                        "column": 28
+                      },
+                      "line": 80,
+                      "column": 13
                     },
                     {
                       "kind": "VariableDeclaration",
                       "name": {
                         "kind": "Identifier",
-                        "name": "hitSphere"
+                        "name": "hitSphere",
+                        "line": 81,
+                        "column": 17
                       },
                       "isExported": false,
                       "type": "Sphere | null",
                       "initializer": {
-                        "kind": "NullLiteral"
-                      }
+                        "kind": "NullLiteral",
+                        "line": 81,
+                        "column": 44
+                      },
+                      "line": 81,
+                      "column": 13
                     },
                     {
                       "kind": "ForStatement",
@@ -1917,11 +2693,15 @@
                         "kind": "VariableDeclaration",
                         "name": {
                           "kind": "Identifier",
-                          "name": "i"
+                          "name": "i",
+                          "line": 83,
+                          "column": 22
                         },
                         "initializer": {
                           "kind": "NumericLiteral",
-                          "value": 0
+                          "value": 0,
+                          "line": 83,
+                          "column": 26
                         }
                       },
                       "condition": {
@@ -1929,24 +2709,36 @@
                         "operator": "<",
                         "left": {
                           "kind": "Identifier",
-                          "name": "i"
+                          "name": "i",
+                          "line": 83,
+                          "column": 29
                         },
                         "right": {
                           "kind": "PropertyAccessExpression",
                           "expression": {
                             "kind": "Identifier",
-                            "name": "spheres"
+                            "name": "spheres",
+                            "line": 83,
+                            "column": 33
                           },
-                          "name": "length"
-                        }
+                          "name": "length",
+                          "line": 83,
+                          "column": 33
+                        },
+                        "line": 83,
+                        "column": 29
                       },
                       "incrementor": {
                         "kind": "PostfixUnaryExpression",
                         "operator": "++",
                         "operand": {
                           "kind": "Identifier",
-                          "name": "i"
-                        }
+                          "name": "i",
+                          "line": 83,
+                          "column": 49
+                        },
+                        "line": 83,
+                        "column": 49
                       },
                       "body": {
                         "kind": "BlockStatement",
@@ -1955,7 +2747,9 @@
                             "kind": "VariableDeclaration",
                             "name": {
                               "kind": "Identifier",
-                              "name": "t"
+                              "name": "t",
+                              "line": 84,
+                              "column": 23
                             },
                             "isExported": false,
                             "type": "",
@@ -1967,23 +2761,37 @@
                                   "kind": "ElementAccessExpression",
                                   "expression": {
                                     "kind": "Identifier",
-                                    "name": "spheres"
+                                    "name": "spheres",
+                                    "line": 84,
+                                    "column": 27
                                   },
                                   "argumentExpression": {
                                     "kind": "Identifier",
-                                    "name": "i"
-                                  }
+                                    "name": "i",
+                                    "line": 84,
+                                    "column": 35
+                                  },
+                                  "line": 84,
+                                  "column": 27
                                 },
-                                "name": "intersect"
+                                "name": "intersect",
+                                "line": 84,
+                                "column": 27
                               },
                               "arguments": [
                                 {
                                   "kind": "Identifier",
-                                  "name": "ray"
+                                  "name": "ray",
+                                  "line": 84,
+                                  "column": 48
                                 }
                               ],
-                              "typeArguments": []
-                            }
+                              "typeArguments": [],
+                              "line": 84,
+                              "column": 27
+                            },
+                            "line": 84,
+                            "column": 17
                           },
                           {
                             "kind": "IfStatement",
@@ -1995,25 +2803,39 @@
                                 "operator": ">",
                                 "left": {
                                   "kind": "Identifier",
-                                  "name": "t"
+                                  "name": "t",
+                                  "line": 85,
+                                  "column": 21
                                 },
                                 "right": {
                                   "kind": "NumericLiteral",
-                                  "value": 0
-                                }
+                                  "value": 0,
+                                  "line": 85,
+                                  "column": 25
+                                },
+                                "line": 85,
+                                "column": 21
                               },
                               "right": {
                                 "kind": "BinaryExpression",
                                 "operator": "<",
                                 "left": {
                                   "kind": "Identifier",
-                                  "name": "t"
+                                  "name": "t",
+                                  "line": 85,
+                                  "column": 30
                                 },
                                 "right": {
                                   "kind": "Identifier",
-                                  "name": "closestT"
-                                }
-                              }
+                                  "name": "closestT",
+                                  "line": 85,
+                                  "column": 34
+                                },
+                                "line": 85,
+                                "column": 30
+                              },
+                              "line": 85,
+                              "column": 21
                             },
                             "thenStatement": {
                               "kind": "BlockStatement",
@@ -2024,13 +2846,21 @@
                                     "kind": "AssignmentExpression",
                                     "left": {
                                       "kind": "Identifier",
-                                      "name": "closestT"
+                                      "name": "closestT",
+                                      "line": 86,
+                                      "column": 21
                                     },
                                     "right": {
                                       "kind": "Identifier",
-                                      "name": "t"
-                                    }
-                                  }
+                                      "name": "t",
+                                      "line": 86,
+                                      "column": 32
+                                    },
+                                    "line": 86,
+                                    "column": 21
+                                  },
+                                  "line": 86,
+                                  "column": 21
                                 },
                                 {
                                   "kind": "ExpressionStatement",
@@ -2038,33 +2868,55 @@
                                     "kind": "AssignmentExpression",
                                     "left": {
                                       "kind": "Identifier",
-                                      "name": "hitSphere"
+                                      "name": "hitSphere",
+                                      "line": 87,
+                                      "column": 21
                                     },
                                     "right": {
                                       "kind": "ElementAccessExpression",
                                       "expression": {
                                         "kind": "Identifier",
-                                        "name": "spheres"
+                                        "name": "spheres",
+                                        "line": 87,
+                                        "column": 33
                                       },
                                       "argumentExpression": {
                                         "kind": "Identifier",
-                                        "name": "i"
-                                      }
-                                    }
-                                  }
+                                        "name": "i",
+                                        "line": 87,
+                                        "column": 41
+                                      },
+                                      "line": 87,
+                                      "column": 33
+                                    },
+                                    "line": 87,
+                                    "column": 21
+                                  },
+                                  "line": 87,
+                                  "column": 21
                                 }
-                              ]
+                              ],
+                              "line": 85,
+                              "column": 44
                             },
-                            "elseStatement": null
+                            "elseStatement": null,
+                            "line": 85,
+                            "column": 17
                           }
-                        ]
-                      }
+                        ],
+                        "line": 83,
+                        "column": 54
+                      },
+                      "line": 83,
+                      "column": 13
                     },
                     {
                       "kind": "IfStatement",
                       "condition": {
                         "kind": "Identifier",
-                        "name": "hitSphere"
+                        "name": "hitSphere",
+                        "line": 91,
+                        "column": 17
                       },
                       "thenStatement": {
                         "kind": "BlockStatement",
@@ -2076,7 +2928,9 @@
                               "operator": "+=",
                               "left": {
                                 "kind": "Identifier",
-                                "name": "checksum"
+                                "name": "checksum",
+                                "line": 92,
+                                "column": 17
                               },
                               "right": {
                                 "kind": "BinaryExpression",
@@ -2090,11 +2944,17 @@
                                       "kind": "PropertyAccessExpression",
                                       "expression": {
                                         "kind": "Identifier",
-                                        "name": "hitSphere"
+                                        "name": "hitSphere",
+                                        "line": 92,
+                                        "column": 29
                                       },
-                                      "name": "color"
+                                      "name": "color",
+                                      "line": 92,
+                                      "column": 29
                                     },
-                                    "name": "x"
+                                    "name": "x",
+                                    "line": 92,
+                                    "column": 29
                                   },
                                   "right": {
                                     "kind": "PropertyAccessExpression",
@@ -2102,12 +2962,20 @@
                                       "kind": "PropertyAccessExpression",
                                       "expression": {
                                         "kind": "Identifier",
-                                        "name": "hitSphere"
+                                        "name": "hitSphere",
+                                        "line": 92,
+                                        "column": 49
                                       },
-                                      "name": "color"
+                                      "name": "color",
+                                      "line": 92,
+                                      "column": 49
                                     },
-                                    "name": "y"
-                                  }
+                                    "name": "y",
+                                    "line": 92,
+                                    "column": 49
+                                  },
+                                  "line": 92,
+                                  "column": 29
                                 },
                                 "right": {
                                   "kind": "PropertyAccessExpression",
@@ -2115,33 +2983,63 @@
                                     "kind": "PropertyAccessExpression",
                                     "expression": {
                                       "kind": "Identifier",
-                                      "name": "hitSphere"
+                                      "name": "hitSphere",
+                                      "line": 92,
+                                      "column": 69
                                     },
-                                    "name": "color"
+                                    "name": "color",
+                                    "line": 92,
+                                    "column": 69
                                   },
-                                  "name": "z"
-                                }
-                              }
-                            }
+                                  "name": "z",
+                                  "line": 92,
+                                  "column": 69
+                                },
+                                "line": 92,
+                                "column": 29
+                              },
+                              "line": 92,
+                              "column": 17
+                            },
+                            "line": 92,
+                            "column": 17
                           }
-                        ]
+                        ],
+                        "line": 91,
+                        "column": 28
                       },
-                      "elseStatement": null
+                      "elseStatement": null,
+                      "line": 91,
+                      "column": 13
                     }
-                  ]
-                }
+                  ],
+                  "line": 74,
+                  "column": 41
+                },
+                "line": 74,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 73,
+            "column": 38
+          },
+          "line": 73,
+          "column": 5
         },
         {
           "kind": "ReturnStatement",
           "expression": {
             "kind": "Identifier",
-            "name": "checksum"
-          }
+            "name": "checksum",
+            "line": 96,
+            "column": 12
+          },
+          "line": 96,
+          "column": 5
         }
-      ]
+      ],
+      "line": 60,
+      "column": 1
     },
     {
       "kind": "FunctionDeclaration",
@@ -2157,14 +3055,20 @@
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "iterations"
+            "name": "iterations",
+            "line": 100,
+            "column": 11
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 100
-          }
+            "value": 100,
+            "line": 100,
+            "column": 24
+          },
+          "line": 100,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2174,18 +3078,28 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 101,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 101,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "StringLiteral",
-                "value": "Starting Ray Tracer Benchmark..."
+                "value": "Starting Ray Tracer Benchmark...",
+                "line": 101,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 101,
+            "column": 5
+          },
+          "line": 101,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -2193,11 +3107,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 104,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 104,
+              "column": 18
             }
           },
           "condition": {
@@ -2205,20 +3123,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 104,
+              "column": 21
             },
             "right": {
               "kind": "NumericLiteral",
-              "value": 2
-            }
+              "value": 2,
+              "line": 104,
+              "column": 25
+            },
+            "line": 104,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "i"
-            }
+              "name": "i",
+              "line": 104,
+              "column": 28
+            },
+            "line": 104,
+            "column": 28
           },
           "body": {
             "kind": "BlockStatement",
@@ -2229,20 +3157,32 @@
                   "kind": "CallExpression",
                   "callee": {
                     "kind": "Identifier",
-                    "name": "render"
+                    "name": "render",
+                    "line": 105,
+                    "column": 9
                   },
                   "arguments": [],
-                  "typeArguments": []
-                }
+                  "typeArguments": [],
+                  "line": 105,
+                  "column": 9
+                },
+                "line": 105,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 104,
+            "column": 33
+          },
+          "line": 104,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "start"
+            "name": "start",
+            "line": 108,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -2252,26 +3192,40 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "Date"
+                "name": "Date",
+                "line": 108,
+                "column": 19
               },
-              "name": "now"
+              "name": "now",
+              "line": 108,
+              "column": 19
             },
             "arguments": [],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 108,
+            "column": 19
+          },
+          "line": 108,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "totalChecksum"
+            "name": "totalChecksum",
+            "line": 109,
+            "column": 9
           },
           "isExported": false,
           "type": "",
           "initializer": {
             "kind": "NumericLiteral",
-            "value": 0
-          }
+            "value": 0,
+            "line": 109,
+            "column": 25
+          },
+          "line": 109,
+          "column": 5
         },
         {
           "kind": "ForStatement",
@@ -2279,11 +3233,15 @@
             "kind": "VariableDeclaration",
             "name": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 110,
+              "column": 14
             },
             "initializer": {
               "kind": "NumericLiteral",
-              "value": 0
+              "value": 0,
+              "line": 110,
+              "column": 18
             }
           },
           "condition": {
@@ -2291,20 +3249,30 @@
             "operator": "<",
             "left": {
               "kind": "Identifier",
-              "name": "i"
+              "name": "i",
+              "line": 110,
+              "column": 21
             },
             "right": {
               "kind": "Identifier",
-              "name": "iterations"
-            }
+              "name": "iterations",
+              "line": 110,
+              "column": 25
+            },
+            "line": 110,
+            "column": 21
           },
           "incrementor": {
             "kind": "PostfixUnaryExpression",
             "operator": "++",
             "operand": {
               "kind": "Identifier",
-              "name": "i"
-            }
+              "name": "i",
+              "line": 110,
+              "column": 37
+            },
+            "line": 110,
+            "column": 37
           },
           "body": {
             "kind": "BlockStatement",
@@ -2316,27 +3284,43 @@
                   "operator": "+=",
                   "left": {
                     "kind": "Identifier",
-                    "name": "totalChecksum"
+                    "name": "totalChecksum",
+                    "line": 111,
+                    "column": 9
                   },
                   "right": {
                     "kind": "CallExpression",
                     "callee": {
                       "kind": "Identifier",
-                      "name": "render"
+                      "name": "render",
+                      "line": 111,
+                      "column": 26
                     },
                     "arguments": [],
-                    "typeArguments": []
-                  }
-                }
+                    "typeArguments": [],
+                    "line": 111,
+                    "column": 26
+                  },
+                  "line": 111,
+                  "column": 9
+                },
+                "line": 111,
+                "column": 9
               }
-            ]
-          }
+            ],
+            "line": 110,
+            "column": 42
+          },
+          "line": 110,
+          "column": 5
         },
         {
           "kind": "VariableDeclaration",
           "name": {
             "kind": "Identifier",
-            "name": "end"
+            "name": "end",
+            "line": 113,
+            "column": 11
           },
           "isExported": false,
           "type": "",
@@ -2346,13 +3330,21 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "Date"
+                "name": "Date",
+                "line": 113,
+                "column": 17
               },
-              "name": "now"
+              "name": "now",
+              "line": 113,
+              "column": 17
             },
             "arguments": [],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 113,
+            "column": 17
+          },
+          "line": 113,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2362,18 +3354,28 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 115,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 115,
+              "column": 5
             },
             "arguments": [
               {
                 "kind": "StringLiteral",
-                "value": "Benchmark Complete."
+                "value": "Benchmark Complete.",
+                "line": 115,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 115,
+            "column": 5
+          },
+          "line": 115,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2383,9 +3385,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 116,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 116,
+              "column": 5
             },
             "arguments": [
               {
@@ -2393,16 +3399,26 @@
                 "operator": "+",
                 "left": {
                   "kind": "StringLiteral",
-                  "value": "Total Checksum: "
+                  "value": "Total Checksum: ",
+                  "line": 116,
+                  "column": 17
                 },
                 "right": {
                   "kind": "Identifier",
-                  "name": "totalChecksum"
-                }
+                  "name": "totalChecksum",
+                  "line": 116,
+                  "column": 38
+                },
+                "line": 116,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 116,
+            "column": 5
+          },
+          "line": 116,
+          "column": 5
         },
         {
           "kind": "ExpressionStatement",
@@ -2412,9 +3428,13 @@
               "kind": "PropertyAccessExpression",
               "expression": {
                 "kind": "Identifier",
-                "name": "console"
+                "name": "console",
+                "line": 117,
+                "column": 5
               },
-              "name": "log"
+              "name": "log",
+              "line": 117,
+              "column": 5
             },
             "arguments": [
               {
@@ -2425,7 +3445,9 @@
                   "operator": "+",
                   "left": {
                     "kind": "StringLiteral",
-                    "value": "Average Time: "
+                    "value": "Average Time: ",
+                    "line": 117,
+                    "column": 17
                   },
                   "right": {
                     "kind": "BinaryExpression",
@@ -2437,30 +3459,54 @@
                         "operator": "-",
                         "left": {
                           "kind": "Identifier",
-                          "name": "end"
+                          "name": "end",
+                          "line": 117,
+                          "column": 37
                         },
                         "right": {
                           "kind": "Identifier",
-                          "name": "start"
-                        }
-                      }
+                          "name": "start",
+                          "line": 117,
+                          "column": 43
+                        },
+                        "line": 117,
+                        "column": 37
+                      },
+                      "line": 117,
+                      "column": 36
                     },
                     "right": {
                       "kind": "Identifier",
-                      "name": "iterations"
-                    }
-                  }
+                      "name": "iterations",
+                      "line": 117,
+                      "column": 52
+                    },
+                    "line": 117,
+                    "column": 36
+                  },
+                  "line": 117,
+                  "column": 17
                 },
                 "right": {
                   "kind": "StringLiteral",
-                  "value": "ms"
-                }
+                  "value": "ms",
+                  "line": 117,
+                  "column": 65
+                },
+                "line": 117,
+                "column": 17
               }
             ],
-            "typeArguments": []
-          }
+            "typeArguments": [],
+            "line": 117,
+            "column": 5
+          },
+          "line": 117,
+          "column": 5
         }
-      ]
+      ],
+      "line": 99,
+      "column": 1
     },
     {
       "kind": "ExpressionStatement",
@@ -2468,11 +3514,17 @@
         "kind": "CallExpression",
         "callee": {
           "kind": "Identifier",
-          "name": "main"
+          "name": "main",
+          "line": 120,
+          "column": 1
         },
         "arguments": [],
-        "typeArguments": []
-      }
+        "typeArguments": [],
+        "line": 120,
+        "column": 1
+      },
+      "line": 120,
+      "column": 1
     }
   ]
 }
