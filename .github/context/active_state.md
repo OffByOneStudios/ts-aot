@@ -4,13 +4,15 @@
 **Current Phase:** Phase 15 (Node.js Parity)
 
 ## Current Focus
-We have completed **IR Verification & Regression Guard (Epic 83)**. The next focus is **CLI Improvements (Epic 85)**.
+We have completed **Object File Emission (Epic 84)**. The next focus is **Embedded Linker (Epic 85)**.
 
 ## Active Tasks
-1.  **Task 85.1:** Design the 	s-aot CLI interface (e.g., --output, --target, --opt-level).
+1.  **Milestone 85.1:** Build System Integration for LLD.
 
 ## Recent Accomplishments
+*   **Epic 84:** Completed Object File Emission. `ts-aot` can now generate `.obj` files directly.
 *   **Epic 83:** Completed IR Verification, Type Inference Snapshots, and Performance Regression Guards.
+
 *   **Epic 82:** Completed Node.js Benchmarking Suite. Reached 0.007ms on SHA-256 (35% faster than Node).
 *   **Epic 81:** Completed Bounds Check Elimination (BCE).
 *   **Epic 80:** Completed Devirtualization (Static & Monomorphization-based).

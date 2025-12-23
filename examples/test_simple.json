@@ -125,6 +125,149 @@
       },
       "line": 4,
       "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "s",
+        "line": 6,
+        "column": 7
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "BinaryExpression",
+        "operator": "+",
+        "left": {
+          "kind": "StringLiteral",
+          "value": "Hello, ",
+          "line": 6,
+          "column": 11
+        },
+        "right": {
+          "kind": "StringLiteral",
+          "value": "World!",
+          "line": 6,
+          "column": 23
+        },
+        "line": 6,
+        "column": 11
+      },
+      "line": 6,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 7,
+            "column": 1
+          },
+          "name": "log",
+          "line": 7,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "Identifier",
+            "name": "s",
+            "line": 7,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 7,
+        "column": 1
+      },
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 8,
+            "column": 1
+          },
+          "name": "log",
+          "line": 8,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "s",
+              "line": 8,
+              "column": 13
+            },
+            "name": "length",
+            "line": 8,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 8,
+        "column": 1
+      },
+      "line": 8,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 9,
+            "column": 1
+          },
+          "name": "log",
+          "line": 9,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "s",
+                "line": 9,
+                "column": 13
+              },
+              "name": "toLowerCase",
+              "line": 9,
+              "column": 13
+            },
+            "arguments": [],
+            "typeArguments": [],
+            "line": 9,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "line": 9,
+        "column": 1
+      },
+      "line": 9,
+      "column": 1
     }
   ]
 }

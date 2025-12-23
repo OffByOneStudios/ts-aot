@@ -5,9 +5,37 @@ find_package(cxxopts CONFIG REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+message(STATUS "LLVM_LIBRARY_DIRS: ${LLVM_LIBRARY_DIRS}")
 
 # Map LLVM components
-llvm_map_components_to_libnames(llvm_libs core support codegen irreader x86codegen x86asmparser passes ipo)
+llvm_map_components_to_libnames(llvm_libs
+    Support
+    Core
+    IRReader
+    AsmParser
+    Analysis
+    TransformUtils
+    ScalarOpts
+    IPO
+    Passes
+    Target
+    MC
+    Object
+    BitWriter
+    BitReader
+    TargetParser
+    X86
+    Option
+    LTO
+    WindowsDriver
+    WindowsManifest
+    LibDriver
+)
+
+# LLD libraries are not always part of the standard component map
+find_library(LLD_COFF_LIB lldCOFF PATHS ${LLVM_LIBRARY_DIRS} NO_DEFAULT_PATH)
+find_library(LLD_COMMON_LIB lldCommon PATHS ${LLVM_LIBRARY_DIRS} NO_DEFAULT_PATH)
+set(lld_libs ${LLD_COFF_LIB} ${LLD_COMMON_LIB})
 
 add_library(tscompiler_lib STATIC
     ast/AstLoader_Core.cpp
@@ -30,6 +58,8 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Expressions_Async.cpp
     analysis/Analyzer_Escape.cpp
     analysis/Monomorphizer.cpp
+    codegen/CodeGenerator.cpp
+    codegen/LinkerDriver.cpp
     codegen/IRGenerator.cpp
     codegen/IRGenerator_Core.cpp
     codegen/IRGenerator_Classes.cpp
@@ -64,6 +94,12 @@ add_executable(ts-aot
     main.cpp
 )
 
-target_link_libraries(ts-aot PRIVATE
+target_link_libraries(ts-aot
+    PRIVATE
     tscompiler_lib
+    ${llvm_libs}
+    ${lld_libs}
+    cxxopts::cxxopts
+    fmt::fmt
+    nlohmann_json::nlohmann_json
 )
