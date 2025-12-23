@@ -20,7 +20,9 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     auto sym = symbols.lookup(node->name);
     if (sym) {
         lastType = sym->type;
-        fprintf(stderr, "  Lookup %s: %s\n", node->name.c_str(), lastType->toString().c_str());
+        if (verbose) {
+            fprintf(stderr, "  Lookup %s: %s\n", node->name.c_str(), lastType->toString().c_str());
+        }
     } else {
         // Check if it's a class name
         auto type = symbols.lookupType(node->name);
@@ -135,7 +137,9 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     }
     
     if (node->name == "length") {
-        std::cerr << "  Accessing .length on type: " << objType->toString() << std::endl;
+        if (verbose) {
+            std::cerr << "  Accessing .length on type: " << objType->toString() << std::endl;
+        }
         if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
             lastType = std::make_shared<Type>(TypeKind::Int);
             return;

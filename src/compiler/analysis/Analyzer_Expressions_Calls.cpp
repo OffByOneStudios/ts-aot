@@ -31,7 +31,9 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
         calleeName = prop->name;
     }
-    fprintf(stderr, "Analyzer::visitCallExpression: %s\n", calleeName.c_str());
+    if (verbose) {
+        fprintf(stderr, "Analyzer::visitCallExpression: %s\n", calleeName.c_str());
+    }
     
     // Check for property access calls (methods)
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {

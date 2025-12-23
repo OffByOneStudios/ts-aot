@@ -811,7 +811,9 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 int fieldIndex = classLayouts[className].fieldIndices[fieldName];
                 llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
                 
-                std::cout << "DEBUG: Assigning to " << className << "." << fieldName << " index=" << fieldIndex << std::endl;
+                if (verbose) {
+                    std::cout << "DEBUG: Assigning to " << className << "." << fieldName << " index=" << fieldIndex << std::endl;
+                }
 
                 // We need the type of the field to load it correctly
                 // The field could be in a base class, so we look it up in the layout's allFields

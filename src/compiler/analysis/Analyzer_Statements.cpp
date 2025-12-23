@@ -26,7 +26,9 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 type = lastType;
                 // Update the type in the symbol table
                 if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
-                    std::cerr << "  Updating " << id->name << " to type: " << type->toString() << std::endl;
+                    if (verbose) {
+                        std::cerr << "  Updating " << id->name << " to type: " << type->toString() << std::endl;
+                    }
                     symbols.update(id->name, type);
                 }
             } else {

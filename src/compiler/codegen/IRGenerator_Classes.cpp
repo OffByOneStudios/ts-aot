@@ -70,7 +70,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 2. Second pass: Compute layouts (recursive)
     for (const auto& classType : allClassTypes) {
-        std::cout << "DEBUG: Class " << classType->name << " isStruct=" << classType->isStruct << std::endl;
+        if (verbose) {
+            std::cout << "DEBUG: Class " << classType->name << " isStruct=" << classType->isStruct << std::endl;
+        }
         std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
             if (classLayouts.count(c->name)) return;
             if (c->baseClass) compute(c->baseClass);
@@ -486,7 +488,9 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
             
             uint64_t size = dl.getTypeAllocSize(structType);
-            std::cout << "DEBUG: Allocating " << className << " size=" << size << std::endl;
+            if (verbose) {
+                std::cout << "DEBUG: Allocating " << className << " size=" << size << std::endl;
+            }
             llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
             llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
             thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));

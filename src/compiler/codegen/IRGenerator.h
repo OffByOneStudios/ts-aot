@@ -24,6 +24,7 @@ public:
     void dumpIR();
     void setOptLevel(const std::string& level) { optLevel = level; }
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
+    void setVerbose(bool v) { verbose = v; }
 
     llvm::Module* getModule() { return module.get(); }
 
@@ -35,6 +36,7 @@ private:
     std::shared_ptr<Type> currentReturnType;
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
+    bool verbose = false;
 
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;

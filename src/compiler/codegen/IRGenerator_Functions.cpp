@@ -33,7 +33,9 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         llvm::Type* returnType = getLLVMType(spec.returnType);
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
-        llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
+        if (verbose) {
+            llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
+        }
         llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
         addStackProtection(func);
 
@@ -71,7 +73,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             isAsync = methodNode->isAsync;
         }
 
-        llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << "\n";
+        if (verbose) {
+            llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << "\n";
+        }
 
         if (isAsync) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);

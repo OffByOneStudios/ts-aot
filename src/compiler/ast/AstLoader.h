@@ -16,4 +16,6 @@ namespace ast {
     std::unique_ptr<Parameter> parseParameter(const nlohmann::json& j);
     std::unique_ptr<TypeParameter> parseTypeParameter(const nlohmann::json& j);
     void setLocation(Node* node, const nlohmann::json& j);
+
+    void printAst(const Node* node, int indent = 0);
 }

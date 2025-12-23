@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(ts-aot LANGUAGES CXX)
 
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -42,7 +43,7 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
             OUTPUT ${bc_file}
             COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 -fstack-protector-strong
                     -I${RUNTIME_INC_DIR} 
-                    -I${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
+                    -I${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
                     -DTS_RUNTIME_EXPORT -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
                     ${src} -o ${bc_file}
             DEPENDS ${src}

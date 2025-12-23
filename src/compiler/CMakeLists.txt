@@ -41,6 +41,7 @@ add_library(tscompiler_lib STATIC
     ast/AstLoader_Core.cpp
     ast/AstLoader_Expressions.cpp
     ast/AstLoader_Statements.cpp
+    ast/AstPrinter.cpp
     analysis/SymbolTable.cpp
     analysis/Analyzer.cpp
     analysis/Analyzer_Core.cpp
@@ -58,6 +59,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Expressions_Async.cpp
     analysis/Analyzer_Escape.cpp
     analysis/Monomorphizer.cpp
+    Driver.cpp
     codegen/CodeGenerator.cpp
     codegen/LinkerDriver.cpp
     codegen/IRGenerator.cpp
