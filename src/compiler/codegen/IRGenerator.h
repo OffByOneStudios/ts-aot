@@ -21,10 +21,11 @@ public:
     IRGenerator();
 
     void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer);
-    void emitObjectCode(const std::string& filename);
     void dumpIR();
     void setOptLevel(const std::string& level) { optLevel = level; }
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
+
+    llvm::Module* getModule() { return module.get(); }
 
 private:
     std::unique_ptr<llvm::LLVMContext> context;

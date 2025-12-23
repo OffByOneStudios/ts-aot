@@ -5,6 +5,11 @@ project(ts-aot LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Support static CRT for static builds
+if(VCPKG_TARGET_TRIPLET STREQUAL "x64-windows-static")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # Use vcpkg toolchain
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
@@ -37,7 +42,7 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
             OUTPUT ${bc_file}
             COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 -fstack-protector-strong
                     -I${RUNTIME_INC_DIR} 
-                    -I${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/include
+                    -I${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
                     -DTS_RUNTIME_EXPORT -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
                     ${src} -o ${bc_file}
             DEPENDS ${src}
@@ -57,6 +62,12 @@ endif()
 
 # Optional: Add a target for the http-server test app
 find_package(libuv CONFIG REQUIRED)
+if(TARGET libuv::uv_a)
+    set(LIBUV_TARGET libuv::uv_a)
+else()
+    set(LIBUV_TARGET libuv::uv)
+endif()
+
 find_package(llhttp CONFIG REQUIRED)
 find_package(BDWgc CONFIG REQUIRED)
 find_package(ICU COMPONENTS uc i18n REQUIRED)
@@ -76,7 +87,7 @@ add_custom_command(
 )
 
 add_executable(test_app examples/http-server/http-server.obj)
-target_link_libraries(test_app PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(test_app PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(test_app PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -92,7 +103,7 @@ add_custom_command(
 )
 
 add_executable(raytracer_bench examples/raytracer.obj)
-target_link_libraries(raytracer_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(raytracer_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(raytracer_bench PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -108,7 +119,7 @@ add_custom_command(
 )
 
 add_executable(number_test examples/number_test.obj)
-target_link_libraries(number_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(number_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(number_test PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -124,7 +135,7 @@ add_custom_command(
 )
 
 add_executable(buffer_string_test examples/buffer_string_test.obj)
-target_link_libraries(buffer_string_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(buffer_string_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(buffer_string_test PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -140,7 +151,7 @@ add_custom_command(
 )
 
 add_executable(sha256_bench examples/sha256.obj)
-target_link_libraries(sha256_bench PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(sha256_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(sha256_bench PRIVATE src/runtime/include)
 
 add_executable(raytracer_cpp examples/raytracer.cpp)
@@ -152,7 +163,7 @@ add_custom_command(
 )
 
 add_executable(escape_test examples/escape_test.obj)
-target_link_libraries(escape_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(escape_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(escape_test PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -162,13 +173,13 @@ add_custom_command(
 )
 
 add_executable(struct_test examples/struct_test.obj)
-target_link_libraries(struct_test PRIVATE tsruntime libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(struct_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
 target_include_directories(struct_test PRIVATE src/runtime/include)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")
     add_executable(test_app_lto http-server-lto.obj)
     set_target_properties(test_app_lto PROPERTIES LINKER_LANGUAGE CXX)
-    target_link_libraries(test_app_lto PRIVATE libuv::uv llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 BDWgc::gc ICU::uc ICU::i18n unofficial-sodium::sodium OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(test_app_lto PRIVATE ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 BDWgc::gc ICU::uc ICU::i18n unofficial-sodium::sodium OpenSSL::SSL OpenSSL::Crypto)
     
     if(MSVC)
         target_link_options(test_app_lto PRIVATE /OPT:REF /OPT:ICF)

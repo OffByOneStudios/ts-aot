@@ -4,7 +4,15 @@
 #include "analysis/Analyzer.h"
 #include "analysis/Monomorphizer.h"
 #include "codegen/IRGenerator.h"
+#include "codegen/CodeGenerator.h"
+#include "codegen/LinkerDriver.h"
 #include <iostream>
+
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/TargetParser/Host.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/Target/TargetMachine.h>
 
 #ifdef _MSC_VER
 #include <crtdbg.h>
@@ -74,17 +82,28 @@ int main(int argc, char** argv) {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
 
+    // Initialize LLVM targets
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
+
     std::cerr << "Compiler starting..." << std::endl;
 
     try {
         cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
         options.add_options()
             ("o,output", "Output file", cxxopts::value<std::string>())
+            ("emit-obj", "Emit object file", cxxopts::value<std::string>())
+            ("emit-exe", "Emit executable", cxxopts::value<std::string>())
+            ("lib-path", "Additional library search path", cxxopts::value<std::vector<std::string>>())
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
+            ("small-icu", "Use a smaller ICU data set (English only)", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
@@ -138,9 +157,96 @@ int main(int argc, char** argv) {
             irGen.dumpIR();
         }
 
-        if (result.count("output")) {
-            std::string outputFile = result["output"].as<std::string>();
-            irGen.emitObjectCode(outputFile);
+        std::string outputFile;
+        if (result.count("emit-obj")) {
+            outputFile = result["emit-obj"].as<std::string>();
+        } else if (result.count("output")) {
+            outputFile = result["output"].as<std::string>();
+        }
+
+        if (!outputFile.empty()) {
+            std::cerr << "Emitting object code to " << outputFile << "..." << std::endl;
+            ts::CodeGenerator codeGen(irGen.getModule());
+            if (!codeGen.emitObjectFile(outputFile, result["opt"].as<std::string>())) {
+                return 1;
+            }
+        }
+
+        if (result.count("emit-exe")) {
+            std::string exeOutput = result["emit-exe"].as<std::string>();
+            std::string objFile = exeOutput + ".obj";
+            
+            std::cerr << "Emitting temporary object code to " << objFile << "..." << std::endl;
+            ts::CodeGenerator codeGen(irGen.getModule());
+            if (!codeGen.emitObjectFile(objFile, result["opt"].as<std::string>())) {
+                return 1;
+            }
+
+            std::cerr << "Linking " << exeOutput << "..." << std::endl;
+            ts::LinkerDriver::Options linkOpts;
+            linkOpts.outputPath = exeOutput;
+            linkOpts.objectFiles.push_back(objFile);
+            
+            // Add compiler directory to library paths
+            try {
+                std::filesystem::path compilerPath = std::filesystem::absolute(std::filesystem::path(argv[0])).parent_path();
+                linkOpts.libraryPaths.push_back(compilerPath.string());
+                
+                // Also check for a 'lib' directory relative to the compiler
+                linkOpts.libraryPaths.push_back((compilerPath / "lib").string());
+                
+                // For development: check the build directory structure
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
+            } catch (...) {}
+
+            if (result.count("lib-path")) {
+                auto extraPaths = result["lib-path"].as<std::vector<std::string>>();
+                linkOpts.libraryPaths.insert(linkOpts.libraryPaths.end(), extraPaths.begin(), extraPaths.end());
+            }
+
+            linkOpts.libraries.push_back("tsruntime.lib");
+            
+            // If we are NOT in fat mode, we need to link dependencies explicitly.
+            // For now, we'll always add them, LLD will ignore them if they are already in tsruntime.lib
+            // or if they are not found but not needed.
+            linkOpts.libraries.push_back("gc.lib");
+            linkOpts.libraries.push_back("libuv.lib");
+            linkOpts.libraries.push_back("llhttp.lib");
+            linkOpts.libraries.push_back("libsodium.lib");
+            linkOpts.libraries.push_back("libcrypto.lib");
+            linkOpts.libraries.push_back("libssl.lib");
+            linkOpts.libraries.push_back("zlib.lib");
+            
+            // ICU libraries
+            linkOpts.libraries.push_back("icuuc.lib");
+            if (!result["small-icu"].as<bool>()) {
+                linkOpts.libraries.push_back("icuin.lib");
+            }
+            linkOpts.libraries.push_back("icudt.lib");
+
+            // Windows system libraries
+            linkOpts.libraries.push_back("ws2_32.lib");
+            linkOpts.libraries.push_back("user32.lib");
+            linkOpts.libraries.push_back("advapi32.lib");
+            linkOpts.libraries.push_back("iphlpapi.lib");
+            linkOpts.libraries.push_back("shell32.lib");
+            linkOpts.libraries.push_back("crypt32.lib");
+            linkOpts.libraries.push_back("bcrypt.lib");
+
+            if (!ts::LinkerDriver::link(linkOpts)) {
+                std::cerr << "Linking failed." << std::endl;
+                return 1;
+            }
+            
+            // Clean up temporary object file
+            try {
+                std::filesystem::remove(objFile);
+            } catch (...) {
+                // Ignore cleanup errors
+            }
+
+            std::cerr << "Successfully created " << exeOutput << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

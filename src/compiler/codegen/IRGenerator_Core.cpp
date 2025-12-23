@@ -267,14 +267,14 @@ void IRGenerator::generateEntryPoint() {
     llvm::Function* tsMain = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_main", module.get());
     addStackProtection(tsMain);
 
-    // Define ts_aot_main: int ts_aot_main(int argc, char** argv)
+    // Define main: int main(int argc, char** argv)
     std::vector<llvm::Type*> mainArgs = {
         llvm::Type::getInt32Ty(*context),
         llvm::PointerType::getUnqual(*context)
     };
     llvm::FunctionType* mainFt = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*context), mainArgs, false);
-    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "ts_aot_main", module.get());
+    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "main", module.get());
     addStackProtection(mainFn);
 
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", mainFn);
@@ -780,140 +780,6 @@ void IRGenerator::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {}
 void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {}
 void IRGenerator::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {}
 void IRGenerator::visitEnumDeclaration(ast::EnumDeclaration* node) {}
-
-void IRGenerator::emitObjectCode(const std::string& filename) {
-    std::string targetTriple = llvm::sys::getDefaultTargetTriple();
-    module->setTargetTriple(targetTriple);
-
-    std::string error;
-    auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
-
-    if (!target) {
-        llvm::errs() << error;
-        return;
-    }
-
-    auto cpu = "generic";
-    auto features = "";
-
-    llvm::TargetOptions opt;
-    auto rm = llvm::Reloc::Model::PIC_;
-    auto targetMachine = std::unique_ptr<llvm::TargetMachine>(
-        target->createTargetMachine(targetTriple, cpu, features, opt, rm));
-
-    if (!targetMachine) {
-        llvm::errs() << "Could not create target machine\n";
-        return;
-    }
-
-    module->setDataLayout(targetMachine->createDataLayout());
-
-    if (!runtimeBitcodePath.empty()) {
-        fmt::print("Linking runtime bitcode: {}\n", runtimeBitcodePath);
-        llvm::SMDiagnostic err;
-        auto runtimeModule = llvm::parseIRFile(runtimeBitcodePath, err, *context);
-        if (!runtimeModule) {
-            err.print("ts-aot", llvm::errs());
-        } else {
-            if (llvm::Linker::linkModules(*module, std::move(runtimeModule))) {
-                fmt::print(stderr, "Error linking runtime bitcode\n");
-            } else {
-                // Internalize everything except main to allow aggressive DCE
-                for (auto& F : *module) {
-                    if (!F.isDeclaration() && F.getName() != "main") {
-                        F.setLinkage(llvm::GlobalValue::InternalLinkage);
-                    }
-                }
-            }
-        }
-    }
-
-    std::error_code ec;
-    llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
-
-    if (ec) {
-        llvm::errs() << "Could not open file: " << ec.message();
-        return;
-    }
-
-    // New Pass Manager for IR optimizations
-    llvm::LoopAnalysisManager LAM;
-    llvm::FunctionAnalysisManager FAM;
-    llvm::CGSCCAnalysisManager CGAM;
-    llvm::ModuleAnalysisManager MAM;
-
-    llvm::PassBuilder PB(targetMachine.get());
-
-    PB.registerModuleAnalyses(MAM);
-    PB.registerCGSCCAnalyses(CGAM);
-    PB.registerFunctionAnalyses(FAM);
-    PB.registerLoopAnalyses(LAM);
-    PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-
-    llvm::OptimizationLevel level;
-    if (optLevel == "0") level = llvm::OptimizationLevel::O0;
-    else if (optLevel == "1") level = llvm::OptimizationLevel::O1;
-    else if (optLevel == "2") level = llvm::OptimizationLevel::O2;
-    else if (optLevel == "3") level = llvm::OptimizationLevel::O3;
-    else if (optLevel == "s") level = llvm::OptimizationLevel::Os;
-    else if (optLevel == "z") level = llvm::OptimizationLevel::Oz;
-    else level = llvm::OptimizationLevel::O0;
-
-    if (level != llvm::OptimizationLevel::O0) {
-        fmt::print("Running IR optimizations (Level O{})\n", optLevel);
-        llvm::ModulePassManager MPM;
-        
-        // Add custom "priority" passes as requested in Epic 73
-        MPM.addPass(llvm::ModuleInlinerWrapperPass());
-        
-        llvm::FunctionPassManager FPM;
-        FPM.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
-        FPM.addPass(llvm::GVNPass());
-        MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-        
-        // Add default pipeline
-        MPM.addPass(PB.buildPerModuleDefaultPipeline(level));
-        
-        // Global DCE to remove unused runtime functions after linking
-        MPM.addPass(llvm::GlobalDCEPass());
-        
-        MPM.run(*module, MAM);
-    }
-
-    if (filename.ends_with(".bc")) {
-        std::error_code ec;
-        llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
-        if (ec) {
-            llvm::errs() << "Could not open file: " << ec.message();
-            return;
-        }
-        llvm::WriteBitcodeToFile(*module, dest);
-        return;
-    }
-
-    if (filename.ends_with(".ll")) {
-        std::error_code ec;
-        llvm::raw_fd_ostream dest(filename, ec, llvm::sys::fs::OF_None);
-        if (ec) {
-            llvm::errs() << "Could not open file: " << ec.message();
-            return;
-        }
-        module->print(dest, nullptr);
-        return;
-    }
-
-    // Legacy Pass Manager for CodeGen
-    llvm::legacy::PassManager pass;
-    auto fileType = llvm::CodeGenFileType::ObjectFile;
-
-    if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType)) {
-        llvm::errs() << "TargetMachine can't emit a file of this type";
-        return;
-    }
-
-    pass.run(*module);
-    dest.flush();
-}
 
 void IRGenerator::dumpIR() {
     module->print(llvm::outs(), nullptr);
