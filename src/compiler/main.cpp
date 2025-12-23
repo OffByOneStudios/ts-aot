@@ -114,9 +114,9 @@ int main(int argc, char** argv) {
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
         
-        fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
+        // fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
     for (const auto& spec : monomorphizer.getSpecializations()) {
-        fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
+        // fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
     }
 
     ts::IRGenerator irGen;
@@ -127,17 +127,16 @@ int main(int argc, char** argv) {
     irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
     
     if (result["dump-ir"].as<bool>()) {
-        fmt::print("\n--- Generated IR ---\n");
         irGen.dumpIR();
     }
 
     if (result.count("output")) {
         std::string outputFile = result["output"].as<std::string>();
         irGen.emitObjectCode(outputFile);
-        fmt::print("Emitted object code to {}\n", outputFile);
+        // fmt::print("Emitted object code to {}\n", outputFile);
     }
 
-    fmt::print("Successfully loaded AST from {}\n", inputFile);
+    // fmt::print("Successfully loaded AST from {}\n", inputFile);
     } catch (const std::exception& e) {
         std::cerr << "Error loading AST: " << e.what() << std::endl;
         return 1;

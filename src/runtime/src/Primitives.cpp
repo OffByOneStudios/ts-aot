@@ -117,4 +117,20 @@ double ts_value_get_double(TsValue* v) {
     return 0.0;
 }
 
+bool ts_value_to_bool(TsValue* v) {
+    if (!v) return false;
+    switch (v->type) {
+        case ValueType::UNDEFINED: return false;
+        case ValueType::NUMBER_INT: return v->i_val != 0;
+        case ValueType::NUMBER_DBL: return v->d_val != 0.0;
+        case ValueType::BOOLEAN: return v->b_val;
+        case ValueType::STRING_PTR: return v->ptr_val != nullptr;
+        case ValueType::OBJECT_PTR:
+        case ValueType::PROMISE_PTR:
+        case ValueType::ARRAY_PTR:
+            return v->ptr_val != nullptr;
+        default: return false;
+    }
+}
+
 }

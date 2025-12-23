@@ -22,8 +22,14 @@ Security hardening (Epic 72) added mandatory bounds checks to every array access
 - [x] Define LLVM struct layouts for `TsString`, `TsArray`, `TsTypedArray`, and `TsBuffer`.
 - [x] Replace runtime length calls with direct field loads to enable metadata attachment.
 - [x] Attach `!range` metadata to length loads to inform LLVM that lengths are non-negative.
-- [ ] Ensure that removing bounds checks allows LLVM's `LoopStrengthReduce` and `LoopVectorize` passes to trigger.
+- [x] Verify that bounds checks are eliminated in optimized IR.
+
+### Milestone 4: Loop Induction Variable Promotion
+- [x] Detect loops where the induction variable is only used for indexing and can be promoted from `double` to `i64`.
+- [x] Implement promotion to enable LLVM's `LoopVectorize` and `LoopStrengthReduce` passes.
+- [x] Verify promotion in generated IR (induction variables are `i64`, comparisons are `icmp`).
 
 ## Verification Plan
 - **IR Inspection:** Check that `ts_panic_bounds` calls are removed from loop bodies.
 - **Benchmark:** Measure performance on array-heavy workloads (e.g., `Buffer` processing, large `Array` iterations).
+- **Promotion Check:** Verify that induction variables in `for` loops are `i64` and use integer arithmetic.

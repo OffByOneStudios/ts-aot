@@ -925,7 +925,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              lastValue = createCall(indexOfFt, fn.getCallee(), { obj, search });
          }
          return true;
-    } else if (prop->name == "slice") {
+    } else if (prop->name == "slice" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -961,7 +961,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_slice", sliceFt);
          lastValue = createCall(sliceFt, fn.getCallee(), { obj, start, end });
          return true;
-    } else if (prop->name == "join") {
+    } else if (prop->name == "join" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1154,7 +1154,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_substring", substringFt);
          lastValue = createCall(substringFt, fn.getCallee(), { obj, start, end });
          return true;
-    } else if (prop->name == "sort") {
+    } else if (prop->name == "sort" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1167,7 +1167,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(sortFt, fn.getCallee(), { obj });
          lastValue = nullptr;
          return true;
-    } else if (prop->name == "forEach" || prop->name == "map" || prop->name == "filter" || prop->name == "some" || prop->name == "every" || prop->name == "find" || prop->name == "findIndex" || prop->name == "flatMap") {
+    } else if ((prop->name == "forEach" || prop->name == "map" || prop->name == "filter" || prop->name == "some" || prop->name == "every" || prop->name == "find" || prop->name == "findIndex" || prop->name == "flatMap") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1203,7 +1203,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              lastValue = unboxValue(lastValue, elemType);
          }
          return true;
-    } else if (prop->name == "flat") {
+    } else if (prop->name == "flat" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1221,7 +1221,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_flat", flatFt);
          lastValue = createCall(flatFt, fn.getCallee(), { obj, depth });
          return true;
-    } else if (prop->name == "reduce") {
+    } else if (prop->name == "reduce" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1243,7 +1243,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_reduce", reduceFt);
          lastValue = createCall(reduceFt, fn.getCallee(), { obj, callback, initialValue });
          return true;
-    } else if (prop->name == "set") {
+    } else if (prop->name == "set" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
@@ -1265,9 +1265,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(setFt, fn.getCallee(), { map, key, value });
          lastValue = nullptr;
          return true;
-    } else if (prop->name == "get") {
+    } else if (prop->name == "get" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
+         
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
          }
@@ -1284,7 +1285,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get", getFt);
          lastValue = createCall(getFt, fn.getCallee(), { map, key });
          return true;
-    } else if (prop->name == "has") {
+    } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
@@ -1304,7 +1305,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::Value* res = createCall(hasFt, fn.getCallee(), { map, key });
          lastValue = builder->CreateICmpNE(res, llvm::ConstantInt::get(res->getType(), 0), "tobool");
          return true;
-    } else if (prop->name == "delete") {
+    } else if (prop->name == "delete" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
@@ -1320,7 +1321,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_delete", deleteFt);
          lastValue = createCall(deleteFt, fn.getCallee(), { map, key });
          return true;
-    } else if (prop->name == "clear") {
+    } else if (prop->name == "clear" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
@@ -1333,7 +1334,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(clearFt, fn.getCallee(), { map });
          lastValue = nullptr;
          return true;
-    } else if (prop->name == "values" || prop->name == "entries") {
+    } else if ((prop->name == "values" || prop->name == "entries") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {

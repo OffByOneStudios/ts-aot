@@ -4,7 +4,7 @@
 #include "TsString.h"
 #include "TsObject.h"
 
-class TsMap {
+class TsMap : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x4D415053; // "MAPS"
     static TsMap* Create();

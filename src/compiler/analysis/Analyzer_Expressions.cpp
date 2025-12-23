@@ -68,7 +68,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              lastType = std::make_shared<Type>(TypeKind::Void);
              return;
         } else if (prop->name == "get") {
-             lastType = std::make_shared<Type>(TypeKind::Int);
+             lastType = std::make_shared<Type>(TypeKind::Any);
              return;
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
@@ -338,9 +338,15 @@ void Analyzer::visitNewExpression(NewExpression* node) {
 
         // Check for user-defined classes
         auto type = symbols.lookupType(id->name);
+        if (type) {
+             std::cerr << "DEBUG: Analyzer lookupType(" << id->name << ") returned kind=" << (int)type->kind << std::endl;
+        } else {
+             std::cerr << "DEBUG: Analyzer lookupType(" << id->name << ") returned null" << std::endl;
+        }
+
         if (type && type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
-            std::cerr << "DEBUG: Analyzer setting NewExpression inferredType to " << classType->name << std::endl;
+            std::cerr << "DEBUG: Analyzer visitNewExpression id=" << id->name << " inferredType=" << classType->name << std::endl;
             if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
                 // Validate constraints
                 for (size_t i = 0; i < classType->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {

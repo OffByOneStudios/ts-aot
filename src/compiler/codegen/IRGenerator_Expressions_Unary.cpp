@@ -45,11 +45,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             lastValue = builder->CreateNeg(operandV, "negtmp");
         }
     } else if (node->op == "!") {
-        if (operandV->getType()->isDoubleTy()) {
-            operandV = builder->CreateFCmpONE(operandV, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "tobool");
-        } else if (operandV->getType()->isIntegerTy() && operandV->getType()->getIntegerBitWidth() > 1) {
-             operandV = builder->CreateICmpNE(operandV, llvm::ConstantInt::get(operandV->getType(), 0), "tobool");
-        }
+        operandV = emitToBoolean(operandV, node->operand->inferredType);
         lastValue = builder->CreateNot(operandV, "nottmp");
     } else if (node->op == "~") {
         operandV = toInt32(operandV);

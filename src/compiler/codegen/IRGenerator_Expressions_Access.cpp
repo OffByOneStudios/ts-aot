@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -100,20 +101,37 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
             llvm::Value* index = lastValue;
             index = castValue(index, llvm::Type::getInt64Ty(*context));
 
-            if (cls->name == "Uint8Array") {
-                llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getInt8Ty(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_typed_array_get_u8", getFt);
-                llvm::Value* val = createCall(getFt, getFn.getCallee(), { ta, index });
-                lastValue = builder->CreateUIToFP(val, llvm::Type::getDoubleTy(*context));
-            } else if (cls->name == "Uint32Array") {
-                llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_typed_array_get_u32", getFt);
-                llvm::Value* val = createCall(getFt, getFn.getCallee(), { ta, index });
-                lastValue = builder->CreateUIToFP(val, llvm::Type::getDoubleTy(*context));
-            } else if (cls->name == "Float64Array") {
-                llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_typed_array_get_f64", getFt);
-                lastValue = createCall(getFt, getFn.getCallee(), { ta, index });
+            llvm::Type* llvmElemType = nullptr;
+            if (cls->name == "Uint8Array") llvmElemType = llvm::Type::getInt8Ty(*context);
+            else if (cls->name == "Uint32Array") llvmElemType = llvm::Type::getInt32Ty(*context);
+            else if (cls->name == "Float64Array") llvmElemType = llvm::Type::getDoubleTy(*context);
+
+            if (llvmElemType) {
+                llvm::StructType* tsTypedArrayType = llvm::StructType::getTypeByName(*context, cls->name);
+                if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
+
+                // Bounds check
+                if (!isSafe) {
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
+                    llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                    emitBoundsCheck(index, length);
+                }
+
+                llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 1);
+                llvm::Value* bufferPtr = builder->CreateLoad(builder->getPtrTy(), bufferPtrPtr);
+                
+                // TsBuffer layout: vtable (0), magic (1), data (2), length (3)
+                llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
+                llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 2);
+                llvm::Value* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
+                
+                llvm::Value* ptr = builder->CreateGEP(llvmElemType, dataPtr, { index });
+                
+                lastValue = builder->CreateLoad(llvmElemType, ptr);
+                if (cls->name != "Float64Array") {
+                    lastValue = builder->CreateUIToFP(lastValue, llvm::Type::getDoubleTy(*context));
+                }
+                return;
             }
             return;
         }
@@ -370,6 +388,19 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             }
+        } else if (cls->name == "Map") {
+            llvm::errs() << "Generating Map property: " << node->name << "\n";
+            visit(node->expression.get());
+            llvm::Value* mapObj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), mapObj);
+            
+            if (node->name == "size") {
+                // int64_t ts_map_size(void* map)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_size", ft);
+                lastValue = createCall(ft, fn.getCallee(), { mapObj });
+                return;
+            }
         }
     }
 
@@ -452,6 +483,8 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
         std::string className = classType->name;
         std::string fieldName = node->name;
+        
+        std::cout << "DEBUG: Accessing " << className << "." << fieldName << std::endl;
         
         if (className == "URL") {
             visit(node->expression.get());
@@ -551,6 +584,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
         // Check if it's a field access
         if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+            std::cout << "DEBUG: Field access " << className << "." << fieldName << " index=" << classLayouts[className].fieldIndices[fieldName] << std::endl;
             visit(node->expression.get());
             llvm::Value* obj = lastValue;
             emitNullCheckForExpression(node->expression.get(), obj);
@@ -571,7 +605,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             // We need the type of the field to load it correctly
             // The field could be in a base class, so we look it up in the layout's allFields
             std::shared_ptr<Type> fieldType;
+            std::cout << "DEBUG: Searching for field " << fieldName << " in " << className << " (fields: " << classLayouts[className].allFields.size() << ")" << std::endl;
             for (const auto& f : classLayouts[className].allFields) {
+                std::cout << "DEBUG: Checking field " << f.first << std::endl;
                 if (f.first == fieldName) {
                     fieldType = f.second;
                     break;
@@ -580,6 +616,33 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             
             if (fieldType) {
                 lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
+                
+                // DEBUG: Print loaded value to stderr
+                llvm::FunctionType* fprintfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, true);
+                llvm::FunctionCallee fprintfFn = module->getOrInsertFunction("fprintf", fprintfFt);
+                
+                // Get stderr
+                llvm::FunctionCallee getStderr = module->getOrInsertFunction("__acrt_iob_func", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt32Ty(*context) }, false));
+                llvm::Value* stderrVal = createCall(getStderr.getFunctionType(), getStderr.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 2) });
+
+                llvm::Value* fmt = builder->CreateGlobalStringPtr("DEBUG: Loaded field %s: %p\n");
+                llvm::Value* nameVal = builder->CreateGlobalStringPtr(fieldName);
+                
+                llvm::Value* valToPrint = lastValue;
+                if (valToPrint->getType()->isPointerTy()) {
+                     createCall(fprintfFt, fprintfFn.getCallee(), { stderrVal, fmt, nameVal, valToPrint });
+                } else {
+                     llvm::Value* fmtNotPtr = builder->CreateGlobalStringPtr("DEBUG: Loaded field %s: (not a pointer)\n");
+                     createCall(fprintfFt, fprintfFn.getCallee(), { stderrVal, fmtNotPtr, nameVal });
+                }
+
+                if (fieldName == "map") {
+                     llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+                     llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+                     llvm::Value* fmt = builder->CreateGlobalStringPtr("Loaded map: %p\n");
+                     createCall(printfFt, printfFn.getCallee(), { fmt, lastValue });
+                }
+
                 if (fieldType->kind == TypeKind::Class) {
                     concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(fieldType).get();
                 }

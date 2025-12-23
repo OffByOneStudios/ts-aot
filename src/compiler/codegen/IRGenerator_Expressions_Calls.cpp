@@ -69,6 +69,27 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             
             lastValue = unboxValue(lastValue, node->inferredType);
             return;
+        } else {
+            std::vector<llvm::Value*> args;
+            args.push_back(boxedFunc);
+            
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // func
+            
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                llvm::Value* val = boxValue(lastValue, arg->inferredType);
+                args.push_back(val);
+                paramTypes.push_back(builder->getPtrTy());
+            }
+            
+            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            
+            lastValue = createCall(ft, fn.getCallee(), args);
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return;
         }
     }
 

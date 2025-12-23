@@ -501,6 +501,10 @@ Analyzer::Analyzer() {
     expType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
     expType->returnType = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["exp"] = expType;
+
+    auto randomType = std::make_shared<FunctionType>();
+    randomType->returnType = std::make_shared<Type>(TypeKind::Double);
+    mathType->fields["random"] = randomType;
     
     auto mathLogType = std::make_shared<FunctionType>();
     mathLogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));

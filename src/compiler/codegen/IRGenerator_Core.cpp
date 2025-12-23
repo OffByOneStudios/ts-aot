@@ -133,6 +133,9 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     generateBodies(specializations);
 
     generateEntryPoint();
+
+    // DEBUG: Dump IR
+    module->print(llvm::errs(), nullptr);
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
@@ -264,14 +267,14 @@ void IRGenerator::generateEntryPoint() {
     llvm::Function* tsMain = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_main", module.get());
     addStackProtection(tsMain);
 
-    // Define main: int main(int argc, char** argv)
+    // Define ts_aot_main: int ts_aot_main(int argc, char** argv)
     std::vector<llvm::Type*> mainArgs = {
         llvm::Type::getInt32Ty(*context),
         llvm::PointerType::getUnqual(*context)
     };
     llvm::FunctionType* mainFt = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*context), mainArgs, false);
-    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "main", module.get());
+    llvm::Function* mainFn = llvm::Function::Create(mainFt, llvm::Function::ExternalLinkage, "ts_aot_main", module.get());
     addStackProtection(mainFn);
 
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", mainFn);
@@ -354,7 +357,27 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             }
         }
 
-        llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, value->getType());
+        llvm::Type* varType = value->getType();
+        if (forcedVariableTypes.count(id->name)) {
+            varType = forcedVariableTypes[id->name];
+            if (value->getType() != varType) {
+                if (varType->isIntegerTy() && value->getType()->isDoubleTy()) {
+                    value = builder->CreateFPToSI(value, varType, "promotetmp");
+                } else if (varType->isDoubleTy() && value->getType()->isIntegerTy()) {
+                    value = builder->CreateSIToFP(value, varType, "promotetmp");
+                } else if (varType->isPointerTy() && !value->getType()->isPointerTy()) {
+                    value = boxValue(value, type);
+                } else if (!varType->isPointerTy() && value->getType()->isPointerTy()) {
+                    value = unboxValue(value, type);
+                }
+            }
+        }
+
+        if (value->getType() != varType) {
+            value = castValue(value, varType);
+        }
+
+        llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, varType);
         builder->CreateStore(value, alloca);
         namedValues[id->name] = alloca;
 
@@ -893,7 +916,7 @@ void IRGenerator::emitObjectCode(const std::string& filename) {
 }
 
 void IRGenerator::dumpIR() {
-    module->print(llvm::errs(), nullptr);
+    module->print(llvm::outs(), nullptr);
 }
 
 llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args) {
@@ -1019,6 +1042,27 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     }
 
     return result;
+}
+
+llvm::Value* IRGenerator::emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type) {
+    if (!val) return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+    
+    if (val->getType()->isIntegerTy(1)) return val;
+    
+    if (val->getType()->isDoubleTy()) {
+        return builder->CreateFCmpONE(val, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "tobool");
+    } else if (val->getType()->isIntegerTy(64)) {
+        return builder->CreateICmpNE(val, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "tobool");
+    } else if (val->getType()->isPointerTy()) {
+        if (type && type->kind == TypeKind::Any) {
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee toBoolFn = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            return createCall(toBoolFt, toBoolFn.getCallee(), { val });
+        }
+        return builder->CreateICmpNE(val, llvm::ConstantPointerNull::get(builder->getPtrTy()), "tobool");
+    }
+    
+    return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1);
 }
 
 llvm::Value* IRGenerator::toInt32(llvm::Value* val) {

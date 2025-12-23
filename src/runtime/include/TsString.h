@@ -44,12 +44,12 @@ public:
     static TsString* FromBool(bool value);
     static TsString* FromDouble(double value);
     bool Equals(TsString* other);
+    
+    uint32_t magic = MAGIC;
 
 private:
     TsString(const char* utf8Str);
     TsString(const char* utf8Str, uint32_t len);
-    
-    uint32_t magic = MAGIC;
     uint32_t length = 0;
     bool isSmall = false;
     union {

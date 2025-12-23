@@ -21,7 +21,7 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
-            if (type->kind == TypeKind::Any) {
+            if (node->type.empty()) {
                 type = lastType;
                 // Update the type in the symbol table
                 if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
@@ -147,6 +147,25 @@ void Analyzer::visitIfStatement(ast::IfStatement* node) {
                 if (remaining.size() == 1) narrowedType = remaining[0];
                 else {
                     narrowedType = std::make_shared<UnionType>(remaining);
+                }
+            }
+        }
+    } else if (auto prefix = dynamic_cast<PrefixUnaryExpression*>(node->condition.get())) {
+        if (prefix->op == "!") {
+            if (auto id = dynamic_cast<Identifier*>(prefix->operand.get())) {
+                // if (!x) narrowing for the ELSE block
+                auto sym = symbols.lookup(id->name);
+                if (sym && sym->type->kind == TypeKind::Union) {
+                    auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+                    std::vector<std::shared_ptr<Type>> remaining;
+                    for (auto& t : unionType->types) {
+                        if (t->kind == TypeKind::Null || t->kind == TypeKind::Undefined) continue;
+                        remaining.push_back(t);
+                    }
+                    if (!remaining.empty()) {
+                        // We need to apply this to the else block, but visitIfStatement doesn't easily support that yet
+                        // For now, let's just handle the simple case where we narrow in the then block if it's NOT a return
+                    }
                 }
             }
         }

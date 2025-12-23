@@ -64,13 +64,7 @@ void IRGenerator::visitIfStatement(ast::IfStatement* node) {
     if (!condValue) return;
 
     // Convert condition to bool
-    if (condValue->getType()->isIntegerTy(64)) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "ifcond");
-    } else if (condValue->getType()->isDoubleTy()) {
-        condValue = builder->CreateFCmpONE(condValue, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "ifcond");
-    } else if (condValue->getType()->isPointerTy()) {
-        condValue = builder->CreateICmpNE(condValue, llvm::ConstantPointerNull::get(builder->getPtrTy()), "ifcond");
-    }
+    condValue = emitToBoolean(condValue, node->condition->inferredType);
 
     llvm::Function* func = builder->GetInsertBlock()->getParent();
 

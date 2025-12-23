@@ -4,6 +4,9 @@ build_*/
 out/
 bin/
 
+# LLVM IR files in root
+/*.ll
+
 # vcpkg
 vcpkg_installed/
 vcpkg/
