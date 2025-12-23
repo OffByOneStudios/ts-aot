@@ -645,8 +645,10 @@ function visitParameter(p) {
 }
 
 const fileName = process.argv[2];
-if (!fileName) {
-    console.error("Usage: node dump_ast.js <file.ts>");
+const outputFileName = process.argv[3];
+
+if (!fileName || !outputFileName) {
+    console.error("Usage: node dump_ast.js <input.ts> <output.json>");
     process.exit(1);
 }
 
@@ -658,13 +660,5 @@ const sourceFile = ts.createSourceFile(
     true
 );
 
-// console.error("ObjectLiteralExpression kind:", ts.SyntaxKind.ObjectLiteralExpression);
-
-const outputFileName = process.argv[3];
 const astJson = printAST(sourceFile);
-
-if (outputFileName) {
-    fs.writeFileSync(outputFileName, astJson, "utf-8");
-} else {
-    console.log(astJson);
-}
+fs.writeFileSync(outputFileName, astJson, "utf-8");
