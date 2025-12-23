@@ -151,7 +151,7 @@ def main():
 
     # Step 1: Dump AST
     print("--- Step 1: Dump AST ---", flush=True)
-    run_command(f"node {dump_ast_script} {input_ts} > {json_file}", timeout=10)
+    run_command(f"node {dump_ast_script} {input_ts} {json_file}", timeout=10)
 
     # Step 2: Compile to Object Code
     print("--- Step 2: Compile ---", flush=True)
