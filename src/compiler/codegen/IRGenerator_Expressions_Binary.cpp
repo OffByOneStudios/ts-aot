@@ -79,8 +79,14 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>" ||
             node->op == "+=" || node->op == "-=" || node->op == "*=" || node->op == "/=" || node->op == "%=" ||
             node->op == "&=" || node->op == "|=" || node->op == "^=" || node->op == "<<=" || node->op == ">>=" || node->op == ">>>=") {
-             left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
-             right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
+             
+             auto targetType = std::make_shared<Type>(TypeKind::Double);
+             if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+                 targetType = std::make_shared<Type>(TypeKind::Int);
+             }
+             
+             left = unboxValue(left, targetType);
+             right = unboxValue(right, targetType);
         }
     }
 
@@ -88,13 +94,17 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool rightIsDouble = right->getType()->isDoubleTy();
     bool isDouble = leftIsDouble || rightIsDouble;
     
-    // bool leftIsString = node->left->inferredType && node->left->inferredType->kind == TypeKind::String;
-    // bool rightIsString = node->right->inferredType && node->right->inferredType->kind == TypeKind::String;
-    // bool isString = leftIsString || rightIsString;
+    if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+        isDouble = false;
+    }
 
     if (isDouble && !isString) {
         if (!leftIsDouble) left = castValue(left, llvm::Type::getDoubleTy(*context));
         if (!rightIsDouble) right = castValue(right, llvm::Type::getDoubleTy(*context));
+    } else if (!isString) {
+        // Ensure both are integers if we are in integer mode
+        if (left->getType()->isDoubleTy()) left = castValue(left, llvm::Type::getInt64Ty(*context));
+        if (right->getType()->isDoubleTy()) right = castValue(right, llvm::Type::getInt64Ty(*context));
     }
 
     if (node->op == "+" || node->op == "+=") {
@@ -172,17 +182,29 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateShl(left, right, "shltmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == ">>" || node->op == ">>=") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateAShr(left, right, "ashrtmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == ">>>" || node->op == ">>>=") {
         left = toUint32(left);
         right = toUint32(right);
         lastValue = builder->CreateLShr(left, right, "lshrtmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), false);
+        } else {
+            lastValue = builder->CreateUIToFP(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == "<") {
         if (isDouble) lastValue = builder->CreateFCmpOLT(left, right, "cmptmp");
         else lastValue = builder->CreateICmpSLT(left, right, "cmptmp");
@@ -258,36 +280,60 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             right = createCall(toBoolFt, toBool.getCallee(), { right });
         }
         lastValue = builder->CreateOr(left, right, "ortmp");
-    } else if (node->op == "&") {
+    } else if (node->op == "&" || node->op == "&=") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateAnd(left, right, "andtmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
-    } else if (node->op == "|") {
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
+    } else if (node->op == "|" || node->op == "|=") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateOr(left, right, "ortmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
-    } else if (node->op == "^") {
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
+    } else if (node->op == "^" || node->op == "^=") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateXor(left, right, "xortmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == "<<") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateShl(left, right, "shltmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == ">>") {
         left = toInt32(left);
         right = toInt32(right);
         lastValue = builder->CreateAShr(left, right, "ashrtmp");
-        lastValue = castValue(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        } else {
+            lastValue = castValue(lastValue, builder->getDoubleTy());
+        }
     } else if (node->op == ">>>") {
         left = toUint32(left);
         right = toUint32(right);
         lastValue = builder->CreateLShr(left, right, "lshrtmp");
-        lastValue = builder->CreateUIToFP(lastValue, builder->getDoubleTy());
+        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), false);
+        } else {
+            lastValue = builder->CreateUIToFP(lastValue, builder->getDoubleTy());
+        }
     }
 
     // Handle compound assignment store back

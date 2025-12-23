@@ -36,6 +36,7 @@ def main():
     parser.add_argument("input_ts", help="The input TypeScript file to compile and run.")
     parser.add_argument("--timeout", type=int, default=60, help="Timeout for the execution step in seconds (default: 60).")
     parser.add_argument("--config", default="Debug", choices=["Debug", "Release"], help="Build configuration (default: Debug).")
+    parser.add_argument("--compiler-opts", default="", help="Extra options to pass to the ts-aot compiler.")
     
     # Use parse_known_args to allow passing extra arguments to the test app
     args, extra_args = parser.parse_known_args()
@@ -74,7 +75,10 @@ def main():
 
     # Step 2: Compile to Object Code
     print("--- Step 2: Compile ---", flush=True)
-    compiler_output = run_command([compiler_exe, json_file, "-o", obj_file, "-d"], shell=False, timeout=60)
+    compile_cmd = [compiler_exe, json_file, "-o", obj_file, "-d"]
+    if args.compiler_opts:
+        compile_cmd.extend(args.compiler_opts.split())
+    compiler_output = run_command(compile_cmd, shell=False, timeout=60)
     print(compiler_output, flush=True)
 
     # Step 3: Link (using CMake)

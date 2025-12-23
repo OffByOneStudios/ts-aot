@@ -75,7 +75,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
 
                 lastValue = createCall(ft, fn.getCallee(), { contextVal, dv, offset, littleEndian });
-                lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "setUint32") {
                 visit(node->arguments[0].get());
@@ -566,6 +568,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, mathFt);
                 lastValue = createCall(mathFt, fn.getCallee(), { arg1, arg2 });
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "abs") {
                 if (node->arguments.empty()) return true;
@@ -576,6 +581,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         { llvm::Type::getInt64Ty(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_abs", absFt);
                 lastValue = createCall(absFt, fn.getCallee(), { arg });
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "floor") {
                 if (node->arguments.empty()) return true;
@@ -585,6 +593,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (arg->getType()->isIntegerTy(64)) {
                     // floor(int) is just int
                     lastValue = arg;
+                    if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                        lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                    }
                     return true;
                 }
                 
@@ -592,6 +603,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         { llvm::Type::getDoubleTy(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_floor", floorFt);
                 lastValue = createCall(floorFt, fn.getCallee(), { arg });
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "ceil") {
                 if (node->arguments.empty()) return true;
@@ -599,12 +613,18 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::Value* arg = lastValue;
                 if (arg->getType()->isIntegerTy(64)) {
                     lastValue = arg;
+                    if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                        lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                    }
                     return true;
                 }
                 llvm::FunctionType* ceilFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                         { llvm::Type::getDoubleTy(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_ceil", ceilFt);
                 lastValue = createCall(ceilFt, fn.getCallee(), { arg });
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "round") {
                 if (node->arguments.empty()) return true;
@@ -612,12 +632,18 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::Value* arg = lastValue;
                 if (arg->getType()->isIntegerTy(64)) {
                     lastValue = arg;
+                    if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                        lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                    }
                     return true;
                 }
                 llvm::FunctionType* roundFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                         { llvm::Type::getDoubleTy(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_round", roundFt);
                 lastValue = createCall(roundFt, fn.getCallee(), { arg });
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             } else if (prop->name == "sqrt") {
                 if (node->arguments.empty()) return true;
@@ -706,6 +732,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_clz32", clz32Ft);
                 lastValue = createCall(clz32Ft, fn.getCallee(), { arg });
                 lastValue = builder->CreateSExt(lastValue, llvm::Type::getInt64Ty(*context));
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
                 return true;
             }
         } else if (obj->name == "Date") {

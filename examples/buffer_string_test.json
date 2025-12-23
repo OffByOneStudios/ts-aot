@@ -8,7 +8,7 @@
         "name": "buf"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "CallExpression",
         "callee": {
@@ -60,7 +60,7 @@
         "name": "buf2"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "CallExpression",
         "callee": {
@@ -117,7 +117,7 @@
         "name": "s"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "StringLiteral",
         "value": "a,b,c"
@@ -130,7 +130,7 @@
         "name": "parts"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "CallExpression",
         "callee": {
@@ -210,7 +210,7 @@
         "name": "s2"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "StringLiteral",
         "value": "a1b2c"
@@ -223,7 +223,7 @@
         "name": "parts2"
       },
       "isExported": false,
-      "type": "any",
+      "type": "",
       "initializer": {
         "kind": "CallExpression",
         "callee": {

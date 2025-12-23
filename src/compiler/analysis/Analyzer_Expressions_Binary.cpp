@@ -22,6 +22,8 @@ void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
         node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=" ||
         node->op == "&&" || node->op == "||") {
         lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "|" || node->op == "&" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>") {
+        lastType = std::make_shared<Type>(TypeKind::Int);
     } else if (leftType && rightType) {
         if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
             lastType = std::make_shared<Type>(TypeKind::Int);

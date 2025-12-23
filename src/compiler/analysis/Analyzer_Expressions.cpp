@@ -338,15 +338,9 @@ void Analyzer::visitNewExpression(NewExpression* node) {
 
         // Check for user-defined classes
         auto type = symbols.lookupType(id->name);
-        if (type) {
-             std::cerr << "DEBUG: Analyzer lookupType(" << id->name << ") returned kind=" << (int)type->kind << std::endl;
-        } else {
-             std::cerr << "DEBUG: Analyzer lookupType(" << id->name << ") returned null" << std::endl;
-        }
 
         if (type && type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
-            std::cerr << "DEBUG: Analyzer visitNewExpression id=" << id->name << " inferredType=" << classType->name << std::endl;
             if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
                 // Validate constraints
                 for (size_t i = 0; i < classType->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
@@ -847,7 +841,6 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             return;
         }
 
-        fmt::print("DEBUG: Unknown property {} on type {}\n", node->name, objType->toString());
         reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
 }

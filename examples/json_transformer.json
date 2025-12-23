@@ -1,0 +1,883 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "InterfaceDeclaration",
+      "name": "DataItem",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "id",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "name",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "tags",
+          "type": "string[]",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "active",
+          "type": "boolean",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "score",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "generateData",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "count"
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "data"
+          },
+          "isExported": false,
+          "type": "DataItem[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "count"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "data"
+                    },
+                    "name": "push"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "ObjectLiteralExpression",
+                      "properties": [
+                        {
+                          "name": "id",
+                          "initializer": {
+                            "kind": "Identifier",
+                            "name": "i"
+                          }
+                        },
+                        {
+                          "name": "name",
+                          "initializer": {
+                            "kind": "BinaryExpression",
+                            "operator": "+",
+                            "left": {
+                              "kind": "StringLiteral",
+                              "value": "Item "
+                            },
+                            "right": {
+                              "kind": "Identifier",
+                              "name": "i"
+                            }
+                          }
+                        },
+                        {
+                          "name": "tags",
+                          "initializer": {
+                            "kind": "ArrayLiteralExpression",
+                            "elements": [
+                              {
+                                "kind": "StringLiteral",
+                                "value": "tag1"
+                              },
+                              {
+                                "kind": "StringLiteral",
+                                "value": "tag2"
+                              },
+                              {
+                                "kind": "BinaryExpression",
+                                "operator": "+",
+                                "left": {
+                                  "kind": "StringLiteral",
+                                  "value": "tag"
+                                },
+                                "right": {
+                                  "kind": "ParenthesizedExpression",
+                                  "expression": {
+                                    "kind": "BinaryExpression",
+                                    "operator": "%",
+                                    "left": {
+                                      "kind": "Identifier",
+                                      "name": "i"
+                                    },
+                                    "right": {
+                                      "kind": "NumericLiteral",
+                                      "value": 10
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "name": "active",
+                          "initializer": {
+                            "kind": "BinaryExpression",
+                            "operator": "===",
+                            "left": {
+                              "kind": "BinaryExpression",
+                              "operator": "%",
+                              "left": {
+                                "kind": "Identifier",
+                                "name": "i"
+                              },
+                              "right": {
+                                "kind": "NumericLiteral",
+                                "value": 2
+                              }
+                            },
+                            "right": {
+                              "kind": "NumericLiteral",
+                              "value": 0
+                            }
+                          }
+                        },
+                        {
+                          "name": "score",
+                          "initializer": {
+                            "kind": "BinaryExpression",
+                            "operator": "*",
+                            "left": {
+                              "kind": "CallExpression",
+                              "callee": {
+                                "kind": "PropertyAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "Math"
+                                },
+                                "name": "random"
+                              },
+                              "arguments": [],
+                              "typeArguments": []
+                            },
+                            "right": {
+                              "kind": "NumericLiteral",
+                              "value": 100
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "typeArguments": []
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "data"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "transformData",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "json"
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "data"
+          },
+          "isExported": false,
+          "type": "DataItem[]",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "parse"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "json"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "transformed"
+          },
+          "isExported": false,
+          "type": "any[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": []
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "data"
+              },
+              "name": "length"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "item"
+                },
+                "isExported": false,
+                "type": "any",
+                "initializer": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "data"
+                  },
+                  "argumentExpression": {
+                    "kind": "Identifier",
+                    "name": "i"
+                  }
+                }
+              },
+              {
+                "kind": "IfStatement",
+                "condition": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "item"
+                  },
+                  "name": "active"
+                },
+                "thenStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "transformed"
+                          },
+                          "name": "push"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "ObjectLiteralExpression",
+                            "properties": [
+                              {
+                                "name": "id",
+                                "initializer": {
+                                  "kind": "PropertyAccessExpression",
+                                  "expression": {
+                                    "kind": "Identifier",
+                                    "name": "item"
+                                  },
+                                  "name": "id"
+                                }
+                              },
+                              {
+                                "name": "name",
+                                "initializer": {
+                                  "kind": "CallExpression",
+                                  "callee": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "PropertyAccessExpression",
+                                      "expression": {
+                                        "kind": "Identifier",
+                                        "name": "item"
+                                      },
+                                      "name": "name"
+                                    },
+                                    "name": "toUpperCase"
+                                  },
+                                  "arguments": [],
+                                  "typeArguments": []
+                                }
+                              },
+                              {
+                                "name": "tags",
+                                "initializer": {
+                                  "kind": "PropertyAccessExpression",
+                                  "expression": {
+                                    "kind": "Identifier",
+                                    "name": "item"
+                                  },
+                                  "name": "tags"
+                                }
+                              },
+                              {
+                                "name": "active",
+                                "initializer": {
+                                  "kind": "PropertyAccessExpression",
+                                  "expression": {
+                                    "kind": "Identifier",
+                                    "name": "item"
+                                  },
+                                  "name": "active"
+                                }
+                              },
+                              {
+                                "name": "score",
+                                "initializer": {
+                                  "kind": "BinaryExpression",
+                                  "operator": "*",
+                                  "left": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "Identifier",
+                                      "name": "item"
+                                    },
+                                    "name": "score"
+                                  },
+                                  "right": {
+                                    "kind": "NumericLiteral",
+                                    "value": 1.1
+                                  }
+                                }
+                              },
+                              {
+                                "name": "tagCount",
+                                "initializer": {
+                                  "kind": "PropertyAccessExpression",
+                                  "expression": {
+                                    "kind": "PropertyAccessExpression",
+                                    "expression": {
+                                      "kind": "Identifier",
+                                      "name": "item"
+                                    },
+                                    "name": "tags"
+                                  },
+                                  "name": "length"
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "typeArguments": []
+                      }
+                    }
+                  ]
+                },
+                "elseStatement": null
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "JSON"
+              },
+              "name": "stringify"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "transformed"
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "runBenchmark",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "any",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "count"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 10000
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "iterations"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 100
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Generating data..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "json"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "Identifier",
+              "name": "generateData"
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "count"
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Starting transformation benchmark..."
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "start"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "lastResult"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": ""
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "iterations"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "lastResult"
+                  },
+                  "right": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "transformData"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "Identifier",
+                        "name": "json"
+                      }
+                    ],
+                    "typeArguments": []
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "end"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date"
+              },
+              "name": "now"
+            },
+            "arguments": [],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "+",
+                  "left": {
+                    "kind": "StringLiteral",
+                    "value": "JSON Transformer Benchmark: "
+                  },
+                  "right": {
+                    "kind": "ParenthesizedExpression",
+                    "expression": {
+                      "kind": "BinaryExpression",
+                      "operator": "-",
+                      "left": {
+                        "kind": "Identifier",
+                        "name": "end"
+                      },
+                      "right": {
+                        "kind": "Identifier",
+                        "name": "start"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "ms"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console"
+              },
+              "name": "log"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Result length: "
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "lastResult"
+                  },
+                  "name": "length"
+                }
+              }
+            ],
+            "typeArguments": []
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "runBenchmark"
+        },
+        "arguments": [],
+        "typeArguments": []
+      }
+    }
+  ]
+}

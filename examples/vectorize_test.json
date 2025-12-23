@@ -1,0 +1,157 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "sumFloat64",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arr"
+          },
+          "type": "Float64Array",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "sum"
+          },
+          "isExported": false,
+          "type": "any",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0
+          }
+        },
+        {
+          "kind": "ForStatement",
+          "initializer": {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "initializer": {
+              "kind": "NumericLiteral",
+              "value": 0
+            }
+          },
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i"
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "arr"
+              },
+              "name": "length"
+            }
+          },
+          "incrementor": {
+            "kind": "PostfixUnaryExpression",
+            "operator": "++",
+            "operand": {
+              "kind": "Identifier",
+              "name": "i"
+            }
+          },
+          "body": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "BinaryExpression",
+                  "operator": "+=",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "sum"
+                  },
+                  "right": {
+                    "kind": "ElementAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "arr"
+                    },
+                    "argumentExpression": {
+                      "kind": "Identifier",
+                      "name": "i"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "sum"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "sumFloat64"
+        },
+        "arguments": [
+          {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Float64Array"
+            },
+            "arguments": [
+              {
+                "kind": "ArrayLiteralExpression",
+                "elements": [
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 1
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 2
+                  },
+                  {
+                    "kind": "NumericLiteral",
+                    "value": 3
+                  }
+                ]
+              }
+            ],
+            "typeArguments": []
+          }
+        ],
+        "typeArguments": []
+      }
+    }
+  ]
+}

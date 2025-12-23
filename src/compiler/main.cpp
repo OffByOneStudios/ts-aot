@@ -66,43 +66,49 @@ void printAst(const ast::Node* node, int indent = 0) {
 
 int main(int argc, char** argv) {
 #ifdef _MSC_VER
+    // Disable the "Abort, Retry, Ignore" dialog and redirect to stderr
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
     _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
 
-    cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
-    options.add_options()
-        ("o,output", "Output file", cxxopts::value<std::string>())
-        ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
-        ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
-        ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
-        ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
-        ("h,help", "Print usage")
-        ("input", "Input file", cxxopts::value<std::string>());
+    std::cerr << "Compiler starting..." << std::endl;
 
-    options.parse_positional({"input"});
-    auto result = options.parse(argc, argv);
-
-    if (result.count("help")) {
-        std::cout << options.help() << std::endl;
-        return 0;
-    }
-
-    if (!result.count("input")) {
-        std::cerr << "Error: No input file specified." << std::endl;
-        return 1;
-    }
-
-    std::string inputFile = result["input"].as<std::string>();
-    
     try {
+        cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
+        options.add_options()
+            ("o,output", "Output file", cxxopts::value<std::string>())
+            ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
+            ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
+            ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
+            ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
+            ("h,help", "Print usage")
+            ("input", "Input file", cxxopts::value<std::string>());
+
+        options.parse_positional({"input"});
+        auto result = options.parse(argc, argv);
+
+        if (result.count("help")) {
+            std::cout << options.help() << std::endl;
+            return 0;
+        }
+
+        if (!result.count("input")) {
+            std::cerr << "Error: No input file specified." << std::endl;
+            return 1;
+        }
+
+        std::string inputFile = result["input"].as<std::string>();
+        
+        std::cerr << "Loading AST from " << inputFile << "..." << std::endl;
         auto program = ast::loadAst(inputFile);
         if (result["debug-ast"].as<bool>()) {
             printAst(program.get());
         }
 
+        std::cerr << "Analyzing..." << std::endl;
         ts::Analyzer analyzer;
         analyzer.analyze(program.get(), inputFile);
 
@@ -111,34 +117,28 @@ int main(int argc, char** argv) {
             return 1;
         }
 
+        std::cerr << "Monomorphizing..." << std::endl;
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
         
-        // fmt::print("Generated {} specializations:\n", monomorphizer.getSpecializations().size());
-    for (const auto& spec : monomorphizer.getSpecializations()) {
-        // fmt::print("  {} -> {}\n", spec.originalName, spec.specializedName);
-    }
+        std::cerr << "Generating IR..." << std::endl;
+        ts::IRGenerator irGen;
+        irGen.setOptLevel(result["opt"].as<std::string>());
+        if (result.count("runtime-bc")) {
+            irGen.setRuntimeBitcode(result["runtime-bc"].as<std::string>());
+        }
+        irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
+        
+        if (result["dump-ir"].as<bool>()) {
+            irGen.dumpIR();
+        }
 
-    ts::IRGenerator irGen;
-    irGen.setOptLevel(result["opt"].as<std::string>());
-    if (result.count("runtime-bc")) {
-        irGen.setRuntimeBitcode(result["runtime-bc"].as<std::string>());
-    }
-    irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
-    
-    if (result["dump-ir"].as<bool>()) {
-        irGen.dumpIR();
-    }
-
-    if (result.count("output")) {
-        std::string outputFile = result["output"].as<std::string>();
-        irGen.emitObjectCode(outputFile);
-        // fmt::print("Emitted object code to {}\n", outputFile);
-    }
-
-    // fmt::print("Successfully loaded AST from {}\n", inputFile);
+        if (result.count("output")) {
+            std::string outputFile = result["output"].as<std::string>();
+            irGen.emitObjectCode(outputFile);
+        }
     } catch (const std::exception& e) {
-        std::cerr << "Error loading AST: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 
