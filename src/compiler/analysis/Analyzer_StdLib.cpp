@@ -32,6 +32,12 @@ Analyzer::Analyzer() {
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));
 
+    // Register Symbol global
+    auto symbolType = std::make_shared<ObjectType>();
+    symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::String);
+    symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::String);
+    symbols.define("Symbol", symbolType);
+
     // Register TypedArrays
     auto uint8ArrayClass = std::make_shared<ClassType>("Uint8Array");
     uint8ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);

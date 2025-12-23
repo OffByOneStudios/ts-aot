@@ -1,5 +1,7 @@
 #include "SymbolTable.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
@@ -59,7 +61,7 @@ const std::unordered_map<std::string, std::shared_ptr<Symbol>>& SymbolTable::get
 
 bool SymbolTable::defineGlobalType(const std::string& name, std::shared_ptr<Type> type) {
     if (typeScopes.empty()) return false;
-    fmt::print("Defining global type: {}\n", name);
+    SPDLOG_DEBUG("Defining global type: {}", name);
     typeScopes.front()[name] = type;
     return true;
 }

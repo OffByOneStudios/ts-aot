@@ -7,6 +7,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "",
       "parameters": [
@@ -111,7 +112,14 @@
         {
           "kind": "MethodDefinition",
           "name": "add",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "add",
+            "line": 7,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -275,7 +283,14 @@
         {
           "kind": "MethodDefinition",
           "name": "sub",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "sub",
+            "line": 11,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -439,7 +454,14 @@
         {
           "kind": "MethodDefinition",
           "name": "mul",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "mul",
+            "line": 15,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -585,7 +607,14 @@
         {
           "kind": "MethodDefinition",
           "name": "dot",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "dot",
+            "line": 19,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -747,7 +776,14 @@
         {
           "kind": "MethodDefinition",
           "name": "cross",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "cross",
+            "line": 23,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -1019,7 +1055,14 @@
         {
           "kind": "MethodDefinition",
           "name": "normalize",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "normalize",
+            "line": 31,
+            "column": 12
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -1314,7 +1357,14 @@
         {
           "kind": "MethodDefinition",
           "name": "intersect",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "intersect",
+            "line": 45,
+            "column": 5
+          },
           "isAsync": false,
+          "isGenerator": false,
           "typeParameters": [],
           "parameters": [
             {
@@ -1822,6 +1872,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "",
       "parameters": [],
@@ -3047,6 +3098,7 @@
       "isExported": false,
       "isDefaultExport": false,
       "isAsync": false,
+      "isGenerator": false,
       "typeParameters": [],
       "returnType": "",
       "parameters": [],

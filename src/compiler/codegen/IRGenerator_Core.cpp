@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/TargetParser/Host.h>
@@ -122,11 +124,12 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     asyncContextType->setBody({
         builder->getPtrTy(), // vtable
         llvm::Type::getInt32Ty(*context), // state
-        llvm::Type::getInt1Ty(*context), // error
-        llvm::Type::getInt1Ty(*context), // yielded
+        llvm::Type::getInt8Ty(*context), // error (bool)
+        llvm::Type::getInt8Ty(*context), // yielded (bool)
         llvm::StructType::get(*context, { llvm::Type::getInt8Ty(*context), llvm::Type::getInt64Ty(*context) }), // yieldedValue (TsValue)
         builder->getPtrTy(), // promise
         builder->getPtrTy(), // pendingNextPromise
+        builder->getPtrTy(), // generator
         builder->getPtrTy(), // resumeFn
         builder->getPtrTy()  // data
     });
@@ -333,10 +336,16 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
 }
 
 void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern) {
+    SPDLOG_DEBUG("generateDestructuring: pattern={}", (pattern ? pattern->getKind() : "null"));
     if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
+        bool isGlobal = false;
         if (auto gv = module->getGlobalVariable(id->name)) {
             builder->CreateStore(value, gv);
             
+            if (boxedValues.count(value)) {
+                boxedVariables.insert(id->name);
+            }
+
             if (!lastLengthArray.empty()) {
                 lengthAliases[gv] = lastLengthArray;
                 lastLengthArray = "";
@@ -344,18 +353,42 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 lengthAliases.erase(gv);
             }
             
-            return;
+            isGlobal = true;
         }
 
         if (currentAsyncFrame) {
             auto it = currentAsyncFrameMap.find(id->name);
             if (it != currentAsyncFrameMap.end()) {
-                llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+                llvm::Value* ptr = namedValues[id->name];
+                if (!ptr) {
+                    ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+                    namedValues[id->name] = ptr;
+                }
+                
+                // Ensure value matches the frame field type
+                llvm::Type* fieldType = currentAsyncFrameType->getElementType(it->second);
+                if (value->getType() != fieldType) {
+                    if (fieldType->isPointerTy() && !value->getType()->isPointerTy()) {
+                        value = boxValue(value, type);
+                    } else if (!fieldType->isPointerTy() && value->getType()->isPointerTy()) {
+                        value = unboxValue(value, type);
+                    } else {
+                        value = castValue(value, fieldType);
+                    }
+                }
+
                 builder->CreateStore(value, ptr);
                 namedValues[id->name] = ptr;
+
+                if (boxedValues.count(value)) {
+                    boxedVariables.insert(id->name);
+                }
+
                 return;
             }
         }
+
+        if (isGlobal) return;
 
         llvm::Type* varType = value->getType();
         if (forcedVariableTypes.count(id->name)) {
@@ -377,35 +410,74 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             value = castValue(value, varType);
         }
 
-        llvm::AllocaInst* alloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, varType);
-        builder->CreateStore(value, alloca);
-        namedValues[id->name] = alloca;
+        llvm::Value* varPtr = nullptr;
+        if (namedValues.count(id->name)) {
+            varPtr = namedValues[id->name];
+        } else {
+            varPtr = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, varType);
+            namedValues[id->name] = varPtr;
+        }
+        builder->CreateStore(value, varPtr);
 
         if (concreteTypes.count(value)) {
-            concreteTypes[alloca] = concreteTypes[value];
+            concreteTypes[varPtr] = concreteTypes[value];
         } else if (type && type->kind == TypeKind::Class) {
-            concreteTypes[alloca] = std::static_pointer_cast<ClassType>(type).get();
+            concreteTypes[varPtr] = std::static_pointer_cast<ClassType>(type).get();
+        }
+
+        SPDLOG_DEBUG("generateDestructuring: checking {} in boxedValues (size={})", (void*)value, boxedValues.size());
+        if (boxedValues.count(value)) {
+            SPDLOG_DEBUG("Variable {} marked as BOXED", id->name);
+            boxedVariables.insert(id->name);
+        } else {
+            boxedVariables.erase(id->name);
         }
 
         if (!lastLengthArray.empty()) {
-            lengthAliases[alloca] = lastLengthArray;
+            lengthAliases[varPtr] = lastLengthArray;
             lastLengthArray = "";
         } else {
-            lengthAliases.erase(alloca);
+            lengthAliases.erase(varPtr);
         }
 
         if (nonNullValues.count(value)) {
-            checkedAllocas.insert(alloca);
+            checkedAllocas.insert(varPtr);
         } else {
-            checkedAllocas.erase(alloca);
+            checkedAllocas.erase(varPtr);
         }
     } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(pattern)) {
         if (!type || type->kind != TypeKind::Class) {
             for (auto& elementNode : obp->elements) {
-                if (auto element = dynamic_cast<ast::BindingElement*>(elementNode.get())) {
-                    generateDestructuring(llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context)), 
-                                          std::make_shared<Type>(TypeKind::Any), element->name.get());
+                auto element = dynamic_cast<ast::BindingElement*>(elementNode.get());
+                if (!element) continue;
+
+                std::string fieldName;
+                if (!element->propertyName.empty()) {
+                    fieldName = element->propertyName;
+                } else if (auto nameId = dynamic_cast<ast::Identifier*>(element->name.get())) {
+                    fieldName = nameId->name;
                 }
+
+                if (fieldName.empty()) continue;
+
+                std::shared_ptr<Type> fieldType = std::make_shared<Type>(TypeKind::Any);
+                if (type && type->kind == TypeKind::Object) {
+                    auto objType = std::static_pointer_cast<ObjectType>(type);
+                    if (objType->fields.count(fieldName)) fieldType = objType->fields[fieldName];
+                }
+
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(fieldName) });
+                propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
+                
+                llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+                
+                llvm::Value* propVal = createCall(getPropFt, getPropFn.getCallee(), { boxValue(value, type), propName });
+                propVal = unboxValue(propVal, fieldType);
+
+                generateDestructuring(propVal, fieldType, element->name.get());
             }
             return;
         }
@@ -606,7 +678,7 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
         collectVariables(forStmt->body.get(), vars);
     } else if (auto forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
         // Add implicit variables for the loop
-        std::string baseName = "forof_" + std::to_string(anonVarCounter++);
+        std::string baseName = "forof_" + std::to_string((uintptr_t)node);
         
         // 1. Index
         vars.push_back({ baseName + "_index", std::make_shared<Type>(TypeKind::Int), llvm::Type::getInt64Ty(*context) });
@@ -617,11 +689,16 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
         // 3. Length
         vars.push_back({ baseName + "_length", std::make_shared<Type>(TypeKind::Int), llvm::Type::getInt64Ty(*context) });
 
+        // 4. Iterator (for async for-of)
+        if (forOf->isAwait) {
+            vars.push_back({ baseName + "_iterator", std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+        }
+
         collectVariables(forOf->initializer.get(), vars);
         collectVariables(forOf->body.get(), vars);
     } else if (auto forIn = dynamic_cast<ast::ForInStatement*>(node)) {
         // Add implicit variables for the loop
-        std::string baseName = "forin_" + std::to_string(anonVarCounter++);
+        std::string baseName = "forin_" + std::to_string((uintptr_t)node);
         
         // 1. Index
         vars.push_back({ baseName + "_index", std::make_shared<Type>(TypeKind::Int), llvm::Type::getInt64Ty(*context) });
@@ -638,13 +715,18 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 }
 
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
-    if (type && type->kind == TypeKind::Void) {
-        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
-        return createCall(undefFt, undefFn.getCallee(), {});
+    if (!val) return nullptr;
+    if (boxedValues.count(val)) {
+        return val;
     }
 
-    if (!val) return nullptr;
+    if (type && (type->kind == TypeKind::Void || type->kind == TypeKind::Null || type->kind == TypeKind::Undefined)) {
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
+        boxedValues.insert(res);
+        return res;
+    }
     
     // If it's already a pointer and we expect a primitive or Any, it's likely already a TsValue*
     
@@ -657,9 +739,11 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     else if (valType->isIntegerTy(8)) {
         llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
-        return createCall(undefFt, undefFn.getCallee(), {});
+        llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
+        boxedValues.insert(res);
+        return res;
     }
-    else if (type && type->kind == TypeKind::Function) {
+    else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val)) {
         llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function", fnFt);
         
@@ -671,15 +755,20 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
         }
 
-        return createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(val, builder->getPtrTy()), currentContext });
+        llvm::Value* res = createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(val, builder->getPtrTy()), currentContext });
+        boxedValues.insert(res);
+        return res;
     } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
         else if (type && type->kind == TypeKind::Array) funcName = "ts_value_make_array";
         else if (type && type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0) {
             // Promises are already returned as boxed TsValue* from async functions
+            boxedValues.insert(val);
             return val;
         }
-        else funcName = "ts_value_make_object";
+        else if (type && (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || type->kind == TypeKind::Map)) {
+            funcName = "ts_value_make_object";
+        }
     }
     
     if (funcName.empty()) {
@@ -706,16 +795,26 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
-            return createCall(boxFt, boxFn.getCallee(), { heapPtr });
+            llvm::Value* res = createCall(boxFt, boxFn.getCallee(), { heapPtr });
+            boxedValues.insert(res);
+            return res;
         }
     }
 
     if (funcName.empty()) return val;
     
-    llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { valType }, false);
+    llvm::FunctionType* boxFt = nullptr;
+    if (funcName == "ts_value_make_undefined") boxFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    else if (funcName == "ts_value_make_int") boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+    else if (funcName == "ts_value_make_double") boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getDoubleTy() }, false);
+    else if (funcName == "ts_value_make_bool") boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
+    else boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+
     llvm::FunctionCallee boxFn = module->getOrInsertFunction(funcName, boxFt);
-    
-    return createCall(boxFt, boxFn.getCallee(), { val });
+    llvm::Value* res = createCall(boxFt, boxFn.getCallee(), { val });
+    boxedValues.insert(res);
+    SPDLOG_DEBUG("boxValue: added {} to boxedValues", (void*)res);
+    return res;
 }
 
 llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> type) {
@@ -751,7 +850,7 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Array) {
+               type->kind == TypeKind::Array || type->kind == TypeKind::Map) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
@@ -806,6 +905,24 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
     }
     
     llvm::Value* res = builder->CreateCall(ft, callee, castedArgs);
+    if (ft->getReturnType()->isPointerTy()) {
+        // If it returns a pointer, check if it's a TsValue*
+        // For now, assume any function returning ptr that isn't ts_map_create, etc. returns a boxed value
+        // Actually, let's be more specific: if it returns TsValue* in the runtime, it's boxed.
+        // Our runtime functions that return raw pointers are:
+        // ts_map_create, ts_string_create, ts_array_create, ts_alloc, etc.
+        std::string name;
+        if (auto func = llvm::dyn_cast<llvm::Function>(callee)) name = func->getName().str();
+        
+        if (!name.empty() && name.find("ts_value_make_") == 0) {
+            boxedValues.insert(res);
+        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || name == "ts_alloc")) {
+            // Raw pointers
+        } else if (ft->getReturnType()->isPointerTy()) {
+            // Most other runtime functions return TsValue*
+            boxedValues.insert(res);
+        }
+    }
     return res;
 }
 

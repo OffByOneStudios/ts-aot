@@ -1,6 +1,8 @@
 #include "Analyzer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace ts {
@@ -20,9 +22,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     auto sym = symbols.lookup(node->name);
     if (sym) {
         lastType = sym->type;
-        if (verbose) {
-            fprintf(stderr, "  Lookup %s: %s\n", node->name.c_str(), lastType->toString().c_str());
-        }
+        SPDLOG_DEBUG("  Lookup {}: {}", node->name, lastType->toString());
     } else {
         // Check if it's a class name
         auto type = symbols.lookupType(node->name);
@@ -33,7 +33,7 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
-            fmt::print("Failed to find identifier: {}\n", node->name);
+            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
             reportError("Undefined variable " + node->name);
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
@@ -137,9 +137,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     }
     
     if (node->name == "length") {
-        if (verbose) {
-            std::cerr << "  Accessing .length on type: " << objType->toString() << std::endl;
-        }
+        SPDLOG_DEBUG("  Accessing .length on type: {}", objType->toString());
         if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
             lastType = std::make_shared<Type>(TypeKind::Int);
             return;

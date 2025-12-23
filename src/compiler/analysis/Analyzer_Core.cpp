@@ -1,6 +1,8 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
 #include <iostream>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <fmt/core.h>
 #include <sstream>
 #include <filesystem>
@@ -11,9 +13,7 @@ namespace ts {
 
 using namespace ast;
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
-    if (verbose) {
-        fprintf(stderr, "Analyzer::analyze starting for %s\n", path.c_str());
-    }
+    SPDLOG_DEBUG("Analyzer::analyze starting for {}", path);
     currentFilePath = fs::absolute(path).string();
     auto mainModule = std::make_shared<Module>();
     mainModule->path = currentFilePath;
@@ -74,7 +74,9 @@ void Analyzer::visit(Node* node) {
 
 void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type) {
     if (auto id = dynamic_cast<Identifier*>(pattern)) {
-        symbols.define(id->name, type);
+        if (!symbols.define(id->name, type)) {
+            symbols.update(id->name, type);
+        }
     } else if (auto obp = dynamic_cast<ObjectBindingPattern*>(pattern)) {
         for (auto& elementNode : obp->elements) {
             auto element = dynamic_cast<BindingElement*>(elementNode.get());

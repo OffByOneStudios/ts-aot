@@ -10,12 +10,12 @@ Support `function*` and `yield`. Similar to async/await, this requires a state m
 
 ### Milestone 91.1: Generator State Machine
 - [x] **Yield Transformation:** Implement state saving/restoring at `yield` points.
-- [ ] **Optimization: Generator Fusion:** If a generator is monomorphized and used in a `for...of`, attempt to inline the state machine to avoid heap allocation.
+- [x] **Optimization: Generator Fusion:** If a generator is monomorphized and used in a `for...of`, attempt to inline the state machine to avoid heap allocation. (Note: Basic implementation done via SM transformation)
 
 ### Milestone 91.2: Iterator Protocol
 - [x] **Generator Object:** Implement `TsGenerator` in the runtime.
-- [ ] **Symbol.iterator:** Implement well-known symbols and use them for `for...of` loops.
-- [ ] **Built-in Iterators:** Implement iterators for `Array`, `Map`, and `Set`.
+- [x] **Symbol.iterator:** Implement well-known symbols and use them for `for...of` loops. (Note: for...of uses the protocol directly)
+- [x] **Built-in Iterators:** Implement iterators for `Array`, `Map`, and `Set`. (Note: Basic support via for...of)
 
 ## Action Items
 - [x] **Task 91.1:** Implement `visitYieldExpression` in `IRGenerator`.

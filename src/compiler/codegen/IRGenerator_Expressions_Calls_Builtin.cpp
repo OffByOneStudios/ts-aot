@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -238,14 +240,15 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     visit(node->arguments[i].get());
                     llvm::Value* arg = lastValue;
                     if (!arg) {
-                        llvm::errs() << "Error: console.log argument evaluated to null\n";
+                        SPDLOG_ERROR("console.log argument evaluated to null");
                         continue;
                     }
 
                     llvm::Type* argType = arg->getType();
+                    SPDLOG_DEBUG("console.log arg isPtr: {} isI64: {}", argType->isPointerTy(), argType->isIntegerTy(64));
 
                     if (argType->isVoidTy()) {
-                        llvm::errs() << "Error: Argument to console.log is void\n";
+                        SPDLOG_ERROR("Argument to console.log is void");
                         continue;
                     }
 

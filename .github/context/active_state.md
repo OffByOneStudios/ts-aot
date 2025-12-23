@@ -10,6 +10,8 @@ We are starting **Phase 17: Language Completeness**, focusing on high-performanc
 1.  **Epic 90:** Implement Async State Machine generation (Task 90.1).
 
 ## Recent Accomplishments
+*   **Logging Infrastructure:** Migrated the compiler from ad-hoc `printf`/`std::cout`/`llvm::errs()` to a structured `spdlog` system.
+*   **CLI Enhancements:** Added `--log-level` flag to control compiler output verbosity (trace, debug, info, warn, error, off).
 *   **Phase 16:** Completed Single Binary Static Build and CLI Driver. `ts-aot` is now a production-ready compiler driver.
 *   **UX Refinement:** Silenced debug info and gated IR dump behind flags.
 *   **Epic 86:** Completed Compiler Driver. `ts-aot` now handles parsing, analysis, codegen, and linking in one command.

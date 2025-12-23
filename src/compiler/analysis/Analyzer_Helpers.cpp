@@ -1,6 +1,8 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
 #include <iostream>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <fmt/core.h>
 #include <sstream>
 #include <filesystem>
@@ -13,7 +15,7 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::dumpTypes(ast::Program* program) {
-    fprintf(stderr, "Analyzer::dumpTypes starting with %zu expressions\n", expressions.size());
+    SPDLOG_DEBUG("Analyzer::dumpTypes starting with {} expressions", expressions.size());
     struct TypeEntry {
         int line;
         int column;
@@ -38,10 +40,10 @@ void Analyzer::dumpTypes(ast::Program* program) {
                 expr->inferredType->toString()
             });
         } else {
-            // fprintf(stderr, "Expression %s at L%d:C%d has no inferred type\n", expr->getKind().c_str(), expr->line, expr->column);
+            // SPDLOG_DEBUG("Expression {} at L{}:C{} has no inferred type", expr->getKind(), expr->line, expr->column);
         }
     }
-    fprintf(stderr, "Collected %zu type entries\n", entries.size());
+    SPDLOG_DEBUG("Collected {} type entries", entries.size());
 
     std::sort(entries.begin(), entries.end());
 
@@ -109,6 +111,19 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
     if (typeName == "null") return std::make_shared<Type>(TypeKind::Null);
     if (typeName == "undefined") return std::make_shared<Type>(TypeKind::Undefined);
     
+    if (typeName.starts_with("Promise<") && typeName.ends_with(">")) {
+        auto innerName = typeName.substr(8, typeName.size() - 9);
+        auto innerType = parseType(innerName, symbols);
+        auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+        auto wrapped = std::make_shared<ClassType>("Promise");
+        if (promiseClass) {
+            wrapped->methods = promiseClass->methods;
+            wrapped->typeParameters = promiseClass->typeParameters;
+        }
+        wrapped->typeArguments = { innerType };
+        return wrapped;
+    }
+
     auto type = symbols.lookupType(typeName);
     if (type) return type;
     

@@ -1,4 +1,6 @@
 #include "IRGenerator.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -19,7 +21,7 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
     llvm::Value* condValue = lastValue;
 
     if (!condValue) {
-        llvm::errs() << "Error: While condition evaluated to null\n";
+        SPDLOG_ERROR("While condition evaluated to null");
         return;
     }
 
@@ -208,7 +210,7 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
         llvm::Value* condValue = lastValue;
 
         if (!condValue) {
-            llvm::errs() << "Error: For condition evaluated to null\n";
+            SPDLOG_ERROR("For condition evaluated to null");
             return;
         }
 
@@ -257,13 +259,101 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 }
 
 void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
-    if (node->isAwait) {
-        llvm::errs() << "for await...of is not yet implemented\n";
-    }
     llvm::Function* function = builder->GetInsertBlock()->getParent();
+
+    if (node->isAwait) {
+        std::string baseName = "forof_" + std::to_string((uintptr_t)node);
+        
+        // 1. Evaluate iterable
+        visit(node->expression.get());
+        llvm::Value* iterableVal = boxValue(lastValue, node->expression->inferredType);
+        
+        // 2. Get iterator: iterator = ts_async_iterator_get(iterable)
+        llvm::FunctionType* getIterFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getIterFn = module->getOrInsertFunction("ts_async_iterator_get", getIterFt);
+        llvm::Value* iterator = createCall(getIterFt, getIterFn.getCallee(), { iterableVal });
+
+        llvm::Value* iteratorVar = nullptr;
+        if (currentAsyncFrame) {
+            iteratorVar = namedValues[baseName + "_iterator"];
+        } else {
+            iteratorVar = createEntryBlockAlloca(function, baseName + "_iterator", builder->getPtrTy());
+        }
+        builder->CreateStore(iterator, iteratorVar);
+
+        // 3. Loop
+        llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "loop.cond", function);
+        llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "loop.body", function);
+        llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "loop.end", function);
+        
+        builder->CreateBr(condBB);
+        builder->SetInsertPoint(condBB);
+        
+        llvm::Value* iter = builder->CreateLoad(builder->getPtrTy(), iteratorVar);
+
+        // 4. Call iterator.next()
+        llvm::FunctionType* nextFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee nextFn = module->getOrInsertFunction("ts_async_iterator_next", nextFt);
+        
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
+        
+        llvm::Value* promise = createCall(nextFt, nextFn.getCallee(), { iter, undefinedVal });
+        
+        // 5. Await promise
+        llvm::Value* result = emitAwait(promise, nullptr); // result is { value, done }
+        
+        // 5. Check done
+        llvm::Value* doneName = builder->CreateGlobalStringPtr("done");
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+        llvm::Value* tsDoneName = createCall(createFt, createFn.getCallee(), { doneName });
+        llvm::Value* boxedDoneName = boxValue(tsDoneName, std::make_shared<Type>(TypeKind::String));
+        
+        llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+        
+        llvm::Value* doneValBoxed = createCall(getPropFt, getPropFn.getCallee(), { result, boxedDoneName });
+        llvm::Value* doneVal = unboxValue(doneValBoxed, std::make_shared<Type>(TypeKind::Boolean));
+        
+        builder->CreateCondBr(doneVal, afterBB, bodyBB);
+        
+        builder->SetInsertPoint(bodyBB);
+        
+        // 6. Get value
+        llvm::Value* valueName = builder->CreateGlobalStringPtr("value");
+        llvm::Value* tsValueName = createCall(createFt, createFn.getCallee(), { valueName });
+        llvm::Value* boxedValueName = boxValue(tsValueName, std::make_shared<Type>(TypeKind::String));
+        llvm::Value* valueValBoxed = createCall(getPropFt, getPropFn.getCallee(), { result, boxedValueName });
+        
+        // 7. Destructure value
+        if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
+            std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+            // Try to get element type from iterable type
+            if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+                if (classType->typeArguments.size() > 0) {
+                    elementType = classType->typeArguments[0];
+                }
+            }
+            
+            llvm::Value* unboxed = unboxValue(valueValBoxed, elementType);
+            generateDestructuring(unboxed, elementType, varDecl->name.get());
+        }
+        
+        // 8. Body
+        loopStack.push_back({condBB, afterBB});
+        visit(node->body.get());
+        loopStack.pop_back();
+        
+        builder->CreateBr(condBB);
+        builder->SetInsertPoint(afterBB);
+        return;
+    }
     
     // Create loop variables
-    std::string baseName = "forof_" + std::to_string(anonVarCounter++);
+    std::string baseName = "forof_" + std::to_string((uintptr_t)node);
     llvm::Value* indexVar = nullptr;
     llvm::Value* iterableVar = nullptr;
     llvm::Value* lengthVar = nullptr;
@@ -365,7 +455,7 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     llvm::Function* function = builder->GetInsertBlock()->getParent();
     
     // Create loop variables
-    std::string baseName = "forin_" + std::to_string(anonVarCounter++);
+    std::string baseName = "forin_" + std::to_string((uintptr_t)node);
     llvm::Value* indexVar = nullptr;
     llvm::Value* keysVar = nullptr;
     llvm::Value* lengthVar = nullptr;

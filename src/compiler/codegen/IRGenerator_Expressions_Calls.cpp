@@ -1,12 +1,12 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
 void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
-    if (verbose) {
-        llvm::errs() << "visitCallExpression\n";
-    }
+    SPDLOG_DEBUG("visitCallExpression");
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;
@@ -253,7 +253,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             
             lastValue = createCall(func->getFunctionType(), func, callArgs);
         } else {
-            llvm::errs() << "Function not found: " << mangledName << "\n";
+            SPDLOG_ERROR("Function not found: {}", mangledName);
             // TODO: Error handling
             lastValue = nullptr;
         }

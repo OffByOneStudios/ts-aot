@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -165,7 +167,8 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
         std::string className = classType->name;
         std::string methodName = prop->name;
-        llvm::errs() << "Method call on class: " << className << " method: " << methodName << "\n";
+        
+        SPDLOG_DEBUG("Method call on class: {} method: {}", className, methodName);
         
         if (className == "RegExp") {
             // ... existing RegExp code ...
@@ -292,16 +295,10 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             }
         } else if (className == "Map") {
-            llvm::errs() << "Generating Map method: " << methodName << " for object of class: " << className << "\n";
+            SPDLOG_DEBUG("Generating Map method: {} for object of class: {}", methodName, className);
             visit(prop->expression.get());
             llvm::Value* mapObj = lastValue;
             
-            // DEBUG: Print mapObj
-            llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-            llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-            llvm::Value* fmt = builder->CreateGlobalStringPtr("Map method call target: %p\n");
-            createCall(printfFt, printfFn.getCallee(), { fmt, mapObj });
-
             emitNullCheckForExpression(prop->expression.get(), mapObj);
 
             if (methodName == "set") {

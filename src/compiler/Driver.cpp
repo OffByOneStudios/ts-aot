@@ -6,6 +6,8 @@
 #include "codegen/CodeGenerator.h"
 #include "codegen/LinkerDriver.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -41,7 +43,7 @@ int Driver::run() {
         }
 
         if (options.verbose) {
-            std::cerr << "Parsing " << tsFile << "..." << std::endl;
+            SPDLOG_INFO("Parsing {}...", tsFile);
         }
         if (!runNodeParser(tsFile, jsonFile)) {
             return 1;
@@ -52,7 +54,7 @@ int Driver::run() {
 
     try {
         if (options.verbose) {
-            std::cerr << "Loading AST from " << jsonFile << "..." << std::endl;
+            SPDLOG_INFO("Loading AST from {}...", jsonFile);
         }
         auto program = ast::loadAst(jsonFile);
         
@@ -65,7 +67,7 @@ int Driver::run() {
         }
 
         if (options.verbose) {
-            std::cerr << "Analyzing..." << std::endl;
+            SPDLOG_INFO("Analyzing...");
         }
         ts::Analyzer analyzer;
         analyzer.setVerbose(options.verbose);
@@ -76,18 +78,18 @@ int Driver::run() {
         }
 
         if (analyzer.getErrorCount() > 0) {
-            fmt::print(stderr, "Compilation failed with {} errors.\n", analyzer.getErrorCount());
+            SPDLOG_ERROR("Compilation failed with {} errors.", analyzer.getErrorCount());
             return 1;
         }
 
         if (options.verbose) {
-            std::cerr << "Monomorphizing..." << std::endl;
+            SPDLOG_INFO("Monomorphizing...");
         }
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
         
         if (options.verbose) {
-            std::cerr << "Generating IR..." << std::endl;
+            SPDLOG_INFO("Generating IR...");
         }
         ts::IRGenerator irGen;
         irGen.setVerbose(options.verbose);
@@ -111,7 +113,7 @@ int Driver::run() {
         }
 
         if (options.verbose) {
-            std::cerr << "Emitting object code to " << objFile << "..." << std::endl;
+            SPDLOG_INFO("Emitting object code to {}...", objFile);
         }
         ts::CodeGenerator codeGen(irGen.getModule());
         if (!codeGen.emitObjectFile(objFile, options.optLevel)) {
@@ -124,7 +126,7 @@ int Driver::run() {
                 options.outputFile;
 
             if (options.verbose) {
-                std::cerr << "Linking " << exeOutput << "..." << std::endl;
+                SPDLOG_INFO("Linking {}...", exeOutput);
             }
             ts::LinkerDriver::Options linkOpts;
             linkOpts.outputPath = exeOutput;
@@ -165,7 +167,7 @@ int Driver::run() {
 
             if (!ts::LinkerDriver::link(linkOpts)) {
                 if (options.verbose) {
-                    std::cerr << "Linking failed." << std::endl;
+                    SPDLOG_ERROR("Linking failed.");
                 }
                 return 1;
             }
@@ -176,12 +178,12 @@ int Driver::run() {
             } catch (...) {}
 
             if (options.verbose) {
-                std::cerr << "Successfully created " << exeOutput << std::endl;
+                SPDLOG_INFO("Successfully created {}", exeOutput);
             }
 
             if (options.runAfterLink) {
                 if (options.verbose) {
-                    std::cerr << "Running " << exeOutput << "..." << std::endl;
+                    SPDLOG_INFO("Running {}...", exeOutput);
                 }
                 std::string runCmd = (std::filesystem::path(".") / exeOutput).string();
                 int runResult = std::system(runCmd.c_str());
@@ -189,7 +191,7 @@ int Driver::run() {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        SPDLOG_ERROR("Error: {}", e.what());
         return 1;
     }
 
@@ -201,18 +203,18 @@ bool Driver::runNodeParser(const std::string& tsFile, const std::string& jsonFil
     std::string parserScript = findParserScript();
 
     if (nodeExe.empty()) {
-        std::cerr << "Error: 'node' executable not found in PATH." << std::endl;
+        SPDLOG_ERROR("Error: 'node' executable not found in PATH.");
         return false;
     }
 
     if (parserScript.empty()) {
-        std::cerr << "Error: Could not find 'dump_ast.js' script." << std::endl;
+        SPDLOG_ERROR("Error: Could not find 'dump_ast.js' script.");
         return false;
     }
 
     std::string command = fmt::format("{} \"{}\" \"{}\" \"{}\"", nodeExe, parserScript, tsFile, jsonFile);
     if (options.verbose) {
-        std::cerr << "Executing: " << command << std::endl;
+        SPDLOG_DEBUG("Executing: {}", command);
     }
     
     int result = std::system(command.c_str());

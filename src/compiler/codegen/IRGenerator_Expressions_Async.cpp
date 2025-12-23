@@ -19,6 +19,14 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     // Box it if needed
     promiseVal = boxValue(promiseVal, node->expression->inferredType);
 
+    lastValue = emitAwait(promiseVal, node->inferredType);
+
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(node->inferredType).get();
+    }
+}
+
+llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Type> type) {
     // 2. Save state
     int nextState = asyncStateBlocks.size();
     llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "state" + std::to_string(nextState), builder->GetInsertBlock()->getParent());
@@ -29,7 +37,6 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), statePtr);
 
     // 3. Call ts_async_await
-    llvm::errs() << "Calling ts_async_await\n";
     llvm::FunctionType* awaitFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
     llvm::FunctionCallee awaitFn = module->getOrInsertFunction("ts_async_await", awaitFt);
     createCall(awaitFt, awaitFn.getCallee(), { promiseVal, currentAsyncContext });
@@ -42,7 +49,8 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     
     // Check for error
     llvm::Value* errorPtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
-    llvm::Value* isError = builder->CreateLoad(llvm::Type::getInt1Ty(*context), errorPtr);
+    llvm::Value* errorVal = builder->CreateLoad(llvm::Type::getInt8Ty(*context), errorPtr);
+    llvm::Value* isError = builder->CreateICmpNE(errorVal, builder->getInt8(0));
     
     llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "await_error", builder->GetInsertBlock()->getParent());
     llvm::BasicBlock* successBB = llvm::BasicBlock::Create(*context, "await_success", builder->GetInsertBlock()->getParent());
@@ -76,11 +84,7 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     
     // The resumed value is in currentAsyncResumedValue
     // Unbox it to the expected type
-    lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
-
-    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
-        concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(node->inferredType).get();
-    }
+    return unboxValue(currentAsyncResumedValue, type);
 }
 
 void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
@@ -119,33 +123,52 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     // 5. Start next state
     builder->SetInsertPoint(nextBB);
     
+    // DEBUG: Print state entry
+    {
+        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM State %d Entry\n"), llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState) });
+        
+        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
+        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+    }
+
     // The resumed value (from next()) is in currentAsyncResumedValue
     lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
 }
 
 void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node* node, const std::vector<std::shared_ptr<Type>>& argTypes, std::shared_ptr<Type> classType, const std::string& specializedName) {
-    llvm::errs() << "Generating async body for " << specializedName << "\n";
-    
     bool isGenerator = false;
     bool isAsync = false;
+    std::vector<ast::Statement*> statements;
+
     if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(node)) {
         isGenerator = funcNode->isGenerator;
         isAsync = funcNode->isAsync;
+        for (auto& stmt : funcNode->body) statements.push_back(stmt.get());
     } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(node)) {
         isGenerator = methodNode->isGenerator;
         isAsync = methodNode->isAsync;
+        for (auto& stmt : methodNode->body) statements.push_back(stmt.get());
     } else if (auto arrowNode = dynamic_cast<ast::ArrowFunction*>(node)) {
         isAsync = arrowNode->isAsync;
+        if (auto block = dynamic_cast<ast::BlockStatement*>(arrowNode->body.get())) {
+            for (auto& stmt : block->statements) statements.push_back(stmt.get());
+        } else {
+            // Single expression arrow function
+            // We'll handle this specially in the SM generation
+        }
     } else if (auto funcExpr = dynamic_cast<ast::FunctionExpression*>(node)) {
         isGenerator = funcExpr->isGenerator;
         isAsync = funcExpr->isAsync;
+        for (auto& stmt : funcExpr->body) statements.push_back(stmt.get());
     }
 
     currentIsGenerator = isGenerator;
     currentIsAsync = isAsync;
 
     // 1. Collect variables
-    llvm::errs() << "  Collecting variables...\n";
     std::vector<std::string> variables;
     std::map<std::string, std::shared_ptr<Type>> variableTypes;
     
@@ -184,8 +207,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             }
         }
     }
-    llvm::errs() << "  Collected " << vars.size() << " variables.\n";
-
+    
     for (const auto& var : vars) {
         if (std::find(variables.begin(), variables.end(), var.name) == variables.end()) {
             variables.push_back(var.name);
@@ -206,18 +228,17 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     }
 
     // Create Frame struct type
-    llvm::errs() << "  Creating Frame struct type...\n";
     std::vector<llvm::Type*> frameFields;
     std::map<std::string, int> frameMap;
     for (size_t i = 0; i < variables.size(); ++i) {
-        frameFields.push_back(getLLVMType(variableTypes[variables[i]]));
+        llvm::Type* fieldType = getLLVMType(variableTypes[variables[i]]);
+        frameFields.push_back(fieldType);
         frameMap[variables[i]] = i;
     }
     llvm::StructType* frameType = llvm::StructType::create(*context, specializedName + "_Frame");
     frameType->setBody(frameFields);
 
     // 2. Create the State Machine (SM) function
-    llvm::errs() << "  Creating SM function...\n";
     std::string smName = specializedName + "_SM";
     std::vector<llvm::Type*> smArgTypes = { builder->getPtrTy(), builder->getPtrTy() }; // ctx, resumedValue
     llvm::FunctionType* smFt = llvm::FunctionType::get(builder->getVoidTy(), smArgTypes, false);
@@ -225,29 +246,26 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     addStackProtection(smFunc);
 
     // 3. Implement the Entry function
-    llvm::errs() << "  Implementing Entry function...\n";
     llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(*context, "entry", entryFunc);
     builder->SetInsertPoint(entryBB);
 
     // Create AsyncContext
-    llvm::errs() << "Calling ts_async_context_create\n";
     llvm::FunctionType* createCtxFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
     llvm::FunctionCallee createCtxFn = module->getOrInsertFunction("ts_async_context_create", createCtxFt);
     llvm::Value* ctx = createCall(createCtxFt, createCtxFn.getCallee(), {});
     
     // Set resumeFn
-    llvm::Value* resumeFnPtr = builder->CreateStructGEP(asyncContextType, ctx, 7);
+    llvm::Value* resumeFnPtr = builder->CreateStructGEP(asyncContextType, ctx, 8);
     builder->CreateStore(smFunc, resumeFnPtr);
 
     // Allocate Frame on heap
-    llvm::errs() << "Calling ts_alloc\n";
     llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
     llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
     uint64_t frameSize = module->getDataLayout().getTypeAllocSize(frameType);
     llvm::Value* frame = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), frameSize) });
     
     // Store Frame in ctx->data
-    llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 8);
+    llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 9);
     builder->CreateStore(frame, dataPtr);
 
     // Copy arguments to frame
@@ -297,7 +315,6 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Call SM function for the first time (only for non-generators)
     if (!isGenerator) {
-        llvm::errs() << "Calling SM function\n";
         llvm::Value* nullResumed = llvm::ConstantPointerNull::get(builder->getPtrTy());
         createCall(smFunc->getFunctionType(), smFunc, { ctx, nullResumed });
     }
@@ -306,15 +323,22 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         if (isAsync) {
             llvm::FunctionType* createGenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createGenFn = module->getOrInsertFunction("ts_async_generator_create", createGenFt);
-            lastValue = createCall(createGenFt, createGenFn.getCallee(), { ctx });
+            llvm::Value* gen = createCall(createGenFt, createGenFn.getCallee(), { ctx });
+
+            llvm::FunctionType* makeObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee makeObjFn = module->getOrInsertFunction("ts_value_make_object", makeObjFt);
+            lastValue = createCall(makeObjFt, makeObjFn.getCallee(), { gen });
         } else {
             llvm::FunctionType* createGenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createGenFn = module->getOrInsertFunction("ts_generator_create", createGenFt);
-            lastValue = createCall(createGenFt, createGenFn.getCallee(), { ctx });
+            llvm::Value* gen = createCall(createGenFt, createGenFn.getCallee(), { ctx });
+
+            llvm::FunctionType* makeObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee makeObjFn = module->getOrInsertFunction("ts_value_make_object", makeObjFt);
+            lastValue = createCall(makeObjFt, makeObjFn.getCallee(), { gen });
         }
     } else {
         // Return the promise from the context
-        llvm::errs() << "Calling ts_value_make_promise\n";
         llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, ctx, 5);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         
@@ -325,21 +349,44 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->CreateRet(lastValue);
 
     // 4. Implement the SM function
-    llvm::errs() << "Implementing SM function: " << smName << "\n";
     llvm::BasicBlock* smEntryBB = llvm::BasicBlock::Create(*context, "entry", smFunc);
     builder->SetInsertPoint(smEntryBB);
+
+    // DEBUG: Print SM entry
+    {
+        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+        llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smFunc->getArg(0), 1);
+        llvm::Value* stateVal = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
+        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM Entry: ctx=%p state=%d resumedVal=%p\n"), smFunc->getArg(0), stateVal, smFunc->getArg(1) });
+        
+        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
+        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+    }
 
     llvm::Value* smCtx = smFunc->getArg(0);
     llvm::Value* smResumedVal = smFunc->getArg(1);
 
+    // Save current state for SM generation
+    auto oldAsyncContext = currentAsyncContext;
+    auto oldAsyncResumedValue = currentAsyncResumedValue;
+    auto oldAsyncFrame = currentAsyncFrame;
+    auto oldAsyncFrameType = currentAsyncFrameType;
+    auto oldAsyncFrameMap = currentAsyncFrameMap;
+    auto oldAsyncStateBlocks = asyncStateBlocks;
+    auto oldNamedValues = namedValues;
+    auto oldBoxedVariables = boxedVariables;
+
     currentAsyncContext = smCtx;
     currentAsyncResumedValue = smResumedVal;
+    boxedValues.insert(currentAsyncResumedValue);
     currentAsyncFrameType = frameType;
     currentAsyncFrameMap = frameMap;
     asyncStateBlocks.clear();
 
     // Load Frame from ctx->data
-    llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 8);
+    llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
     currentAsyncFrame = builder->CreateLoad(builder->getPtrTy(), smDataPtr);
 
     // Create the switch block
@@ -347,19 +394,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->CreateBr(switchBB);
     builder->SetInsertPoint(switchBB);
 
-    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smCtx, 1);
-    llvm::Value* state = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
-
-    llvm::BasicBlock* state0 = llvm::BasicBlock::Create(*context, "state0", smFunc);
-    asyncStateBlocks.push_back(state0);
-
-    // Start generating code for state 0
-    builder->SetInsertPoint(state0);
-
-    auto oldNamedValues = namedValues;
-    anonVarCounter = 0;
-    
-    // Map variables in frame to namedValues
+    // Map variables in frame to namedValues in a block that dominates all states
     for (auto const& [name, idx] : frameMap) {
         namedValues[name] = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
     }
@@ -372,24 +407,55 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         }
     }
 
-    if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(node)) {
-        for (auto& stmt : funcNode->body) {
-            llvm::errs() << "Visiting statement in SM: " << stmt->getKind() << "\n";
-            visit(stmt.get());
-        }
-    } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(node)) {
-        for (auto& stmt : methodNode->body) {
-            visit(stmt.get());
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smCtx, 1);
+    llvm::Value* state = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
+
+    // DEBUG: Print state before switch
+    {
+        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM Switch: state=%d\n"), state });
+        
+        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
+        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+    }
+
+    llvm::BasicBlock* state0 = llvm::BasicBlock::Create(*context, "state0", smFunc);
+    asyncStateBlocks.push_back(state0);
+
+    // Start generating code for state 0
+    builder->SetInsertPoint(state0);
+
+    // DEBUG: Print state 0 entry
+    {
+        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
+        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
+        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM State 0 Entry\n") });
+        
+        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
+        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+    }
+
+    // Generate the switch instruction
+    builder->SetInsertPoint(switchBB);
+    llvm::SwitchInst* sw = builder->CreateSwitch(state, state0);
+    sw->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0), state0);
+    
+    builder->SetInsertPoint(state0);
+
+    anonVarCounter = 0;
+    
+    if (!statements.empty()) {
+        for (auto stmt : statements) {
+            visit(stmt);
         }
     } else if (auto arrowNode = dynamic_cast<ast::ArrowFunction*>(node)) {
-        if (auto block = dynamic_cast<ast::BlockStatement*>(arrowNode->body.get())) {
-            for (auto& stmt : block->statements) {
-                visit(stmt.get());
-            }
-        } else {
+        if (!dynamic_cast<ast::BlockStatement*>(arrowNode->body.get())) {
             visit(arrowNode->body.get());
             // Resolve promise with result
-            llvm::Value* res = boxValue(lastValue, arrowNode->inferredType);
+            llvm::Value* res = boxValue(lastValue, nullptr);
             llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -401,37 +467,42 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Finalize SM function
     if (!builder->GetInsertBlock()->getTerminator()) {
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
+
         if (isAsync && !isGenerator) {
             // Resolve promise with undefined
             llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
-            
-            llvm::Value* undefinedVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
             createCall(resolveFt, resolveFn.getCallee(), { promise, undefinedVal });
+        } else if (isAsync && isGenerator) {
+            // Resolve generator with undefined and done=true
+            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
+            createCall(resolveFt, resolveFn.getCallee(), { smCtx, undefinedVal, builder->getInt1(true) });
         }
         builder->CreateRetVoid();
     }
 
-    // Now create the switch
-    builder->SetInsertPoint(switchBB);
-    llvm::SwitchInst* sw = builder->CreateSwitch(state, asyncStateBlocks[0], asyncStateBlocks.size());
-    for (size_t i = 0; i < asyncStateBlocks.size(); ++i) {
+    // Update the switch with all generated states
+    for (size_t i = 1; i < asyncStateBlocks.size(); ++i) {
         sw->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), i), asyncStateBlocks[i]);
     }
 
+    // Restore state
+    currentAsyncContext = oldAsyncContext;
+    currentAsyncResumedValue = oldAsyncResumedValue;
+    currentAsyncFrame = oldAsyncFrame;
+    currentAsyncFrameType = oldAsyncFrameType;
+    currentAsyncFrameMap = oldAsyncFrameMap;
+    asyncStateBlocks = oldAsyncStateBlocks;
     namedValues = oldNamedValues;
-    currentAsyncContext = nullptr;
-    currentAsyncResumedValue = nullptr;
-    currentAsyncFrame = nullptr;
-    currentAsyncFrameType = nullptr;
-    currentAsyncFrameMap.clear();
+    boxedVariables = oldBoxedVariables;
     currentIsGenerator = false;
     currentIsAsync = false;
-    llvm::errs() << "Finished generating async body for " << specializedName << "\n";
 }
 
 } // namespace ts
-
-

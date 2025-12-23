@@ -120,13 +120,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     void* ts_object_get_property(void* obj, void* key) {
-        fprintf(stderr, "ts_object_get_property obj=%p\n", obj);
         if (!obj) return nullptr;
         
+        TsString* tsKey = (TsString*)key;
+
         // Try reading magic at offset 0 (for objects without vtable)
         uint32_t magic0 = *(uint32_t*)obj;
         if (magic0 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
-            TsValue val = ((TsMap*)obj)->Get((TsString*)key);
+            TsValue val = ((TsMap*)obj)->Get(tsKey);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
@@ -140,6 +141,12 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // Try reading magic at offset 8 (for TsObjects which have a vtable)
         uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
+        if (magic8 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
+            TsValue val = ((TsMap*)obj)->Get(tsKey);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
+        }
         if (magic8 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
             // TsHeaders layout: vtable (8), magic (4), padding (4), map (8)
             struct FakeHeaders {
@@ -148,7 +155,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsMap* map;
             };
             TsMap* map = ((FakeHeaders*)obj)->map;
-            TsValue val = map->Get((TsString*)key);
+            TsValue val = map->Get(tsKey);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
@@ -159,9 +166,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // If no magic matches, assume it's a generated class with __get_property at vtable[1]
         void** vtable = *(void***)obj;
-        printf("ts_object_get_property obj=%p vtable=%p\n", obj, vtable);
         if (vtable) {
-            printf("vtable[1]=%p\n", vtable[1]);
             typedef TsValue* (*GetPropertyFn)(void*, void*);
             GetPropertyFn getProp = (GetPropertyFn)vtable[1];
             if (getProp) {
@@ -174,8 +179,9 @@ TsValue* ts_value_make_int(int64_t i) {
     void* ts_value_get_property(TsValue* val, void* propName) {
         if (!val || !propName) return nullptr;
         
-        TsString* key = nullptr;
         TsValue* propVal = (TsValue*)propName;
+
+        TsString* key = nullptr;
         if (propVal->type == ValueType::STRING_PTR) {
             key = (TsString*)propVal->ptr_val;
         } else {
@@ -183,7 +189,7 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        if (val->type == ValueType::OBJECT_PTR) {
+        if (val->type == ValueType::OBJECT_PTR || val->type == ValueType::ARRAY_PTR || val->type == ValueType::PROMISE_PTR) {
             return ts_object_get_property(val->ptr_val, key);
         }
         return nullptr;

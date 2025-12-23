@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -33,9 +35,7 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         llvm::Type* returnType = getLLVMType(spec.returnType);
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
-        if (verbose) {
-            llvm::errs() << "Creating prototype: " << spec.specializedName << " with " << argTypes.size() << " args\n";
-        }
+        SPDLOG_DEBUG("Creating prototype: {} with {} args", spec.specializedName, argTypes.size());
         llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
         addStackProtection(func);
 
@@ -81,9 +81,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             isGenerator = funcExpr->isGenerator;
         }
 
-        if (verbose) {
-            llvm::errs() << "Generating body for: " << spec.specializedName << " isAsync: " << isAsync << " isGenerator: " << isGenerator << "\n";
-        }
+        SPDLOG_DEBUG("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
 
         if (isAsync || isGenerator) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);
@@ -377,10 +375,10 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     }
     
     if (node->body) {
-        llvm::errs() << "Visiting arrow function body: " << node->body->getKind() << " at " << node->body.get() << "\n";
+        SPDLOG_DEBUG("Visiting arrow function body: {} at {}", node->body->getKind(), (void*)node->body.get());
         visit(node->body.get());
     } else {
-        llvm::errs() << "Arrow function body is NULL! Node at " << node << "\n";
+        SPDLOG_ERROR("Arrow function body is NULL! Node at {}", (void*)node);
     }
     
     if (node->body && node->body->getKind() != "BlockStatement" && lastValue && !builder->GetInsertBlock()->getTerminator()) {
@@ -484,7 +482,100 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     builder->SetInsertPoint(oldBB);
     namedValues = oldNamedValues;
     
-    lastValue = function;
+    lastValue = boxValue(function, node->inferredType);
+}
+
+void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
+    static int methodCounter = 0;
+    std::string name = "method_" + std::to_string(methodCounter++);
+    
+    std::vector<llvm::Type*> argTypes;
+    argTypes.push_back(builder->getPtrTy()); // context first
+    for (auto& param : node->parameters) {
+        argTypes.push_back(builder->getPtrTy()); // TsValue*
+    }
+    
+    llvm::Type* retType = builder->getPtrTy(); // TsValue*
+    
+    llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
+    llvm::Function* function = llvm::Function::Create(ft, llvm::Function::InternalLinkage, name, module.get());
+    addStackProtection(function);
+
+    // Add CFI metadata for TsFunction
+    function->addMetadata(llvm::LLVMContext::MD_type,
+        *llvm::MDNode::get(*context, {
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
+            llvm::MDString::get(*context, "TsFunction")
+        }));
+    
+    llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+    auto oldNamedValues = namedValues;
+
+    if (node->isAsync) {
+        std::vector<std::shared_ptr<Type>> argTypes;
+        auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
+        for (size_t i = 0; i < node->parameters.size(); ++i) {
+            if (funcType && i < funcType->paramTypes.size()) {
+                argTypes.push_back(funcType->paramTypes[i]);
+            } else {
+                argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+        }
+        generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
+        builder->SetInsertPoint(oldBB);
+        namedValues = oldNamedValues;
+        lastValue = boxValue(function, node->inferredType);
+        return;
+    }
+    
+    llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
+    builder->SetInsertPoint(bb);
+    
+    namedValues.clear();
+    lastValue = nullptr;
+    anonVarCounter = 0;
+    
+    // Force return type to Any for function expressions to ensure compatibility with runtime handlers
+    auto oldReturnType = currentReturnType;
+    currentReturnType = std::make_shared<Type>(TypeKind::Any);
+    
+    auto argIt = function->arg_begin();
+    if (argIt != function->arg_end()) {
+        argIt->setName("context");
+        currentContext = &*argIt;
+        ++argIt;
+    }
+
+    unsigned idx = 0;
+    while (argIt != function->arg_end() && idx < node->parameters.size()) {
+        auto& param = node->parameters[idx];
+        auto& arg = *argIt;
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            arg.setName(id->name);
+            generateDestructuring(&arg, std::make_shared<Type>(TypeKind::Any), param->name.get());
+        }
+        ++argIt;
+        ++idx;
+    }
+    
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+    
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    }
+    
+    currentReturnType = oldReturnType;
+    builder->SetInsertPoint(oldBB);
+    namedValues = oldNamedValues;
+    
+    lastValue = boxValue(function, node->inferredType);
+}
+
+void IRGenerator::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) {
+    // Handled in visitObjectLiteralExpression
+    lastValue = nullptr;
 }
 
 } // namespace ts

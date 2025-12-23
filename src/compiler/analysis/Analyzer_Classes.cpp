@@ -365,12 +365,14 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     // Let's just analyze the body
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
+    functionDepth++;
     for (const auto& stmt : node->body) {
         visit(stmt.get());
         if (stmt->getKind() == "ReturnStatement") {
             inferredReturnType = lastType;
         }
     }
+    functionDepth--;
 
     if (node->isAsync) {
         bool isPromise = false;

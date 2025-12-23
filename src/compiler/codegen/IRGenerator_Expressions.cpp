@@ -1,5 +1,8 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
+#include <iostream>
 
 namespace ts {
 
@@ -311,6 +314,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             if (concreteTypes.count(val)) {
                 concreteTypes[lastValue] = concreteTypes[val];
             }
+            if (boxedAllocas.count(val)) {
+                boxedValues.insert(lastValue);
+            }
         } else {
             lastValue = val;
         }
@@ -324,7 +330,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
-    llvm::errs() << "Error: Undefined variable " << node->name << "\n";
+    SPDLOG_ERROR("Error: Undefined variable {}", node->name);
     lastValue = nullptr;
 }
 
@@ -632,12 +638,6 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                 visit(prop->expression.get());
                 llvm::Value* mapObj = lastValue;
                 
-                // DEBUG: Print mapObj
-                llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-                llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-                llvm::Value* fmt = builder->CreateGlobalStringPtr("Map method call (Expressions.cpp) target: %p\n");
-                createCall(printfFt, printfFn.getCallee(), { fmt, mapObj });
-
                 std::string methodName = prop->name;
 
                 if (methodName == "set") {
@@ -877,9 +877,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 
     if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
-        if (verbose) {
-            std::cout << "DEBUG: NewExpression inferred type: " << cls->name << std::endl;
-        }
+        SPDLOG_DEBUG("NewExpression inferred type: {}", cls->name);
         concreteTypes[lastValue] = cls;
     }
 }
@@ -967,20 +965,30 @@ void IRGenerator::visitArrayExpression(ast::ArrayExpression* node) {
 }
 
 void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
-    llvm::FunctionType* objectCreateFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-    llvm::FunctionCallee objectCreateFn = module->getOrInsertFunction("ts_object_create", objectCreateFt);
+    SPDLOG_DEBUG("visitObjectExpression");
+    llvm::FunctionType* objectCreateFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee objectCreateFn = module->getOrInsertFunction("ts_map_create", objectCreateFt);
 
-    llvm::Value* obj = createCall(objectCreateFt, objectCreateFn.getCallee(), { builder->CreateGlobalStringPtr("") });
+    llvm::Value* obj = createCall(objectCreateFt, objectCreateFn.getCallee(), {});
 
     for (auto& prop : node->properties) {
         if (auto kvPair = dynamic_cast<ast::KeyValuePair*>(prop.get())) {
             visit(kvPair->value.get());
-            llvm::Value* value = lastValue;
+            llvm::Value* value = boxValue(lastValue, kvPair->value->inferredType);
 
             llvm::FunctionType* objectSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee objectSetFn = module->getOrInsertFunction("ts_object_set", objectSetFt);
-            visit(kvPair->key.get());
-            llvm::Value* key = lastValue;
+            llvm::FunctionCallee objectSetFn = module->getOrInsertFunction("ts_map_set", objectSetFt);
+            
+            llvm::Value* key = nullptr;
+            if (auto id = dynamic_cast<ast::Identifier*>(kvPair->key.get())) {
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                key = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(id->name) });
+            } else {
+                visit(kvPair->key.get());
+                key = lastValue;
+            }
+
             createCall(objectSetFt, objectSetFn.getCallee(), { obj, key, value });
         }
     }
@@ -1009,7 +1017,9 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     builder->SetInsertPoint(entry);
 
     auto oldNamedValues = namedValues;
+    auto oldBoxedVariables = boxedVariables;
     namedValues.clear();
+    boxedVariables.clear();
 
     auto argIt = function->arg_begin();
     if (argIt != function->arg_end()) {
@@ -1040,6 +1050,7 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
 
     namedValues = oldNamedValues;
+    boxedVariables = oldBoxedVariables;
 }
 
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {

@@ -1,6 +1,8 @@
 #include "Monomorphizer.h"
 #include "Analyzer.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <set>
 #include <iostream>
 
@@ -28,6 +30,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         auto moduleInit = std::make_unique<ast::FunctionDeclaration>();
         std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
         moduleInit->name = initName;
+        moduleInit->isAsync = module->isAsync;
+        if (module->isAsync) {
+            SPDLOG_DEBUG("Module {} is async, marking init as async", path);
+        }
         moduleInitFunctions.push_back(initName);
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
@@ -74,20 +80,53 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     // Create user_main that calls all module inits
     auto userMain = std::make_unique<ast::FunctionDeclaration>();
     userMain->name = "user_main";
+    
+    bool anyAsync = false;
+    for (const auto& path : analyzer.moduleOrder) {
+        auto it = analyzer.modules.find(path);
+        if (it != analyzer.modules.end() && it->second->isAsync) {
+            anyAsync = true;
+            break;
+        }
+    }
+    userMain->isAsync = anyAsync;
+
     for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
         const auto& initName = moduleInitFunctions[i];
+        const auto& path = analyzer.moduleOrder[i];
         auto call = std::make_unique<ast::CallExpression>();
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = initName;
         call->callee = std::move(callId);
         
+        auto it = analyzer.modules.find(path);
+        if (it != analyzer.modules.end() && it->second->isAsync) {
+             auto promiseClass = std::static_pointer_cast<ClassType>(analyzer.getSymbolTable().lookupType("Promise"));
+             auto wrapped = std::make_shared<ClassType>("Promise");
+             wrapped->methods = promiseClass->methods;
+             wrapped->typeArguments = { std::make_shared<Type>(TypeKind::Void) };
+             call->inferredType = wrapped;
+        } else {
+             call->inferredType = std::make_shared<Type>(TypeKind::Void);
+        }
+
+        std::unique_ptr<ast::Expression> finalExpr;
+        if (anyAsync) {
+            auto awaitExpr = std::make_unique<ast::AwaitExpression>();
+            awaitExpr->expression = std::move(call);
+            awaitExpr->inferredType = std::make_shared<Type>(TypeKind::Void);
+            finalExpr = std::move(awaitExpr);
+        } else {
+            finalExpr = std::move(call);
+        }
+
         if (i == moduleInitFunctions.size() - 1) {
             auto stmt = std::make_unique<ast::ReturnStatement>();
-            stmt->expression = std::move(call);
+            stmt->expression = std::move(finalExpr);
             userMain->body.push_back(std::move(stmt));
         } else {
             auto stmt = std::make_unique<ast::ExpressionStatement>();
-            stmt->expression = std::move(call);
+            stmt->expression = std::move(finalExpr);
             userMain->body.push_back(std::move(stmt));
         }
     }

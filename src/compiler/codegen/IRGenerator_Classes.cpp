@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace ts {
@@ -70,9 +72,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 2. Second pass: Compute layouts (recursive)
     for (const auto& classType : allClassTypes) {
-        if (verbose) {
-            std::cout << "DEBUG: Class " << classType->name << " isStruct=" << classType->isStruct << std::endl;
-        }
+        SPDLOG_DEBUG("Class {} isStruct={}", classType->name, classType->isStruct);
         std::function<void(std::shared_ptr<ClassType>)> compute = [&](std::shared_ptr<ClassType> c) {
             if (classLayouts.count(c->name)) return;
             if (c->baseClass) compute(c->baseClass);
@@ -488,9 +488,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
             
             uint64_t size = dl.getTypeAllocSize(structType);
-            if (verbose) {
-                std::cout << "DEBUG: Allocating " << className << " size=" << size << std::endl;
-            }
+            SPDLOG_DEBUG("Allocating {} size={}", className, size);
             llvm::Value* sizeVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), size);
             llvm::Value* mem = createCall(allocFt, allocFn.getCallee(), { sizeVal });
             thisPtr = builder->CreateBitCast(mem, llvm::PointerType::getUnqual(structType));
@@ -646,6 +644,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 }
 
 void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
+    SPDLOG_DEBUG("visitObjectLiteralExpression");
     llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
     llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_map_create", createMapFt);
     llvm::Value* map = createCall(createMapFt, createFn.getCallee(), {});
@@ -655,21 +654,67 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
     llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set", setMapFt);
 
+    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+
     for (auto& prop : node->properties) {
-        visit(prop->initializer.get());
-        llvm::Value* val = lastValue;
-        
-        // Box the value
-        llvm::Value* boxedVal = boxValue(val, prop->initializer->inferredType);
-        
-        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
-        llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(prop->name) });
-        
-        createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
+        if (!prop) {
+            continue;
+        }
+        if (auto pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+            visit(pa->initializer.get());
+            llvm::Value* val = lastValue;
+            
+            // Box the value
+            llvm::Value* boxedVal = boxValue(val, pa->initializer->inferredType);
+            
+            llvm::Value* keyStr = nullptr;
+            if (auto id = dynamic_cast<ast::Identifier*>(pa->nameNode.get())) {
+                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(id->name) });
+            } else if (auto computed = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
+                visit(computed->expression.get());
+                keyStr = unboxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+            } else {
+                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(pa->name) });
+            }
+            
+            createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
+        } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+            auto it = namedValues.find(spa->name);
+            if (it != namedValues.end()) {
+                llvm::Value* val = it->second;
+                llvm::Value* boxedVal = boxValue(val, nullptr); 
+                llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(spa->name) });
+                createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
+            }
+        } else if (auto method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+            visitMethodDefinition(method);
+            llvm::Value* val = lastValue; // This is already boxed by visitMethodDefinition
+            
+            llvm::Value* keyStr = nullptr;
+            if (auto id = dynamic_cast<ast::Identifier*>(method->nameNode.get())) {
+                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(id->name) });
+            } else if (auto computed = dynamic_cast<ast::ComputedPropertyName*>(method->nameNode.get())) {
+                visit(computed->expression.get());
+                keyStr = unboxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+            }
+            
+            if (keyStr && val) {
+                createCall(setMapFt, setFn.getCallee(), { map, keyStr, val });
+            }
+        }
     }
 
-    lastValue = map;
+    lastValue = boxValue(map, std::make_shared<Type>(TypeKind::Object));
+}
+
+void IRGenerator::visitPropertyAssignment(ast::PropertyAssignment* node) {
+    // Handled in visitObjectLiteralExpression
+    lastValue = nullptr;
+}
+
+void IRGenerator::visitComputedPropertyName(ast::ComputedPropertyName* node) {
+    visit(node->expression.get());
 }
 
 void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {

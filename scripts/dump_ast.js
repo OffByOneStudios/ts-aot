@@ -136,6 +136,7 @@ function visit(node) {
 }
 
 function visitInternal(node) {
+    if (!node) return null;
     switch (node.kind) {
         case ts.SyntaxKind.ImportDeclaration:
             return {
@@ -226,7 +227,7 @@ function visitInternal(node) {
         case ts.SyntaxKind.PropertySignature:
             return {
                 kind: "PropertyDefinition",
-                name: node.name.text,
+                name: node.name ? (node.name.text || node.name.getText(currentSourceFile)) : "",
                 type: node.type ? node.type.getText(currentSourceFile) : "",
                 initializer: node.initializer ? visit(node.initializer) : null,
                 access: getAccessModifier(node),
@@ -239,7 +240,8 @@ function visitInternal(node) {
         case ts.SyntaxKind.SetAccessor:
             return {
                 kind: "MethodDefinition",
-                name: node.name.text,
+                name: node.name ? (node.name.text || node.name.getText(currentSourceFile)) : "",
+                nameNode: visit(node.name),
                 isAsync: isAsync(node),
                 isGenerator: !!node.asteriskToken,
                 typeParameters: getTypeParameters(node),
@@ -392,10 +394,24 @@ function visitInternal(node) {
         case ts.SyntaxKind.ObjectLiteralExpression:
             return {
                 kind: "ObjectLiteralExpression",
-                properties: node.properties.map(p => ({
-                    name: p.name.text,
-                    initializer: visit(p.initializer)
-                }))
+                properties: node.properties.map(p => {
+                    if (p.kind === ts.SyntaxKind.PropertyAssignment) {
+                        return {
+                            kind: "PropertyAssignment",
+                            name: p.name.getText(currentSourceFile),
+                            nameNode: visit(p.name),
+                            initializer: visit(p.initializer)
+                        };
+                    } else if (p.kind === ts.SyntaxKind.ShorthandPropertyAssignment) {
+                        return {
+                            kind: "ShorthandPropertyAssignment",
+                            name: p.name.getText(currentSourceFile),
+                            nameNode: visit(p.name)
+                        };
+                    } else {
+                        return visit(p);
+                    }
+                }).filter(p => p !== null)
             };
         case ts.SyntaxKind.ParenthesizedExpression:
             return {
@@ -589,6 +605,11 @@ function visitInternal(node) {
                     block: visitBlock(node.catchClause.block)
                 } : null,
                 finallyBlock: node.finallyBlock ? visitBlock(node.finallyBlock) : null
+            };
+        case ts.SyntaxKind.ComputedPropertyName:
+            return {
+                kind: "ComputedPropertyName",
+                expression: visit(node.expression)
             };
         case ts.SyntaxKind.ThrowStatement:
             return {
