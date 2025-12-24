@@ -5,13 +5,10 @@ import os
 import sys
 
 def test_server():
-    server_exe = os.path.abspath("build/Debug/test_app.exe")
-    if not os.path.exists(server_exe):
-        # Try alternative location
-        server_exe = os.path.abspath("build/tests/http-server/Debug/test_app.exe")
+    server_exe = os.path.abspath("examples/http-server/http-server.exe")
     
     if not os.path.exists(server_exe):
-        print(f"Error: Server executable not found")
+        print(f"Error: Server executable not found at {server_exe}")
         return False
 
     print(f"Starting server: {server_exe}")
