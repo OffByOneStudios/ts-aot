@@ -25,7 +25,7 @@ struct ExceptionContext {
 };
 
 static std::vector<ExceptionContext*> exceptionStack;
-static void* currentException = nullptr;
+static TsValue* currentException = nullptr;
 static TsValue* process_argv = nullptr;
 static TsValue* process_env = nullptr;
 
@@ -86,7 +86,7 @@ void ts_pop_exception_handler() {
     }
 }
 
-void ts_throw(void* exception) {
+void ts_throw(TsValue* exception) {
     currentException = exception;
     if (exceptionStack.empty()) {
         fprintf(stderr, "Uncaught exception\n");
@@ -97,11 +97,11 @@ void ts_throw(void* exception) {
     longjmp(ctx->env, 1);
 }
 
-void ts_set_exception(void* exception) {
+void ts_set_exception(TsValue* exception) {
     currentException = exception;
 }
 
-void* ts_get_exception() {
+TsValue* ts_get_exception() {
     return currentException;
 }
 

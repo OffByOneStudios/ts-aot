@@ -9,6 +9,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/DIBuilder.h>
 
 #include "../analysis/Analyzer.h"
 #include "../analysis/Monomorphizer.h"
@@ -20,11 +21,12 @@ class IRGenerator : public ast::Visitor {
 public:
     IRGenerator();
 
-    void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer);
+    void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer, const std::string& sourceFile);
     void dumpIR();
     void setOptLevel(const std::string& level) { optLevel = level; }
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
     void setVerbose(bool v) { verbose = v; }
+    void setDebug(bool d) { debug = d; }
 
     llvm::Module* getModule() { return module.get(); }
 
@@ -32,12 +34,19 @@ private:
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
+    std::unique_ptr<llvm::DIBuilder> diBuilder;
+    llvm::DICompileUnit* compileUnit = nullptr;
+    std::vector<llvm::DIScope*> debugScopes;
+
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
     const Analyzer* analyzer = nullptr;
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
     bool verbose = false;
+    bool debug = false;
+
+    void emitLocation(ast::Node* node);
 
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;
@@ -170,6 +179,28 @@ private:
     bool currentIsAsync = false;
     std::vector<llvm::BasicBlock*> catchStack;
 
+    struct FinallyInfo {
+        llvm::BasicBlock* finallyBB;
+        llvm::AllocaInst* pendingExc;
+        llvm::BasicBlock* nextFinallyBB;
+        llvm::BasicBlock* nextBreakBB;
+        llvm::BasicBlock* nextContinueBB;
+        bool nextBreakIsFinally;
+        bool nextContinueIsFinally;
+    };
+    std::vector<FinallyInfo> finallyStack;
+
+    llvm::BasicBlock* currentBreakBB = nullptr;
+    llvm::BasicBlock* currentContinueBB = nullptr;
+    llvm::AllocaInst* currentReturnValueAlloca = nullptr;
+    llvm::AllocaInst* currentShouldReturnAlloca = nullptr;
+    llvm::BasicBlock* currentReturnBB = nullptr;
+
+    llvm::AllocaInst* currentShouldBreakAlloca = nullptr;
+    llvm::AllocaInst* currentShouldContinueAlloca = nullptr;
+    llvm::AllocaInst* currentBreakTargetAlloca = nullptr;
+    llvm::AllocaInst* currentContinueTargetAlloca = nullptr;
+
     struct ClassLayout {
         std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;
         std::vector<std::pair<std::string, std::shared_ptr<FunctionType>>> allMethods;
@@ -181,6 +212,8 @@ private:
     struct LoopInfo {
         llvm::BasicBlock* continueBlock;
         llvm::BasicBlock* breakBlock;
+        size_t finallyStackDepth;
+        std::string label;
         std::map<std::string, std::string> safeIndices; // indexVar -> arrayVar
     };
     std::vector<LoopInfo> loopStack;

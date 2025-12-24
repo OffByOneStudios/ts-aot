@@ -4,6 +4,7 @@ namespace ts {
 using namespace ast;
 
 void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
+    emitLocation(node);
     llvm::Function* func = builder->GetInsertBlock()->getParent();
     llvm::Type* retType = func->getReturnType();
 
@@ -67,24 +68,37 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
 
         builder->CreateRetVoid();
     } else {
-        if (val) {
-            builder->CreateRet(val);
+        if (!finallyStack.empty()) {
+            if (val) {
+                builder->CreateStore(val, currentReturnValueAlloca);
+            }
+            builder->CreateStore(builder->getInt1(true), currentShouldReturnAlloca);
+            
+            llvm::Function* popFn = getRuntimeFunction("ts_pop_exception_handler");
+            createCall(popFn->getFunctionType(), popFn, {});
+            
+            builder->CreateBr(finallyStack.back().finallyBB);
         } else {
-            llvm::Type* retType = builder->GetInsertBlock()->getParent()->getReturnType();
-            if (retType->isVoidTy()) {
-                builder->CreateRetVoid();
+            if (val) {
+                builder->CreateRet(val);
             } else {
-                builder->CreateRet(llvm::Constant::getNullValue(retType));
+                builder->CreateRetVoid();
             }
         }
     }
+    
+    // Start a new block for dead code after return
+    llvm::BasicBlock* deadBB = llvm::BasicBlock::Create(*context, "dead", func);
+    builder->SetInsertPoint(deadBB);
 }
 
 void IRGenerator::visitExpressionStatement(ast::ExpressionStatement* node) {
+    emitLocation(node);
     visit(node->expression.get());
 }
 
 void IRGenerator::visitIfStatement(ast::IfStatement* node) {
+    emitLocation(node);
     visit(node->condition.get());
     llvm::Value* condValue = lastValue;
     if (!condValue) return;
@@ -212,7 +226,16 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
             break;
         }
     }
-    loopStack.push_back({enclosingContinue, mergeBB});
+    LoopInfo info;
+    info.continueBlock = enclosingContinue;
+    info.breakBlock = mergeBB;
+    info.finallyStackDepth = finallyStack.size();
+    loopStack.push_back(info);
+
+    auto oldBreak = currentBreakBB;
+    auto oldContinue = currentContinueBB;
+    currentBreakBB = mergeBB;
+    currentContinueBB = enclosingContinue;
 
     // Generate bodies
     for (size_t i = 0; i < node->clauses.size(); ++i) {
@@ -239,11 +262,16 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
         }
     }
 
+    currentBreakBB = oldBreak;
+    currentContinueBB = oldContinue;
+
     loopStack.pop_back();
     builder->SetInsertPoint(mergeBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
 }
 
 void IRGenerator::visitTryStatement(ast::TryStatement* node) {
+    emitLocation(node);
     llvm::Function* pushFn = getRuntimeFunction("ts_push_exception_handler");
     llvm::Function* popFn = getRuntimeFunction("ts_pop_exception_handler");
     llvm::Function* setjmpFn = getRuntimeFunction("_setjmp");
@@ -255,68 +283,187 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "finally", currentFn);
     llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "try_merge", currentFn);
 
-    // Push catchBB to stack for async handling
-    catchStack.push_back(catchBB);
+    // 0. Setup pending exception storage
+    llvm::AllocaInst* pendingExc = createEntryBlockAlloca(currentFn, "pendingExc", builder->getPtrTy());
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
 
-    // 1. Push exception handler and get jmp_buf
+    // Push to finally stack
+    llvm::BasicBlock* nextFinallyBB = finallyStack.empty() ? currentReturnBB : finallyStack.back().finallyBB;
+    
+    bool breakIsFinally = false;
+    if (!finallyStack.empty()) {
+        for (const auto& f : finallyStack) {
+            if (f.finallyBB == currentBreakBB) {
+                breakIsFinally = true;
+                break;
+            }
+        }
+    }
+    
+    bool continueIsFinally = false;
+    if (!finallyStack.empty()) {
+        for (const auto& f : finallyStack) {
+            if (f.finallyBB == currentContinueBB) {
+                continueIsFinally = true;
+                break;
+            }
+        }
+    }
+    
+    finallyStack.push_back({finallyBB, pendingExc, nextFinallyBB, currentBreakBB, currentContinueBB, breakIsFinally, continueIsFinally});
+
+    auto oldBreakBB = currentBreakBB;
+    auto oldContinueBB = currentContinueBB;
+    currentBreakBB = finallyBB;
+    currentContinueBB = finallyBB;
+
+    // 1. Push exception handler for the TRY block
     llvm::Value* jmpBuf = createCall(pushFn->getFunctionType(), pushFn, {});
-
-    // 2. Call _setjmp
-    // On Windows x64, second arg is frame pointer.
-    llvm::Value* framePtr = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+    llvm::Value* framePtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
     llvm::Value* setjmpRes = createCall(setjmpFn->getFunctionType(), setjmpFn, {jmpBuf, framePtr});
 
     llvm::Value* isCatch = builder->CreateICmpNE(setjmpRes, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
-
     builder->CreateCondBr(isCatch, catchBB, tryBB);
 
     // --- Try Block ---
     builder->SetInsertPoint(tryBB);
+    catchStack.push_back(catchBB);
     for (auto& stmt : node->tryBlock) {
         visit(stmt.get());
     }
-    
-    // Pop catchBB from stack
     catchStack.pop_back();
 
-    // If we reach here, no exception was thrown, so pop the handler
-    createCall(popFn->getFunctionType(), popFn, {});
-    builder->CreateBr(finallyBB);
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        createCall(popFn->getFunctionType(), popFn, {});
+        builder->CreateBr(finallyBB);
+    }
 
     // --- Catch Block ---
     builder->SetInsertPoint(catchBB);
-    // The handler was already popped by ts_throw
+    llvm::Value* exc = createCall(getExcFn->getFunctionType(), getExcFn, {});
+    
     if (node->catchClause) {
+        llvm::BasicBlock* catchBodyBB = llvm::BasicBlock::Create(*context, "catch_body", currentFn);
+        llvm::BasicBlock* catchThrowBB = llvm::BasicBlock::Create(*context, "catch_throw", currentFn);
+
+        llvm::Value* jmpBuf2 = createCall(pushFn->getFunctionType(), pushFn, {});
+        llvm::Value* setjmpRes2 = createCall(setjmpFn->getFunctionType(), setjmpFn, {jmpBuf2, framePtr});
+        
+        llvm::Value* isCatch2 = builder->CreateICmpNE(setjmpRes2, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+        builder->CreateCondBr(isCatch2, catchThrowBB, catchBodyBB);
+        
+        builder->SetInsertPoint(catchBodyBB);
         if (node->catchClause->variable) {
-            llvm::Value* exc = createCall(getExcFn->getFunctionType(), getExcFn, {});
             generateDestructuring(exc, std::make_shared<Type>(TypeKind::Any), node->catchClause->variable.get());
         }
         for (auto& stmt : node->catchClause->block) {
             visit(stmt.get());
         }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            createCall(popFn->getFunctionType(), popFn, {});
+            builder->CreateBr(finallyBB);
+        }
+        
+        builder->SetInsertPoint(catchThrowBB);
+        llvm::Value* newExc = createCall(getExcFn->getFunctionType(), getExcFn, {});
+        builder->CreateStore(newExc, pendingExc);
+        builder->CreateBr(finallyBB);
+    } else {
+        builder->CreateStore(exc, pendingExc);
+        builder->CreateBr(finallyBB);
     }
-    builder->CreateBr(finallyBB);
+
+    currentBreakBB = oldBreakBB;
+    currentContinueBB = oldContinueBB;
 
     // --- Finally Block ---
     builder->SetInsertPoint(finallyBB);
+    auto info = finallyStack.back();
+    finallyStack.pop_back();
+
     for (auto& stmt : node->finallyBlock) {
         visit(stmt.get());
     }
-    builder->CreateBr(mergeBB);
+    
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        // 1. Check for rethrow
+        llvm::Value* toRethrow = builder->CreateLoad(builder->getPtrTy(), pendingExc);
+        llvm::Value* shouldRethrow = builder->CreateICmpNE(toRethrow, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+        
+        llvm::BasicBlock* rethrowBB = llvm::BasicBlock::Create(*context, "rethrow", currentFn);
+        llvm::BasicBlock* checkReturnBB = llvm::BasicBlock::Create(*context, "check_return", currentFn);
+        builder->CreateCondBr(shouldRethrow, rethrowBB, checkReturnBB);
+        
+        builder->SetInsertPoint(rethrowBB);
+        llvm::Function* throwFn = getRuntimeFunction("ts_throw");
+        createCall(throwFn->getFunctionType(), throwFn, {toRethrow});
+        builder->CreateUnreachable();
 
-    builder->SetInsertPoint(mergeBB);
+        // 2. Check for return
+        builder->SetInsertPoint(checkReturnBB);
+        llvm::Value* shouldReturn = builder->CreateLoad(builder->getInt1Ty(), currentShouldReturnAlloca);
+        
+        llvm::BasicBlock* checkBreakBB = llvm::BasicBlock::Create(*context, "check_break", currentFn);
+        
+        if (info.nextFinallyBB != currentReturnBB) {
+            llvm::BasicBlock* popAndRetBB = llvm::BasicBlock::Create(*context, "pop_and_ret", currentFn);
+            builder->CreateCondBr(shouldReturn, popAndRetBB, checkBreakBB);
+            builder->SetInsertPoint(popAndRetBB);
+            createCall(popFn->getFunctionType(), popFn, {});
+            builder->CreateBr(info.nextFinallyBB);
+        } else {
+            builder->CreateCondBr(shouldReturn, info.nextFinallyBB, checkBreakBB);
+        }
+
+        // 3. Check for break
+        builder->SetInsertPoint(checkBreakBB);
+        llvm::Value* shouldBreak = builder->CreateLoad(builder->getInt1Ty(), currentShouldBreakAlloca);
+        
+        llvm::BasicBlock* checkContinueBB = llvm::BasicBlock::Create(*context, "check_continue", currentFn);
+        if (info.nextBreakBB) {
+            if (info.nextBreakIsFinally) {
+                llvm::BasicBlock* popAndBreakBB = llvm::BasicBlock::Create(*context, "pop_and_break", currentFn);
+                builder->CreateCondBr(shouldBreak, popAndBreakBB, checkContinueBB);
+                builder->SetInsertPoint(popAndBreakBB);
+                createCall(popFn->getFunctionType(), popFn, {});
+                builder->CreateBr(info.nextBreakBB);
+            } else {
+                builder->CreateCondBr(shouldBreak, info.nextBreakBB, checkContinueBB);
+            }
+        } else {
+            builder->CreateBr(checkContinueBB);
+        }
+
+        // 4. Check for continue
+        builder->SetInsertPoint(checkContinueBB);
+        llvm::Value* shouldContinue = builder->CreateLoad(builder->getInt1Ty(), currentShouldContinueAlloca);
+        if (info.nextContinueBB) {
+            if (info.nextContinueIsFinally) {
+                llvm::BasicBlock* popAndContinueBB = llvm::BasicBlock::Create(*context, "pop_and_continue", currentFn);
+                builder->CreateCondBr(shouldContinue, popAndContinueBB, mergeBB);
+                builder->SetInsertPoint(popAndContinueBB);
+                createCall(popFn->getFunctionType(), popFn, {});
+                builder->CreateBr(info.nextContinueBB);
+            } else {
+                builder->CreateCondBr(shouldContinue, info.nextContinueBB, mergeBB);
+            }
+        } else {
+            builder->CreateBr(mergeBB);
+        }
+
+        builder->SetInsertPoint(mergeBB);
+    }
 }
 
 void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
+    emitLocation(node);
     llvm::Function* throwFn = getRuntimeFunction("ts_throw");
     visit(node->expression.get());
     llvm::Value* exc = lastValue;
     
-    // Ensure exc is a pointer (all TS objects are pointers)
-    if (!exc->getType()->isPointerTy()) {
-        // This shouldn't happen for objects, but might for primitives if we don't box them
-        // For now, just cast to ptr
-        exc = builder->CreateIntToPtr(exc, llvm::PointerType::getUnqual(*context));
+    // Ensure the exception is boxed
+    if (!boxedValues.count(exc)) {
+        exc = boxValue(exc, node->expression->inferredType);
     }
     
     createCall(throwFn->getFunctionType(), throwFn, {exc});
@@ -324,10 +471,28 @@ void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
 }
 
 void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
-    if (loopStack.empty()) {
+    if (loopStack.empty() && !currentBreakBB) {
         return;
     }
-    builder->CreateBr(loopStack.back().breakBlock);
+    
+    if (currentBreakBB) {
+        bool isFinally = false;
+        for (const auto& f : finallyStack) {
+            if (f.finallyBB == currentBreakBB) {
+                isFinally = true;
+                break;
+            }
+        }
+
+        if (isFinally) {
+            builder->CreateStore(builder->getInt1(true), currentShouldBreakAlloca);
+            
+            llvm::Function* popFn = getRuntimeFunction("ts_pop_exception_handler");
+            createCall(popFn->getFunctionType(), popFn, {});
+        }
+        builder->CreateBr(currentBreakBB);
+    }
+
     // Start a new block for dead code after break
     llvm::Function* func = builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* deadBB = llvm::BasicBlock::Create(*context, "dead", func);
@@ -335,10 +500,28 @@ void IRGenerator::visitBreakStatement(ast::BreakStatement* node) {
 }
 
 void IRGenerator::visitContinueStatement(ast::ContinueStatement* node) {
-    if (loopStack.empty()) {
+    if (loopStack.empty() && !currentContinueBB) {
         return;
     }
-    builder->CreateBr(loopStack.back().continueBlock);
+
+    if (currentContinueBB) {
+        bool isFinally = false;
+        for (const auto& f : finallyStack) {
+            if (f.finallyBB == currentContinueBB) {
+                isFinally = true;
+                break;
+            }
+        }
+
+        if (isFinally) {
+            builder->CreateStore(builder->getInt1(true), currentShouldContinueAlloca);
+            
+            llvm::Function* popFn = getRuntimeFunction("ts_pop_exception_handler");
+            createCall(popFn->getFunctionType(), popFn, {});
+        }
+        builder->CreateBr(currentContinueBB);
+    }
+
     // Start a new block for dead code after continue
     llvm::Function* func = builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* deadBB = llvm::BasicBlock::Create(*context, "dead", func);

@@ -582,6 +582,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             }
         } else if (objType->kind == TypeKind::Any) {
             lastType = std::make_shared<Type>(TypeKind::Any);
+            node->inferredType = lastType;
             return;
         }
 
@@ -593,6 +594,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
         reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
 }
 
 void Analyzer::visitSuperExpression(ast::SuperExpression* node) {

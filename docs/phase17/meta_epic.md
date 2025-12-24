@@ -42,9 +42,9 @@ Unlike a JIT, `ts-aot` has access to the full type graph before emitting code. W
 - [ ] **Mixins:** Update AST to support `class extends expression` and implement in codegen.
 
 ### Epic 93: Error Handling
-- [ ] **Exception Mechanism:** Finalize the `setjmp/longjmp` mechanism or transition to C++ exceptions for better interop.
-- [ ] **Stack Traces:** Capture C++ stack traces and map them back to TypeScript source lines using debug info.
-- [ ] **Finally Blocks:** Ensure `finally` is executed on both success and error paths (including `return` from `try`).
+- [x] **Exception Mechanism:** Implemented `setjmp/longjmp` mechanism for exception handling.
+- [x] **Stack Traces:** Capture native stack traces and map them back to TypeScript source lines using LLVM `DIBuilder`.
+- [x] **Finally Blocks:** Ensure `finally` is executed on both success and error paths (including `return` from `try`).
 
 ### Epic 94: Modern Syntax Sugar
 - [ ] **Optional Chaining:** Implement `?.` for property access, element access, and calls.

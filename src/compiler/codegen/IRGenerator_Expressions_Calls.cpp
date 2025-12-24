@@ -6,6 +6,7 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
+    emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
 
     if (node->isComptime) {

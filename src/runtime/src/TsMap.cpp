@@ -234,6 +234,7 @@ extern "C" {
     TsValue* ts_map_get_property(void* obj, void* propName) {
         TsString* prop = (TsString*)propName;
         const char* name = prop->ToUtf8();
+        printf("ts_map_get_property: name = %s\n", name);
         
         if (strcmp(name, "get") == 0) {
             return ts_value_make_function((void*)ts_map_get_wrapper, obj);
@@ -247,6 +248,15 @@ extern "C" {
             return ts_value_make_function((void*)ts_map_clear_wrapper, obj);
         } else if (strcmp(name, "size") == 0) {
             return ts_value_make_int(ts_map_size(obj));
+        }
+        
+        // Fallback: look in the map
+        TsMap* map = (TsMap*)obj;
+        if (map->Has(prop)) {
+            TsValue val = map->Get(prop);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
         }
         
         return ts_value_make_undefined();

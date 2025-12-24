@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
             ("emit-obj", "Emit object file (legacy)", cxxopts::value<std::string>())
             ("emit-exe", "Emit executable (legacy)", cxxopts::value<std::string>())
             ("lib-path", "Additional library search path", cxxopts::value<std::vector<std::string>>())
+            ("g,debug", "Generate debug information", cxxopts::value<bool>()->default_value("false"))
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
@@ -83,6 +84,7 @@ int main(int argc, char** argv) {
 
         ts::DriverOptions driverOpts;
         driverOpts.inputFile = result["input"].as<std::string>();
+        driverOpts.debug = result["debug"].as<bool>();
         
         if (result.count("output")) {
             driverOpts.outputFile = result["output"].as<std::string>();

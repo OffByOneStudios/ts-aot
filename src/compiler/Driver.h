@@ -15,6 +15,7 @@ struct DriverOptions {
     bool dumpIR = false;
     bool dumpTypes = false;
     bool compileOnly = false;
+    bool debug = false;
     bool runAfterLink = false;
     bool smallIcu = false;
     bool verbose = false;

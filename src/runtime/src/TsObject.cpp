@@ -179,15 +179,7 @@ TsValue* ts_value_make_int(int64_t i) {
     void* ts_value_get_property(TsValue* val, void* propName) {
         if (!val || !propName) return nullptr;
         
-        TsValue* propVal = (TsValue*)propName;
-
-        TsString* key = nullptr;
-        if (propVal->type == ValueType::STRING_PTR) {
-            key = (TsString*)propVal->ptr_val;
-        } else {
-            // TODO: Handle other types by converting to string
-            return nullptr;
-        }
+        TsString* key = (TsString*)propName;
 
         if (val->type == ValueType::OBJECT_PTR || val->type == ValueType::ARRAY_PTR || val->type == ValueType::PROMISE_PTR) {
             return ts_object_get_property(val->ptr_val, key);

@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include <filesystem>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -91,6 +92,21 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
         builder->SetInsertPoint(bb);
 
+        if (debug && spec.node) {
+            // Actually, we should have the file name from the compileUnit
+            llvm::DIFile* unitFile = compileUnit->getFile();
+            
+            llvm::DISubroutineType* debugFuncType = diBuilder->createSubroutineType(diBuilder->getOrCreateTypeArray({})); // TODO: proper types
+            
+            llvm::DISubprogram* sp = diBuilder->createFunction(
+                unitFile, spec.specializedName, spec.specializedName, unitFile,
+                spec.node->line, debugFuncType, spec.node->line,
+                llvm::DINode::FlagPrototyped, llvm::DISubprogram::SPFlagDefinition);
+            function->setSubprogram(sp);
+            debugScopes.push_back(sp);
+            emitLocation(spec.node);
+        }
+
         namedValues.clear();
         nonNullValues.clear();
         checkedAllocas.clear();
@@ -98,6 +114,32 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         anonVarCounter = 0;
 
         currentClass = spec.classType;
+        finallyStack.clear();
+        currentBreakBB = nullptr;
+        currentContinueBB = nullptr;
+
+        // Initialize return-related variables
+        currentReturnBB = llvm::BasicBlock::Create(*context, "return", function);
+        currentShouldReturnAlloca = createEntryBlockAlloca(function, "shouldReturn", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
+
+        currentShouldBreakAlloca = createEntryBlockAlloca(function, "shouldBreak", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+        currentShouldContinueAlloca = createEntryBlockAlloca(function, "shouldContinue", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+        
+        currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
+        currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
+        
+        if (!function->getReturnType()->isVoidTy()) {
+            currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", function->getReturnType());
+            builder->CreateStore(llvm::Constant::getNullValue(function->getReturnType()), currentReturnValueAlloca);
+        } else {
+            currentReturnValueAlloca = nullptr;
+        }
+
+        // ... rest of the function ...
+        // (I'll need to find where the body is generated)
         currentReturnType = spec.returnType;
         typeEnvironment.clear();
         currentAsyncFrame = nullptr;
@@ -288,12 +330,21 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         }
 
         if (!builder->GetInsertBlock()->getTerminator()) {
-            llvm::Type* retType = function->getReturnType();
-            if (retType->isVoidTy()) {
-                builder->CreateRetVoid();
-            } else {
-                builder->CreateRet(llvm::Constant::getNullValue(retType));
-            }
+            builder->CreateBr(currentReturnBB);
+        }
+
+        // Emit the actual return block
+        builder->SetInsertPoint(currentReturnBB);
+        llvm::Type* retType = function->getReturnType();
+        if (retType->isVoidTy()) {
+            builder->CreateRetVoid();
+        } else {
+            llvm::Value* retVal = builder->CreateLoad(retType, currentReturnValueAlloca);
+            builder->CreateRet(retVal);
+        }
+
+        if (debug && spec.node) {
+            debugScopes.pop_back();
         }
     }
 }
