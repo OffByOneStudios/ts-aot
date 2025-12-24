@@ -6,7 +6,28 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
-    SPDLOG_DEBUG("visitCallExpression");
+    SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
+
+    if (node->isComptime) {
+        SPDLOG_DEBUG("Handling comptime call");
+        if (node->arguments.size() > 0) {
+            if (auto arrow = dynamic_cast<ast::ArrowFunction*>(node->arguments[0].get())) {
+                if (auto block = dynamic_cast<ast::BlockStatement*>(arrow->body.get())) {
+                    if (block->statements.size() == 1) {
+                        if (auto ret = dynamic_cast<ast::ReturnStatement*>(block->statements[0].get())) {
+                            visit(ret->expression.get());
+                            return;
+                        }
+                    }
+                } else {
+                    // Expression body
+                    visit(arrow->body.get());
+                    return;
+                }
+            }
+        }
+    }
+
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;
@@ -56,6 +77,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    SPDLOG_DEBUG("Calling tryGenerateMemberCall");
     if (tryGenerateMemberCall(node)) {
         return;
     }

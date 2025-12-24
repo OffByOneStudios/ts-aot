@@ -78,6 +78,30 @@ function isAsync(node) {
     return false;
 }
 
+function isGenerator(node) {
+    return !!node.asteriskToken;
+}
+
+function getDecorators(node) {
+    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : (node.decorators);
+    if (!decorators) {
+        // console.error("No decorators for", node.kind);
+        return [];
+    }
+    return decorators.map(d => {
+        const expr = d.expression;
+        if (ts.isIdentifier(expr)) return expr.text;
+        if (ts.isCallExpression(expr)) {
+            if (ts.isIdentifier(expr.expression)) return expr.expression.text;
+            return expr.expression.getText(currentSourceFile);
+        }
+        if (ts.isPropertyAccessExpression(expr)) {
+            return expr.getText(currentSourceFile);
+        }
+        return expr.getText(currentSourceFile);
+    });
+}
+
 function hasDecorator(node, name) {
     // Check for actual decorators
     const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : (node.decorators);
@@ -175,11 +199,12 @@ function visitInternal(node) {
                 isExported: isExported(node),
                 isDefaultExport: isDefaultExport(node),
                 isAsync: isAsync(node),
-                isGenerator: !!node.asteriskToken,
+                isGenerator: isGenerator(node),
                 typeParameters: getTypeParameters(node),
                 returnType: node.type ? node.type.getText(currentSourceFile) : "",
                 parameters: node.parameters.map(visitParameter),
-                body: visitBlock(node.body)
+                body: visitBlock(node.body),
+                decorators: getDecorators(node)
             };
         case ts.SyntaxKind.ClassDeclaration:
             let baseClass = "";
@@ -203,7 +228,8 @@ function visitInternal(node) {
                 implementsInterfaces: implementsInterfaces,
                 members: node.members.map(visit).filter(m => m),
                 isAbstract: isAbstract(node),
-                isStruct: hasDecorator(node, "struct")
+                isStruct: hasDecorator(node, "struct"),
+                decorators: getDecorators(node)
             };
 
         case ts.SyntaxKind.ClassStaticBlockDeclaration:
@@ -238,7 +264,8 @@ function visitInternal(node) {
                 initializer: node.initializer ? visit(node.initializer) : null,
                 access: getAccessModifier(node),
                 isStatic: isStatic(node),
-                isReadonly: isReadonly(node)
+                isReadonly: isReadonly(node),
+                decorators: getDecorators(node)
             };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:
@@ -259,7 +286,8 @@ function visitInternal(node) {
                 isStatic: isStatic(node),
                 isAbstract: isAbstract(node),
                 isGetter: node.kind === ts.SyntaxKind.GetAccessor,
-                isSetter: node.kind === ts.SyntaxKind.SetAccessor
+                isSetter: node.kind === ts.SyntaxKind.SetAccessor,
+                decorators: getDecorators(node)
             };
         case ts.SyntaxKind.Constructor:
              return {
@@ -652,6 +680,8 @@ function visitInternal(node) {
                 })),
                 isExported: isExported(node)
             };
+        case ts.SyntaxKind.Decorator:
+            return null;
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;

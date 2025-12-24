@@ -298,11 +298,14 @@ void IRGenerator::generateEntryPoint() {
     
     // Call static initializers for all classes
     if (analyzer) {
+        SPDLOG_DEBUG("Calling static initializers for {} global types", analyzer->getSymbolTable().getGlobalTypes().size());
         for (auto& [name, type] : analyzer->getSymbolTable().getGlobalTypes()) {
+            SPDLOG_DEBUG("Checking global type: {} (kind {})", name, (int)type->kind);
             if (type->kind == TypeKind::Class) {
                 auto classType = std::static_pointer_cast<ClassType>(type);
-                std::string initName = classType->name + "_static_init";
+                std::string initName = classType->name + "___static_init";
                 if (llvm::Function* sinitFunc = module->getFunction(initName)) {
+                    SPDLOG_DEBUG("Calling static initializer: {}", initName);
                     llvm::FunctionType* sinitFt = sinitFunc->getFunctionType();
                     createCall(sinitFt, sinitFunc, { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
                 }

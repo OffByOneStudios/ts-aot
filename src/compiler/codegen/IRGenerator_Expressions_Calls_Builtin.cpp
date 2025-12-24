@@ -7,6 +7,7 @@ namespace ts {
 using namespace ast;
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
     if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Int || prop->expression->inferredType->kind == TypeKind::Double)) {
         if (prop->name == "toString" || prop->name == "toFixed") {
             visit(prop->expression.get());

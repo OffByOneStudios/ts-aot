@@ -112,6 +112,7 @@ struct FunctionType : public Type {
     bool hasRest = false;
     std::shared_ptr<Type> returnType;
     std::vector<std::shared_ptr<TypeParameterType>> typeParameters;
+    bool isComptime = false;
 
     FunctionType() : Type(TypeKind::Function) {}
     
@@ -143,6 +144,7 @@ struct ObjectType : public Type {
 
 struct ClassType : public Type {
     std::string name;
+    std::string originalName;
     ast::ClassDeclaration* node = nullptr;
     bool isAbstract = false;
     bool isStruct = false;
@@ -165,6 +167,10 @@ struct ClassType : public Type {
     std::set<std::string> readonlyFields;
     std::set<std::string> staticReadonlyFields;
     std::set<std::string> abstractMethods;
+    std::set<std::string> comptimeFields;
+    std::set<std::string> staticComptimeFields;
+    std::set<std::string> comptimeMethods;
+    std::set<std::string> staticComptimeMethods;
     std::vector<ast::StaticBlock*> staticBlocks;
     std::vector<std::shared_ptr<Type>> typeArguments;
 

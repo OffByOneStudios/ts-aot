@@ -36,6 +36,23 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     }
     SPDLOG_DEBUG("Analyzer::visitCallExpression: {}", calleeName);
     
+    // Check for ts_aot.comptime
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        if (auto id = dynamic_cast<Identifier*>(prop->expression.get())) {
+            if (id->name == "ts_aot" && prop->name == "comptime") {
+                node->isComptime = true;
+                if (node->arguments.size() > 0) {
+                    visit(node->arguments[0].get());
+                    if (lastType->kind == TypeKind::Function) {
+                        auto funcType = std::static_pointer_cast<FunctionType>(lastType);
+                        lastType = funcType->returnType;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     // Check for property access calls (methods)
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
         if (prop->name == "charCodeAt") {

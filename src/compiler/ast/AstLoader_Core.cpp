@@ -43,6 +43,14 @@ std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
     return node;
 }
 
+void parseDecorators(std::vector<std::string>& decorators, const json& j) {
+    if (j.contains("decorators") && j["decorators"].is_array()) {
+        for (const auto& d : j["decorators"]) {
+            decorators.push_back(d.get<std::string>());
+        }
+    }
+}
+
 std::unique_ptr<Parameter> parseParameter(const json& j) {
     auto node = std::make_unique<Parameter>();
     setLocation(node.get(), j);
@@ -169,6 +177,7 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("isReadonly")) {
             node->isReadonly = j["isReadonly"];
         }
+        parseDecorators(node->decorators, j);
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();
@@ -212,6 +221,7 @@ NodePtr parseClassMember(const json& j) {
         for (const auto& stmt : j["body"]) {
             node->body.push_back(parseStatement(stmt));
         }
+        parseDecorators(node->decorators, j);
         return node;
     } else if (kind == "StaticBlock") {
         auto node = std::make_unique<StaticBlock>();
