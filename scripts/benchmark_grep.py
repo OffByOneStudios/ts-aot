@@ -12,7 +12,7 @@ def run_command(cmd, shell=False):
 def main():
     is_windows = sys.platform == "win32"
     ts_file = "examples/ts-grep/ts-grep.ts"
-    aot_exe = os.path.abspath("build/tests/ts-grep/Release/test_app.exe")
+    aot_exe = os.path.abspath("examples/ts-grep/ts-grep.exe")
     search_dir = "src"
     pattern = "llvm"
     iterations = 5

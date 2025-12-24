@@ -58,8 +58,8 @@ def start_server(cmd):
     return process
 
 async def main():
-    aot_exe = os.path.abspath("build/Release/test_app.exe")
-    lto_exe = os.path.abspath("build/Release/test_app_lto.exe")
+    aot_exe = os.path.abspath("examples/http-server/http-server.exe")
+    lto_exe = os.path.abspath("examples/http-server/http-server-lto.exe")
     node_script = os.path.abspath("examples/http-server/http-server.js")
     
     # 1. Benchmark AOT (Non-LTO)
