@@ -7,6 +7,7 @@ namespace ts {
 using namespace ast;
 
 bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
+    SPDLOG_DEBUG("tryGenerateMemberCall");
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
 

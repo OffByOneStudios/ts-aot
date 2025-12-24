@@ -254,6 +254,8 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
+        node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
@@ -488,10 +490,14 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
                 fieldName = manglePrivateName(fieldName, cls->name);
             }
             std::string mangledName = cls->name + "_" + fieldName;
+            SPDLOG_DEBUG("Looking up static field: {} in class {}", mangledName, cls->name);
             auto* gVar = module->getGlobalVariable(mangledName);
             if (gVar) {
+                SPDLOG_DEBUG("Found static field: {}", mangledName);
                 lastValue = builder->CreateLoad(gVar->getValueType(), gVar);
                 return;
+            } else {
+                SPDLOG_DEBUG("Static field not found: {}", mangledName);
             }
 
             // Check if it's a static method
@@ -526,7 +532,9 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
         if (fieldName.starts_with("#")) {
             if (currentClass && currentClass->kind == TypeKind::Class) {
-                fieldName = manglePrivateName(fieldName, std::static_pointer_cast<ClassType>(currentClass)->name);
+                auto cls = std::static_pointer_cast<ClassType>(currentClass);
+                std::string baseName = cls->originalName.empty() ? cls->name : cls->originalName;
+                fieldName = manglePrivateName(fieldName, baseName);
             }
         }
         

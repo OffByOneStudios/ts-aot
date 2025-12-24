@@ -9,6 +9,7 @@ using namespace ast;
 
 void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>(node->name);
+    classType->originalName = node->name;
     classType->isAbstract = node->isAbstract;
     classType->isStruct = node->isStruct;
     classType->node = node;
@@ -63,26 +64,59 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
 
     // 3. Scan members to populate fields and methods
     for (const auto& member : node->members) {
+        bool isComptime = false;
+        for (const auto& decorator : member->decorators) {
+            if (decorator == "ts_aot.comptime") {
+                isComptime = true;
+                break;
+            }
+        }
+
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             auto propType = parseType(prop->type, symbols);
             std::string name = manglePrivateName(prop->name, node->name);
-            fmt::print("DEBUG: Adding field {} (original {}) to class {}\n", name, prop->name, node->name);
             if (prop->isStatic) {
-                classType->staticFields[name] = propType;
+                auto existingType = classType->staticFields.count(name) ? classType->staticFields[name] : nullptr;
+                bool isNewTypeBetter = (propType->kind != TypeKind::Any && propType->kind != TypeKind::Unknown);
+                bool isOldTypeGeneric = (!existingType || existingType->kind == TypeKind::Any || existingType->kind == TypeKind::Unknown);
+
+                if (isOldTypeGeneric || isNewTypeBetter) {
+                    SPDLOG_DEBUG("  Updating static field {} to type: {}", name, propType->toString());
+                    classType->staticFields[name] = propType;
+                }
                 classType->staticFieldAccess[name] = prop->access;
                 if (prop->isReadonly) {
                     classType->staticReadonlyFields.insert(name);
                 }
+                if (isComptime) {
+                    classType->staticComptimeFields.insert(name);
+                }
             } else {
-                classType->fields[name] = propType;
+                auto existingType = classType->fields.count(name) ? classType->fields[name] : nullptr;
+                bool isNewTypeBetter = (propType->kind != TypeKind::Any && propType->kind != TypeKind::Unknown);
+                bool isOldTypeGeneric = (!existingType || existingType->kind == TypeKind::Any || existingType->kind == TypeKind::Unknown);
+
+                if (isOldTypeGeneric || isNewTypeBetter) {
+                    classType->fields[name] = propType;
+                }
                 classType->fieldAccess[name] = prop->access;
                 if (prop->isReadonly) {
                     classType->readonlyFields.insert(name);
+                }
+                if (isComptime) {
+                    classType->comptimeFields.insert(name);
                 }
             }
         }
         if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             std::string name = manglePrivateName(method->name, node->name);
+            if (isComptime) {
+                if (method->isStatic) {
+                    classType->staticComptimeMethods.insert(name);
+                } else {
+                    classType->comptimeMethods.insert(name);
+                }
+            }
             if (method->name == "constructor") {
                 for (const auto& param : method->parameters) {
                     if (param->isParameterProperty) {
@@ -258,8 +292,26 @@ void Analyzer::visitStaticBlock(ast::StaticBlock* node) {
 
 void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr<ClassType> classType) {
     if (node->initializer) {
-        visit(node->initializer.get());
-        // TODO: Check type compatibility
+        node->initializer->accept(this);
+        auto type = lastType;
+        std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
+        std::string name = manglePrivateName(node->name, baseName);
+        SPDLOG_DEBUG("  Property {} inferred type: {}", name, type->toString());
+        if (node->isStatic) {
+            if (classType->staticFields.count(name)) {
+                auto currentType = classType->staticFields[name];
+                if (currentType->kind == TypeKind::Unknown || currentType->kind == TypeKind::Any) {
+                    classType->staticFields[name] = type;
+                }
+            }
+        } else {
+            if (classType->fields.count(name)) {
+                auto currentType = classType->fields[name];
+                if (currentType->kind == TypeKind::Unknown || currentType->kind == TypeKind::Any) {
+                    classType->fields[name] = type;
+                }
+            }
+        }
     }
 }
 
@@ -314,7 +366,24 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
 
 std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     auto classType = std::make_shared<ClassType>(node->name);
+    classType->originalName = node->name;
     
+    // Copy inferred types from original class if it exists
+    auto existing = symbols.lookupType(node->name);
+    if (existing && existing->kind == TypeKind::Class) {
+        auto existingClass = std::static_pointer_cast<ClassType>(existing);
+        classType->staticFields = existingClass->staticFields;
+        classType->fields = existingClass->fields;
+        classType->staticFieldAccess = existingClass->staticFieldAccess;
+        classType->fieldAccess = existingClass->fieldAccess;
+        classType->staticReadonlyFields = existingClass->staticReadonlyFields;
+        classType->readonlyFields = existingClass->readonlyFields;
+        classType->staticComptimeFields = existingClass->staticComptimeFields;
+        classType->comptimeFields = existingClass->comptimeFields;
+        classType->staticComptimeMethods = existingClass->staticComptimeMethods;
+        classType->comptimeMethods = existingClass->comptimeMethods;
+    }
+
     if (!node->baseClass.empty()) {
         auto base = symbols.lookupType(node->baseClass);
         if (base && base->kind == TypeKind::Class) {
@@ -337,9 +406,13 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
             auto propType = parseType(prop->type, symbols);
             std::string name = manglePrivateName(prop->name, node->name);
             if (prop->isStatic) {
-                classType->staticFields[name] = substitute(propType, env);
+                if (!classType->staticFields.count(name) || propType->kind != TypeKind::Unknown) {
+                    classType->staticFields[name] = substitute(propType, env);
+                }
             } else {
-                classType->fields[name] = substitute(propType, env);
+                if (!classType->fields.count(name) || propType->kind != TypeKind::Unknown) {
+                    classType->fields[name] = substitute(propType, env);
+                }
             }
         } else if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
             if (method->name == "constructor") {

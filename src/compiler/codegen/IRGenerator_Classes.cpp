@@ -306,12 +306,53 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     }
 
     // 4. Fourth pass: Generate static fields and methods
+    SPDLOG_DEBUG("Fourth pass: Generate static fields and methods");
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
+        SPDLOG_DEBUG("  Processing class: {}", name);
         for (const auto& [fname, ftype] : classType->staticFields) {
+            SPDLOG_DEBUG("    Field: {} (type: {})", fname, ftype->toString());
             std::string globalName = name + "_" + fname;
             llvm::Type* llvmType = getLLVMType(ftype);
-            new llvm::GlobalVariable(*module, llvmType, false, llvm::GlobalValue::ExternalLinkage, llvm::Constant::getNullValue(llvmType), globalName);
+            
+            llvm::Constant* initVal = llvm::Constant::getNullValue(llvmType);
+            
+            // Check if this is a comptime field
+            if (classType->staticComptimeFields.count(fname)) {
+                SPDLOG_DEBUG("      Comptime field detected");
+                // Find the initializer
+                if (classType->node) {
+                    for (const auto& member : classType->node->members) {
+                        if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                            std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
+                            std::string mangledName = manglePrivateName(prop->name, baseName);
+                            if (mangledName == fname && prop->initializer) {
+                                SPDLOG_DEBUG("      Found initializer for {}", fname);
+                                // Simple evaluation for now: if it's a literal, use it.
+                                if (auto num = dynamic_cast<ast::NumericLiteral*>(prop->initializer.get())) {
+                                    if (llvmType->isIntegerTy()) {
+                                        initVal = llvm::ConstantInt::get(llvmType, (uint64_t)num->value);
+                                    } else if (llvmType->isDoubleTy() || llvmType->isFloatTy()) {
+                                        initVal = llvm::ConstantFP::get(llvmType, num->value);
+                                    } else {
+                                        SPDLOG_DEBUG("      Cannot use numeric literal for non-numeric type");
+                                    }
+                                } else if (auto str = dynamic_cast<ast::StringLiteral*>(prop->initializer.get())) {
+                                    if (ftype->kind == TypeKind::String) {
+                                        // We can't easily create a TsString constant here because it requires a constructor call.
+                                        // But we can store the raw string and let the static initializer handle it?
+                                        // No, the point of comptime is to avoid runtime init.
+                                        // For now, we'll just support numeric literals for constant globals.
+                                        SPDLOG_DEBUG("      String literals not yet supported for constant globals");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            new llvm::GlobalVariable(*module, llvmType, false, llvm::GlobalValue::ExternalLinkage, initVal, globalName);
         }
     }
 
@@ -355,7 +396,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                 if (!prop->isStatic && prop->initializer) {
                     visit(prop->initializer.get());
-                    std::string mangledName = manglePrivateName(prop->name, classType->name);
+                    std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
+                    std::string mangledName = manglePrivateName(prop->name, baseName);
                     int fieldIdx = layout.fieldIndices[mangledName];
                     llvm::Value* fieldPtr = builder->CreateStructGEP(structType, typedThis, fieldIdx);
                     
@@ -385,9 +427,12 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 5. Fifth pass: Generate static initializers
     for (const auto& classType : allClassTypes) {
+        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields", 
+            classType->name, classType->staticBlocks.size(), classType->staticFields.size());
         if (classType->staticBlocks.empty() && classType->staticFields.empty()) continue;
 
-        std::string initName = classType->name + "_static_init";
+        std::string initName = classType->name + "___static_init";
+        SPDLOG_DEBUG("Generating static initializer: {}", initName);
         llvm::FunctionType* initFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
         llvm::Function* initFunc = llvm::Function::Create(initFt, llvm::Function::ExternalLinkage, initName, module.get());
         addStackProtection(initFunc);
@@ -407,8 +452,17 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             for (const auto& member : classType->node->members) {
                 if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                     if (prop->isStatic && prop->initializer) {
+                        std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
+                        std::string mangledName = manglePrivateName(prop->name, baseName);
+                        
+                        // Skip if already initialized as a constant in the global
+                        if (classType->staticComptimeFields.count(mangledName)) {
+                            if (dynamic_cast<ast::NumericLiteral*>(prop->initializer.get())) {
+                                continue;
+                            }
+                        }
+
                         visit(prop->initializer.get());
-                        std::string mangledName = manglePrivateName(prop->name, classType->name);
                         std::string globalName = classType->name + "_" + mangledName;
                         llvm::GlobalVariable* gv = module->getGlobalVariable(globalName);
                         if (gv) {

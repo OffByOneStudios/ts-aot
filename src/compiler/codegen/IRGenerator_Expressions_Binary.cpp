@@ -741,7 +741,9 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
             if (fieldName.starts_with("#")) {
                 if (currentClass && currentClass->kind == TypeKind::Class) {
-                    fieldName = manglePrivateName(fieldName, std::static_pointer_cast<ClassType>(currentClass)->name);
+                    auto cls = std::static_pointer_cast<ClassType>(currentClass);
+                    std::string baseName = cls->originalName.empty() ? cls->name : cls->originalName;
+                    fieldName = manglePrivateName(fieldName, baseName);
                 }
             }
             

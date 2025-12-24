@@ -41,6 +41,7 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("isStruct")) {
             node->isStruct = j["isStruct"];
         }
+        parseDecorators(node->decorators, j);
         return node;
     } else if (kind == "InterfaceDeclaration") {
         auto node = std::make_unique<InterfaceDeclaration>();
@@ -85,6 +86,7 @@ StmtPtr parseStatement(const json& j) {
             }
         }
         if (j.contains("returnType")) node->returnType = j["returnType"];
+        parseDecorators(node->decorators, j);
         for (const auto& stmt : j["body"]) {
             node->body.push_back(parseStatement(stmt));
         }

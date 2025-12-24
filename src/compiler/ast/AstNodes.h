@@ -154,6 +154,7 @@ struct Node {
     virtual void accept(Visitor* visitor) = 0;
     int line = 0;
     int column = 0;
+    std::vector<std::string> decorators;
 };
 
 struct Statement : Node {};
@@ -508,6 +509,7 @@ struct CallExpression : Expression {
     std::vector<ExprPtr> arguments;
     std::vector<std::string> typeArguments;
     std::vector<std::shared_ptr<ts::Type>> resolvedTypeArguments;
+    bool isComptime = false;
     std::string getKind() const override { return "CallExpression"; }
     void accept(Visitor* visitor) override { 
         // printf("CallExpression::accept\n");

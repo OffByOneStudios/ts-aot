@@ -486,8 +486,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 }
                 // Private fields are strictly scoped to the class they are defined in.
                 // In TS, #x in class A is only accessible in A.
-                name = manglePrivateName(name, currentClass->name);
-                fmt::print("DEBUG: Mangled {} to {} using currentClass {}\n", node->name, name, currentClass->name);
+                std::string className = currentClass->originalName.empty() ? currentClass->name : currentClass->originalName;
+                name = manglePrivateName(name, className);
             }
 
             auto current = cls;

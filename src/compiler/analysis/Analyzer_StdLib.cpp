@@ -38,6 +38,14 @@ Analyzer::Analyzer() {
     symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::String);
     symbols.define("Symbol", symbolType);
 
+    // Register ts_aot intrinsic namespace
+    auto tsAotType = std::make_shared<ObjectType>();
+    auto comptimeType = std::make_shared<FunctionType>();
+    comptimeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    comptimeType->returnType = std::make_shared<Type>(TypeKind::Any);
+    tsAotType->fields["comptime"] = comptimeType;
+    symbols.define("ts_aot", tsAotType);
+
     // Register TypedArrays
     auto uint8ArrayClass = std::make_shared<ClassType>("Uint8Array");
     uint8ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);

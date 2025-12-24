@@ -31,6 +31,10 @@ llvm_map_components_to_libnames(llvm_libs
     WindowsDriver
     WindowsManifest
     LibDriver
+    OrcJIT
+    OrcShared
+    OrcTargetProcess
+    ExecutionEngine
 )
 
 # LLD libraries are not always part of the standard component map
