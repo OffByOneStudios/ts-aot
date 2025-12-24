@@ -52,9 +52,9 @@ int64_t ts_value_length(TsValue* val);
 // --- Exceptions ---
 void* ts_push_exception_handler();
 void ts_pop_exception_handler();
-void ts_throw(void* exception);
-void ts_set_exception(void* exception);
-void* ts_get_exception();
+void ts_throw(TsValue* exception);
+void ts_set_exception(TsValue* exception);
+TsValue* ts_get_exception();
 
 // --- Entry Point ---
 int ts_main(int argc, char** argv, TsValue* (*user_main)(void*));
@@ -74,6 +74,7 @@ void* ts_value_get_object(TsValue* v);
 TsValue* ts_value_make_promise(void* p);
 TsValue* ts_value_make_function(void* funcPtr, void* context);
 void* ts_function_get_ptr(TsValue* val);
+void* ts_error_create(void* message);
 
 int64_t ts_value_get_int(TsValue* v);
 double ts_value_get_double(TsValue* v);

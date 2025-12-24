@@ -17,6 +17,7 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 
     // Emit condition
     builder->SetInsertPoint(condBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
     visit(node->condition.get());
     llvm::Value* condValue = lastValue;
 
@@ -67,16 +68,25 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
     LoopInfo info;
     info.continueBlock = condBB;
     info.breakBlock = afterBB;
+    info.finallyStackDepth = finallyStack.size();
     if (isSafeLoop) {
         info.safeIndices[indexVar] = arrayVar;
     }
     loopStack.push_back(info);
+
+    auto oldBreak = currentBreakBB;
+    auto oldContinue = currentContinueBB;
+    currentBreakBB = afterBB;
+    currentContinueBB = condBB;
 
     // Emit loop body
     func->insert(func->end(), loopBB);
     builder->SetInsertPoint(loopBB);
     visit(node->body.get());
     
+    currentBreakBB = oldBreak;
+    currentContinueBB = oldContinue;
+
     // Pop loop info
     loopStack.pop_back();
 
@@ -88,6 +98,7 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
     // Emit after block
     func->insert(func->end(), afterBB);
     builder->SetInsertPoint(afterBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
 }
 
 void IRGenerator::visitForStatement(ast::ForStatement* node) {
@@ -227,16 +238,25 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     LoopInfo info;
     info.continueBlock = incBB;
     info.breakBlock = afterBB;
+    info.finallyStackDepth = finallyStack.size();
     if (isSafeLoop) {
         info.safeIndices[indexVar] = arrayVar;
     }
     loopStack.push_back(info);
+
+    auto oldBreak = currentBreakBB;
+    auto oldContinue = currentContinueBB;
+    currentBreakBB = afterBB;
+    currentContinueBB = incBB;
 
     // Emit loop body
     func->insert(func->end(), loopBB);
     builder->SetInsertPoint(loopBB);
     visit(node->body.get());
     
+    currentBreakBB = oldBreak;
+    currentContinueBB = oldContinue;
+
     // Pop loop info
     loopStack.pop_back();
     
@@ -248,6 +268,7 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     // Emit incrementor
     func->insert(func->end(), incBB);
     builder->SetInsertPoint(incBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
     if (node->incrementor) {
         visit(node->incrementor.get());
     }
@@ -256,6 +277,7 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
     // Emit after block
     func->insert(func->end(), afterBB);
     builder->SetInsertPoint(afterBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
 }
 
 void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
@@ -288,6 +310,7 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         
         builder->CreateBr(condBB);
         builder->SetInsertPoint(condBB);
+        builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
         
         llvm::Value* iter = builder->CreateLoad(builder->getPtrTy(), iteratorVar);
 
@@ -343,12 +366,27 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         }
         
         // 8. Body
-        loopStack.push_back({condBB, afterBB});
+        LoopInfo info;
+        info.continueBlock = condBB;
+        info.breakBlock = afterBB;
+        info.finallyStackDepth = finallyStack.size();
+        loopStack.push_back(info);
+
+        auto oldBreak = currentBreakBB;
+        auto oldContinue = currentContinueBB;
+        currentBreakBB = afterBB;
+        currentContinueBB = condBB;
+
         visit(node->body.get());
+
+        currentBreakBB = oldBreak;
+        currentContinueBB = oldContinue;
+
         loopStack.pop_back();
         
         builder->CreateBr(condBB);
         builder->SetInsertPoint(afterBB);
+        builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
         return;
     }
     
@@ -434,8 +472,22 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         generateDestructuring(unboxed, elementType, varDecl->name.get());
     }
 
-    loopStack.push_back({incBB, afterBB});
+    LoopInfo info;
+    info.continueBlock = incBB;
+    info.breakBlock = afterBB;
+    info.finallyStackDepth = finallyStack.size();
+    loopStack.push_back(info);
+
+    auto oldBreak = currentBreakBB;
+    auto oldContinue = currentContinueBB;
+    currentBreakBB = afterBB;
+    currentContinueBB = incBB;
+
     visit(node->body.get());
+
+    currentBreakBB = oldBreak;
+    currentContinueBB = oldContinue;
+
     loopStack.pop_back();
 
     if (!builder->GetInsertBlock()->getTerminator()) {
@@ -443,12 +495,14 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     }
 
     builder->SetInsertPoint(incBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
     llvm::Value* reloadIdx = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "idx.reload");
     llvm::Value* nextIdx = builder->CreateAdd(reloadIdx, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
     builder->CreateStore(nextIdx, indexVar);
     builder->CreateBr(condBB);
 
     builder->SetInsertPoint(afterBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
 }
 
 void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
@@ -545,8 +599,22 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
         generateDestructuring(key, std::make_shared<ts::Type>(ts::TypeKind::String), varDecl->name.get());
     }
 
-    loopStack.push_back({incBB, afterBB});
+    LoopInfo info;
+    info.continueBlock = incBB;
+    info.breakBlock = afterBB;
+    info.finallyStackDepth = finallyStack.size();
+    loopStack.push_back(info);
+
+    auto oldBreak = currentBreakBB;
+    auto oldContinue = currentContinueBB;
+    currentBreakBB = afterBB;
+    currentContinueBB = incBB;
+
     visit(node->body.get());
+
+    currentBreakBB = oldBreak;
+    currentContinueBB = oldContinue;
+
     loopStack.pop_back();
 
     if (!builder->GetInsertBlock()->getTerminator()) {
@@ -554,12 +622,14 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     }
 
     builder->SetInsertPoint(incBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
     index = builder->CreateLoad(llvm::Type::getInt64Ty(*context), indexVar, "index");
     llvm::Value* nextIndex = builder->CreateAdd(index, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1), "next_index");
     builder->CreateStore(nextIndex, indexVar);
     builder->CreateBr(condBB);
 
     builder->SetInsertPoint(afterBB);
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
 }
 
 } // namespace ts

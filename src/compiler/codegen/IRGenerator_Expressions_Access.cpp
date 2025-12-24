@@ -254,6 +254,9 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (!node->expression->inferredType) {
+        SPDLOG_ERROR("visitPropertyAccessExpression: node->expression->inferredType is NULL for {}", node->name);
+    }
     SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
     if (node->name == "length") {

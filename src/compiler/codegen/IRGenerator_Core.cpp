@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include <fmt/core.h>
+#include <filesystem>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -39,11 +40,12 @@ IRGenerator::IRGenerator() {
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 }
 
-void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
+void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer, const std::string& sourceFile) {
     this->specializations = specializations;
     this->analyzer = &analyzer;
     concreteTypes.clear();
     lastConcreteType = nullptr;
+
     // Initialize target for DataLayout
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
@@ -53,6 +55,29 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
 
     auto targetTriple = llvm::sys::getDefaultTargetTriple();
     module->setTargetTriple(targetTriple);
+
+    if (debug) {
+        diBuilder = std::make_unique<llvm::DIBuilder>(*module);
+        std::filesystem::path p = std::filesystem::absolute(sourceFile);
+        std::string fileName = p.filename().string();
+        std::string directory = p.parent_path().string();
+        
+        llvm::DIFile* file = diBuilder->createFile(fileName, directory);
+        
+        compileUnit = diBuilder->createCompileUnit(
+            llvm::dwarf::DW_LANG_C_plus_plus_14,
+            file,
+            "ts-aot",
+            false,
+            "",
+            0);
+        
+        module->addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
+        if (llvm::Triple(module->getTargetTriple()).isOSBinFormatCOFF()) {
+            module->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+            module->addModuleFlag(llvm::Module::Max, "Dwarf Version", (uint32_t)0);
+        }
+    }
 
     std::string error;
     auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
@@ -149,6 +174,20 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     generateBodies(specializations);
 
     generateEntryPoint();
+
+    if (debug) {
+        diBuilder->finalize();
+    }
+}
+
+void IRGenerator::emitLocation(ast::Node* node) {
+    if (!debug || !node) {
+        builder->SetCurrentDebugLocation(llvm::DebugLoc());
+        return;
+    }
+    
+    llvm::DIScope* scope = debugScopes.empty() ? compileUnit : debugScopes.back();
+    builder->SetCurrentDebugLocation(llvm::DILocation::get(*context, node->line, node->column, scope));
 }
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
@@ -793,7 +832,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             boxedValues.insert(val);
             return val;
         }
-        else if (type && (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || type->kind == TypeKind::Map)) {
+        else if (type && (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || type->kind == TypeKind::Map || type->kind == TypeKind::Class)) {
             funcName = "ts_value_make_object";
         }
     }

@@ -59,6 +59,7 @@ add_library(tsruntime STATIC
     src/TsURL.cpp
     src/TsFetch.cpp
     src/TsHttp.cpp
+    src/TsError.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)
@@ -74,6 +75,10 @@ target_link_libraries(tsruntime PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
 )
+
+if (WIN32)
+    target_link_libraries(tsruntime PUBLIC Dbghelp)
+endif()
 
 if (TS_ICU_MODE STREQUAL "FULL")
     target_compile_definitions(tsruntime PUBLIC TS_ICU_FULL)

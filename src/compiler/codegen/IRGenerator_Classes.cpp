@@ -12,7 +12,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
-        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map") continue;
+        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -123,7 +123,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name.find("Promise_") == 0 || name == "Promise") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -491,6 +491,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
+    emitLocation(node);
+    SPDLOG_DEBUG("visitNewExpression: inferredType={}", (node->inferredType ? (int)node->inferredType->kind : -1));
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createFt);
@@ -526,6 +528,24 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     lastValue = createCall(createStrFt, fn.getCallee(), { arg });
                 }
             }
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "Error") {
+            llvm::Value* message = nullptr;
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                message = lastValue;
+            } else {
+                // Create empty string
+                llvm::Constant* emptyStr = builder->CreateGlobalStringPtr("");
+                llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+                message = createCall(createFt, createFn.getCallee(), { emptyStr });
+            }
+            
+            llvm::FunctionType* createErrorFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createErrorFn = module->getOrInsertFunction("ts_error_create", createErrorFt);
+            lastValue = createCall(createErrorFt, createErrorFn.getCallee(), { message });
             nonNullValues.insert(lastValue);
             return;
         } else if (className == "RegExp") {

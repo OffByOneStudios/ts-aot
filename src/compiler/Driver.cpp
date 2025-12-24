@@ -97,7 +97,8 @@ int Driver::run() {
         if (!options.runtimeBitcode.empty()) {
             irGen.setRuntimeBitcode(options.runtimeBitcode);
         }
-        irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer);
+        irGen.setDebug(options.debug);
+        irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer, tsFile);
         
         if (options.dumpIR) {
             irGen.dumpIR();
@@ -131,6 +132,7 @@ int Driver::run() {
             ts::LinkerDriver::Options linkOpts;
             linkOpts.outputPath = exeOutput;
             linkOpts.objectFiles.push_back(objFile);
+            linkOpts.debug = options.debug;
             
             // Add compiler directory to library paths
             // We need to find where the compiler is running from

@@ -70,6 +70,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         spec.argTypes = {};
         spec.returnType = std::make_shared<Type>(TypeKind::Any);
         spec.node = moduleInit.get();
+        
+        // Set line number to 1 for synthetic module init
+        moduleInit->line = 1;
+        moduleInit->column = 1;
+        
         specializations.push_back(spec);
         syntheticFunctions.push_back(std::move(moduleInit));
     }
@@ -90,6 +95,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
     userMain->isAsync = anyAsync;
+    userMain->line = 1;
+    userMain->column = 1;
 
     for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
         const auto& initName = moduleInitFunctions[i];

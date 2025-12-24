@@ -269,6 +269,13 @@ Analyzer::Analyzer() {
     
     symbols.defineType("RegExp", regexpClass);
 
+    // Register Error class
+    auto errorClass = std::make_shared<ClassType>("Error");
+    errorClass->fields["message"] = std::make_shared<Type>(TypeKind::String);
+    errorClass->fields["stack"] = std::make_shared<Type>(TypeKind::String);
+    errorClass->fields["name"] = std::make_shared<Type>(TypeKind::String);
+    symbols.defineType("Error", errorClass);
+
     // Register console global
     auto consoleType = std::make_shared<ObjectType>();
     auto logType = std::make_shared<FunctionType>();
