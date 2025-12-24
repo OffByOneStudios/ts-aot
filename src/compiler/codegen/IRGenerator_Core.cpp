@@ -2,6 +2,11 @@
 #include <fmt/core.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4244)
+#endif
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/TargetParser/Host.h>
@@ -21,6 +26,9 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 namespace ts {
 using namespace ast;
@@ -48,7 +56,8 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     std::string error;
     auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
     if (target) {
-        auto targetMachine = target->createTargetMachine(targetTriple, "generic", "", {}, {});
+        llvm::TargetOptions opt;
+        auto targetMachine = target->createTargetMachine(targetTriple, "generic", "", opt, std::nullopt, std::nullopt, llvm::CodeGenOptLevel::None);
         module->setDataLayout(targetMachine->createDataLayout());
     }
 
