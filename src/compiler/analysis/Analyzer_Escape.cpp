@@ -216,6 +216,12 @@ public:
             stmt->accept(this);
         }
     }
+
+    void visitStaticBlock(ast::StaticBlock* node) override {
+        for (auto& stmt : node->body) {
+            stmt->accept(this);
+        }
+    }
     void visitArrowFunction(ast::ArrowFunction* node) override {}
     void visitFunctionExpression(ast::FunctionExpression* node) override {}
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override {}

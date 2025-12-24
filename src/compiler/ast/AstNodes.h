@@ -75,6 +75,7 @@ struct AwaitExpression;
 struct YieldExpression;
 struct ClassDeclaration;
 struct MethodDefinition;
+struct StaticBlock;
 struct PropertyDefinition;
 struct InterfaceDeclaration;
 struct TypeAliasDeclaration;
@@ -115,6 +116,7 @@ struct Visitor {
     virtual void visitShorthandPropertyAssignment(ShorthandPropertyAssignment* node) = 0;
     virtual void visitComputedPropertyName(ComputedPropertyName* node) = 0;
     virtual void visitMethodDefinition(MethodDefinition* node) = 0;
+    virtual void visitStaticBlock(StaticBlock* node) = 0;
     virtual void visitIdentifier(Identifier* node) = 0;
     virtual void visitSuperExpression(SuperExpression* node) = 0;
     virtual void visitStringLiteral(StringLiteral* node) = 0;
@@ -373,6 +375,12 @@ struct MethodDefinition : Node {
     void accept(Visitor* visitor) override { visitor->visitMethodDefinition(this); }
 };
 
+struct StaticBlock : Node {
+    std::vector<StmtPtr> body;
+    std::string getKind() const override { return "StaticBlock"; }
+    void accept(Visitor* visitor) override { visitor->visitStaticBlock(this); }
+};
+
 struct ClassDeclaration : Statement {
     std::string name;
     bool isExported = false;
@@ -577,6 +585,7 @@ struct ObjectLiteralExpression : Expression {
 
 struct Identifier : Expression {
     std::string name;
+    bool isPrivate = false;
     std::string getKind() const override { return "Identifier"; }
     void accept(Visitor* visitor) override { visitor->visitIdentifier(this); }
 };

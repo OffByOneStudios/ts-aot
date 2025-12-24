@@ -314,6 +314,126 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             new llvm::GlobalVariable(*module, llvmType, false, llvm::GlobalValue::ExternalLinkage, llvm::Constant::getNullValue(llvmType), globalName);
         }
     }
+
+    // 4.5 Fourth and a half pass: Generate instance field initializers
+    for (const auto& classType : allClassTypes) {
+        if (classType->isStruct) continue;
+        
+        bool hasInitializers = false;
+        if (classType->node) {
+            for (const auto& member : classType->node->members) {
+                if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                    if (!prop->isStatic && prop->initializer) {
+                        hasInitializers = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!hasInitializers) continue;
+
+        std::string initName = classType->name + "_init_fields";
+        SPDLOG_DEBUG("Generating instance field initializer: {}", initName);
+        llvm::FunctionType* initFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::Function* initFunc = llvm::Function::Create(initFt, llvm::Function::ExternalLinkage, initName, module.get());
+        addStackProtection(initFunc);
+
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(*context, "entry", initFunc);
+        llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+        builder->SetInsertPoint(entryBB);
+
+        currentAsyncContext = initFunc->getArg(0);
+        llvm::Value* thisPtr = initFunc->getArg(1);
+        currentClass = classType;
+
+        llvm::StructType* structType = llvm::StructType::getTypeByName(*context, classType->name);
+        llvm::Value* typedThis = builder->CreateBitCast(thisPtr, llvm::PointerType::getUnqual(structType));
+
+        auto& layout = classLayouts[classType->name];
+
+        for (const auto& member : classType->node->members) {
+            if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                if (!prop->isStatic && prop->initializer) {
+                    visit(prop->initializer.get());
+                    std::string mangledName = manglePrivateName(prop->name, classType->name);
+                    int fieldIdx = layout.fieldIndices[mangledName];
+                    llvm::Value* fieldPtr = builder->CreateStructGEP(structType, typedThis, fieldIdx);
+                    
+                    // Ensure value matches field type
+                    std::shared_ptr<Type> fieldType;
+                    for (const auto& f : layout.allFields) {
+                        if (f.first == mangledName) {
+                            fieldType = f.second;
+                            break;
+                        }
+                    }
+                    if (fieldType) {
+                        lastValue = castValue(lastValue, getLLVMType(fieldType));
+                    }
+                    
+                    builder->CreateStore(lastValue, fieldPtr);
+                }
+            }
+        }
+
+        builder->CreateRetVoid();
+        if (oldBB) builder->SetInsertPoint(oldBB);
+        
+        currentAsyncContext = nullptr;
+        currentClass = nullptr;
+    }
+
+    // 5. Fifth pass: Generate static initializers
+    for (const auto& classType : allClassTypes) {
+        if (classType->staticBlocks.empty() && classType->staticFields.empty()) continue;
+
+        std::string initName = classType->name + "_static_init";
+        llvm::FunctionType* initFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+        llvm::Function* initFunc = llvm::Function::Create(initFt, llvm::Function::ExternalLinkage, initName, module.get());
+        addStackProtection(initFunc);
+
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(*context, "entry", initFunc);
+        llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+        builder->SetInsertPoint(entryBB);
+
+        currentAsyncContext = initFunc->getArg(0);
+        currentClass = classType;
+
+        // Define 'this' for static context
+        namedValues["this"] = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        // Initialize static fields
+        if (classType->node) {
+            for (const auto& member : classType->node->members) {
+                if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                    if (prop->isStatic && prop->initializer) {
+                        visit(prop->initializer.get());
+                        std::string mangledName = manglePrivateName(prop->name, classType->name);
+                        std::string globalName = classType->name + "_" + mangledName;
+                        llvm::GlobalVariable* gv = module->getGlobalVariable(globalName);
+                        if (gv) {
+                            // Ensure value matches field type
+                            std::shared_ptr<Type> fieldType = classType->staticFields[mangledName];
+                            if (fieldType) {
+                                lastValue = castValue(lastValue, getLLVMType(fieldType));
+                            }
+                            builder->CreateStore(lastValue, gv);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (auto* block : classType->staticBlocks) {
+            visitStaticBlock(block);
+        }
+
+        builder->CreateRetVoid();
+        if (oldBB) builder->SetInsertPoint(oldBB);
+        
+        currentAsyncContext = nullptr;
+        currentClass = nullptr;
+    }
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
@@ -502,6 +622,15 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 llvm::Value* vptrField = builder->CreateStructGEP(structType, thisPtr, 0);
                 builder->CreateStore(vtable, vptrField);
             }
+        }
+
+        // 3.5 Initialize Fields
+        std::string initFieldsName = className + "_init_fields";
+        if (llvm::Function* initFieldsFunc = module->getFunction(initFieldsName)) {
+            SPDLOG_DEBUG("Calling field initializer: {}", initFieldsName);
+            llvm::Value* contextVal = currentAsyncContext;
+            if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            createCall(initFieldsFunc->getFunctionType(), initFieldsFunc, { contextVal, thisPtr });
         }
         
         // 4. Call Constructor
@@ -720,6 +849,12 @@ void IRGenerator::visitComputedPropertyName(ast::ComputedPropertyName* node) {
 void IRGenerator::visitSuperExpression(ast::SuperExpression* node) {
     // Handled in visitCallExpression
     lastValue = nullptr;
+}
+
+void IRGenerator::visitStaticBlock(ast::StaticBlock* node) {
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
 }
 
 } // namespace ts

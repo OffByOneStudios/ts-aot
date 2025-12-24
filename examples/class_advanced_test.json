@@ -1,0 +1,328 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Advanced",
+      "isExported": false,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "#privateField",
+          "type": "number",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 42,
+            "line": 2,
+            "column": 29
+          },
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false,
+          "line": 2,
+          "column": 5
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "#staticPrivateField",
+          "type": "string",
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "hello",
+            "line": 3,
+            "column": 42
+          },
+          "access": null,
+          "isStatic": true,
+          "isReadonly": false,
+          "line": 3,
+          "column": 5
+        },
+        {
+          "kind": "StaticBlock",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console",
+                    "line": 6,
+                    "column": 9
+                  },
+                  "name": "log",
+                  "line": 6,
+                  "column": 9
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "Static block executed!",
+                    "line": 6,
+                    "column": 21
+                  }
+                ],
+                "typeArguments": [],
+                "line": 6,
+                "column": 9
+              },
+              "line": 6,
+              "column": 9
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Advanced",
+                    "line": 7,
+                    "column": 9
+                  },
+                  "name": "#staticPrivateField",
+                  "line": 7,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "world",
+                  "line": 7,
+                  "column": 40
+                },
+                "line": 7,
+                "column": 9
+              },
+              "line": 7,
+              "column": 9
+            }
+          ],
+          "line": 5,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getPrivate",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "getPrivate",
+            "line": 10,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 11,
+                  "column": 16
+                },
+                "name": "#privateField",
+                "line": 11,
+                "column": 16
+              },
+              "line": 11,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "line": 10,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getStaticPrivate",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "getStaticPrivate",
+            "line": 14,
+            "column": 12
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "Advanced",
+                  "line": 15,
+                  "column": 16
+                },
+                "name": "#staticPrivateField",
+                "line": 15,
+                "column": 16
+              },
+              "line": 15,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": true,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "line": 14,
+          "column": 5
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false,
+      "line": 1,
+      "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "a",
+        "line": 19,
+        "column": 7
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "NewExpression",
+        "expression": {
+          "kind": "Identifier",
+          "name": "Advanced",
+          "line": 19,
+          "column": 15
+        },
+        "arguments": [],
+        "typeArguments": [],
+        "line": 19,
+        "column": 11
+      },
+      "line": 19,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 20,
+            "column": 1
+          },
+          "name": "log",
+          "line": 20,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Private field:",
+            "line": 20,
+            "column": 13
+          },
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "a",
+                "line": 20,
+                "column": 31
+              },
+              "name": "getPrivate",
+              "line": 20,
+              "column": 31
+            },
+            "arguments": [],
+            "typeArguments": [],
+            "line": 20,
+            "column": 31
+          }
+        ],
+        "typeArguments": [],
+        "line": 20,
+        "column": 1
+      },
+      "line": 20,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 21,
+            "column": 1
+          },
+          "name": "log",
+          "line": 21,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "Static private field:",
+            "line": 21,
+            "column": 13
+          },
+          {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Advanced",
+                "line": 21,
+                "column": 38
+              },
+              "name": "getStaticPrivate",
+              "line": 21,
+              "column": 38
+            },
+            "arguments": [],
+            "typeArguments": [],
+            "line": 21,
+            "column": 38
+          }
+        ],
+        "typeArguments": [],
+        "line": 21,
+        "column": 1
+      },
+      "line": 21,
+      "column": 1
+    }
+  ]
+}

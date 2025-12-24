@@ -115,6 +115,9 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<Identifier>();
         setLocation(node.get(), j);
         node->name = j["name"];
+        if (j.contains("isPrivate")) {
+            node->isPrivate = j["isPrivate"];
+        }
         return node;
     } else if (kind == "StringLiteral") {
         auto node = std::make_unique<StringLiteral>();

@@ -477,22 +477,35 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             AccessModifier access = AccessModifier::Public;
             std::shared_ptr<Type> memberType = nullptr;
 
+            std::string name = node->name;
+            if (name.starts_with("#")) {
+                if (!currentClass) {
+                    reportError(fmt::format("Private field {} can only be accessed within a class.", name));
+                    lastType = std::make_shared<Type>(TypeKind::Any);
+                    return;
+                }
+                // Private fields are strictly scoped to the class they are defined in.
+                // In TS, #x in class A is only accessible in A.
+                name = manglePrivateName(name, currentClass->name);
+                fmt::print("DEBUG: Mangled {} to {} using currentClass {}\n", node->name, name, currentClass->name);
+            }
+
             auto current = cls;
             while (current) {
-                if (current->fields.count(node->name)) {
+                if (current->fields.count(name)) {
                     definingClass = current;
-                    access = current->fieldAccess[node->name];
-                    memberType = current->fields[node->name];
+                    access = current->fieldAccess[name];
+                    memberType = current->fields[name];
                     break;
-                } else if (current->methods.count(node->name)) {
+                } else if (current->methods.count(name)) {
                     definingClass = current;
-                    access = current->methodAccess[node->name];
-                    memberType = current->methods[node->name];
+                    access = current->methodAccess[name];
+                    memberType = current->methods[name];
                     break;
-                } else if (current->getters.count(node->name)) {
+                } else if (current->getters.count(name)) {
                     definingClass = current;
-                    access = current->methodAccess[node->name];
-                    memberType = current->getters[node->name]->returnType;
+                    access = current->methodAccess[name];
+                    memberType = current->getters[name]->returnType;
                     break;
                 }
                 current = current->baseClass;
@@ -527,17 +540,27 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 AccessModifier access = AccessModifier::Public;
                 std::shared_ptr<Type> memberType = nullptr;
 
+                std::string name = node->name;
+                if (name.starts_with("#")) {
+                    if (!currentClass) {
+                        reportError(fmt::format("Private static field {} can only be accessed within a class.", name));
+                        lastType = std::make_shared<Type>(TypeKind::Any);
+                        return;
+                    }
+                    name = manglePrivateName(name, cls->name);
+                }
+
                 auto current = cls;
                 while (current) {
-                    if (current->staticFields.count(node->name)) {
+                    if (current->staticFields.count(name)) {
                         definingClass = current;
-                        access = current->staticFieldAccess[node->name];
-                        memberType = current->staticFields[node->name];
+                        access = current->staticFieldAccess[name];
+                        memberType = current->staticFields[name];
                         break;
-                    } else if (current->staticMethods.count(node->name)) {
+                    } else if (current->staticMethods.count(name)) {
                         definingClass = current;
-                        access = current->staticMethodAccess[node->name];
-                        memberType = current->staticMethods[node->name];
+                        access = current->staticMethodAccess[name];
+                        memberType = current->staticMethods[name];
                         break;
                     }
                     current = current->baseClass;

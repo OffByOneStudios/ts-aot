@@ -34,6 +34,7 @@ private:
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
+    const Analyzer* analyzer = nullptr;
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
     bool verbose = false;
@@ -114,6 +115,7 @@ private:
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;
     void visitComputedPropertyName(ast::ComputedPropertyName* node) override;
     void visitMethodDefinition(ast::MethodDefinition* node) override;
+    void visitStaticBlock(ast::StaticBlock* node) override;
     void visitProgram(ast::Program* node);
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node);
     void visitEnumDeclaration(ast::EnumDeclaration* node);
@@ -144,6 +146,14 @@ private:
     std::map<std::string, llvm::Type*> forcedVariableTypes;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
+    
+    static std::string manglePrivateName(const std::string& name, const std::string& className) {
+        if (name.starts_with("#")) {
+            return "__private_" + className + "_" + name.substr(1);
+        }
+        return name;
+    }
+
     std::map<std::string, std::shared_ptr<Type>> typeEnvironment;
     llvm::Value* currentContext = nullptr;
 

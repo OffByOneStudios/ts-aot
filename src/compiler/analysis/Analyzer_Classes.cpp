@@ -1,5 +1,7 @@
 #include "Analyzer.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
@@ -63,31 +65,35 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             auto propType = parseType(prop->type, symbols);
+            std::string name = manglePrivateName(prop->name, node->name);
+            fmt::print("DEBUG: Adding field {} (original {}) to class {}\n", name, prop->name, node->name);
             if (prop->isStatic) {
-                classType->staticFields[prop->name] = propType;
-                classType->staticFieldAccess[prop->name] = prop->access;
+                classType->staticFields[name] = propType;
+                classType->staticFieldAccess[name] = prop->access;
                 if (prop->isReadonly) {
-                    classType->staticReadonlyFields.insert(prop->name);
+                    classType->staticReadonlyFields.insert(name);
                 }
             } else {
-                classType->fields[prop->name] = propType;
-                classType->fieldAccess[prop->name] = prop->access;
+                classType->fields[name] = propType;
+                classType->fieldAccess[name] = prop->access;
                 if (prop->isReadonly) {
-                    classType->readonlyFields.insert(prop->name);
+                    classType->readonlyFields.insert(name);
                 }
             }
         }
         if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
+            std::string name = manglePrivateName(method->name, node->name);
             if (method->name == "constructor") {
                 for (const auto& param : method->parameters) {
                     if (param->isParameterProperty) {
                         auto id = dynamic_cast<Identifier*>(param->name.get());
                         if (id) {
                             auto fieldType = parseType(param->type, symbols);
-                            classType->fields[id->name] = fieldType;
-                            classType->fieldAccess[id->name] = param->access;
+                            std::string name = manglePrivateName(id->name, node->name);
+                            classType->fields[name] = fieldType;
+                            classType->fieldAccess[name] = param->access;
                             if (param->isReadonly) {
-                                classType->readonlyFields.insert(id->name);
+                                classType->readonlyFields.insert(name);
                             }
                         }
                     }
@@ -97,10 +103,10 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
                 if (!node->isAbstract) {
                     reportError(fmt::format("Abstract method '{}' can only be declared in an abstract class.", method->name));
                 }
-                classType->abstractMethods.insert(method->name);
+                classType->abstractMethods.insert(name);
             } else {
                 // If it's a concrete implementation, remove it from the set of abstract methods
-                classType->abstractMethods.erase(method->name);
+                classType->abstractMethods.erase(name);
             }
 
             auto methodType = std::make_shared<FunctionType>();
@@ -140,25 +146,28 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
             }
             if (method->isStatic) {
                 if (method->hasBody) {
-                    classType->staticMethods[method->name] = methodType;
+                    classType->staticMethods[name] = methodType;
                 } else {
-                    classType->staticMethodOverloads[method->name].push_back(methodType);
+                    classType->staticMethodOverloads[name].push_back(methodType);
                 }
-                classType->staticMethodAccess[method->name] = method->access;
+                classType->staticMethodAccess[name] = method->access;
             } else if (method->isGetter) {
-                classType->getters[method->name] = methodType;
-                classType->methodAccess[method->name] = method->access;
+                classType->getters[name] = methodType;
+                classType->methodAccess[name] = method->access;
             } else if (method->isSetter) {
-                classType->setters[method->name] = methodType;
-                classType->methodAccess[method->name] = method->access;
+                classType->setters[name] = methodType;
+                classType->methodAccess[name] = method->access;
             } else {
                 if (method->hasBody) {
-                    classType->methods[method->name] = methodType;
+                    classType->methods[name] = methodType;
                 } else {
-                    classType->methodOverloads[method->name].push_back(methodType);
+                    classType->methodOverloads[name].push_back(methodType);
                 }
-                classType->methodAccess[method->name] = method->access;
+                classType->methodAccess[name] = method->access;
             }
+        }
+        if (auto staticBlock = dynamic_cast<StaticBlock*>(member.get())) {
+            classType->staticBlocks.push_back(staticBlock);
         }
     }
 
@@ -189,6 +198,8 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
             visitMethodDefinition(method, classType);
         } else if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
             visitPropertyDefinition(prop, classType);
+        } else if (auto staticBlock = dynamic_cast<StaticBlock*>(member.get())) {
+            visitStaticBlock(staticBlock);
         }
     }
     currentClass = oldClass;
@@ -230,6 +241,19 @@ void Analyzer::checkInterfaceImplementation(std::shared_ptr<ClassType> classType
     for (const auto& base : interfaceType->baseInterfaces) {
         checkInterfaceImplementation(classType, base);
     }
+}
+
+void Analyzer::visitStaticBlock(ast::StaticBlock* node) {
+    symbols.enterScope();
+    if (currentClass) {
+        auto ctorType = std::make_shared<FunctionType>();
+        ctorType->returnType = currentClass;
+        symbols.define("this", ctorType);
+    }
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+    symbols.exitScope();
 }
 
 void Analyzer::visitPropertyDefinition(PropertyDefinition* node, std::shared_ptr<ClassType> classType) {
@@ -311,7 +335,12 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
             auto propType = parseType(prop->type, symbols);
-            classType->fields[prop->name] = substitute(propType, env);
+            std::string name = manglePrivateName(prop->name, node->name);
+            if (prop->isStatic) {
+                classType->staticFields[name] = substitute(propType, env);
+            } else {
+                classType->fields[name] = substitute(propType, env);
+            }
         } else if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
             if (method->name == "constructor") {
                 for (const auto& param : method->parameters) {
@@ -319,8 +348,9 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
                         auto id = dynamic_cast<ast::Identifier*>(param->name.get());
                         if (id) {
                             auto fieldType = parseType(param->type, symbols);
-                            classType->fields[id->name] = substitute(fieldType, env);
-                            classType->fieldAccess[id->name] = param->access;
+                            std::string name = manglePrivateName(id->name, node->name);
+                            classType->fields[name] = substitute(fieldType, env);
+                            classType->fieldAccess[name] = param->access;
                         }
                     }
                 }
@@ -330,10 +360,11 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
                 methodType->paramTypes.push_back(substitute(parseType(p->type, symbols), env));
             }
             methodType->returnType = substitute(parseType(method->returnType, symbols), env);
+            std::string name = manglePrivateName(method->name, node->name);
             if (method->isStatic) {
-                classType->staticMethods[method->name] = methodType;
+                classType->staticMethods[name] = methodType;
             } else {
-                classType->methods[method->name] = methodType;
+                classType->methods[name] = methodType;
             }
         }
     }

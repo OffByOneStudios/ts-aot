@@ -272,6 +272,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                             funcName = "ts_console_log";
                         } else {
                             funcName = "ts_console_log_value";
+                            arg = boxValue(arg, node->arguments[i]->inferredType);
                         }
                         paramType = llvm::PointerType::getUnqual(*context);
                     }

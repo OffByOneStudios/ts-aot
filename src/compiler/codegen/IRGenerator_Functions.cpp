@@ -221,6 +221,9 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     ++argIt;
                     idx++;
                 }
+            } else {
+                // Define 'this' for static context
+                namedValues["this"] = llvm::ConstantPointerNull::get(builder->getPtrTy());
             }
 
             // Handle explicit parameters
