@@ -83,12 +83,12 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.obj" -c
     DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/http-server/http-server.json"
 )
 
 add_executable(test_app examples/http-server/http-server.obj)
-target_link_libraries(test_app PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(test_app PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(test_app PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -99,12 +99,12 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.obj" -O3 --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.obj" -O3 -c --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
     DEPENDS ts-aot tsruntime_bc "${CMAKE_CURRENT_SOURCE_DIR}/examples/raytracer.json"
 )
 
 add_executable(raytracer_bench examples/raytracer.obj)
-target_link_libraries(raytracer_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(raytracer_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(raytracer_bench PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -115,12 +115,12 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.obj" -c
     DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/number_test.json"
 )
 
 add_executable(number_test examples/number_test.obj)
-target_link_libraries(number_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(number_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(number_test PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -131,12 +131,12 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.obj" -c
     DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/buffer_string_test.json"
 )
 
 add_executable(buffer_string_test examples/buffer_string_test.obj)
-target_link_libraries(buffer_string_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(buffer_string_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(buffer_string_test PRIVATE src/runtime/include)
 
 add_custom_command(
@@ -147,34 +147,34 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.obj" -O3 --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.obj" -O3 -c --runtime-bc "${CMAKE_BINARY_DIR}/tsruntime.bc"
     DEPENDS ts-aot tsruntime_bc "${CMAKE_CURRENT_SOURCE_DIR}/examples/sha256.json"
 )
 
 add_executable(sha256_bench examples/sha256.obj)
-target_link_libraries(sha256_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(sha256_bench PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(sha256_bench PRIVATE src/runtime/include)
 
 add_executable(raytracer_cpp examples/raytracer.cpp)
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.obj" -c
     DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/escape_test.json"
 )
 
 add_executable(escape_test examples/escape_test.obj)
-target_link_libraries(escape_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(escape_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(escape_test PRIVATE src/runtime/include)
 
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.obj"
-    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.obj"
+    COMMAND "$<TARGET_FILE:ts-aot>" "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.json" -o "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.obj" -c
     DEPENDS ts-aot "${CMAKE_CURRENT_SOURCE_DIR}/examples/struct_test.json"
 )
 
 add_executable(struct_test examples/struct_test.obj)
-target_link_libraries(struct_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32)
+target_link_libraries(struct_test PRIVATE tsruntime ${LIBUV_TARGET} llhttp::llhttp_static ws2_32 user32 advapi32 iphlpapi shell32 crypt32)
 target_include_directories(struct_test PRIVATE src/runtime/include)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/http-server-lto.obj")

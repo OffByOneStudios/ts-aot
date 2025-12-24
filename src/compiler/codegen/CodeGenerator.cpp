@@ -1,5 +1,9 @@
 #include "CodeGenerator.h"
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4244)
+#endif
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetOptions.h>
@@ -13,6 +17,9 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #include <fmt/core.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE

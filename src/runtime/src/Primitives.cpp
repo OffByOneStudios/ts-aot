@@ -57,6 +57,8 @@ void ts_console_log_value(TsValue* val) {
         case ValueType::BOOLEAN: std::printf("%s\n", val->b_val ? "true" : "false"); break;
         case ValueType::STRING_PTR: std::printf("%s\n", ((TsString*)val->ptr_val)->ToUtf8()); break;
         case ValueType::OBJECT_PTR: std::printf("[object Object]\n"); break;
+        case ValueType::ARRAY_PTR: std::printf("[object Array]\n"); break;
+        case ValueType::PROMISE_PTR: std::printf("[object Promise]\n"); break;
     }
     std::fflush(stdout);
 }
