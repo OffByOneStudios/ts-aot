@@ -483,7 +483,11 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             }
 
             // Check if it's a static field
-            std::string mangledName = cls->name + "_static_" + node->name;
+            std::string fieldName = node->name;
+            if (fieldName.starts_with("#")) {
+                fieldName = manglePrivateName(fieldName, cls->name);
+            }
+            std::string mangledName = cls->name + "_" + fieldName;
             auto* gVar = module->getGlobalVariable(mangledName);
             if (gVar) {
                 lastValue = builder->CreateLoad(gVar->getValueType(), gVar);
@@ -493,9 +497,13 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
             // Check if it's a static method
             current = cls;
             while (current) {
-                if (current->staticMethods.count(node->name)) {
-                    std::string implName = current->name + "_static_" + node->name;
-                    auto methodType = current->staticMethods[node->name];
+                std::string methodName = node->name;
+                if (methodName.starts_with("#")) {
+                    methodName = manglePrivateName(methodName, current->name);
+                }
+                if (current->staticMethods.count(methodName)) {
+                    std::string implName = current->name + "_static_" + methodName;
+                    auto methodType = current->staticMethods[methodName];
                     
                     std::vector<llvm::Type*> paramTypes;
                     for (const auto& param : methodType->paramTypes) {
@@ -515,6 +523,12 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
         std::string className = classType->name;
         std::string fieldName = node->name;
+
+        if (fieldName.starts_with("#")) {
+            if (currentClass && currentClass->kind == TypeKind::Class) {
+                fieldName = manglePrivateName(fieldName, std::static_pointer_cast<ClassType>(currentClass)->name);
+            }
+        }
         
         SPDLOG_DEBUG("Accessing {}.{}", className, fieldName);
         

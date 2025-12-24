@@ -718,7 +718,11 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     current = current->baseClass;
                 }
 
-                std::string mangledName = cls->name + "_static_" + prop->name;
+                std::string fieldName = prop->name;
+                if (fieldName.starts_with("#")) {
+                    fieldName = manglePrivateName(fieldName, cls->name);
+                }
+                std::string mangledName = cls->name + "_" + fieldName;
                 auto* gVar = module->getGlobalVariable(mangledName);
                 if (gVar) {
                     // Cast if necessary
@@ -734,6 +738,12 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
             std::string className = classType->name;
             std::string fieldName = prop->name;
+
+            if (fieldName.starts_with("#")) {
+                if (currentClass && currentClass->kind == TypeKind::Class) {
+                    fieldName = manglePrivateName(fieldName, std::static_pointer_cast<ClassType>(currentClass)->name);
+                }
+            }
             
             // Check if it's a setter
             std::string vname = "set_" + fieldName;

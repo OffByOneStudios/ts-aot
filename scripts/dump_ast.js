@@ -205,6 +205,12 @@ function visitInternal(node) {
                 isAbstract: isAbstract(node),
                 isStruct: hasDecorator(node, "struct")
             };
+
+        case ts.SyntaxKind.ClassStaticBlockDeclaration:
+            return {
+                kind: "StaticBlock",
+                body: visitBlock(node.body)
+            };
         case ts.SyntaxKind.InterfaceDeclaration:
             let baseInterfaces = [];
             if (node.heritageClauses) {
@@ -422,6 +428,12 @@ function visitInternal(node) {
             return {
                 kind: "Identifier",
                 name: node.text
+            };
+        case ts.SyntaxKind.PrivateIdentifier:
+            return {
+                kind: "Identifier",
+                name: node.text,
+                isPrivate: true
             };
         case ts.SyntaxKind.Parameter:
             return visitParameter(node);

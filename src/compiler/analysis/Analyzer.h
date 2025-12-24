@@ -48,6 +48,13 @@ public:
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);
     std::shared_ptr<Type> substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env);
 
+    static std::string manglePrivateName(const std::string& name, const std::string& className) {
+        if (name.starts_with("#")) {
+            return "__private_" + className + "_" + name.substr(1);
+        }
+        return name;
+    }
+
     std::map<std::string, std::shared_ptr<Module>> modules;
     std::vector<std::string> moduleOrder;
     std::vector<ast::Expression*> expressions;
@@ -77,6 +84,7 @@ private:
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;
     void visitComputedPropertyName(ast::ComputedPropertyName* node) override;
     void visitMethodDefinition(ast::MethodDefinition* node) override;
+    void visitStaticBlock(ast::StaticBlock* node) override;
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) override;
     void visitElementAccessExpression(ast::ElementAccessExpression* node) override;
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node) override;

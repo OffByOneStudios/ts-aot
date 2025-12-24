@@ -238,8 +238,13 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     // Define method in the class scope (which is the current scope before we entered a new one for type params)
     // Actually, method definitions are added to the ClassType, not just the symbol table.
     
-    // Define 'this' (only for instance methods)
-    if (!node->isStatic) {
+    // Define 'this'
+    if (node->isStatic) {
+        // In static methods, 'this' is the constructor function (which has the class type as its return type)
+        auto ctorType = std::make_shared<FunctionType>();
+        ctorType->returnType = classType;
+        symbols.define("this", ctorType);
+    } else {
         symbols.define("this", classType);
     }
 
@@ -257,14 +262,16 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
 
     // Add to class
     if (classType) {
-        if (node->isGetter) classType->getters[node->name] = methodType;
-        else if (node->isSetter) classType->setters[node->name] = methodType;
+        std::string name = manglePrivateName(node->name, classType->name);
+        fmt::print("DEBUG: Adding method {} (original {}) to class {}\n", name, node->name, classType->name);
+        if (node->isGetter) classType->getters[name] = methodType;
+        else if (node->isSetter) classType->setters[name] = methodType;
         else if (node->name == "constructor") {
              // Handle constructor overloads if needed
         } else if (node->isStatic) {
-            classType->staticMethods[node->name] = methodType;
+            classType->staticMethods[name] = methodType;
         } else {
-            classType->methods[node->name] = methodType;
+            classType->methods[name] = methodType;
         }
     }
 

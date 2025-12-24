@@ -97,6 +97,9 @@ NodePtr parseNode(const json& j) {
         auto node = std::make_unique<Identifier>();
         setLocation(node.get(), j);
         node->name = j["name"].get<std::string>();
+        if (j.contains("isPrivate")) {
+            node->isPrivate = j["isPrivate"];
+        }
         return node;
     } else if (kind == "ObjectBindingPattern") {
         auto node = std::make_unique<ObjectBindingPattern>();
@@ -235,6 +238,9 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<Identifier>();
         setLocation(node.get(), j);
         node->name = j["name"];
+        if (j.contains("isPrivate")) {
+            node->isPrivate = j["isPrivate"];
+        }
         return node;
     } else if (kind == "StringLiteral") {
         auto node = std::make_unique<StringLiteral>();
@@ -408,6 +414,15 @@ NodePtr parseClassMember(const json& j) {
         }
         for (const auto& stmt : j["body"]) {
             node->body.push_back(parseStatement(stmt));
+        }
+        return node;
+    } else if (kind == "StaticBlock") {
+        auto node = std::make_unique<StaticBlock>();
+        setLocation(node.get(), j);
+        if (j.contains("body") && !j["body"].is_null()) {
+            for (const auto& stmt : j["body"]) {
+                node->body.push_back(parseStatement(stmt));
+            }
         }
         return node;
     }

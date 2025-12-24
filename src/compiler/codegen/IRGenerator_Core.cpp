@@ -41,6 +41,7 @@ IRGenerator::IRGenerator() {
 
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer) {
     this->specializations = specializations;
+    this->analyzer = &analyzer;
     concreteTypes.clear();
     lastConcreteType = nullptr;
     // Initialize target for DataLayout
@@ -295,6 +296,20 @@ void IRGenerator::generateEntryPoint() {
     llvm::Value* argc = mainFn->getArg(0);
     llvm::Value* argv = mainFn->getArg(1);
     
+    // Call static initializers for all classes
+    if (analyzer) {
+        for (auto& [name, type] : analyzer->getSymbolTable().getGlobalTypes()) {
+            if (type->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(type);
+                std::string initName = classType->name + "_static_init";
+                if (llvm::Function* sinitFunc = module->getFunction(initName)) {
+                    llvm::FunctionType* sinitFt = sinitFunc->getFunctionType();
+                    createCall(sinitFt, sinitFunc, { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+                }
+            }
+        }
+    }
+
     createCall(ft, tsMain, { argc, argv, userMain });
     
     builder->CreateRet(llvm::ConstantInt::get(*context, llvm::APInt(32, 0)));

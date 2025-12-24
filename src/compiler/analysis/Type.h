@@ -13,6 +13,7 @@ namespace ast {
     struct ClassDeclaration;
     struct InterfaceDeclaration;
     struct FunctionDeclaration;
+    struct StaticBlock;
 }
 
 namespace ts {
@@ -164,6 +165,7 @@ struct ClassType : public Type {
     std::set<std::string> readonlyFields;
     std::set<std::string> staticReadonlyFields;
     std::set<std::string> abstractMethods;
+    std::vector<ast::StaticBlock*> staticBlocks;
     std::vector<std::shared_ptr<Type>> typeArguments;
 
     ClassType() : Type(TypeKind::Class) {}
