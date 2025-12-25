@@ -176,6 +176,10 @@ public:
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) override {}
     void visitSuperExpression(ast::SuperExpression* node) override {}
     void visitTemplateExpression(ast::TemplateExpression* node) override {}
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) override {
+        node->tag->accept(this);
+        node->templateExpr->accept(this);
+    }
     void visitAwaitExpression(ast::AwaitExpression* node) override {
         node->expression->accept(this);
         markAsEscaping(node->expression.get());

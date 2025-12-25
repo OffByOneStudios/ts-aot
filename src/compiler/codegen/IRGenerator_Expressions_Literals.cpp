@@ -194,6 +194,90 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
     lastValue = currentStr;
 }
 
+void IRGenerator::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {
+    // 1. Prepare the strings array
+    std::vector<std::string> strings;
+    std::vector<ast::Expression*> expressions;
+
+    if (auto* templateExpr = dynamic_cast<ast::TemplateExpression*>(node->templateExpr.get())) {
+        strings.push_back(templateExpr->head);
+        for (auto& span : templateExpr->spans) {
+            strings.push_back(span.literal);
+            expressions.push_back(span.expression.get());
+        }
+    } else if (auto* stringLit = dynamic_cast<ast::StringLiteral*>(node->templateExpr.get())) {
+        strings.push_back(stringLit->value);
+    }
+
+    // 2. Create the TsArray for strings
+    llvm::FunctionType* createArrayFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee createArrayFn = module->getOrInsertFunction("ts_array_create", createArrayFt);
+    llvm::Value* stringsArray = createCall(createArrayFt, createArrayFn.getCallee(), {});
+
+    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+
+    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+
+    for (const auto& s : strings) {
+        llvm::Value* strPtr = builder->CreateGlobalStringPtr(s);
+        llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
+        createCall(pushFt, pushFn.getCallee(), { stringsArray, boxValue(tsStr, std::make_shared<Type>(TypeKind::String)) });
+    }
+
+    // 3. Prepare arguments for the tag call
+    std::vector<llvm::Value*> callArgs;
+    std::vector<std::shared_ptr<Type>> argTypes;
+
+    // Add context first
+    if (currentAsyncContext) {
+        callArgs.push_back(currentAsyncContext);
+    } else {
+        callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    }
+
+    // First argument is the strings array
+    auto stringsType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    callArgs.push_back(stringsArray);
+    argTypes.push_back(stringsType);
+
+    for (auto* expr : expressions) {
+        visit(expr);
+        callArgs.push_back(lastValue);
+        argTypes.push_back(expr->inferredType ? expr->inferredType : std::make_shared<Type>(TypeKind::Any));
+    }
+
+    // 4. Call the tag function
+    if (auto id = dynamic_cast<ast::Identifier*>(node->tag.get())) {
+        std::string mangledName = Monomorphizer::generateMangledName(id->name, argTypes, {});
+
+        // Update inferred type from specialization if available
+        for (const auto& spec : specializations) {
+            if (spec.specializedName == mangledName) {
+                node->inferredType = spec.returnType;
+                break;
+            }
+        }
+
+        llvm::Function* func = module->getFunction(mangledName);
+        if (func) {
+            lastValue = createCall(func->getFunctionType(), func, callArgs);
+            return;
+        }
+    }
+
+    // Fallback: dynamic call (not fully implemented here, but we can try)
+    visit(node->tag.get());
+    llvm::Value* tagFunc = lastValue;
+    if (tagFunc) {
+        std::vector<llvm::Type*> paramTypes;
+        for (auto* arg : callArgs) paramTypes.push_back(arg->getType());
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+        lastValue = createCall(ft, tagFunc, callArgs);
+    }
+}
+
 } // namespace ts
 
 

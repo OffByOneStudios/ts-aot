@@ -51,6 +51,9 @@ ExprPtr parseExpression(const json& j) {
                 node->typeArguments.push_back(ta.get<std::string>());
             }
         }
+        if (j.contains("isOptional")) {
+            node->isOptional = j["isOptional"].get<bool>();
+        }
         return node;
     } else if (kind == "NewExpression") {
         auto node = std::make_unique<NewExpression>();
@@ -104,12 +107,18 @@ ExprPtr parseExpression(const json& j) {
         setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->argumentExpression = parseExpression(j["argumentExpression"]);
+        if (j.contains("isOptional")) {
+            node->isOptional = j["isOptional"].get<bool>();
+        }
         return node;
     } else if (kind == "PropertyAccessExpression") {
         auto node = std::make_unique<PropertyAccessExpression>();
         setLocation(node.get(), j);
         node->expression = parseExpression(j["expression"]);
         node->name = j["name"];
+        if (j.contains("isOptional")) {
+            node->isOptional = j["isOptional"].get<bool>();
+        }
         return node;
     } else if (kind == "Identifier") {
         auto node = std::make_unique<Identifier>();
@@ -237,6 +246,12 @@ ExprPtr parseExpression(const json& j) {
             s.literal = span["literal"];
             node->spans.push_back(std::move(s));
         }
+        return node;
+    } else if (kind == "TaggedTemplateExpression") {
+        auto node = std::make_unique<TaggedTemplateExpression>();
+        setLocation(node.get(), j);
+        node->tag = parseExpression(j["tag"]);
+        node->templateExpr = parseExpression(j["template"]);
         return node;
     } else if (kind == "SuperExpression") {
         auto node = std::make_unique<SuperExpression>();

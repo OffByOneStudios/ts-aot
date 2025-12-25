@@ -158,6 +158,28 @@ int Driver::run() {
 
             linkOpts.libraries.push_back("tsruntime.lib");
             
+            // Hack: Link TsMap.obj and TsArray.obj directly to debug linker issue
+            std::filesystem::path objPath = compilerPath / ".." / ".." / "runtime" / "tsruntime.dir" / "Release" / "TsMap.obj";
+            if (std::filesystem::exists(objPath)) {
+                linkOpts.objectFiles.push_back(objPath.string());
+            } else {
+                SPDLOG_WARN("Could not find TsMap.obj at {}", objPath.string());
+            }
+
+            std::filesystem::path arrayObjPath = compilerPath / ".." / ".." / "runtime" / "tsruntime.dir" / "Release" / "TsArray.obj";
+            if (std::filesystem::exists(arrayObjPath)) {
+                linkOpts.objectFiles.push_back(arrayObjPath.string());
+            } else {
+                SPDLOG_WARN("Could not find TsArray.obj at {}", arrayObjPath.string());
+            }
+
+            std::filesystem::path objectObjPath = compilerPath / ".." / ".." / "runtime" / "tsruntime.dir" / "Release" / "TsObject.obj";
+            if (std::filesystem::exists(objectObjPath)) {
+                linkOpts.objectFiles.push_back(objectObjPath.string());
+            } else {
+                SPDLOG_WARN("Could not find TsObject.obj at {}", objectObjPath.string());
+            }
+
             // Windows system libraries
             linkOpts.libraries.push_back("ws2_32.lib");
             linkOpts.libraries.push_back("user32.lib");

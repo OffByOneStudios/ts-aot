@@ -85,8 +85,29 @@ void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> t
             std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
             if (type) {
                 if (element->isSpread) {
-                    // For now, spread of an object is just Any or the same object type (simplified)
-                    elementType = type; 
+                    if (type->kind == TypeKind::Object) {
+                        auto objType = std::static_pointer_cast<ObjectType>(type);
+                        auto newObjType = std::make_shared<ObjectType>();
+                        newObjType->fields = objType->fields;
+                        
+                        // Remove fields that were already destructured
+                        for (auto& prevNode : obp->elements) {
+                            if (prevNode.get() == elementNode.get()) break;
+                            if (auto prev = dynamic_cast<BindingElement*>(prevNode.get())) {
+                                std::string name;
+                                if (!prev->propertyName.empty()) name = prev->propertyName;
+                                else if (auto id = dynamic_cast<Identifier*>(prev->name.get())) name = id->name;
+                                
+                                if (!name.empty()) {
+                                    newObjType->fields.erase(name);
+                                }
+                            }
+                        }
+                        elementType = newObjType;
+                    } else {
+                        // Fallback for classes/interfaces/any
+                        elementType = type;
+                    }
                 } else {
                     if (type->kind == TypeKind::Class) {
                         auto classType = std::static_pointer_cast<ClassType>(type);

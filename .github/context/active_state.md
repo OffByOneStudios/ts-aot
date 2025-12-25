@@ -1,16 +1,17 @@
 # Active Project State
 
-**Last Updated:** 2025-12-23
+**Last Updated:** 2025-12-24
 **Current Phase:** Phase 17 (Language Completeness)
 
 ## Current Focus
-We are in **Phase 17: Language Completeness**, focusing on high-performance implementations of modern TypeScript features. We have just completed the core implementation of **Epic 90: Async/Await** and **Epic 91: Generators**.
+We are in **Phase 17: Language Completeness**, focusing on high-performance implementations of modern TypeScript features. We have just completed **Epic 93: Error Handling & Stack Traces**.
 
 ## Active Tasks
-1.  **Epic 92:** Implement Advanced Classes (Decorators).
-2.  **Task 92.5:** Update `AstNodes.h` and `AstLoader` to support decorators on functions.
+1.  **Epic 94:** Modern Syntax Sugar (Optional Chaining, Nullish Coalescing).
+2.  **Epic 95:** Extended Types & Runtime (BigInt, Symbols, Set).
 
 ## Recent Accomplishments
+*   **Epic 93: Error Handling & Stack Traces:** Implemented `try/catch/finally` with `setjmp/longjmp`. Added `Error` class and symbolicated stack traces on Windows using `DbgHelp` and LLVM `DIBuilder` for source line mapping.
 *   **Advanced Classes:** Implemented Private Fields (`#field`), Static Blocks (`static {}`), and basic Comptime literal inlining (`ts_aot.comptime`). Fixed monomorphization issues with private fields in generic classes.
 *   **Workspace Cleanup:** Removed obsolete test targets and redundant `find_package` calls from the root `CMakeLists.txt`. Cleaned up build artifacts (`.exe`, `.lib`, `.obj`, `.ll`, `.json`) from the source tree. Updated benchmark scripts to point to new executable locations.
 *   **Build Hygiene:** Resolved all compiler warnings in the compiler and runtime. Fixed build errors in example projects (HTTP server, raytracer) by correcting CMake custom commands and adding missing Windows system libraries (`crypt32`).

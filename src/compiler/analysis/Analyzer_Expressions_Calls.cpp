@@ -27,6 +27,17 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     visit(node->callee.get());
     auto calleeType = lastType;
 
+    if (calleeType->kind == TypeKind::Null || calleeType->kind == TypeKind::Undefined) {
+        if (node->isOptional) {
+            lastType = std::make_shared<Type>(TypeKind::Undefined);
+            node->inferredType = lastType;
+            return;
+        }
+        reportError(fmt::format("Callee is possibly '{}'.", calleeType->kind == TypeKind::Null ? "null" : "undefined"));
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        return;
+    }
+
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;

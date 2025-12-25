@@ -1,11 +1,26 @@
 #include "Analyzer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
 
 void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
+    if (node->op == "??") {
+        visit(node->left.get());
+        auto leftType = lastType;
+        visit(node->right.get());
+        auto rightType = lastType;
+        
+        if (leftType && rightType && leftType->kind == rightType->kind) {
+            lastType = leftType;
+        } else {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+        return;
+    }
     if (node->op == "instanceof") {
         visit(node->left.get());
         visit(node->right.get());

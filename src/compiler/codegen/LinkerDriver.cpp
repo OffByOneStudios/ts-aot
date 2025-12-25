@@ -43,6 +43,12 @@ bool LinkerDriver::link(const Options& options) {
         args.push_back(lib.c_str());
     }
 
+    // Debug: Print linker arguments
+    llvm::outs() << "Linker arguments:\n";
+    for (const auto& arg : args) {
+        llvm::outs() << arg << "\n";
+    }
+
     // Standard Windows libraries that we almost always need
     args.push_back("kernel32.lib");
     args.push_back("user32.lib");

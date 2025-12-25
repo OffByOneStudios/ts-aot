@@ -46,6 +46,11 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
     auto objType = lastType;
 
     if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
+        if (node->isOptional) {
+            lastType = std::make_shared<Type>(TypeKind::Undefined);
+            node->inferredType = lastType;
+            return;
+        }
         reportError(fmt::format("Object is possibly '{}'.", objType->kind == TypeKind::Null ? "null" : "undefined"));
         lastType = std::make_shared<Type>(TypeKind::Any);
         return;
@@ -116,6 +121,11 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     auto objType = lastType;
 
     if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
+        if (node->isOptional) {
+            lastType = std::make_shared<Type>(TypeKind::Undefined);
+            node->inferredType = lastType;
+            return;
+        }
         reportError(fmt::format("Object is possibly '{}'.", objType->kind == TypeKind::Null ? "null" : "undefined"));
         lastType = std::make_shared<Type>(TypeKind::Any);
         return;
@@ -138,7 +148,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     
     if (node->name == "length") {
         SPDLOG_DEBUG("  Accessing .length on type: {}", objType->toString());
-        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
+        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple || objType->kind == TypeKind::Any) {
             lastType = std::make_shared<Type>(TypeKind::Int);
             return;
         }

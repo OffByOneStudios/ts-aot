@@ -10,22 +10,27 @@ void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
     } else {
         lastType = std::make_shared<Type>(TypeKind::Double);
     }
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Boolean);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitNullLiteral(ast::NullLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Null);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Undefined);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitStringLiteral(ast::StringLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::String);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
@@ -42,6 +47,7 @@ void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
         elementTypes.push_back(lastType ? lastType : std::make_shared<Type>(TypeKind::Any));
     }
     lastType = std::make_shared<TupleType>(elementTypes);
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
@@ -83,6 +89,31 @@ void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
         visit(span.expression.get());
     }
     lastType = std::make_shared<Type>(TypeKind::String);
+    node->inferredType = lastType;
+}
+
+void Analyzer::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {
+    visit(node->tag.get());
+    
+    std::vector<std::shared_ptr<Type>> argTypes;
+    argTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String))); // strings
+
+    if (auto* templateExpr = dynamic_cast<ast::TemplateExpression*>(node->templateExpr.get())) {
+        for (auto& span : templateExpr->spans) {
+            visit(span.expression.get());
+            argTypes.push_back(span.expression->inferredType);
+        }
+    } else {
+        visit(node->templateExpr.get());
+        argTypes.push_back(node->templateExpr->inferredType);
+    }
+
+    if (auto id = dynamic_cast<ast::Identifier*>(node->tag.get())) {
+        functionUsages[id->name].push_back({argTypes, {}});
+    }
+
+    lastType = std::make_shared<Type>(TypeKind::String);
+    node->inferredType = lastType;
 }
 
 } // namespace ts

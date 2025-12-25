@@ -24,6 +24,7 @@ void ts_console_log_int(int64_t val);
 void ts_console_log_double(double val);
 void ts_console_log_bool(bool val);
 void ts_console_log_value(TsValue* val);
+bool ts_value_is_nullish(TsValue* v);
 
 // --- Conversions ---
 int32_t ts_double_to_int32(double d);
@@ -80,6 +81,7 @@ int64_t ts_value_get_int(TsValue* v);
 double ts_value_get_double(TsValue* v);
 void* ts_value_get_string(TsValue* v);
 bool ts_value_to_bool(TsValue* v);
+bool ts_value_is_nullish(TsValue* v);
 
 // --- Promises ---
 TsValue* ts_promise_all(TsValue* iterable);

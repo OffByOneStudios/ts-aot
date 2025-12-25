@@ -50,6 +50,45 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 }
 
 void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* node) {
+    SPDLOG_DEBUG("visitElementAccessExpression");
+    if (node->isOptional) {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+
+        llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
+        llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedObj });
+        llvm::Value* undef = getUndefinedValue();
+
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* accessBB = llvm::BasicBlock::Create(*context, "opt_access", func);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "opt_merge", func);
+
+        builder->CreateCondBr(isNullish, mergeBB, accessBB);
+        llvm::BasicBlock* checkBB = builder->GetInsertBlock();
+
+        builder->SetInsertPoint(accessBB);
+        valueOverrides[node->expression.get()] = obj;
+        generateElementAccess(node);
+        valueOverrides.erase(node->expression.get());
+        
+        llvm::Value* accessResult = lastValue;
+        llvm::BasicBlock* finalAccessBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2);
+        phi->addIncoming(undef, checkBB);
+        phi->addIncoming(boxValue(accessResult, node->inferredType), finalAccessBB);
+        boxedValues.insert(phi);
+        lastValue = phi;
+        return;
+    }
+    generateElementAccess(node);
+}
+
+void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     // Check if this is a safe access for BCE
     bool isSafe = false;
     if (auto id = dynamic_cast<ast::Identifier*>(node->argumentExpression.get())) {
@@ -161,11 +200,11 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         llvm::Type* llvmElemType = nullptr;
 
         if (elemType->kind == TypeKind::Double) {
-            isSpecialized = true;
-            llvmElemType = llvm::Type::getDoubleTy(*context);
+            // isSpecialized = true;
+            // llvmElemType = llvm::Type::getDoubleTy(*context);
         } else if (elemType->kind == TypeKind::Int) {
-            isSpecialized = true;
-            llvmElemType = llvm::Type::getInt64Ty(*context);
+            // isSpecialized = true;
+            // llvmElemType = llvm::Type::getInt64Ty(*context);
         } else if (elemType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(elemType);
             if (cls->isStruct) {
@@ -254,6 +293,44 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    if (node->isOptional) {
+        visit(node->expression.get());
+        llvm::Value* obj = lastValue;
+
+        llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
+        llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedObj });
+        llvm::Value* undef = getUndefinedValue();
+
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* accessBB = llvm::BasicBlock::Create(*context, "opt_access", func);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "opt_merge", func);
+
+        builder->CreateCondBr(isNullish, mergeBB, accessBB);
+        llvm::BasicBlock* checkBB = builder->GetInsertBlock();
+
+        builder->SetInsertPoint(accessBB);
+        valueOverrides[node->expression.get()] = obj;
+        generatePropertyAccess(node);
+        valueOverrides.erase(node->expression.get());
+        
+        llvm::Value* accessResult = lastValue;
+        llvm::BasicBlock* finalAccessBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2);
+        phi->addIncoming(undef, checkBB);
+        phi->addIncoming(boxValue(accessResult, node->inferredType), finalAccessBB);
+        boxedValues.insert(phi);
+        lastValue = phi;
+        return;
+    }
+    generatePropertyAccess(node);
+}
+
+void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (!node->expression->inferredType) {
         SPDLOG_ERROR("visitPropertyAccessExpression: node->expression->inferredType is NULL for {}", node->name);
     }

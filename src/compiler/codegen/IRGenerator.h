@@ -21,7 +21,7 @@ class IRGenerator : public ast::Visitor {
 public:
     IRGenerator();
 
-    void generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer, const std::string& sourceFile);
+    void generate(ast::Program* program, const std::vector<Specialization>& specializations, Analyzer& analyzer, const std::string& sourceFile);
     void dumpIR();
     void setOptLevel(const std::string& level) { optLevel = level; }
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
@@ -40,7 +40,7 @@ private:
 
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
-    const Analyzer* analyzer = nullptr;
+    Analyzer* analyzer = nullptr;
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
     bool verbose = false;
@@ -91,6 +91,7 @@ private:
     void visitSpreadElement(ast::SpreadElement* node);
     void visitOmittedExpression(ast::OmittedExpression* node);
     void visitTemplateExpression(ast::TemplateExpression* node);
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitAsExpression(ast::AsExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node);
@@ -113,12 +114,15 @@ private:
     void visitExportDeclaration(ast::ExportDeclaration* node);
     void visitExportAssignment(ast::ExportAssignment* node);
     void visitCallExpression(ast::CallExpression* node) override;
+    void generateCall(ast::CallExpression* node);
     bool tryGenerateMemberCall(ast::CallExpression* node);
     bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
+    void generateElementAccess(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
+    void generatePropertyAccess(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;
@@ -141,6 +145,7 @@ private:
     llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
     llvm::Value* emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type);
+    llvm::Value* getUndefinedValue();
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 
@@ -153,6 +158,7 @@ private:
 
     std::map<std::string, llvm::Value*> namedValues;
     std::map<std::string, llvm::Type*> forcedVariableTypes;
+    std::map<ast::Node*, llvm::Value*> valueOverrides;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;
     

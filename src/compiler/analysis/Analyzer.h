@@ -106,6 +106,7 @@ private:
     void visitBreakStatement(ast::BreakStatement* node) override;
     void visitContinueStatement(ast::ContinueStatement* node) override;
     void visitTemplateExpression(ast::TemplateExpression* node);
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override;
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
     void visitBlockStatement(ast::BlockStatement* node) override;
