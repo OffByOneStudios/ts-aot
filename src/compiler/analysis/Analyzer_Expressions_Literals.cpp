@@ -13,6 +13,11 @@ void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
     node->inferredType = lastType;
 }
 
+void Analyzer::visitBigIntLiteral(ast::BigIntLiteral* node) {
+    lastType = std::make_shared<Type>(TypeKind::BigInt);
+    node->inferredType = lastType;
+}
+
 void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastType = std::make_shared<Type>(TypeKind::Boolean);
     node->inferredType = lastType;

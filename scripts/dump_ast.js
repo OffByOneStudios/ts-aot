@@ -409,6 +409,11 @@ function visitInternal(node) {
                 kind: "NumericLiteral",
                 value: Number(node.text)
             };
+        case ts.SyntaxKind.BigIntLiteral:
+            return {
+                kind: "BigIntLiteral",
+                value: node.text
+            };
         case ts.SyntaxKind.TrueKeyword:
             return {
                 kind: "BooleanLiteral",

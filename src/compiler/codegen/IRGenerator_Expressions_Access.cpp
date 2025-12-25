@@ -293,6 +293,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
 }
 
 void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    SPDLOG_DEBUG("visitPropertyAccessExpression: {}", node->name);
     if (node->isOptional) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
@@ -336,6 +337,20 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     }
     SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
+    if (node->name == "size") {
+        if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
+            visit(node->expression.get());
+            llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), obj);
+            
+            std::string fnName = (node->expression->inferredType->kind == TypeKind::Map) ? "ts_map_size" : "ts_set_size";
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return;
+        }
+    }
+
     if (node->name == "length") {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
@@ -486,18 +501,22 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
             }
-        } else if (cls->name == "Map") {
-            SPDLOG_DEBUG("Generating Map property: {}", node->name);
-            auto propName = builder->CreateGlobalStringPtr(node->name);
+        } else if (cls->name == "Map" || cls->name == "Set") {
+            SPDLOG_DEBUG("Generating {} property: {}", cls->name, node->name);
             visit(node->expression.get());
-            llvm::Value* mapObj = lastValue;
-            emitNullCheckForExpression(node->expression.get(), mapObj);
+            llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), obj);
             
             if (node->name == "size") {
-                // int64_t ts_map_size(void* map)
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_size", ft);
-                lastValue = createCall(ft, fn.getCallee(), { mapObj });
+                if (cls->name == "Map") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_size", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { obj });
+                } else {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_size", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { obj });
+                }
                 return;
             }
         }
@@ -761,19 +780,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         }
     }
 
-    if (node->name == "size" && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
-        visit(node->expression.get());
-        llvm::Value* obj = lastValue;
-        emitNullCheckForExpression(node->expression.get(), obj);
-        if (obj->getType()->isIntegerTy(64)) {
-            obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
-        }
-        
-        llvm::FunctionType* sizeFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee sizeFn = module->getOrInsertFunction("ts_map_size", sizeFt);
-        lastValue = createCall(sizeFt, sizeFn.getCallee(), { obj });
-    } else {
-        if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
+    if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
             llvm::Value* objPtr = unboxValue(lastValue, node->expression->inferredType);
             emitNullCheckForExpression(node->expression.get(), objPtr);
@@ -820,8 +827,6 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         lastValue = nullptr;
     }
-}
-
 } // namespace ts
 
 

@@ -143,6 +143,11 @@ ExprPtr parseExpression(const json& j) {
         setLocation(node.get(), j);
         node->value = j["value"];
         return node;
+    } else if (kind == "BigIntLiteral") {
+        auto node = std::make_unique<BigIntLiteral>();
+        setLocation(node.get(), j);
+        node->value = j["value"];
+        return node;
     } else if (kind == "ParenthesizedExpression") {
         return parseExpression(j["expression"]);
     } else if (kind == "BooleanLiteral") {

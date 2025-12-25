@@ -149,7 +149,10 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
     
     if (iterable->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("[Symbol.asyncIterator]");
-        TsValue* method = ts_map_get(iterable->ptr_val, key);
+        TsValue keyVal;
+        keyVal.type = ValueType::STRING_PTR;
+        keyVal.ptr_val = key;
+        TsValue* method = ts_map_get(iterable->ptr_val, &keyVal);
         if (method && method->type == ValueType::OBJECT_PTR) {
              TsFunction* func = (TsFunction*)method->ptr_val;
              typedef TsValue* (*AsyncIterFunc)(void*);
@@ -165,7 +168,10 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
     
     if (iterator->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("next");
-        TsValue* method = ts_map_get(iterator->ptr_val, key);
+        TsValue keyVal;
+        keyVal.type = ValueType::STRING_PTR;
+        keyVal.ptr_val = key;
+        TsValue* method = ts_map_get(iterator->ptr_val, &keyVal);
         if (method && method->type == ValueType::OBJECT_PTR) {
              TsFunction* func = (TsFunction*)method->ptr_val;
              typedef TsValue* (*NextFunc)(void*, TsValue*);

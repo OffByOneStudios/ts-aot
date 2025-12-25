@@ -34,9 +34,26 @@ Analyzer::Analyzer() {
 
     // Register Symbol global
     auto symbolType = std::make_shared<ObjectType>();
-    symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::String);
-    symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::String);
+    symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::Symbol);
+    
+    auto symbolFor = std::make_shared<FunctionType>();
+    symbolFor->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    symbolFor->returnType = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["for"] = symbolFor;
+
+    auto symbolKeyFor = std::make_shared<FunctionType>();
+    symbolKeyFor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Symbol));
+    symbolKeyFor->returnType = std::make_shared<Type>(TypeKind::String);
+    symbolType->fields["keyFor"] = symbolKeyFor;
+
     symbols.define("Symbol", symbolType);
+
+    // Register BigInt global
+    auto bigIntType = std::make_shared<FunctionType>();
+    bigIntType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    bigIntType->returnType = std::make_shared<Type>(TypeKind::BigInt);
+    symbols.define("BigInt", bigIntType);
 
     // Register ts_aot intrinsic namespace
     auto tsAotType = std::make_shared<ObjectType>();
@@ -499,7 +516,7 @@ Analyzer::Analyzer() {
     auto mapSet = std::make_shared<FunctionType>();
     mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     mapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    mapSet->returnType = std::make_shared<Type>(TypeKind::Void);
+    mapSet->returnType = mapClass; // Returns this for chaining
     mapClass->methods["set"] = mapSet;
 
     auto mapGet = std::make_shared<FunctionType>();
@@ -512,12 +529,54 @@ Analyzer::Analyzer() {
     mapHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
     mapClass->methods["has"] = mapHas;
 
+    auto mapDelete = std::make_shared<FunctionType>();
+    mapDelete->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    mapDelete->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    mapClass->methods["delete"] = mapDelete;
+
+    auto mapClear = std::make_shared<FunctionType>();
+    mapClear->returnType = std::make_shared<Type>(TypeKind::Void);
+    mapClass->methods["clear"] = mapClear;
+
+    mapClass->fields["size"] = std::make_shared<Type>(TypeKind::Int);
+
     symbols.defineType("Map", mapClass);
+
+    // Register Set class
+    auto setClass = std::make_shared<ClassType>("Set");
+    
+    auto setAdd = std::make_shared<FunctionType>();
+    setAdd->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    setAdd->returnType = setClass; // Returns this for chaining
+    setClass->methods["add"] = setAdd;
+
+    auto setHas = std::make_shared<FunctionType>();
+    setHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    setHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    setClass->methods["has"] = setHas;
+
+    auto setDelete = std::make_shared<FunctionType>();
+    setDelete->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    setDelete->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    setClass->methods["delete"] = setDelete;
+
+    auto setClear = std::make_shared<FunctionType>();
+    setClear->returnType = std::make_shared<Type>(TypeKind::Void);
+    setClass->methods["clear"] = setClear;
+
+    setClass->fields["size"] = std::make_shared<Type>(TypeKind::Int);
+
+    symbols.defineType("Set", setClass);
     
     // Define Map as a value (constructor)
     auto mapCtor = std::make_shared<FunctionType>();
     mapCtor->returnType = std::make_shared<Type>(TypeKind::Map);
     symbols.define("Map", mapCtor);
+
+    // Define Set as a value (constructor)
+    auto setCtor = std::make_shared<FunctionType>();
+    setCtor->returnType = std::make_shared<Type>(TypeKind::SetType);
+    symbols.define("Set", setCtor);
 
     // Register Math global
     auto mathType = std::make_shared<ObjectType>();

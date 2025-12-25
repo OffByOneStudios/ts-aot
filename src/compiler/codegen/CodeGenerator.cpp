@@ -17,6 +17,7 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/IR/Verifier.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -106,6 +107,13 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
 }
 
 bool CodeGenerator::emitObjectFile(const std::string& filename, const std::string& optLevel) {
+    std::string errorStr;
+    llvm::raw_string_ostream os(errorStr);
+    if (llvm::verifyModule(*module, &os)) {
+        SPDLOG_ERROR("LLVM Module verification failed: {}", errorStr);
+        return false;
+    }
+
     if (!setupTargetMachine(optLevel)) {
         return false;
     }

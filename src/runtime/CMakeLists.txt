@@ -27,6 +27,15 @@ endif()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(libtommath CONFIG REQUIRED)
+
+# Fix broken libtommath target in some vcpkg versions
+if (TARGET libtommath)
+    get_target_property(TOMMATH_INC libtommath INTERFACE_INCLUDE_DIRECTORIES)
+    if (NOT EXISTS "${TOMMATH_INC}")
+        set_target_properties(libtommath PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/include")
+    endif()
+endif()
 
 # ICU Support Modes:
 # FULL: Link against full ICU libraries and data.
@@ -48,7 +57,10 @@ add_library(tsruntime STATIC
     src/Primitives.cpp
     src/Math.cpp
     src/TsMap.cpp
+    src/TsSet.cpp
     src/TsObject.cpp
+    src/TsBigInt.cpp
+    src/TsSymbol.cpp
     src/Crypto.cpp
     src/md5.cpp
     src/TsJSON.cpp
@@ -74,6 +86,7 @@ target_link_libraries(tsruntime PUBLIC
     llhttp::llhttp_static
     OpenSSL::SSL
     OpenSSL::Crypto
+    libtommath
 )
 
 if (WIN32)
@@ -101,6 +114,7 @@ if (TS_FAT_RUNTIME AND MSVC)
         llhttp::llhttp_static
         OpenSSL::SSL
         OpenSSL::Crypto
+        libtommath
     )
     
     # libuv is special because of the generator expression

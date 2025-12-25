@@ -90,6 +90,30 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             lastValue = createCall(fetchFt, fetchFn.getCallee(), { vtable, url, options });
             return;
         }
+
+        if (id->name == "BigInt") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* arg = boxValue(lastValue, node->arguments[0]->inferredType);
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_bigint_from_value", ft);
+            lastValue = createCall(ft, fn.getCallee(), { arg });
+            return;
+        }
+
+        if (id->name == "Symbol") {
+            llvm::Value* desc = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                desc = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_symbol_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { desc });
+            return;
+        }
     }
 
     if (auto superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get())) {

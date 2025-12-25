@@ -76,6 +76,7 @@ private:
     void visitAssignmentExpression(ast::AssignmentExpression* node);
     void visitIdentifier(ast::Identifier* node);
     void visitNumericLiteral(ast::NumericLiteral* node);
+    void visitBigIntLiteral(ast::BigIntLiteral* node);
     void visitBooleanLiteral(ast::BooleanLiteral* node);
     void visitNullLiteral(ast::NullLiteral* node);
     void visitUndefinedLiteral(ast::UndefinedLiteral* node);

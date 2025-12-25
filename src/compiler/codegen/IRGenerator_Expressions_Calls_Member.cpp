@@ -303,42 +303,26 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             emitNullCheckForExpression(prop->expression.get(), mapObj);
 
             if (methodName == "set") {
-                // void ts_map_set(void* map, void* key, TsValue* value)
+                // void ts_map_set(void* map, TsValue* key, TsValue* value)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_set", ft);
 
                 visit(node->arguments[0].get());
-                llvm::Value* key = lastValue;
-                // Convert key to string if needed
-                if (node->arguments[0]->inferredType->kind == TypeKind::Int) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_int_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
-                    key = builder->CreateCall(toStr, { key, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 10) });
-                } else if (node->arguments[0]->inferredType->kind == TypeKind::Double) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_double_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
-                    key = builder->CreateCall(toStr, { key });
-                }
-
+                llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+                
                 visit(node->arguments[1].get());
                 llvm::Value* val = boxValue(lastValue, node->arguments[1]->inferredType);
 
                 createCall(ft, fn.getCallee(), { mapObj, key, val });
-                lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy()); // void return
+                lastValue = mapObj; // Map.set returns the map itself
                 return true;
             } else if (methodName == "get") {
-                // TsValue* ts_map_get(void* map, void* key)
+                // TsValue* ts_map_get(void* map, TsValue* key)
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get", ft);
 
                 visit(node->arguments[0].get());
-                llvm::Value* key = lastValue;
-                // Convert key to string
-                if (node->arguments[0]->inferredType->kind == TypeKind::Int) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_int_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
-                    key = builder->CreateCall(toStr, { key, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 10) });
-                } else if (node->arguments[0]->inferredType->kind == TypeKind::Double) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_double_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
-                    key = builder->CreateCall(toStr, { key });
-                }
+                llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
 
                 llvm::Value* boxedVal = createCall(ft, fn.getCallee(), { mapObj, key });
                 
@@ -349,36 +333,22 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 }
                 return true;
             } else if (methodName == "has") {
-                // bool ts_map_has(void* map, void* key)
+                // bool ts_map_has(void* map, TsValue* key)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has", ft);
 
                 visit(node->arguments[0].get());
-                llvm::Value* key = lastValue;
-                if (node->arguments[0]->inferredType->kind == TypeKind::Int) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_int_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
-                    key = builder->CreateCall(toStr, { key, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 10) });
-                } else if (node->arguments[0]->inferredType->kind == TypeKind::Double) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_double_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
-                    key = builder->CreateCall(toStr, { key });
-                }
+                llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
 
                 lastValue = createCall(ft, fn.getCallee(), { mapObj, key });
                 return true;
             } else if (methodName == "delete") {
-                // bool ts_map_delete(void* map, void* key)
+                // bool ts_map_delete(void* map, TsValue* key)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_delete", ft);
 
                 visit(node->arguments[0].get());
-                llvm::Value* key = lastValue;
-                if (node->arguments[0]->inferredType->kind == TypeKind::Int) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_int_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false));
-                    key = builder->CreateCall(toStr, { key, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 10) });
-                } else if (node->arguments[0]->inferredType->kind == TypeKind::Double) {
-                    llvm::FunctionCallee toStr = module->getOrInsertFunction("ts_double_to_string", llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false));
-                    key = builder->CreateCall(toStr, { key });
-                }
+                llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
 
                 lastValue = createCall(ft, fn.getCallee(), { mapObj, key });
                 return true;
@@ -386,8 +356,56 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 // void ts_map_clear(void* map)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_clear", ft);
+
                 createCall(ft, fn.getCallee(), { mapObj });
-                lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = nullptr;
+                return true;
+            }
+        } else if (className == "Set") {
+            SPDLOG_DEBUG("Generating Set method: {} for object of class: {}", methodName, className);
+            visit(prop->expression.get());
+            llvm::Value* setObj = lastValue;
+            
+            emitNullCheckForExpression(prop->expression.get(), setObj);
+
+            if (methodName == "add") {
+                // void ts_set_add(void* set, TsValue* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_add", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                createCall(ft, fn.getCallee(), { setObj, val });
+                lastValue = setObj; // Set.add returns the set itself
+                return true;
+            } else if (methodName == "has") {
+                // bool ts_set_has(void* set, TsValue* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_has", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                lastValue = createCall(ft, fn.getCallee(), { setObj, val });
+                return true;
+            } else if (methodName == "delete") {
+                // bool ts_set_delete(void* set, TsValue* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_delete", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                lastValue = createCall(ft, fn.getCallee(), { setObj, val });
+                return true;
+            } else if (methodName == "clear") {
+                // void ts_set_clear(void* set)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_clear", ft);
+
+                createCall(ft, fn.getCallee(), { setObj });
+                lastValue = nullptr;
                 return true;
             }
         }

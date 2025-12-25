@@ -1,5 +1,7 @@
 #include "TsRuntime.h"
 #include "TsString.h"
+#include "TsBigInt.h"
+#include "TsSymbol.h"
 #include <cstdio>
 #include <cmath>
 
@@ -44,7 +46,7 @@ void ts_console_log_bool(bool val) {
     std::fflush(stdout);
 }
 
-void ts_console_log_value(TsValue* val) {
+extern "C" void ts_console_log_value(TsValue* val) {
     if (!val) {
         std::printf("undefined\n");
         std::fflush(stdout);
@@ -69,6 +71,16 @@ void ts_console_log_value(TsValue* val) {
         case ValueType::OBJECT_PTR: std::printf("[object Object]\n"); break;
         case ValueType::ARRAY_PTR: std::printf("[object Array]\n"); break;
         case ValueType::PROMISE_PTR: std::printf("[object Promise]\n"); break;
+        case ValueType::BIGINT_PTR: std::printf("%sn\n", ((TsBigInt*)val->ptr_val)->ToString()); break;
+        case ValueType::SYMBOL_PTR: {
+            TsSymbol* sym = (TsSymbol*)val->ptr_val;
+            if (sym->description) {
+                std::printf("Symbol(%s)\n", sym->description->ToUtf8());
+            } else {
+                std::printf("Symbol()\n");
+            }
+            break;
+        }
     }
     std::fflush(stdout);
 }
@@ -86,6 +98,14 @@ TsString* ts_typeof(void* val) {
     uint32_t magic = *(uint32_t*)val;
     if (magic == 0x53545247) {
         return TsString::Create("string");
+    }
+    
+    if (magic == 0x42494749) {
+        return TsString::Create("bigint");
+    }
+
+    if (magic == 0x53594D42) {
+        return TsString::Create("symbol");
     }
     
     return TsString::Create("object");

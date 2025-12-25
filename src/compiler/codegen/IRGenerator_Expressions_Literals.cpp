@@ -13,6 +13,23 @@ void IRGenerator::visitNumericLiteral(ast::NumericLiteral* node) {
     }
 }
 
+void IRGenerator::visitBigIntLiteral(ast::BigIntLiteral* node) {
+    llvm::FunctionType* createFt = llvm::FunctionType::get(
+        builder->getPtrTy(),
+        { builder->getPtrTy(), builder->getInt32Ty() }, false);
+    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_bigint_create_str", createFt);
+
+    // Remove 'n' suffix if present
+    std::string val = node->value;
+    if (!val.empty() && val.back() == 'n') {
+        val.pop_back();
+    }
+
+    llvm::Constant* strConst = builder->CreateGlobalStringPtr(val);
+    lastValue = createCall(createFt, createFn.getCallee(), { strConst, builder->getInt32(10) });
+    nonNullValues.insert(lastValue);
+}
+
 void IRGenerator::visitBooleanLiteral(ast::BooleanLiteral* node) {
     lastValue = llvm::ConstantInt::get(*context, llvm::APInt(1, node->value ? 1 : 0));
 }

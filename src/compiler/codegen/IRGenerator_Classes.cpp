@@ -123,7 +123,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -494,8 +494,16 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     emitLocation(node);
     SPDLOG_DEBUG("visitNewExpression: inferredType={}", (node->inferredType ? (int)node->inferredType->kind : -1));
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
-        llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_create", createFt);
+        lastValue = createCall(createFt, fn.getCallee(), {});
+        nonNullValues.insert(lastValue);
+        return;
+    }
+
+    if (node->inferredType && node->inferredType->kind == TypeKind::SetType) {
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_create", createFt);
         lastValue = createCall(createFt, fn.getCallee(), {});
         nonNullValues.insert(lastValue);
         return;

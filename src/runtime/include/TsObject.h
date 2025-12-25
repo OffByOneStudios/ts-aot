@@ -10,7 +10,9 @@ enum class ValueType : uint8_t {
     STRING_PTR,
     OBJECT_PTR,
     PROMISE_PTR,
-    ARRAY_PTR
+    ARRAY_PTR,
+    BIGINT_PTR,
+    SYMBOL_PTR
 };
 
 struct TaggedValue {
