@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include <fmt/core.h>
 #include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
@@ -59,11 +60,18 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
     
     for (const auto& param : node->parameters) {
+        std::shared_ptr<Type> pType;
         if (!param->type.empty()) {
-            funcType->paramTypes.push_back(parseType(param->type, symbols));
+            pType = parseType(param->type, symbols);
         } else {
-            funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            pType = std::make_shared<Type>(TypeKind::Any);
         }
+
+        if (param->isRest && pType->kind != TypeKind::Array) {
+            pType = std::make_shared<ArrayType>(pType);
+        }
+
+        funcType->paramTypes.push_back(pType);
         funcType->isOptional.push_back(param->isOptional);
         if (param->isRest) funcType->hasRest = true;
     }
@@ -300,18 +308,36 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     
     // Define parameters with actual argument types
     for (size_t i = 0; i < node->parameters.size(); ++i) {
-        if (i < argTypes.size()) {
-            declareBindingPattern(node->parameters[i]->name.get(), argTypes[i]);
+        const auto& param = node->parameters[i];
+        if (param->isRest) {
+            // Collect all remaining argTypes into an array
+            std::vector<std::shared_ptr<Type>> restTypes;
+            for (size_t j = i; j < argTypes.size(); ++j) {
+                restTypes.push_back(argTypes[j]);
+            }
+            std::shared_ptr<Type> restType;
+            if (restTypes.empty()) {
+                restType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            } else if (restTypes.size() == 1) {
+                restType = std::make_shared<ArrayType>(restTypes[0]);
+            } else {
+                restType = std::make_shared<ArrayType>(std::make_shared<UnionType>(restTypes));
+            }
+            SPDLOG_INFO("Inferred rest parameter type: {}", restType->toString());
+            declareBindingPattern(param->name.get(), restType);
+            break; // Rest parameter must be last
+        } else if (i < argTypes.size()) {
+            declareBindingPattern(param->name.get(), argTypes[i]);
         } else {
             // Handle default parameters or optional parameters
-            if (node->parameters[i]->initializer) {
-                visit(node->parameters[i]->initializer.get());
-                declareBindingPattern(node->parameters[i]->name.get(), lastType);
-            } else if (node->parameters[i]->isOptional) {
-                auto pType = parseType(node->parameters[i]->type, symbols);
-                declareBindingPattern(node->parameters[i]->name.get(), pType);
+            if (param->initializer) {
+                visit(param->initializer.get());
+                declareBindingPattern(param->name.get(), lastType);
+            } else if (param->isOptional) {
+                auto pType = parseType(param->type, symbols);
+                declareBindingPattern(param->name.get(), pType);
             } else {
-                declareBindingPattern(node->parameters[i]->name.get(), std::make_shared<Type>(TypeKind::Any));
+                declareBindingPattern(param->name.get(), std::make_shared<Type>(TypeKind::Any));
             }
         }
     }

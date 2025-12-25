@@ -872,6 +872,8 @@ void Analyzer::visitBinaryExpression(BinaryExpression* node) {
         node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=" ||
         node->op == "&&" || node->op == "||") {
         lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "??") {
+        lastType = std::make_shared<UnionType>(std::vector<std::shared_ptr<Type>>{leftType, rightType});
     } else if (leftType && rightType) {
         if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
             lastType = std::make_shared<Type>(TypeKind::Int);
@@ -918,70 +920,7 @@ void Analyzer::visitAssignmentExpression(AssignmentExpression* node) {
     visit(node->right.get());
 }
 
-void Analyzer::visitIdentifier(ast::Identifier* node) {
-    if (node->name == "null") {
-        lastType = std::make_shared<Type>(TypeKind::Null);
-        node->inferredType = lastType;
-        return;
-    }
-    if (node->name == "undefined") {
-        lastType = std::make_shared<Type>(TypeKind::Undefined);
-        node->inferredType = lastType;
-        return;
-    }
-
-    auto sym = symbols.lookup(node->name);
-    if (sym) {
-        lastType = sym->type;
-    } else {
-        // Check if it's a class name
-        auto type = symbols.lookupType(node->name);
-        if (type && type->kind == TypeKind::Class) {
-            auto ctorType = std::make_shared<FunctionType>();
-            ctorType->returnType = type;
-            lastType = ctorType;
-        } else if (type) {
-            lastType = type;
-        } else {
-            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
-            reportError("Undefined variable " + node->name);
-            lastType = std::make_shared<Type>(TypeKind::Any);
-        }
-    }
-    node->inferredType = lastType;
-}
-
-void Analyzer::visitStringLiteral(ast::StringLiteral* node) {
-    lastType = std::make_shared<Type>(TypeKind::String);
-}
-
-void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
-    if (node->value == (int)node->value) {
-        lastType = std::make_shared<Type>(TypeKind::Int);
-    } else {
-        lastType = std::make_shared<Type>(TypeKind::Double);
-    }
-}
-
-void Analyzer::visitBooleanLiteral(ast::BooleanLiteral* node) {
-    lastType = std::make_shared<Type>(TypeKind::Boolean);
-}
-
-void Analyzer::visitNullLiteral(ast::NullLiteral* node) {
-    // Force rebuild
-    lastType = std::make_shared<Type>(TypeKind::Null);
-}
-
-void Analyzer::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
-    lastType = std::make_shared<Type>(TypeKind::Undefined);
-}
-
-void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
-    for (auto& span : node->spans) {
-        visit(span.expression.get());
-    }
-    lastType = std::make_shared<Type>(TypeKind::String);
-}
+// visitIdentifier moved to Analyzer_Expressions_Access.cpp
 
 void Analyzer::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
     visit(node->expression.get());

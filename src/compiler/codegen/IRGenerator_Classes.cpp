@@ -868,6 +868,10 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             visit(pa->initializer.get());
             llvm::Value* val = lastValue;
             
+            std::string keyName = "unknown";
+            if (auto id = dynamic_cast<ast::Identifier*>(pa->nameNode.get())) keyName = id->name;
+            SPDLOG_INFO("PropertyAssignment: key={} typeKind={}", keyName, (pa->initializer->inferredType ? (int)pa->initializer->inferredType->kind : -1));
+
             // Box the value
             llvm::Value* boxedVal = boxValue(val, pa->initializer->inferredType);
             

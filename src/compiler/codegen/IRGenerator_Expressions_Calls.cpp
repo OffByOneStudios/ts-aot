@@ -5,7 +5,45 @@
 
 namespace ts {
 using namespace ast;
-void IRGenerator::visitCallExpression(ast::CallExpression* node) { 
+void IRGenerator::visitCallExpression(ast::CallExpression* node) {
+    if (node->isOptional) {
+        visit(node->callee.get());
+        llvm::Value* callee = lastValue;
+
+        llvm::Value* boxedCallee = boxValue(callee, node->callee->inferredType);
+        llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedCallee });
+        llvm::Value* undef = getUndefinedValue();
+
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* callBB = llvm::BasicBlock::Create(*context, "opt_call", func);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "opt_merge", func);
+
+        builder->CreateCondBr(isNullish, mergeBB, callBB);
+        llvm::BasicBlock* checkBB = builder->GetInsertBlock();
+
+        builder->SetInsertPoint(callBB);
+        valueOverrides[node->callee.get()] = callee;
+        generateCall(node);
+        valueOverrides.erase(node->callee.get());
+        
+        llvm::Value* callResult = lastValue;
+        llvm::BasicBlock* finalCallBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2);
+        phi->addIncoming(undef, checkBB);
+        phi->addIncoming(boxValue(callResult, node->inferredType), finalCallBB);
+        boxedValues.insert(phi);
+        lastValue = phi;
+        return;
+    }
+    generateCall(node);
+}
+
+void IRGenerator::generateCall(ast::CallExpression* node) { 
     emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
 
@@ -233,6 +271,8 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
             } else if (arg->getType()->isIntegerTy(1)) {
                 funcName = "ts_console_log_bool";
                 paramType = llvm::Type::getInt1Ty(*context);
+            } else if (node->arguments[0]->inferredType && node->arguments[0]->inferredType->kind == TypeKind::Any) {
+                funcName = "ts_console_log_value";
             }
 
             llvm::FunctionType* ft = llvm::FunctionType::get(
@@ -262,6 +302,14 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
         }
 
         std::string mangledName = Monomorphizer::generateMangledName(funcName, argTypes, node->resolvedTypeArguments);
+
+        // Update inferred type from specialization if available
+        for (const auto& spec : specializations) {
+            if (spec.specializedName == mangledName) {
+                node->inferredType = spec.returnType;
+                break;
+            }
+        }
 
         llvm::Function* func = module->getFunction(mangledName);
         if (func) {

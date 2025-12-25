@@ -383,6 +383,27 @@ extern "C" {
         return (void*)((TsArray*)arr)->Get(index);
     }
 
+    TsValue* ts_array_get_as_value(void* arr, int64_t index) {
+        if (!arr) {
+            // printf("ts_array_get_as_value: arr is null\n");
+            return ts_value_make_undefined();
+        }
+        TsArray* array = (TsArray*)arr;
+        // printf("ts_array_get_as_value: arr=%p, index=%lld\n", arr, index);
+        if (index < 0 || index >= array->Length()) {
+             return ts_value_make_undefined();
+        }
+        int64_t val = array->Get(index);
+        if (array->IsSpecialized()) {
+            if (array->IsDouble()) {
+                return ts_value_make_double(*(double*)&val);
+            } else {
+                return ts_value_make_int(val);
+            }
+        }
+        return (TsValue*)val;
+    }
+
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         return (void*)((TsArray*)arr)->GetUnchecked(index);
     }
@@ -396,6 +417,7 @@ extern "C" {
     }
 
     int64_t ts_array_length(void* arr) {
+        std::cout << "ts_array_length: arr=" << arr << std::endl;
         return ((TsArray*)arr)->Length();
     }
 
@@ -404,6 +426,7 @@ extern "C" {
     }
 
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
+        std::cout << "ts_array_slice: start=" << start << ", end=" << end << std::endl;
         return ((TsArray*)arr)->Slice(start, end);
     }
 

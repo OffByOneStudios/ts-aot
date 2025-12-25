@@ -67,6 +67,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
         if (!function->empty()) continue;
 
+        // Re-analyze the body with the specialized types to ensure inferredType is correct for THIS specialization
+        if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+            analyzer->analyzeFunctionBody(funcNode, spec.argTypes, spec.typeArguments);
+        } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            analyzer->analyzeMethodBody(methodNode, std::static_pointer_cast<ClassType>(spec.classType), spec.typeArguments);
+        }
+
         bool isAsync = false;
         bool isGenerator = false;
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
@@ -340,6 +347,10 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             builder->CreateRetVoid();
         } else {
             llvm::Value* retVal = builder->CreateLoad(retType, currentReturnValueAlloca);
+            if (!retVal) {
+                 // Fallback if for some reason it wasn't initialized
+                 retVal = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(retType));
+            }
             builder->CreateRet(retVal);
         }
 

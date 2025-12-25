@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include "TsObject.h"
 
 class TsArray {
 public:
@@ -63,6 +64,7 @@ extern "C" {
     void ts_array_unshift(void* arr, void* value);
     void* ts_array_shift(void* arr);
     void* ts_array_get(void* arr, int64_t index);
+    TsValue* ts_array_get_as_value(void* arr, int64_t index);
     void* ts_array_get_unchecked(void* arr, int64_t index);
     void ts_array_set(void* arr, int64_t index, void* value);
     void ts_array_set_unchecked(void* arr, int64_t index, void* value);

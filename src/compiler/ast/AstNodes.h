@@ -67,6 +67,7 @@ struct UndefinedLiteral;
 struct ArrowFunction;
 struct FunctionExpression;
 struct TemplateExpression;
+struct TaggedTemplateExpression;
 struct AsExpression;
 struct ConditionalExpression;
 struct PrefixUnaryExpression;
@@ -130,6 +131,7 @@ struct Visitor {
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
     virtual void visitFunctionExpression(FunctionExpression* node) = 0;
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
+    virtual void visitTaggedTemplateExpression(TaggedTemplateExpression* node) = 0;
     virtual void visitAsExpression(AsExpression* node) = 0;
     virtual void visitPrefixUnaryExpression(PrefixUnaryExpression* node) = 0;
     virtual void visitPostfixUnaryExpression(PostfixUnaryExpression* node) = 0;
@@ -510,6 +512,7 @@ struct CallExpression : Expression {
     std::vector<std::string> typeArguments;
     std::vector<std::shared_ptr<ts::Type>> resolvedTypeArguments;
     bool isComptime = false;
+    bool isOptional = false;
     std::string getKind() const override { return "CallExpression"; }
     void accept(Visitor* visitor) override { 
         // printf("CallExpression::accept\n");
@@ -547,6 +550,7 @@ struct ArrayLiteralExpression : Expression {
 struct ElementAccessExpression : Expression {
     ExprPtr expression;
     ExprPtr argumentExpression;
+    bool isOptional = false;
     std::string getKind() const override { return "ElementAccessExpression"; }
     void accept(Visitor* visitor) override { visitor->visitElementAccessExpression(this); }
 };
@@ -554,6 +558,7 @@ struct ElementAccessExpression : Expression {
 struct PropertyAccessExpression : Expression {
     ExprPtr expression;
     std::string name;
+    bool isOptional = false;
     std::string getKind() const override { return "PropertyAccessExpression"; }
     void accept(Visitor* visitor) override { visitor->visitPropertyAccessExpression(this); }
 };
@@ -674,6 +679,13 @@ struct TemplateExpression : Expression {
     std::vector<TemplateSpan> spans;
     std::string getKind() const override { return "TemplateExpression"; }
     void accept(Visitor* visitor) override { visitor->visitTemplateExpression(this); }
+};
+
+struct TaggedTemplateExpression : Expression {
+    ExprPtr tag;
+    ExprPtr templateExpr;
+    std::string getKind() const override { return "TaggedTemplateExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitTaggedTemplateExpression(this); }
 };
 
 struct AsExpression : Expression {

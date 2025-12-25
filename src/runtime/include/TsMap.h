@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 #include "TsString.h"
 #include "TsObject.h"
 
@@ -19,6 +20,7 @@ public:
     void* GetValues();
     void* GetEntries();
     void ForEach(void* callback, void* thisArg = nullptr);
+    TsMap* CopyExcluding(std::vector<TsString*>& excluded);
 
 protected:
     TsMap();

@@ -7,28 +7,45 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
-    if (node->op == "instanceof") {
+    SPDLOG_DEBUG("visitBinaryExpression: {}", node->op);
+    if (node->op == "??") {
+        SPDLOG_DEBUG("Generating ?? operator");
         visit(node->left.get());
         llvm::Value* left = lastValue;
         
-        if (auto id = dynamic_cast<ast::Identifier*>(node->right.get())) {
-            std::string className = id->name;
-            std::string vtableGlobalName = className + "_VTable_Global";
-            llvm::GlobalVariable* vtableGlobal = module->getGlobalVariable(vtableGlobalName);
-            
-            if (!vtableGlobal) {
-                lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
-                return;
-            }
-            
-            llvm::FunctionType* instanceofFt = llvm::FunctionType::get(
-                llvm::Type::getInt1Ty(*context),
-                { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee instanceofFn = module->getOrInsertFunction("ts_instanceof", instanceofFt);
-            
-            lastValue = createCall(instanceofFt, instanceofFn.getCallee(), { left, vtableGlobal });
-            return;
-        }
+        // Box left if it's a primitive, because we need to check for null/undefined
+        llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+        
+        llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedLeft });
+        
+        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* rightBB = llvm::BasicBlock::Create(*context, "nullish_right", currentFunc);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "nullish_merge", currentFunc);
+        
+        llvm::BasicBlock* entryBB = builder->GetInsertBlock();
+        builder->CreateCondBr(isNullish, rightBB, mergeBB);
+        
+        builder->SetInsertPoint(rightBB);
+        visit(node->right.get());
+        llvm::Value* rightVal = lastValue;
+        llvm::Value* boxedRight = boxValue(rightVal, node->right->inferredType);
+        llvm::BasicBlock* rightEndBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+        
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(boxedLeft->getType(), 2, "nullish_res");
+        phi->addIncoming(boxedLeft, entryBB);
+        phi->addIncoming(boxedRight, rightEndBB);
+        
+        boxedValues.insert(phi);
+        lastValue = phi;
+        return;
+    }
+
+    if (node->op == "instanceof") {
+        // ... existing code ...
         lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
         return;
     }
@@ -79,7 +96,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         // EXCEPT if it's a string concatenation!
         if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%" ||
             node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>" ||
-            node->op == "+=" || node->op == "-=" || node->op == "*=" || node->op == "/=" || node->op == "%=" ||
+            (node->op == "+=" && !isString) || node->op == "-=" || node->op == "*=" || node->op == "/=" || node->op == "%=" ||
             node->op == "&=" || node->op == "|=" || node->op == "^=" || node->op == "<<=" || node->op == ">>=" || node->op == ">>>=") {
              
              auto targetType = std::make_shared<Type>(TypeKind::Double);

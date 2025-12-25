@@ -40,7 +40,7 @@ IRGenerator::IRGenerator() {
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 }
 
-void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, const Analyzer& analyzer, const std::string& sourceFile) {
+void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, Analyzer& analyzer, const std::string& sourceFile) {
     this->specializations = specializations;
     this->analyzer = &analyzer;
     concreteTypes.clear();
@@ -360,7 +360,7 @@ void IRGenerator::generateEntryPoint() {
 llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
     if (!type) return builder->getPtrTy();
     switch (type->kind) {
-        case TypeKind::Void: return builder->getPtrTy();
+        case TypeKind::Void: return llvm::Type::getVoidTy(*context);
         case TypeKind::Int: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Enum: return llvm::Type::getInt64Ty(*context);
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
@@ -513,9 +513,60 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         }
     } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(pattern)) {
         if (!type || type->kind != TypeKind::Class) {
+            // Collect excluded keys for rest pattern
+            std::vector<std::string> excludedKeys;
+            for (auto& elementNode : obp->elements) {
+                auto element = dynamic_cast<ast::BindingElement*>(elementNode.get());
+                if (!element || element->isSpread) continue;
+                
+                std::string fieldName;
+                if (!element->propertyName.empty()) {
+                    fieldName = element->propertyName;
+                } else if (auto nameId = dynamic_cast<ast::Identifier*>(element->name.get())) {
+                    fieldName = nameId->name;
+                }
+                if (!fieldName.empty()) excludedKeys.push_back(fieldName);
+            }
+
             for (auto& elementNode : obp->elements) {
                 auto element = dynamic_cast<ast::BindingElement*>(elementNode.get());
                 if (!element) continue;
+
+                if (element->isSpread) {
+                    // Handle rest pattern
+                    llvm::FunctionType* createArrayFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee createArrayFn = module->getOrInsertFunction("ts_array_create", createArrayFt);
+                    llvm::Value* excludedArray = createCall(createArrayFt, createArrayFn.getCallee(), {});
+
+                    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+
+                    for (const auto& key : excludedKeys) {
+                        llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(key) });
+                        llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+                        createCall(pushFt, pushFn.getCallee(), { excludedArray, boxedKey });
+                    }
+
+                    llvm::FunctionType* copyExcludingFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee copyExcludingFn = module->getOrInsertFunction("ts_map_copy_excluding_v2", copyExcludingFt);
+                    
+                    // Ensure value is unboxed if it's boxed (Any or known boxed value)
+                    llvm::Value* objPtr = value;
+                    if (boxedValues.count(value) || (type && type->kind == TypeKind::Any)) {
+                         objPtr = unboxValue(value, std::make_shared<Type>(TypeKind::Object));
+                    }
+                    
+                    llvm::Value* restObj = createCall(copyExcludingFt, copyExcludingFn.getCallee(), { objPtr, excludedArray });
+                    
+                    // restObj is TsMap*. We need to box it to assign to Any/Object variable.
+                    llvm::Value* boxedRest = boxValue(restObj, std::make_shared<Type>(TypeKind::Object));
+                    
+                    generateDestructuring(boxedRest, std::make_shared<Type>(TypeKind::Any), element->name.get());
+                    continue;
+                }
 
                 std::string fieldName;
                 if (!element->propertyName.empty()) {
@@ -535,15 +586,62 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
                 llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(fieldName) });
-                propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
+                // propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
                 
                 llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
                 
-                llvm::Value* propVal = createCall(getPropFt, getPropFn.getCallee(), { boxValue(value, type), propName });
-                propVal = unboxValue(propVal, fieldType);
+                // Ensure we pass the object pointer, not the TsValue* if possible, or let runtime handle it.
+                // But ts_value_get_property expects void* obj.
+                // If value is TsValue*, we should probably unbox it.
+                llvm::Value* objPtr = value;
+                if (type && type->kind != TypeKind::Any) {
+                    objPtr = boxValue(value, type);
+                }
 
-                generateDestructuring(propVal, fieldType, element->name.get());
+                llvm::Value* propVal = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
+                
+                llvm::Value* finalVal = nullptr;
+
+                if (element->initializer) {
+                    llvm::Value* typeTag = builder->CreateLoad(llvm::Type::getInt8Ty(*context), builder->CreateBitCast(propVal, builder->getPtrTy()));
+                    llvm::Value* isUndefined = builder->CreateICmpEQ(typeTag, llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), 0));
+                    
+                    llvm::Function* function = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "destruct.default", function);
+                    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "destruct.value", function);
+                    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "destruct.merge", function);
+                    
+                    builder->CreateCondBr(isUndefined, thenBB, elseBB);
+                    
+                    builder->SetInsertPoint(thenBB);
+                    visit(element->initializer.get());
+                    llvm::Value* defaultVal = lastValue;
+                    defaultVal = castValue(defaultVal, getLLVMType(fieldType));
+                    builder->CreateBr(mergeBB);
+                    thenBB = builder->GetInsertBlock();
+                    
+                    builder->SetInsertPoint(elseBB);
+                    llvm::Value* unboxedProp = propVal;
+                    if (fieldType && fieldType->kind != TypeKind::Any) {
+                        unboxedProp = unboxValue(propVal, fieldType);
+                    }
+                    builder->CreateBr(mergeBB);
+                    elseBB = builder->GetInsertBlock();
+                    
+                    builder->SetInsertPoint(mergeBB);
+                    llvm::PHINode* phi = builder->CreatePHI(getLLVMType(fieldType), 2);
+                    phi->addIncoming(defaultVal, thenBB);
+                    phi->addIncoming(unboxedProp, elseBB);
+                    finalVal = phi;
+                } else {
+                    finalVal = propVal;
+                    if (fieldType && fieldType->kind != TypeKind::Any) {
+                        finalVal = unboxValue(propVal, fieldType);
+                    }
+                }
+
+                generateDestructuring(finalVal, fieldType, element->name.get());
             }
             return;
         }
@@ -623,11 +721,18 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             elementType = std::static_pointer_cast<ArrayType>(type)->elementType;
         }
 
-        llvm::Function* getFn = module->getFunction("ts_array_get");
+        llvm::Value* arrayPtr = value;
+        if (type && type->kind == TypeKind::Any) {
+             llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee getObjFn = module->getOrInsertFunction("ts_value_get_object", getObjFt);
+             arrayPtr = createCall(getObjFt, getObjFn.getCallee(), { value });
+        }
+
+        llvm::Function* getFn = module->getFunction("ts_array_get_as_value");
         if (!getFn) {
              std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
              llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), args, false);
-             getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get", module.get());
+             getFn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "ts_array_get_as_value", module.get());
         }
 
         for (size_t i = 0; i < abp->elements.size(); ++i) {
@@ -640,26 +745,31 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             llvm::Value* idxVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i);
 
             if (element->isSpread) {
+                llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
+                llvm::Value* lenVal = createCall(lenFt, lenFn.getCallee(), { arrayPtr });
+
                 llvm::FunctionType* sliceFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                    { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context) }, false);
+                    { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
                 llvm::FunctionCallee sliceFn = module->getOrInsertFunction("ts_array_slice", sliceFt);
-                llvm::Value* restArr = createCall(sliceFt, sliceFn.getCallee(), { value, idxVal });
+                llvm::Value* restArr = createCall(sliceFt, sliceFn.getCallee(), { arrayPtr, idxVal, lenVal });
                 generateDestructuring(restArr, type, element->name.get());
                 break; 
             }
 
-            llvm::Value* elementVal = createCall(getFn->getFunctionType(), getFn, { value, idxVal });
-            llvm::Value* castedVal = castValue(elementVal, getLLVMType(elementType));
+            llvm::Value* elementVal = createCall(getFn->getFunctionType(), getFn, { arrayPtr, idxVal });
             
+            llvm::Value* finalVal = nullptr;
             if (element->initializer) {
-                llvm::Value* isNull = builder->CreateICmpEQ(elementVal, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+                llvm::Value* typeTag = builder->CreateLoad(llvm::Type::getInt8Ty(*context), builder->CreateBitCast(elementVal, builder->getPtrTy()));
+                llvm::Value* isUndefined = builder->CreateICmpEQ(typeTag, llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), 0));
                 
                 llvm::Function* function = builder->GetInsertBlock()->getParent();
                 llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "destruct.arr.default", function);
                 llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "destruct.arr.value", function);
                 llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "destruct.arr.merge", function);
                 
-                builder->CreateCondBr(isNull, thenBB, elseBB);
+                builder->CreateCondBr(isUndefined, thenBB, elseBB);
                 
                 builder->SetInsertPoint(thenBB);
                 visit(element->initializer.get());
@@ -669,17 +779,20 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 thenBB = builder->GetInsertBlock();
                 
                 builder->SetInsertPoint(elseBB);
+                llvm::Value* unboxedProp = unboxValue(elementVal, elementType);
                 builder->CreateBr(mergeBB);
                 elseBB = builder->GetInsertBlock();
                 
                 builder->SetInsertPoint(mergeBB);
-                llvm::PHINode* phi = builder->CreatePHI(castedVal->getType(), 2);
+                llvm::PHINode* phi = builder->CreatePHI(getLLVMType(elementType), 2);
                 phi->addIncoming(defaultVal, thenBB);
-                phi->addIncoming(castedVal, elseBB);
-                castedVal = phi;
+                phi->addIncoming(unboxedProp, elseBB);
+                finalVal = phi;
+            } else {
+                finalVal = unboxValue(elementVal, elementType);
             }
 
-            generateDestructuring(castedVal, elementType, element->name.get());
+            generateDestructuring(finalVal, elementType, element->name.get());
         }
     }
 }
@@ -719,8 +832,18 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
     return nullptr;
 }
 
+llvm::Value* IRGenerator::getUndefinedValue() {
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_undefined", ft);
+    return createCall(ft, fn.getCallee(), {});
+}
+
 void IRGenerator::visit(ast::Node* node) {
     if (node) {
+        if (valueOverrides.count(node)) {
+            lastValue = valueOverrides[node];
+            return;
+        }
         node->accept(this);
     }
 }
@@ -826,7 +949,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return res;
     } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
-        else if (type && type->kind == TypeKind::Array) funcName = "ts_value_make_array";
+        else if (type && (type->kind == TypeKind::Array || type->kind == TypeKind::Tuple)) funcName = "ts_value_make_array";
         else if (type && type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0) {
             // Promises are already returned as boxed TsValue* from async functions
             boxedValues.insert(val);
@@ -845,6 +968,8 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
              else if (val->getType()->isIntegerTy(1)) funcName = "ts_value_make_bool";
         }
     }
+
+    if (funcName.empty()) return val;
 
     if (type && type->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(type);
@@ -916,7 +1041,7 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Array || type->kind == TypeKind::Map) {
+               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
@@ -982,7 +1107,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
-        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || name == "ts_alloc")) {
+        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || name == "ts_alloc" || name == "ts_value_get_object" || name == "ts_value_get_string")) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {
             // Most other runtime functions return TsValue*

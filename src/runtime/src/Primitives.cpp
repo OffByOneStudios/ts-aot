@@ -50,6 +50,16 @@ void ts_console_log_value(TsValue* val) {
         std::fflush(stdout);
         return;
     }
+
+    // Check if it's actually a TsString* being passed as a TsValue*
+    // A TsString starts with a magic number 0x53545247
+    uint32_t magic = *(uint32_t*)val;
+    if (magic == 0x53545247) {
+        std::printf("%s\n", ((TsString*)val)->ToUtf8());
+        std::fflush(stdout);
+        return;
+    }
+
     switch (val->type) {
         case ValueType::UNDEFINED: std::printf("undefined\n"); break;
         case ValueType::NUMBER_INT: std::printf("%lld\n", val->i_val); break;
@@ -79,6 +89,13 @@ TsString* ts_typeof(void* val) {
     }
     
     return TsString::Create("object");
+}
+
+bool ts_value_is_nullish(TsValue* v) {
+    if (!v) return true;
+    if (v->type == ValueType::UNDEFINED) return true;
+    if (v->type == ValueType::OBJECT_PTR && v->ptr_val == nullptr) return true;
+    return false;
 }
 
 bool ts_instanceof(void* obj, void* targetVTable) {

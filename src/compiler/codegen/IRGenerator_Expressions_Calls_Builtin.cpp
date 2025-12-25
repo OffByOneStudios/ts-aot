@@ -240,6 +240,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 for (size_t i = 0; i < node->arguments.size(); ++i) {
                     visit(node->arguments[i].get());
                     llvm::Value* arg = lastValue;
+                    SPDLOG_DEBUG("console.log arg type: {}", arg ? (int)arg->getType()->getTypeID() : -1);
                     if (!arg) {
                         SPDLOG_ERROR("console.log argument evaluated to null");
                         continue;

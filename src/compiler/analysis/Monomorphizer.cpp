@@ -75,6 +75,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         moduleInit->line = 1;
         moduleInit->column = 1;
         
+        auto ft = std::make_shared<FunctionType>();
+        ft->returnType = std::make_shared<Type>(TypeKind::Any);
+        analyzer.getSymbolTable().define(initName, ft);
+
         specializations.push_back(spec);
         syntheticFunctions.push_back(std::move(moduleInit));
     }
@@ -97,6 +101,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     userMain->isAsync = anyAsync;
     userMain->line = 1;
     userMain->column = 1;
+
+    auto userMainFt = std::make_shared<FunctionType>();
+    userMainFt->returnType = std::make_shared<Type>(TypeKind::Any);
+    analyzer.getSymbolTable().define("user_main", userMainFt);
 
     for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
         const auto& initName = moduleInitFunctions[i];
@@ -174,6 +182,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 spec.argTypes = call.argTypes;
                 spec.typeArguments = call.typeArguments;
                 spec.node = funcNode;
+                SPDLOG_INFO("Monomorphizer created spec for {} with node {}", name, fmt::ptr(funcNode));
                 
                 // Infer return type - this might record NEW usages in analyzer.functionUsages
                 spec.returnType = analyzer.analyzeFunctionBody(funcNode, call.argTypes, call.typeArguments);
@@ -371,6 +380,14 @@ std::string Monomorphizer::generateMangledName(const std::string& originalName, 
                 break;
             case TypeKind::Interface:
                 name += std::static_pointer_cast<InterfaceType>(type)->name;
+                break;
+            case TypeKind::Array:
+                name += "arr";
+                if (auto arr = std::dynamic_pointer_cast<ArrayType>(type)) {
+                    if (arr->elementType->kind == TypeKind::String) name += "str";
+                    else if (arr->elementType->kind == TypeKind::Int) name += "int";
+                    else if (arr->elementType->kind == TypeKind::Double) name += "dbl";
+                }
                 break;
             default: name += "any"; break;
         }

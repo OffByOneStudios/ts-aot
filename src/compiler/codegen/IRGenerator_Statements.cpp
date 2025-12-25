@@ -71,6 +71,12 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         if (!finallyStack.empty()) {
             if (val) {
                 builder->CreateStore(val, currentReturnValueAlloca);
+            } else if (!retType->isVoidTy()) {
+                // If we have a return without value in a function that returns a pointer, return undefined
+                llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+                llvm::Value* undef = createCall(undefFt, undefFn.getCallee(), {});
+                builder->CreateStore(undef, currentReturnValueAlloca);
             }
             builder->CreateStore(builder->getInt1(true), currentShouldReturnAlloca);
             
@@ -81,8 +87,14 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         } else {
             if (val) {
                 builder->CreateRet(val);
-            } else {
+            } else if (retType->isVoidTy()) {
                 builder->CreateRetVoid();
+            } else {
+                // Return undefined/null for non-void functions with no return value
+                llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+                llvm::Value* undef = createCall(undefFt, undefFn.getCallee(), {});
+                builder->CreateRet(undef);
             }
         }
     }

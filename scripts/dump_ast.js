@@ -340,7 +340,8 @@ function visitInternal(node) {
                 kind: "CallExpression",
                 callee: visit(node.expression),
                 arguments: node.arguments.map(visit),
-                typeArguments: getTypeArguments(node)
+                typeArguments: getTypeArguments(node),
+                isOptional: !!node.questionDotToken
             };
         case ts.SyntaxKind.NewExpression:
             return {
@@ -358,7 +359,8 @@ function visitInternal(node) {
             return {
                 kind: "ElementAccessExpression",
                 expression: visit(node.expression),
-                argumentExpression: visit(node.argumentExpression)
+                argumentExpression: visit(node.argumentExpression),
+                isOptional: !!node.questionDotToken
             };
         case ts.SyntaxKind.BinaryExpression:
             if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
@@ -497,7 +499,8 @@ function visitInternal(node) {
             return {
                 kind: "PropertyAccessExpression",
                 expression: visit(node.expression),
-                name: node.name.text
+                name: node.name.text,
+                isOptional: !!node.questionDotToken
             };
         case ts.SyntaxKind.IfStatement:
             return {
@@ -623,6 +626,12 @@ function visitInternal(node) {
                     expression: visit(span.expression),
                     literal: span.literal.text
                 }))
+            };
+        case ts.SyntaxKind.TaggedTemplateExpression:
+            return {
+                kind: "TaggedTemplateExpression",
+                tag: visit(node.tag),
+                template: visit(node.template)
             };
         case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
             return {

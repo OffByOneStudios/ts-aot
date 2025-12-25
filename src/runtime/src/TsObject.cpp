@@ -7,6 +7,7 @@
 #include "TsRuntime.h"
 #include <new>
 #include <cstdio>
+#include <iostream>
 
 // Currently empty, as TsObject.h only defines structs/enums for now.
 
@@ -102,6 +103,16 @@ TsValue* ts_value_make_int(int64_t i) {
 
     int64_t ts_value_length(TsValue* val) {
         if (!val) return 0;
+
+        // Check for raw pointers
+        uint32_t magic = *(uint32_t*)val;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            return ((TsArray*)val)->Length();
+        }
+        if (magic == 0x53545247) { // TsString::MAGIC
+            return ((TsString*)val)->Length();
+        }
+
         if (val->type == ValueType::ARRAY_PTR) {
             return ts_array_length(val->ptr_val);
         }
@@ -113,8 +124,19 @@ TsValue* ts_value_make_int(int64_t i) {
 
     void* ts_value_get_element(TsValue* val, int64_t index) {
         if (!val) return nullptr;
+
+        uint32_t magic = *(uint32_t*)val;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            return ts_array_get(val, index);
+        }
+
         if (val->type == ValueType::ARRAY_PTR) {
             return ts_array_get(val->ptr_val, index);
+        }
+        if (val->type == ValueType::STRING_PTR) {
+            // Return a single character string
+            TsString* s = (TsString*)val->ptr_val;
+            return s->Substring(index, index + 1);
         }
         return nullptr;
     }
@@ -126,6 +148,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Try reading magic at offset 0 (for objects without vtable)
         uint32_t magic0 = *(uint32_t*)obj;
+        uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
+
         if (magic0 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsValue val = ((TsMap*)obj)->Get(tsKey);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
@@ -133,14 +157,25 @@ TsValue* ts_value_make_int(int64_t i) {
             return res;
         }
         if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
+                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                res->type = ValueType::NUMBER_INT;
+                res->i_val = ((TsArray*)obj)->Length();
+                return res;
+            }
             return nullptr;
         }
         if (magic0 == 0x53545247) { // TsString::MAGIC ("STRG")
+            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
+                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                res->type = ValueType::NUMBER_INT;
+                res->i_val = ((TsString*)obj)->Length();
+                return res;
+            }
             return nullptr;
         }
         
         // Try reading magic at offset 8 (for TsObjects which have a vtable)
-        uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
         if (magic8 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsValue val = ((TsMap*)obj)->Get(tsKey);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
@@ -181,8 +216,15 @@ TsValue* ts_value_make_int(int64_t i) {
         
         TsString* key = (TsString*)propName;
 
+        uint32_t magic = *(uint32_t*)val;
+
+        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053) {
+            return ts_object_get_property(val, key);
+        }
+
         if (val->type == ValueType::OBJECT_PTR || val->type == ValueType::ARRAY_PTR || val->type == ValueType::PROMISE_PTR) {
-            return ts_object_get_property(val->ptr_val, key);
+            void* ret = ts_object_get_property(val->ptr_val, key);
+            return ret;
         }
         return nullptr;
     }

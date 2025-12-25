@@ -8,6 +8,7 @@
 #include <cstring>
 #include <new>
 #include <functional>
+#include <iostream>
 
 // Allocator
 template <class T>
@@ -41,7 +42,6 @@ struct TsStringHash {
 
 struct TsStringEqual {
     bool operator()(TsString* const& lhs, TsString* const& rhs) const {
-        // fprintf(stderr, "Equal %p %p\n", lhs, rhs);
         return std::strcmp(lhs->ToUtf8(), rhs->ToUtf8()) == 0;
     }
 };
@@ -135,6 +135,25 @@ void* TsMap::GetEntries() {
     return entries;
 }
 
+TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
+    TsMap* dest = TsMap::Create();
+    MapType* map = (MapType*)impl;
+    
+    for (auto const& [key, val] : *map) {
+        bool found = false;
+        for (auto ex : excluded) {
+            if (std::strcmp(key->ToUtf8(), ex->ToUtf8()) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            dest->Set(key, val);
+        }
+    }
+    return dest;
+}
+
 void TsMap::ForEach(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return;
@@ -158,7 +177,7 @@ extern "C" {
 
     void ts_map_set(void* map, void* key, TsValue* value) {
         if (!map || !key) return;
-        ((TsMap*)map)->Set((TsString*)key, *value);
+        ((TsMap*)map)->Set((TsString*)key, value ? *value : TsValue());
     }
 
     TsValue* ts_map_get(void* map, void* key) {
@@ -201,6 +220,22 @@ extern "C" {
         return static_cast<TsMap*>(map)->GetEntries();
     }
 
+    void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
+        TsMap* map = (TsMap*)obj;
+        TsArray* excluded = (TsArray*)excluded_keys_array;
+        
+        std::vector<TsString*> excluded_vec;
+        for (int i = 0; i < excluded->Length(); i++) {
+            TsValue* val = (TsValue*)excluded->Get(i);
+            // Assuming keys are strings for now, which is true for object destructuring
+            if (val->type == ValueType::STRING_PTR) {
+                excluded_vec.push_back((TsString*)val->ptr_val);
+            }
+        }
+        
+        return map->CopyExcluding(excluded_vec);
+    }
+
     void ts_map_forEach(void* map, void* callback, void* thisArg) {
         static_cast<TsMap*>(map)->ForEach(callback, thisArg);
     }
@@ -234,7 +269,6 @@ extern "C" {
     TsValue* ts_map_get_property(void* obj, void* propName) {
         TsString* prop = (TsString*)propName;
         const char* name = prop->ToUtf8();
-        printf("ts_map_get_property: name = %s\n", name);
         
         if (strcmp(name, "get") == 0) {
             return ts_value_make_function((void*)ts_map_get_wrapper, obj);
