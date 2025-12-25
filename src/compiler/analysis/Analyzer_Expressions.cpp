@@ -9,6 +9,7 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::visitCallExpression(CallExpression* node) {
+    std::printf("Analyzer: visitCallExpression\n");
     // 1. Evaluate arguments first to get their types for overload resolution
     std::vector<std::shared_ptr<Type>> argTypes;
     for (auto& arg : node->arguments) {
@@ -26,6 +27,31 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     // 2. Evaluate callee
     visit(node->callee.get());
     auto calleeType = lastType;
+
+    std::string calleeName;
+    if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+        calleeName = id->name;
+    } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
+            calleeName = prop->name;
+        }
+    }
+
+    if (calleeName == "require") {
+        if (!node->arguments.empty()) {
+            if (auto lit = dynamic_cast<StringLiteral*>(node->arguments[0].get())) {
+                std::printf("Analyzer: require('%s')\n", lit->value.c_str());
+                auto sym = symbols.lookup(lit->value);
+                if (sym) {
+                    std::printf("Analyzer: found symbol for '%s', type kind %d\n", lit->value.c_str(), (int)sym->type->kind);
+                    lastType = sym->type;
+                    return;
+                } else {
+                    std::printf("Analyzer: symbol for '%s' NOT found\n", lit->value.c_str());
+                }
+            }
+        }
+    }
     
     // Check for property access calls (methods)
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {

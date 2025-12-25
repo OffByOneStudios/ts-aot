@@ -53,7 +53,11 @@ add_library(tsruntime STATIC
     src/EventLoop.cpp
     src/TsString.cpp
     src/TsArray.cpp
-    src/IO.cpp
+    src/node/fs.cpp
+    src/node/path.cpp
+    src/node/EventEmitter.cpp
+    src/node/ReadStream.cpp
+    src/node/WriteStream.cpp
     src/Primitives.cpp
     src/Math.cpp
     src/TsMap.cpp

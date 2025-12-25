@@ -517,7 +517,7 @@ struct CallExpression : Expression {
     bool isOptional = false;
     std::string getKind() const override { return "CallExpression"; }
     void accept(Visitor* visitor) override { 
-        // printf("CallExpression::accept\n");
+        printf("CallExpression::accept\n");
         visitor->visitCallExpression(this); 
     }
 };

@@ -98,6 +98,31 @@ bool ts_value_is_nullish(TsValue* v);
 
 // --- Promises ---
 TsValue* ts_promise_all(TsValue* iterable);
+
+// --- File System (fs) ---
+void* ts_fs_readFileSync(void* path);
+void ts_fs_writeFileSync(void* path, void* content);
+bool ts_fs_existsSync(void* path);
+void ts_fs_mkdirSync(void* path);
+void ts_fs_rmdirSync(void* path);
+void ts_fs_unlinkSync(void* path);
+void* ts_fs_statSync(void* path);
+void* ts_fs_readdirSync(void* path);
+int64_t ts_fs_openSync(void* path, void* flags);
+void ts_fs_closeSync(int64_t fd);
+void* ts_fs_readdir_async(void* path);
+void* ts_fs_readFile_async(void* path);
+void* ts_fs_writeFile_async(void* path, void* content);
+void* ts_fs_mkdir_async(void* path);
+void* ts_fs_stat_async(void* path);
+void* ts_fs_createReadStream(void* path);
+
+// --- Path ---
+void* ts_path_join(void* path1, void* path2);
+void* ts_path_resolve(void* path);
+void* ts_path_dirname(void* path);
+void* ts_path_basename(void* path);
+void* ts_path_extname(void* path);
 TsValue* ts_promise_race(TsValue* iterable);
 TsValue* ts_promise_allSettled(TsValue* iterable);
 TsValue* ts_promise_any(TsValue* iterable);
