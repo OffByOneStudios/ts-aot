@@ -115,6 +115,7 @@ private:
     void visitStringLiteral(ast::StringLiteral* node) override;
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) override;
     void visitNumericLiteral(ast::NumericLiteral* node) override;
+    void visitBigIntLiteral(ast::BigIntLiteral* node) override;
     void visitBooleanLiteral(ast::BooleanLiteral* node) override;
     void visitNullLiteral(ast::NullLiteral* node) override;
     void visitUndefinedLiteral(ast::UndefinedLiteral* node) override;

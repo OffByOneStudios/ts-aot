@@ -64,6 +64,17 @@ void* ts_get_process_env();
 void ts_process_exit(int64_t code);
 void* ts_process_cwd();
 
+// --- BigInt ---
+void* ts_bigint_create_int(int64_t val);
+void* ts_bigint_create_str(const char* str, int32_t radix);
+void* ts_bigint_to_string(void* bi, int32_t radix);
+void* ts_bigint_from_value(TsValue* val);
+
+// --- Symbol ---
+void* ts_symbol_create(void* desc);
+void* ts_symbol_for(void* key);
+void* ts_symbol_key_for(void* sym);
+
 // --- Value Creation ---
 TsValue* ts_value_make_undefined();
 TsValue* ts_value_make_int(int64_t i);
@@ -71,6 +82,8 @@ TsValue* ts_value_make_double(double d);
 TsValue* ts_value_make_bool(bool b);
 TsValue* ts_value_make_string(void* s);
 TsValue* ts_value_make_object(void* o);
+TsValue* ts_value_make_bigint(void* b);
+TsValue* ts_value_make_symbol(void* s);
 void* ts_value_get_object(TsValue* v);
 TsValue* ts_value_make_promise(void* p);
 TsValue* ts_value_make_function(void* funcPtr, void* context);

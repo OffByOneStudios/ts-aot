@@ -8,6 +8,31 @@ using namespace ast;
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
+
+    if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+        if (id->name == "Symbol") {
+            if (prop->name == "for") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* key = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_symbol_for", ft);
+                lastValue = createCall(ft, fn.getCallee(), { key });
+                return true;
+            } else if (prop->name == "keyFor") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* sym = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_symbol_key_for", ft);
+                lastValue = createCall(ft, fn.getCallee(), { sym });
+                return true;
+            }
+        }
+    }
+
     if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Int || prop->expression->inferredType->kind == TypeKind::Double)) {
         if (prop->name == "toString" || prop->name == "toFixed") {
             visit(prop->expression.get());
@@ -240,20 +265,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 for (size_t i = 0; i < node->arguments.size(); ++i) {
                     visit(node->arguments[i].get());
                     llvm::Value* arg = lastValue;
-                    SPDLOG_DEBUG("console.log arg type: {}", arg ? (int)arg->getType()->getTypeID() : -1);
-                    if (!arg) {
-                        SPDLOG_ERROR("console.log argument evaluated to null");
-                        continue;
-                    }
+                    if (!arg) continue;
 
                     llvm::Type* argType = arg->getType();
-                    SPDLOG_DEBUG("console.log arg isPtr: {} isI64: {}", argType->isPointerTy(), argType->isIntegerTy(64));
-
-                    if (argType->isVoidTy()) {
-                        SPDLOG_ERROR("Argument to console.log is void");
-                        continue;
-                    }
-
+                    
                     std::string funcName = "ts_console_log";
                     llvm::Type* paramType = llvm::PointerType::getUnqual(*context);
 
@@ -1287,10 +1302,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          
          if (node->arguments.size() < 2) return true;
          visit(node->arguments[0].get());
-         llvm::Value* key = lastValue;
-         if (key->getType()->isIntegerTy(64)) {
-             key = builder->CreateIntToPtr(key, builder->getPtrTy());
-         }
+         llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          visit(node->arguments[1].get());
          llvm::Value* value = boxValue(lastValue, node->arguments[1]->inferredType);
          
@@ -1298,22 +1310,19 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_set", setFt);
          createCall(setFt, fn.getCallee(), { map, key, value });
-         lastValue = nullptr;
+         lastValue = map;
          return true;
     } else if (prop->name == "get" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          
          if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
-         llvm::Value* key = lastValue;
-         if (key->getType()->isIntegerTy(64)) {
-             key = builder->CreateIntToPtr(key, llvm::PointerType::getUnqual(*context));
-         }
+         llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          
          llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -1324,27 +1333,23 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
-         llvm::Value* key = lastValue;
-         if (key->getType()->isIntegerTy(64)) {
-             key = builder->CreateIntToPtr(key, llvm::PointerType::getUnqual(*context));
-         }
+         llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          
          llvm::FunctionType* hasFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
-                 { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has", hasFt);
-         llvm::Value* res = createCall(hasFt, fn.getCallee(), { map, key });
-         lastValue = builder->CreateICmpNE(res, llvm::ConstantInt::get(res->getType(), 0), "tobool");
+         lastValue = createCall(hasFt, fn.getCallee(), { map, key });
          return true;
     } else if (prop->name == "delete" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
          
          if (node->arguments.empty()) return true;
@@ -1352,7 +1357,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          
          llvm::FunctionType* deleteFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
-                 { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_delete", deleteFt);
          lastValue = createCall(deleteFt, fn.getCallee(), { map, key });
          return true;
@@ -1360,49 +1365,113 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+             map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
          
          llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { llvm::PointerType::getUnqual(*context) }, false);
+                 { builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_clear", clearFt);
          createCall(clearFt, fn.getCallee(), { map });
          lastValue = nullptr;
          return true;
-    } else if ((prop->name == "values" || prop->name == "entries") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
+    } else if (prop->name == "add" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
-         llvm::Value* map = lastValue;
-         if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+         llvm::Value* set = lastValue;
+         if (set->getType()->isIntegerTy(64)) {
+             set = builder->CreateIntToPtr(set, builder->getPtrTy());
          }
          
-         std::string fnName = "ts_map_" + prop->name;
-         llvm::FunctionType* mapFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                 { llvm::PointerType::getUnqual(*context) }, false);
-         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, mapFt);
-         lastValue = createCall(mapFt, fn.getCallee(), { map });
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* value = boxValue(lastValue, node->arguments[0]->inferredType);
+         
+         llvm::FunctionType* addFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_add", addFt);
+         createCall(addFt, fn.getCallee(), { set, value });
+         lastValue = set;
          return true;
-    } else if (prop->name == "forEach") {
+    } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
-         llvm::Value* map = lastValue;
-         if (map->getType()->isIntegerTy(64)) {
-             map = builder->CreateIntToPtr(map, llvm::PointerType::getUnqual(*context));
+         llvm::Value* set = lastValue;
+         if (set->getType()->isIntegerTy(64)) {
+             set = builder->CreateIntToPtr(set, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* value = boxValue(lastValue, node->arguments[0]->inferredType);
+         
+         llvm::FunctionType* hasFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_has", hasFt);
+         lastValue = createCall(hasFt, fn.getCallee(), { set, value });
+         return true;
+    } else if (prop->name == "delete" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
+         visit(prop->expression.get());
+         llvm::Value* set = lastValue;
+         if (set->getType()->isIntegerTy(64)) {
+             set = builder->CreateIntToPtr(set, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* value = boxValue(lastValue, node->arguments[0]->inferredType);
+         
+         llvm::FunctionType* deleteFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_delete", deleteFt);
+         lastValue = createCall(deleteFt, fn.getCallee(), { set, value });
+         return true;
+    } else if (prop->name == "clear" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
+         visit(prop->expression.get());
+         llvm::Value* set = lastValue;
+         if (set->getType()->isIntegerTy(64)) {
+             set = builder->CreateIntToPtr(set, builder->getPtrTy());
+         }
+         
+         llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_clear", clearFt);
+         createCall(clearFt, fn.getCallee(), { set });
+         lastValue = nullptr;
+         return true;
+    } else if ((prop->name == "values" || prop->name == "entries") && prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Map || prop->expression->inferredType->kind == TypeKind::SetType)) {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+         
+         std::string prefix = (prop->expression->inferredType->kind == TypeKind::Map) ? "ts_map_" : "ts_set_";
+         std::string fnName = prefix + prop->name;
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "forEach" && prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Map || prop->expression->inferredType->kind == TypeKind::SetType)) {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
          llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
          
-         llvm::Value* thisArg = llvm::ConstantPointerNull::get(llvm::PointerType::getUnqual(*context));
+         llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
          if (node->arguments.size() > 1) {
              visit(node->arguments[1].get());
              thisArg = boxValue(lastValue, node->arguments[1]->inferredType);
          }
          
+         std::string fnName = (prop->expression->inferredType->kind == TypeKind::Map) ? "ts_map_forEach" : "ts_set_forEach";
          llvm::FunctionType* forEachFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
-         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_forEach", forEachFt);
-         createCall(forEachFt, fn.getCallee(), { map, callback, thisArg });
+                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, forEachFt);
+         createCall(forEachFt, fn.getCallee(), { obj, callback, thisArg });
          lastValue = nullptr;
          return true;
     } else if (prop->name == "md5") {

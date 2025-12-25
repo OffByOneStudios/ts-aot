@@ -391,6 +391,9 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::Array:
         case TypeKind::Tuple:
         case TypeKind::Map:
+        case TypeKind::SetType:
+        case TypeKind::BigInt:
+        case TypeKind::Symbol:
         case TypeKind::Interface:
         case TypeKind::Union:
         case TypeKind::Intersection:
@@ -909,19 +912,9 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return val;
     }
 
-    if (type && (type->kind == TypeKind::Void || type->kind == TypeKind::Null || type->kind == TypeKind::Undefined)) {
-        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
-        llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
-        boxedValues.insert(res);
-        return res;
-    }
-    
-    // If it's already a pointer and we expect a primitive or Any, it's likely already a TsValue*
-    
     llvm::Type* valType = val->getType();
     std::string funcName;
-    
+
     if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
     else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
@@ -950,6 +943,8 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
         else if (type && (type->kind == TypeKind::Array || type->kind == TypeKind::Tuple)) funcName = "ts_value_make_array";
+        else if (type && type->kind == TypeKind::BigInt) funcName = "ts_value_make_bigint";
+        else if (type && type->kind == TypeKind::Symbol) funcName = "ts_value_make_symbol";
         else if (type && type->kind == TypeKind::Class && std::static_pointer_cast<ClassType>(type)->name.find("Promise") == 0) {
             // Promises are already returned as boxed TsValue* from async functions
             boxedValues.insert(val);
@@ -1041,7 +1036,8 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple) {
+               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple ||
+               type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
@@ -1103,11 +1099,15 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         // Our runtime functions that return raw pointers are:
         // ts_map_create, ts_string_create, ts_array_create, ts_alloc, etc.
         std::string name;
-        if (auto func = llvm::dyn_cast<llvm::Function>(callee)) name = func->getName().str();
+        llvm::Value* actualCallee = callee->stripPointerCasts();
+        if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
         
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
-        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || name == "ts_alloc" || name == "ts_value_get_object" || name == "ts_value_get_string")) {
+        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
+                                   name == "ts_alloc" || name == "ts_value_get_object" || name == "ts_value_get_string" ||
+                                   name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
+                                   name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for")) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {
             // Most other runtime functions return TsValue*

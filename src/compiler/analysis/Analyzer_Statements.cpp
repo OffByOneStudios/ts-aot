@@ -24,6 +24,7 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
+            std::printf("Analyzer: inferred type kind %d for initializer\n", (int)lastType->kind);
             if (node->type.empty()) {
                 type = lastType;
                 // Update the type in the symbol table

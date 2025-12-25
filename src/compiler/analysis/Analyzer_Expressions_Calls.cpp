@@ -40,6 +40,16 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 
     std::string calleeName;
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+        if (id->name == "BigInt") {
+            lastType = std::make_shared<Type>(TypeKind::BigInt);
+            node->inferredType = lastType;
+            return;
+        }
+        if (id->name == "Symbol") {
+            lastType = std::make_shared<Type>(TypeKind::Symbol);
+            node->inferredType = lastType;
+            return;
+        }
         calleeName = id->name;
     }
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
@@ -406,6 +416,11 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
     if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
             lastType = std::make_shared<Type>(TypeKind::Map);
+            node->inferredType = lastType;
+            return;
+        } else if (id->name == "Set") {
+            lastType = std::make_shared<Type>(TypeKind::SetType);
+            node->inferredType = lastType;
             return;
         } else if (id->name == "Array") {
             lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));

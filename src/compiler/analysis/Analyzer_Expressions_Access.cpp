@@ -320,9 +320,36 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
-    if (node->name == "size" && objType->kind == TypeKind::Map) {
+    if (node->name == "size" && (objType->kind == TypeKind::Map || objType->kind == TypeKind::SetType)) {
         lastType = std::make_shared<Type>(TypeKind::Int);
         return;
+    }
+
+    if (objType->kind == TypeKind::SetType) {
+        if (node->name == "add") {
+            auto setAdd = std::make_shared<FunctionType>();
+            setAdd->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            setAdd->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = setAdd;
+            return;
+        } else if (node->name == "has") {
+            auto setHas = std::make_shared<FunctionType>();
+            setHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            setHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = setHas;
+            return;
+        } else if (node->name == "delete") {
+            auto setDel = std::make_shared<FunctionType>();
+            setDel->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            setDel->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = setDel;
+            return;
+        } else if (node->name == "clear") {
+            auto setClear = std::make_shared<FunctionType>();
+            setClear->returnType = std::make_shared<Type>(TypeKind::Void);
+            lastType = setClear;
+            return;
+        }
     }
 
     if (objType->kind == TypeKind::Map) {

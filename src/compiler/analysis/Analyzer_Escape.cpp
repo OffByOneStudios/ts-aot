@@ -169,6 +169,7 @@ public:
 
     void visitIdentifier(ast::Identifier* node) override {}
     void visitNumericLiteral(ast::NumericLiteral* node) override {}
+    void visitBigIntLiteral(ast::BigIntLiteral* node) override {}
     void visitStringLiteral(ast::StringLiteral* node) override {}
     void visitBooleanLiteral(ast::BooleanLiteral* node) override {}
     void visitNullLiteral(ast::NullLiteral* node) override {}
