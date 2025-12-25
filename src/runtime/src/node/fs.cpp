@@ -4,12 +4,24 @@
 #include "TsPromise.h"
 #include "TsMap.h"
 #include "TsArray.h"
+#include "TsBuffer.h"
+#include "TsReadStream.h"
+#include "TsWriteStream.h"
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <iostream>
 #include <uv.h>
 #include <filesystem>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <io.h>
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #define GC_THREADS
 #include <gc/gc.h>
@@ -32,9 +44,8 @@ void* ts_fs_readFileSync(void* path) {
     TsString* pathStr = (TsString*)path;
     const char* pathCStr = pathStr->ToUtf8();
 
-    std::ifstream t(pathCStr);
+    std::ifstream t(pathCStr, std::ios::binary);
     if (!t.is_open()) {
-        std::cerr << "Error: Could not open file " << pathCStr << std::endl;
         return TsString::Create("");
     }
 
@@ -43,6 +54,24 @@ void* ts_fs_readFileSync(void* path) {
     std::string s = buffer.str();
     
     return TsString::Create(s.c_str());
+}
+
+void ts_fs_unlinkSync(void* path) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    std::filesystem::remove(pathCStr);
+}
+
+void ts_fs_mkdirSync(void* path) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    std::filesystem::create_directories(pathCStr);
+}
+
+void ts_fs_rmdirSync(void* path) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    std::filesystem::remove_all(pathCStr);
 }
 
 void ts_fs_writeFileSync(void* path, void* content) {
@@ -61,7 +90,6 @@ void ts_fs_writeFileSync(void* path, void* content) {
 
     std::ofstream t(pathCStr);
     if (!t.is_open()) {
-        std::cerr << "Error: Could not open file for writing " << pathCStr << std::endl;
         return;
     }
 
@@ -73,24 +101,6 @@ bool ts_fs_existsSync(void* path) {
     TsString* pathStr = (TsString*)path;
     const char* pathCStr = pathStr->ToUtf8();
     return fs::exists(pathCStr);
-}
-
-void ts_fs_mkdirSync(void* path) {
-    TsString* pathStr = (TsString*)path;
-    const char* pathCStr = pathStr->ToUtf8();
-    fs::create_directories(pathCStr);
-}
-
-void ts_fs_rmdirSync(void* path) {
-    TsString* pathStr = (TsString*)path;
-    const char* pathCStr = pathStr->ToUtf8();
-    fs::remove_all(pathCStr);
-}
-
-void ts_fs_unlinkSync(void* path) {
-    TsString* pathStr = (TsString*)path;
-    const char* pathCStr = pathStr->ToUtf8();
-    fs::remove(pathCStr);
 }
 
 void* ts_fs_statSync(void* path) {
@@ -129,6 +139,63 @@ void* ts_fs_readdirSync(void* path) {
         // Return empty array or undefined? Node returns error.
     }
     return ts_value_make_object(result);
+}
+
+int64_t ts_fs_openSync(void* path, void* flags) {
+    TsString* pathStr = (TsString*)path;
+    TsString* flagsStr = (TsString*)flags;
+    const char* pathCStr = pathStr->ToUtf8();
+    const char* flagsCStr = flagsStr->ToUtf8();
+
+    int openFlags = 0;
+    std::string f = flagsCStr;
+    if (f == "r") openFlags = O_RDONLY;
+    else if (f == "r+") openFlags = O_RDWR;
+    else if (f == "w") openFlags = O_WRONLY | O_CREAT | O_TRUNC;
+    else if (f == "w+") openFlags = O_RDWR | O_CREAT | O_TRUNC;
+    else if (f == "a") openFlags = O_WRONLY | O_CREAT | O_APPEND;
+    else if (f == "a+") openFlags = O_RDWR | O_CREAT | O_APPEND;
+    else openFlags = O_RDONLY;
+
+#ifdef _WIN32
+    openFlags |= _O_BINARY;
+#endif
+
+    uv_fs_t req;
+    uv_fs_open(NULL, &req, pathCStr, openFlags, 0666, NULL);
+    int result = (int)req.result;
+    uv_fs_req_cleanup(&req);
+    return (int64_t)result;
+}
+
+void ts_fs_closeSync(int64_t fd) {
+    uv_fs_t req;
+    uv_fs_close(NULL, &req, (uv_file)fd, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+int64_t ts_fs_readSync(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
+    TsBuffer* buf = (TsBuffer*)buffer;
+    uint8_t* data = buf->GetData() + offset;
+    
+    uv_fs_t req;
+    uv_buf_t uv_buf = uv_buf_init((char*)data, (unsigned int)length);
+    uv_fs_read(NULL, &req, (uv_file)fd, &uv_buf, 1, position, NULL);
+    int result = (int)req.result;
+    uv_fs_req_cleanup(&req);
+    return (int64_t)result;
+}
+
+int64_t ts_fs_writeSync(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
+    TsBuffer* buf = (TsBuffer*)buffer;
+    uint8_t* data = buf->GetData() + offset;
+    
+    uv_fs_t req;
+    uv_buf_t uv_buf = uv_buf_init((char*)data, (unsigned int)length);
+    uv_fs_write(NULL, &req, (uv_file)fd, &uv_buf, 1, position, NULL);
+    int result = (int)req.result;
+    uv_fs_req_cleanup(&req);
+    return (int64_t)result;
 }
 
 struct ReadDirWork {
@@ -187,39 +254,6 @@ void* ts_fs_readdir_async(void* path) {
     uv_queue_work(uv_default_loop(), req, readdir_worker, readdir_after_worker);
     
     return ts_value_make_promise(promise);
-}
-
-static TsString* UnboxString(void* ptr) {
-    if (!ptr) return nullptr;
-    uintptr_t val = *(uintptr_t*)ptr;
-    // Heuristic: pointers are large, TsValue header (type + padding) is small
-    if (val < 0x10000) {
-        TsValue* v = (TsValue*)ptr;
-        if (v->type == ValueType::STRING_PTR) {
-            return (TsString*)v->ptr_val;
-        }
-        return nullptr; 
-    }
-    return (TsString*)ptr;
-}
-
-void* ts_path_join(void* path1, void* path2) {
-    TsString* p1 = UnboxString(path1);
-    TsString* p2 = UnboxString(path2);
-    
-    if (!p1 || !p2) {
-        std::cerr << "ts_path_join: Invalid arguments" << std::endl;
-        return TsString::Create("");
-    }
-    
-    const char* s1 = p1->ToUtf8();
-    const char* s2 = p2->ToUtf8();
-    std::cerr << "ts_path_join: '" << s1 << "' + '" << s2 << "'" << std::endl;
-
-    fs::path path = fs::path(s1) / fs::path(s2);
-    std::string res = path.string();
-    std::cerr << "ts_path_join result: '" << res << "'" << std::endl;
-    return TsString::Create(res.c_str());
 }
 
 struct ReadFileWork {
@@ -410,8 +444,6 @@ static void stat_after_worker(uv_work_t* req, int status) {
         TsMap* stats = TsMap::Create();
         stats->Set(TsString::Create("size"), TsValue(work->size));
         stats->Set(TsString::Create("mtimeMs"), TsValue(work->mtimeMs));
-        // stats->Set(TsString::Create("isFile"), TsValue(work->isFile));
-        // stats->Set(TsString::Create("isDirectory"), TsValue(work->isDirectory));
         
         add_stats_methods(stats, work->isFile, work->isDirectory);
         
@@ -428,7 +460,6 @@ static void stat_after_worker(uv_work_t* req, int status) {
 
 void* ts_fs_stat_async(void* path) {
     TsString* pathStr = (TsString*)path;
-    std::cerr << "ts_fs_stat_async: '" << pathStr->ToUtf8() << "'" << std::endl;
     ts::TsPromise* promise = ts::ts_promise_create();
     
     StatWork* work = (StatWork*)GC_malloc_uncollectable(sizeof(StatWork));
@@ -444,5 +475,186 @@ void* ts_fs_stat_async(void* path) {
     return ts_value_make_promise(promise);
 }
 
-} // extern "C"
+struct OpenWork {
+    ts::TsPromise* promise;
+    std::string path;
+    std::string flags;
+    int fd;
+    bool success;
+};
 
+static void open_worker(uv_work_t* req) {
+    OpenWork* work = (OpenWork*)req->data;
+    int openFlags = 0;
+    if (work->flags == "r") openFlags = O_RDONLY;
+    else if (work->flags == "r+") openFlags = O_RDWR;
+    else if (work->flags == "w") openFlags = O_WRONLY | O_CREAT | O_TRUNC;
+    else if (work->flags == "w+") openFlags = O_RDWR | O_CREAT | O_TRUNC;
+    else if (work->flags == "a") openFlags = O_WRONLY | O_CREAT | O_APPEND;
+    else if (work->flags == "a+") openFlags = O_RDWR | O_CREAT | O_APPEND;
+    else openFlags = O_RDONLY;
+
+#ifdef _WIN32
+    openFlags |= _O_BINARY;
+#endif
+
+    uv_fs_t fs_req;
+    uv_fs_open(NULL, &fs_req, work->path.c_str(), openFlags, 0666, NULL);
+    work->fd = (int)fs_req.result;
+    work->success = (work->fd >= 0);
+    uv_fs_req_cleanup(&fs_req);
+}
+
+static void open_after_worker(uv_work_t* req, int status) {
+    OpenWork* work = (OpenWork*)req->data;
+    if (work->success) {
+        ts::ts_promise_resolve_internal(work->promise, ts_value_make_int(work->fd));
+    } else {
+        void* tsStr = ts_string_create("Could not open file");
+        TsValue* reason = ts_value_make_string(tsStr);
+        ts::ts_promise_reject_internal(work->promise, reason);
+    }
+    work->~OpenWork();
+    GC_free(work);
+    free(req);
+}
+
+void* ts_fs_open_async(void* path, void* flags) {
+    TsString* pathStr = (TsString*)path;
+    TsString* flagsStr = (TsString*)flags;
+    ts::TsPromise* promise = ts::ts_promise_create();
+    
+    OpenWork* work = (OpenWork*)GC_malloc_uncollectable(sizeof(OpenWork));
+    new (work) OpenWork();
+    work->promise = promise;
+    work->path = pathStr->ToUtf8();
+    work->flags = flagsStr->ToUtf8();
+    
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    
+    uv_queue_work(uv_default_loop(), req, open_worker, open_after_worker);
+    
+    return ts_value_make_promise(promise);
+}
+
+struct CloseWork {
+    ts::TsPromise* promise;
+    int fd;
+    bool success;
+};
+
+struct ReadWriteWork {
+    ts::TsPromise* promise;
+    int fd;
+    TsBuffer* buffer;
+    int64_t offset;
+    int64_t length;
+    int64_t position;
+    int64_t result;
+    bool isWrite;
+};
+
+static void read_write_worker(uv_work_t* req) {
+    ReadWriteWork* work = (ReadWriteWork*)req->data;
+    uint8_t* data = work->buffer->GetData() + work->offset;
+    
+    uv_fs_t fs_req;
+    uv_buf_t uv_buf = uv_buf_init((char*)data, (unsigned int)work->length);
+    
+    if (work->isWrite) {
+        uv_fs_write(NULL, &fs_req, (uv_file)work->fd, &uv_buf, 1, work->position, NULL);
+    } else {
+        uv_fs_read(NULL, &fs_req, (uv_file)work->fd, &uv_buf, 1, work->position, NULL);
+    }
+    
+    work->result = (int64_t)fs_req.result;
+    uv_fs_req_cleanup(&fs_req);
+}
+
+static void read_write_after_worker(uv_work_t* req, int status) {
+    ReadWriteWork* work = (ReadWriteWork*)req->data;
+    if (work->result >= 0) {
+        ts::ts_promise_resolve_internal(work->promise, ts_value_make_int(work->result));
+    } else {
+        void* tsStr = ts_string_create("IO error");
+        TsValue* reason = ts_value_make_string(tsStr);
+        ts::ts_promise_reject_internal(work->promise, reason);
+    }
+    GC_free(work);
+    free(req);
+}
+
+void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    ReadWriteWork* work = (ReadWriteWork*)GC_malloc_uncollectable(sizeof(ReadWriteWork));
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->buffer = (TsBuffer*)buffer;
+    work->offset = offset;
+    work->length = length;
+    work->position = position;
+    work->isWrite = false;
+    
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, read_write_worker, read_write_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    ReadWriteWork* work = (ReadWriteWork*)GC_malloc_uncollectable(sizeof(ReadWriteWork));
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->buffer = (TsBuffer*)buffer;
+    work->offset = offset;
+    work->length = length;
+    work->position = position;
+    work->isWrite = true;
+    
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, read_write_worker, read_write_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+static void close_worker(uv_work_t* req) {
+    CloseWork* work = (CloseWork*)req->data;
+    uv_fs_t fs_req;
+    uv_fs_close(NULL, &fs_req, (uv_file)work->fd, NULL);
+    work->success = (fs_req.result >= 0);
+    uv_fs_req_cleanup(&fs_req);
+}
+
+static void close_after_worker(uv_work_t* req, int status) {
+    CloseWork* work = (CloseWork*)req->data;
+    if (work->success) {
+        ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
+    } else {
+        void* tsStr = ts_string_create("Could not close file");
+        TsValue* reason = ts_value_make_string(tsStr);
+        ts::ts_promise_reject_internal(work->promise, reason);
+    }
+    work->~CloseWork();
+    GC_free(work);
+    free(req);
+}
+
+void* ts_fs_close_async(int64_t fd) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    
+    CloseWork* work = (CloseWork*)GC_malloc_uncollectable(sizeof(CloseWork));
+    new (work) CloseWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    
+    uv_queue_work(uv_default_loop(), req, close_worker, close_after_worker);
+    
+    return ts_value_make_promise(promise);
+}
+
+} // extern "C"

@@ -912,6 +912,12 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return val;
     }
 
+    if (type) {
+        SPDLOG_INFO("boxValue: type kind {} val->getValueID() {}", (int)type->kind, val->getValueID());
+    } else {
+        SPDLOG_INFO("boxValue: type is null val->getValueID() {}", val->getValueID());
+    }
+
     llvm::Type* valType = val->getType();
     std::string funcName;
 
@@ -926,6 +932,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return res;
     }
     else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val)) {
+        SPDLOG_INFO("boxValue: boxing function via ts_value_make_function");
         llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function", fnFt);
         
@@ -956,7 +963,11 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     }
     
     if (funcName.empty()) {
-        if (type && type->kind == TypeKind::Any && !val->getType()->isPointerTy()) {
+        if (type && type->kind == TypeKind::Function) {
+            SPDLOG_INFO("boxValue: boxing function");
+            funcName = "ts_value_make_function";
+        }
+        else if (type && type->kind == TypeKind::Any && !val->getType()->isPointerTy()) {
              // Fallback for Any that isn't a pointer yet
              if (val->getType()->isIntegerTy(64)) funcName = "ts_value_make_int";
              else if (val->getType()->isDoubleTy()) funcName = "ts_value_make_double";

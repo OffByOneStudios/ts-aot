@@ -781,6 +781,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     }
 
     if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
+            SPDLOG_INFO("generatePropertyAccess: Object/Intersection for {}", node->name);
             visit(node->expression.get());
             llvm::Value* objPtr = unboxValue(lastValue, node->expression->inferredType);
             emitNullCheckForExpression(node->expression.get(), objPtr);
@@ -790,7 +791,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(node->name) });
             
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_object_get_property", getFt);
             
             lastValue = createCall(getFt, getFn.getCallee(), { objPtr, keyStr });
             
@@ -801,7 +802,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
             }
             
-            if (fieldType->kind != TypeKind::Object && fieldType->kind != TypeKind::Any && fieldType->kind != TypeKind::Intersection) {
+            if (fieldType->kind != TypeKind::Object && fieldType->kind != TypeKind::Any && fieldType->kind != TypeKind::Intersection && fieldType->kind != TypeKind::Function) {
                 lastValue = unboxValue(lastValue, fieldType);
             }
             return;

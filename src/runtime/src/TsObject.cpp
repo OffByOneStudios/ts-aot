@@ -3,6 +3,7 @@
 #include "TsMap.h"
 #include "TsString.h"
 #include "TsBuffer.h"
+#include "TsEventEmitter.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -113,6 +114,14 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsString*)val)->Length();
         }
 
+        // Check for TsBuffer (magic at offset 8 due to vtable)
+        // We need to be careful not to read out of bounds if it's a small TsValue
+        // But TsValue is at least 16 bytes (enum + union), so offset 8 is safe.
+        uint32_t magic8 = *(uint32_t*)((char*)val + 8);
+        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
+            return ((TsBuffer*)val)->GetLength();
+        }
+
         if (val->type == ValueType::ARRAY_PTR) {
             return ts_array_length(val->ptr_val);
         }
@@ -196,6 +205,18 @@ TsValue* ts_value_make_int(int64_t i) {
             return res;
         }
         if (magic8 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
+            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
+                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                res->type = ValueType::NUMBER_INT;
+                res->i_val = ((TsBuffer*)obj)->GetLength();
+                return res;
+            }
+            return nullptr;
+        }
+        if (magic8 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
+            if (strcmp(tsKey->ToUtf8(), "on") == 0) {
+                return ts_value_make_function((void*)ts_event_emitter_on, obj);
+            }
             return nullptr;
         }
 
@@ -218,7 +239,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         uint32_t magic = *(uint32_t*)val;
 
-        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053) {
+        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053 || magic == 0x45564E54) {
             return ts_object_get_property(val, key);
         }
 
@@ -237,8 +258,20 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        if (!boxedFunc) {
+            printf("ts_call_1: boxedFunc is null\n");
+            return ts_value_make_undefined();
+        }
+        if (boxedFunc->type != ValueType::OBJECT_PTR) {
+            uint64_t val = *(uint64_t*)boxedFunc;
+            printf("ts_call_1: boxedFunc %p type is %d, expected %d. First 8 bytes: %llx\n", boxedFunc, (int)boxedFunc->type, (int)ValueType::OBJECT_PTR, val);
+            return ts_value_make_undefined();
+        }
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) {
+            printf("ts_call_1: func is null\n");
+            return ts_value_make_undefined();
+        }
         typedef TsValue* (*Fn1)(void*, TsValue*);
         Fn1 fn = (Fn1)func->funcPtr;
         return fn(func->context, arg1);
@@ -250,5 +283,13 @@ TsValue* ts_value_make_int(int64_t i) {
         typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
         Fn2 fn = (Fn2)func->funcPtr;
         return fn(func->context, arg1, arg2);
+    }
+
+    TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
+        if (argc == 0) return ts_call_0(boxedFunc);
+        if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
+        if (argc == 2) return ts_call_2(boxedFunc, argv[0], argv[1]);
+        // For now, we don't support more than 2 args in this helper
+        return ts_value_make_undefined();
     }
 }

@@ -63,4 +63,5 @@ extern "C" {
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
+    TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
 }

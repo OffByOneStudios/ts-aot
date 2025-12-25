@@ -19,9 +19,10 @@ public:
 
     TsString* ToString(TsString* encoding = nullptr);
 
+    uint32_t magic = MAGIC;
+
 private:
     TsBuffer(size_t length);
-    uint32_t magic = MAGIC;
     uint8_t* data;
     size_t length;
 };

@@ -46,6 +46,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 void IRGenerator::generateCall(ast::CallExpression* node) { 
     emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
+    printf("DEBUG: generateCall callee type: %s\n", typeid(*node->callee).name());
 
     if (node->isComptime) {
         SPDLOG_DEBUG("Handling comptime call");
@@ -68,6 +69,18 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     }
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        if (id->name == "require") {
+            if (node->arguments.empty()) {
+                lastValue = getUndefinedValue();
+                return;
+            }
+            visit(node->arguments[0].get());
+            // require returns 'any', so we just return a null pointer for now.
+            // The built-in handlers for fs.xxx will handle the calls.
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return;
+        }
+
         if (id->name == "fetch") {
             if (node->arguments.empty()) return;
             visit(node->arguments[0].get());
@@ -146,6 +159,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     }
 
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        SPDLOG_INFO("IRGenerator: Fallback property call for {}", prop->name);
         visit(prop);
         llvm::Value* boxedFunc = lastValue;
         
@@ -165,7 +179,13 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             
             for (auto& arg : node->arguments) {
                 visit(arg.get());
-                llvm::Value* val = boxValue(lastValue, arg->inferredType);
+                std::shared_ptr<Type> argType = arg->inferredType;
+                if (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression") {
+                     if (!argType || argType->kind == TypeKind::Any) {
+                         argType = std::make_shared<Type>(TypeKind::Function);
+                     }
+                }
+                llvm::Value* val = boxValue(lastValue, argType);
                 args.push_back(val);
                 paramTypes.push_back(builder->getPtrTy());
             }

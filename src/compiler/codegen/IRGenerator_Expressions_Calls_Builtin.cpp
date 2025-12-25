@@ -319,21 +319,156 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 return true;
             }
         }
-    } else if (prop->name == "readFileSync") {
+    } else if (prop->name == "readFileSync" || prop->name == "writeFileSync" || prop->name == "existsSync" || 
+               prop->name == "unlinkSync" || prop->name == "mkdirSync" || prop->name == "rmdirSync" ||
+               prop->name == "statSync" || prop->name == "readdirSync" || prop->name == "openSync" || prop->name == "closeSync" ||
+               prop->name == "readSync" || prop->name == "writeSync" || prop->name == "createReadStream" || prop->name == "createWriteStream") {
+        // Handle both fs.readFileSync and const fs = require('fs'); fs.readFileSync
+        bool isFs = false;
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
+            if (obj->name == "fs") isFs = true;
+        }
+        
+        // Also allow if the expression is 'any' (e.g. from require)
+        if (!isFs && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+            isFs = true; 
+        }
+
+        if (isFs) {
+            if (prop->name == "readFileSync") {
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* arg = lastValue;
                 if (arg->getType()->isIntegerTy(64)) {
-                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
                 }
                 
-                llvm::FunctionType* readFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                        { llvm::PointerType::getUnqual(*context) }, false);
+                llvm::FunctionType* readFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                        { builder->getPtrTy() }, false);
                 llvm::FunctionCallee readFn = module->getOrInsertFunction("ts_fs_readFileSync", readFt);
                 
                 lastValue = createCall(readFt, readFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "writeFileSync") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                visit(node->arguments[1].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[1]->inferredType);
+                
+                llvm::FunctionType* writeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_writeFileSync", writeFt);
+                
+                createCall(writeFt, writeFn.getCallee(), { path, data });
+                lastValue = nullptr;
+                return true;
+            } else if (prop->name == "existsSync") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionType* existsFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), 
+                        { builder->getPtrTy() }, false);
+                llvm::FunctionCallee existsFn = module->getOrInsertFunction("ts_fs_existsSync", existsFt);
+                
+                lastValue = createCall(existsFt, existsFn.getCallee(), { path });
+                return true;
+            } else if (prop->name == "unlinkSync" || prop->name == "mkdirSync" || prop->name == "rmdirSync") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                std::string runtimeName = "ts_fs_" + prop->name;
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
+                        { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+                
+                createCall(ft, fn.getCallee(), { path });
+                lastValue = nullptr;
+                return true;
+            } else if (prop->name == "statSync" || prop->name == "readdirSync") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                std::string runtimeName = "ts_fs_" + prop->name;
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+                        { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+                
+                lastValue = unboxValue(createCall(ft, fn.getCallee(), { path }), node->inferredType);
+                return true;
+            } else if (prop->name == "openSync") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                visit(node->arguments[1].get());
+                llvm::Value* flags = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_openSync", ft);
+                
+                llvm::Value* fd = createCall(ft, fn.getCallee(), { path, flags });
+                
+                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee makeIntFn = module->getOrInsertFunction("ts_value_make_int", makeIntFt);
+                lastValue = createCall(makeIntFt, makeIntFn.getCallee(), { fd });
+                return true;
+            } else if (prop->name == "closeSync") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
+                        { llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_closeSync", ft);
+                
+                createCall(ft, fn.getCallee(), { fd });
+                lastValue = nullptr;
+                return true;
+            } else if (prop->name == "readSync" || prop->name == "writeSync") {
+                if (node->arguments.size() < 5) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                visit(node->arguments[1].get());
+                llvm::Value* buffer = lastValue;
+                visit(node->arguments[2].get());
+                llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                visit(node->arguments[3].get());
+                llvm::Value* length = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                visit(node->arguments[4].get());
+                llvm::Value* position = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                
+                std::string runtimeName = "ts_fs_" + prop->name;
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
+                        { llvm::Type::getInt64Ty(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+                
+                llvm::Value* result = createCall(ft, fn.getCallee(), { fd, buffer, offset, length, position });
+                
+                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee makeIntFn = module->getOrInsertFunction("ts_value_make_int", makeIntFt);
+                lastValue = createCall(makeIntFt, makeIntFn.getCallee(), { result });
+                return true;
+            } else if (prop->name == "createReadStream") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_createReadStream", ft);
+                lastValue = createCall(ft, fn.getCallee(), { path });
+                return true;
+            } else if (prop->name == "createWriteStream") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_createWriteStream", ft);
+                lastValue = createCall(ft, fn.getCallee(), { path });
                 return true;
             }
         }
@@ -373,21 +508,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_writeFileSync", writeFt);
                 
                 createCall(writeFt, writeFn.getCallee(), { path, content });
-                return true;
-            }
-        }
-    } else if (prop->name == "existsSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                
-                llvm::FunctionType* existsFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), 
-                        { builder->getPtrTy() }, false);
-                llvm::FunctionCallee existsFn = module->getOrInsertFunction("ts_fs_existsSync", existsFt);
-                
-                lastValue = createCall(existsFt, existsFn.getCallee(), { arg });
                 return true;
             }
         }
@@ -441,63 +561,64 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 }
             }
         }
-    } else if (prop->name == "mkdirSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* path = lastValue;
-                
-                llvm::FunctionType* mkdirFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee mkdirFn = module->getOrInsertFunction("ts_fs_mkdirSync", mkdirFt);
-                
-                createCall(mkdirFt, mkdirFn.getCallee(), { path });
-                lastValue = nullptr;
-                return true;
+    } else if (prop->name == "open") {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (node->arguments.size() < 2) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* path = lastValue;
+                    visit(node->arguments[1].get());
+                    llvm::Value* flags = lastValue;
+                    
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_open_async", ft);
+                    
+                    lastValue = createCall(ft, fn.getCallee(), { path, flags });
+                    return true;
+                }
             }
         }
-    } else if (prop->name == "rmdirSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* path = lastValue;
-                
-                llvm::FunctionType* rmdirFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee rmdirFn = module->getOrInsertFunction("ts_fs_rmdirSync", rmdirFt);
-                
-                createCall(rmdirFt, rmdirFn.getCallee(), { path });
-                lastValue = nullptr;
-                return true;
+    } else if (prop->name == "close") {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_close_async", ft);
+                    
+                    lastValue = createCall(ft, fn.getCallee(), { fd });
+                    return true;
+                }
             }
         }
-    } else if (prop->name == "unlinkSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* path = lastValue;
-                
-                llvm::FunctionType* unlinkFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee unlinkFn = module->getOrInsertFunction("ts_fs_unlinkSync", unlinkFt);
-                
-                createCall(unlinkFt, unlinkFn.getCallee(), { path });
-                lastValue = nullptr;
-                return true;
-            }
-        }
-    } else if (prop->name == "statSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* path = lastValue;
-                
-                llvm::FunctionType* statFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee statFn = module->getOrInsertFunction("ts_fs_statSync", statFt);
-                
-                lastValue = unboxValue(createCall(statFt, statFn.getCallee(), { path }), node->inferredType);
-                return true;
+    } else if (prop->name == "read" || prop->name == "write") {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (auto obj = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                if (obj->name == "fs" && innerProp->name == "promises") {
+                    if (node->arguments.size() < 5) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    visit(node->arguments[1].get());
+                    llvm::Value* buffer = lastValue;
+                    visit(node->arguments[2].get());
+                    llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    visit(node->arguments[3].get());
+                    llvm::Value* length = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    visit(node->arguments[4].get());
+                    llvm::Value* position = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    
+                    std::string runtimeName = "ts_fs_" + prop->name + "_async";
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+                            { llvm::Type::getInt64Ty(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+                    
+                    lastValue = createCall(ft, fn.getCallee(), { fd, buffer, offset, length, position });
+                    return true;
+                }
             }
         }
     } else if (prop->name == "readdir") {
@@ -514,20 +635,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     lastValue = createCall(readdirFt, readdirFn.getCallee(), { path });
                     return true;
                 }
-            }
-        }
-    } else if (prop->name == "readdirSync") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "fs") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* path = lastValue;
-                
-                llvm::FunctionType* readdirFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee readdirFn = module->getOrInsertFunction("ts_fs_readdirSync", readdirFt);
-                
-                lastValue = unboxValue(createCall(readdirFt, readdirFn.getCallee(), { path }), node->inferredType);
-                return true;
             }
         }
     } else if (prop->name == "join") {
@@ -902,6 +1009,56 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  { builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_trim", trimFt);
          lastValue = createCall(trimFt, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "on") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         
+         if (node->arguments.size() < 2) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* event = lastValue;
+         visit(node->arguments[1].get());
+         llvm::Value* callback = lastValue;
+
+         // Box the callback if it's a function
+         if (node->arguments[1]->getKind() == "ArrowFunction" || node->arguments[1]->getKind() == "FunctionExpression") {
+             callback = boxValue(callback, std::make_shared<Type>(TypeKind::Function));
+         } else {
+             callback = boxValue(callback, node->arguments[1]->inferredType);
+         }
+         
+         llvm::FunctionType* onFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee onFn = module->getOrInsertFunction("ts_event_emitter_on", onFt);
+         lastValue = createCall(onFt, onFn.getCallee(), { obj, event, callback });
+         return true;
+    } else if (prop->name == "write") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* data = lastValue;
+         
+         if (node->arguments[0]->inferredType && node->arguments[0]->inferredType->kind == TypeKind::Any) {
+             data = unboxValue(data, std::make_shared<Type>(TypeKind::Object));
+         }
+
+         llvm::FunctionType* writeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_write_stream_write", writeFt);
+         createCall(writeFt, writeFn.getCallee(), { obj, data });
+         lastValue = nullptr;
+         return true;
+    } else if (prop->name == "end") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         
+         llvm::FunctionType* endFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee endFn = module->getOrInsertFunction("ts_fs_write_stream_end", endFt);
+         createCall(endFt, endFn.getCallee(), { obj });
+         lastValue = nullptr;
          return true;
     } else if (prop->name == "startsWith") {
          visit(prop->expression.get());

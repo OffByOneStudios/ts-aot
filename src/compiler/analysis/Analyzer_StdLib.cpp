@@ -28,6 +28,12 @@ Analyzer::Analyzer() {
     
     symbols.define("JSON", jsonType);
 
+    // Register require global
+    auto requireType = std::make_shared<FunctionType>();
+    requireType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    requireType->returnType = std::make_shared<Type>(TypeKind::Any);
+    symbols.define("require", requireType);
+
     // Register undefined
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));
@@ -450,7 +456,47 @@ Analyzer::Analyzer() {
     readdirAsyncType->returnType = promiseClass; // Promise<string[]>
     fsPromisesType->fields["readdir"] = readdirAsyncType;
 
+    auto openAsyncType = std::make_shared<FunctionType>();
+    openAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openAsyncType->returnType = promiseClass; // Promise<number>
+    fsPromisesType->fields["open"] = openAsyncType;
+
+    auto closeAsyncType = std::make_shared<FunctionType>();
+    closeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    closeAsyncType->returnType = promiseClass; // Promise<void>
+    fsPromisesType->fields["close"] = closeAsyncType;
+
+    auto readAsyncType = std::make_shared<FunctionType>();
+    readAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    readAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    readAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // length
+    readAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // position
+    readAsyncType->returnType = promiseClass; // Promise<number>
+    fsPromisesType->fields["read"] = readAsyncType;
+
+    auto writeAsyncType = std::make_shared<FunctionType>();
+    writeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    writeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    writeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // length
+    writeAsyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // position
+    writeAsyncType->returnType = promiseClass; // Promise<number>
+    fsPromisesType->fields["write"] = writeAsyncType;
+
     fsType->fields["promises"] = fsPromisesType;
+
+    auto readFileSyncType = std::make_shared<FunctionType>();
+    readFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readFileSyncType->returnType = std::make_shared<Type>(TypeKind::String); // For now, assume string
+    fsType->fields["readFileSync"] = readFileSyncType;
+
+    auto writeFileSyncType = std::make_shared<FunctionType>();
+    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeFileSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writeFileSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["writeFileSync"] = writeFileSyncType;
 
     auto existsSyncType = std::make_shared<FunctionType>();
     existsSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
@@ -462,15 +508,15 @@ Analyzer::Analyzer() {
     mkdirSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["mkdirSync"] = mkdirSyncType;
 
-    auto rmdirSyncType = std::make_shared<FunctionType>();
-    rmdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    rmdirSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["rmdirSync"] = rmdirSyncType;
-
     auto unlinkSyncType = std::make_shared<FunctionType>();
     unlinkSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     unlinkSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["unlinkSync"] = unlinkSyncType;
+
+    auto rmdirSyncType = std::make_shared<FunctionType>();
+    rmdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    rmdirSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["rmdirSync"] = rmdirSyncType;
 
     auto statSyncType = std::make_shared<FunctionType>();
     statSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
@@ -481,6 +527,68 @@ Analyzer::Analyzer() {
     readdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     readdirSyncType->returnType = stringArray;
     fsType->fields["readdirSync"] = readdirSyncType;
+
+    auto openSyncType = std::make_shared<FunctionType>();
+    openSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openSyncType->returnType = std::make_shared<Type>(TypeKind::Int);
+    fsType->fields["openSync"] = openSyncType;
+
+    auto closeSyncType = std::make_shared<FunctionType>();
+    closeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    closeSyncType->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["closeSync"] = closeSyncType;
+
+    auto readSyncType = std::make_shared<FunctionType>();
+    readSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    readSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    readSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // length
+    readSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // position
+    readSyncType->returnType = std::make_shared<Type>(TypeKind::Int);
+    fsType->fields["readSync"] = readSyncType;
+
+    auto writeSyncType = std::make_shared<FunctionType>();
+    writeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    writeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    writeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // length
+    writeSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // position
+    writeSyncType->returnType = std::make_shared<Type>(TypeKind::Int);
+    fsType->fields["writeSync"] = writeSyncType;
+
+    auto readStreamType = std::make_shared<ObjectType>();
+    auto onType = std::make_shared<FunctionType>();
+    onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    onType->returnType = readStreamType;
+    readStreamType->fields["on"] = onType;
+
+    auto writeStreamType = std::make_shared<ObjectType>();
+    auto writeOnType = std::make_shared<FunctionType>();
+    writeOnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeOnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writeOnType->returnType = writeStreamType;
+    writeStreamType->fields["on"] = writeOnType;
+
+    auto writeType = std::make_shared<FunctionType>();
+    writeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writeType->returnType = std::make_shared<Type>(TypeKind::Void);
+    writeStreamType->fields["write"] = writeType;
+
+    auto endType = std::make_shared<FunctionType>();
+    endType->returnType = std::make_shared<Type>(TypeKind::Void);
+    writeStreamType->fields["end"] = endType;
+
+    auto createReadStreamType = std::make_shared<FunctionType>();
+    createReadStreamType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    createReadStreamType->returnType = readStreamType;
+    fsType->fields["createReadStream"] = createReadStreamType;
+
+    auto createWriteStreamType = std::make_shared<FunctionType>();
+    createWriteStreamType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    createWriteStreamType->returnType = writeStreamType;
+    fsType->fields["createWriteStream"] = createWriteStreamType;
 
     symbols.define("fs", fsType);
 

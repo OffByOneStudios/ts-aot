@@ -11,6 +11,14 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
 
+    printf("DEBUG: tryGenerateMemberCall %s type=%d\n", prop->name.c_str(), prop->expression->inferredType ? (int)prop->expression->inferredType->kind : -1);
+
+    if (prop->expression->inferredType) {
+        SPDLOG_INFO("tryGenerateMemberCall: prop->name={} type kind={}", prop->name, (int)prop->expression->inferredType->kind);
+    } else {
+        SPDLOG_INFO("tryGenerateMemberCall: prop->name={} type is null", prop->name);
+    }
+
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
     }
@@ -48,6 +56,59 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         
         lastValue = createCall(ft, func.getCallee(), args);
         return true;
+    }
+
+    if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection || prop->expression->inferredType->kind == TypeKind::Any || prop->expression->inferredType->kind == TypeKind::Interface)) {
+        SPDLOG_INFO("tryGenerateMemberCall: Object/Intersection/Any/Interface for {}", prop->name);
+        visit(prop->expression.get());
+        llvm::Value* objPtr = lastValue;
+        emitNullCheckForExpression(prop->expression.get(), objPtr);
+        
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::Value* propNameStr = builder->CreateGlobalStringPtr(prop->name);
+        llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
+        
+        llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+        
+        llvm::Value* boxedFunc = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
+        
+        if (node->arguments.empty()) {
+            llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0", callFt);
+            lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return true;
+        } else {
+            std::vector<llvm::Value*> args;
+            args.push_back(boxedFunc);
+            
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // func
+            
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                std::shared_ptr<Type> argType = arg->inferredType;
+                if (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression") {
+                     if (!argType || argType->kind == TypeKind::Any) {
+                         argType = std::make_shared<Type>(TypeKind::Function);
+                     }
+                }
+                llvm::Value* val = boxValue(lastValue, argType);
+                args.push_back(val);
+                paramTypes.push_back(builder->getPtrTy());
+            }
+            
+            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            
+            lastValue = createCall(ft, fn.getCallee(), args);
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return true;
+        }
     }
 
     if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {
@@ -529,9 +590,20 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             visit(arg.get());
             llvm::Value* val = lastValue;
             
+            std::shared_ptr<Type> argType = arg->inferredType;
+            if (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression") {
+                 if (!argType || argType->kind == TypeKind::Any) {
+                     argType = std::make_shared<Type>(TypeKind::Function);
+                 }
+            }
+
             if (argIdx < (int)methodType->paramTypes.size()) {
                 auto expectedType = methodType->paramTypes[argIdx];
-                if (arg->inferredType && arg->inferredType->kind == TypeKind::Any && expectedType->kind != TypeKind::Any) {
+                printf("DEBUG: Method call arg %d expected type kind %d\n", argIdx, (int)expectedType->kind);
+                if (expectedType->kind == TypeKind::Any || expectedType->kind == TypeKind::Function) {
+                    printf("DEBUG: Boxing argument %d\n", argIdx);
+                    val = boxValue(val, argType);
+                } else if (argType && argType->kind == TypeKind::Any && expectedType->kind != TypeKind::Any) {
                     val = unboxValue(val, expectedType);
                 } else {
                     val = castValue(val, getLLVMType(expectedType));
