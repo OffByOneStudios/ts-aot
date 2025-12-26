@@ -89,7 +89,8 @@ void ts_pop_exception_handler() {
 void ts_throw(TsValue* exception) {
     currentException = exception;
     if (exceptionStack.empty()) {
-        fprintf(stderr, "Uncaught exception\n");
+        fprintf(stderr, "Uncaught exception: ");
+        ts_console_log_value(exception);
         exit(1);
     }
     ExceptionContext* ctx = exceptionStack.back();

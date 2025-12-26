@@ -91,6 +91,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 
         SPDLOG_DEBUG("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
 
+        // Clear function-specific state
+        namedValues.clear();
+        boxedVariables.clear();
+        catchStack.clear();
+        finallyStack.clear();
+        valueOverrides.clear();
+
         if (isAsync || isGenerator) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);
             continue;

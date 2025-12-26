@@ -89,7 +89,7 @@ This document tracks the implementation status of TypeScript language features i
 | :--- | :---: | :---: | :--- |
 | `console.log` | ✅ | Phase 1 | |
 | `Math` | ✅ | Phase 8 | `min`, `floor`, `max`, `abs`, `random`, `sqrt`, `pow`, `PI`. |
-| `fs` | ✅ | Phase 8 | `readFileSync`, `writeFileSync`. |
+| `fs` | ✅ | Phase 8 | `readFileSync`, `writeFileSync`, `link`, `symlink`, `readlink`, `realpath`, `lstat`. |
 | `crypto` | ⚠️ | Phase 4 | `md5`. Need `sha256`, etc. |
 | `Date` | ✅ | Phase 8 | `now`, `getTime`, `getFullYear`, etc. |
 | `RegExp` | ✅ | Phase 8 | `test`, `exec`. |

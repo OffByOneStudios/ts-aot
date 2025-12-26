@@ -11,6 +11,9 @@ We are in **Phase 17: Language Completeness**, focusing on high-performance impl
 2.  **Epic 95:** Extended Types & Runtime (BigInt, Symbols, Set).
 
 ## Recent Accomplishments
+*   **Milestone 96.5: Links & Symlinks:** Implemented `fs.link`, `fs.symlink`, `fs.readlink`, `fs.realpath`, and `fs.lstat` (sync and async).
+*   **Compiler Optimization:** Fixed optimized FS dispatch for string-returning builtins (`readlinkSync`, `realpathSync`).
+*   **Async Codegen Fix:** Resolved LLVM "Instruction does not dominate all uses" errors in async state machines by isolating control-flow state.
 *   **Epic 93: Error Handling & Stack Traces:** Implemented `try/catch/finally` with `setjmp/longjmp`. Added `Error` class and symbolicated stack traces on Windows using `DbgHelp` and LLVM `DIBuilder` for source line mapping.
 *   **Advanced Classes:** Implemented Private Fields (`#field`), Static Blocks (`static {}`), and basic Comptime literal inlining (`ts_aot.comptime`). Fixed monomorphization issues with private fields in generic classes.
 *   **Workspace Cleanup:** Removed obsolete test targets and redundant `find_package` calls from the root `CMakeLists.txt`. Cleaned up build artifacts (`.exe`, `.lib`, `.obj`, `.ll`, `.json`) from the source tree. Updated benchmark scripts to point to new executable locations.

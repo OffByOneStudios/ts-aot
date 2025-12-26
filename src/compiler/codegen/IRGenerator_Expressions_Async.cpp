@@ -207,6 +207,14 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             }
         }
     }
+
+    if (isAsync) {
+        vars.push_back({ "__shouldReturn", std::make_shared<Type>(TypeKind::Boolean), builder->getInt1Ty() });
+        vars.push_back({ "__shouldBreak", std::make_shared<Type>(TypeKind::Boolean), builder->getInt1Ty() });
+        vars.push_back({ "__shouldContinue", std::make_shared<Type>(TypeKind::Boolean), builder->getInt1Ty() });
+        vars.push_back({ "__returnValue", std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+        vars.push_back({ "pendingExc", std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+    }
     
     for (const auto& var : vars) {
         if (std::find(variables.begin(), variables.end(), var.name) == variables.end()) {
@@ -267,6 +275,17 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Store Frame in ctx->data
     llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 9);
     builder->CreateStore(frame, dataPtr);
+
+    // Initialize all frame variables to null/zero
+    for (const auto& var : vars) {
+        int idx = frameMap[var.name];
+        llvm::Value* ptr = builder->CreateStructGEP(frameType, frame, idx);
+        if (var.llvmType->isPointerTy()) {
+            builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(var.llvmType)), ptr);
+        } else {
+            builder->CreateStore(llvm::ConstantInt::get(var.llvmType, 0), ptr);
+        }
+    }
 
     // Copy arguments to frame
     auto argIt = entryFunc->arg_begin();
@@ -377,6 +396,17 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     auto oldAsyncStateBlocks = asyncStateBlocks;
     auto oldNamedValues = namedValues;
     auto oldBoxedVariables = boxedVariables;
+    auto oldFinallyStack = finallyStack;
+    auto oldCatchStack = catchStack;
+    auto oldBreakBB = currentBreakBB;
+    auto oldContinueBB = currentContinueBB;
+    auto oldShouldReturnAlloca = currentShouldReturnAlloca;
+    auto oldShouldBreakAlloca = currentShouldBreakAlloca;
+    auto oldShouldContinueAlloca = currentShouldContinueAlloca;
+    auto oldBreakTargetAlloca = currentBreakTargetAlloca;
+    auto oldContinueTargetAlloca = currentContinueTargetAlloca;
+    auto oldReturnValueAlloca = currentReturnValueAlloca;
+    auto oldReturnBB = currentReturnBB;
 
     currentAsyncContext = smCtx;
     currentAsyncResumedValue = smResumedVal;
@@ -384,6 +414,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     currentAsyncFrameType = frameType;
     currentAsyncFrameMap = frameMap;
     asyncStateBlocks.clear();
+    finallyStack.clear();
+    catchStack.clear();
+    currentBreakBB = nullptr;
+    currentContinueBB = nullptr;
 
     // Load Frame from ctx->data
     llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
@@ -394,9 +428,39 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->CreateBr(switchBB);
     builder->SetInsertPoint(switchBB);
 
+    // Clear namedValues for the SM function
+    namedValues.clear();
+
     // Map variables in frame to namedValues in a block that dominates all states
     for (auto const& [name, idx] : frameMap) {
         namedValues[name] = builder->CreateStructGEP(frameType, currentAsyncFrame, idx);
+    }
+
+    // Initialize return-related variables for the SM function
+    currentReturnBB = llvm::BasicBlock::Create(*context, "return", smFunc);
+    if (currentIsAsync) {
+        currentShouldReturnAlloca = namedValues["__shouldReturn"];
+        currentShouldBreakAlloca = namedValues["__shouldBreak"];
+        currentShouldContinueAlloca = namedValues["__shouldContinue"];
+        currentReturnValueAlloca = namedValues["__returnValue"];
+        
+        // Targets are still local allocas for now as they are BasicBlock pointers
+        currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
+        currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+    } else {
+        currentShouldReturnAlloca = createEntryBlockAlloca(smFunc, "shouldReturn", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
+
+        currentShouldBreakAlloca = createEntryBlockAlloca(smFunc, "shouldBreak", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+        currentShouldContinueAlloca = createEntryBlockAlloca(smFunc, "shouldContinue", builder->getInt1Ty());
+        builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+        
+        currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
+        currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+        
+        currentReturnValueAlloca = createEntryBlockAlloca(smFunc, "returnValue", builder->getPtrTy());
+        builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     }
 
     // If this is a class method, ensure 'this' is in namedValues
@@ -467,25 +531,60 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Finalize SM function
     if (!builder->GetInsertBlock()->getTerminator()) {
-        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
-        llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
-
-        if (isAsync && !isGenerator) {
-            // Resolve promise with undefined
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
-            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
-            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
-            createCall(resolveFt, resolveFn.getCallee(), { promise, undefinedVal });
-        } else if (isAsync && isGenerator) {
-            // Resolve generator with undefined and done=true
-            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
-            createCall(resolveFt, resolveFn.getCallee(), { smCtx, undefinedVal, builder->getInt1(true) });
-        }
-        builder->CreateRetVoid();
+        builder->CreateBr(currentReturnBB);
     }
+
+    // Emit the return block for the SM function (used by try-finally)
+    builder->SetInsertPoint(currentReturnBB);
+    
+    // Check pendingExc
+    llvm::Value* pendingExcAlloca = namedValues["pendingExc"];
+    llvm::Value* exc = builder->CreateLoad(builder->getPtrTy(), pendingExcAlloca);
+    llvm::Value* hasExc = builder->CreateIsNotNull(exc);
+    
+    llvm::BasicBlock* handleExcBB = llvm::BasicBlock::Create(*context, "handle_exc", smFunc);
+    llvm::BasicBlock* handleNormalBB = llvm::BasicBlock::Create(*context, "handle_normal", smFunc);
+    builder->CreateCondBr(hasExc, handleExcBB, handleNormalBB);
+    
+    builder->SetInsertPoint(handleExcBB);
+    if (isAsync && !isGenerator) {
+        // Reject promise
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
+        llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+        llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject_internal", rejectFt);
+        createCall(rejectFt, rejectFn.getCallee(), { promise, exc });
+    } else if (isAsync && isGenerator) {
+        // Reject generator
+        // TODO: Implement ts_async_generator_reject
+    }
+    builder->CreateRetVoid();
+    
+    builder->SetInsertPoint(handleNormalBB);
+    
+    llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+    llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
+
+    if (isAsync && !isGenerator) {
+        // Resolve promise with return value or undefined
+        llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+        llvm::Value* isNull = builder->CreateIsNull(retVal);
+        llvm::Value* finalVal = builder->CreateSelect(isNull, undefinedVal, retVal);
+
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
+        llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+        llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+        createCall(resolveFt, resolveFn.getCallee(), { promise, finalVal });
+    } else if (isAsync && isGenerator) {
+        // Resolve generator with undefined and done=true
+        createCall(undefFt, undefFn.getCallee(), {}); // Just to be safe
+        llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
+        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
+        createCall(resolveFt, resolveFn.getCallee(), { smCtx, undefinedVal, builder->getInt1(true) });
+    }
+    builder->CreateRetVoid();
 
     // Update the switch with all generated states
     for (size_t i = 1; i < asyncStateBlocks.size(); ++i) {
@@ -501,6 +600,18 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     asyncStateBlocks = oldAsyncStateBlocks;
     namedValues = oldNamedValues;
     boxedVariables = oldBoxedVariables;
+    finallyStack = oldFinallyStack;
+    catchStack = oldCatchStack;
+    currentBreakBB = oldBreakBB;
+    currentContinueBB = oldContinueBB;
+    currentShouldReturnAlloca = oldShouldReturnAlloca;
+    currentShouldBreakAlloca = oldShouldBreakAlloca;
+    currentShouldContinueAlloca = oldShouldContinueAlloca;
+    currentBreakTargetAlloca = oldBreakTargetAlloca;
+    currentContinueTargetAlloca = oldContinueTargetAlloca;
+    currentReturnValueAlloca = oldReturnValueAlloca;
+    currentReturnBB = oldReturnBB;
+
     currentIsGenerator = false;
     currentIsAsync = false;
 }

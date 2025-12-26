@@ -346,6 +346,7 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
 
 void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
     if (promise->state != PromiseState::Pending) return;
+    printf("DEBUG: ts_promise_reject_internal promise=%p reason type=%d\n", promise, reason ? (int)reason->type : -1);
     promise->state = PromiseState::Rejected;
     promise->value = reason ? *reason : TsValue();
 

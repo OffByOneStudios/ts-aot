@@ -727,6 +727,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         llvm::Value* arrayPtr = value;
         if (type && type->kind == TypeKind::Any) {
              llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee getObjFn = module->getOrInsertFunction("ts_value_get_object", getObjFt);
              arrayPtr = createCall(getObjFt, getObjFn.getCallee(), { value });
         }
 
@@ -855,6 +856,7 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 
     if (auto decl = dynamic_cast<ast::VariableDeclaration*>(node)) {
         if (auto id = dynamic_cast<ast::Identifier*>(decl->name.get())) {
+            SPDLOG_INFO("collectVariables: found variable {}", id->name);
             vars.push_back({id->name, decl->resolvedType, getLLVMType(decl->resolvedType)});
         }
     } else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) {
@@ -862,6 +864,29 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
     } else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
         collectVariables(ifStmt->thenStatement.get(), vars);
         collectVariables(ifStmt->elseStatement.get(), vars);
+    } else if (auto tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
+        // Add implicit variable for pending exception
+        std::string baseName = "try_" + std::to_string((uintptr_t)node);
+        vars.push_back({ baseName + "_pendingExc", std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+
+        for (auto& stmt : tryStmt->tryBlock) collectVariables(stmt.get(), vars);
+        if (tryStmt->catchClause) {
+            if (tryStmt->catchClause->variable) {
+                collectVariables(tryStmt->catchClause->variable.get(), vars);
+            }
+            for (auto& stmt : tryStmt->catchClause->block) collectVariables(stmt.get(), vars);
+        }
+        for (auto& stmt : tryStmt->finallyBlock) {
+            collectVariables(stmt.get(), vars);
+        }
+    } else if (auto switchStmt = dynamic_cast<ast::SwitchStatement*>(node)) {
+        for (auto& clause : switchStmt->clauses) {
+            if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                for (auto& stmt : cc->statements) collectVariables(stmt.get(), vars);
+            } else if (auto dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                for (auto& stmt : dc->statements) collectVariables(stmt.get(), vars);
+            }
+        }
     } else if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
         collectVariables(whileStmt->body.get(), vars);
     } else if (auto forStmt = dynamic_cast<ast::ForStatement*>(node)) {
@@ -1034,19 +1059,20 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(type);
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         if (classType->isStruct) {
-            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
             return builder->CreateLoad(classStruct, objPtr);
         }
-        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
                type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple ||
                type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     }
     
@@ -1185,6 +1211,7 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
         } else if (expectedType->isStructTy()) {
             // Unbox struct from TsValue*
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             result = builder->CreateLoad(expectedType, objPtr);
         }

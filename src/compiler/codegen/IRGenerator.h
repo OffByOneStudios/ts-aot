@@ -186,11 +186,16 @@ private:
     std::vector<llvm::BasicBlock*> asyncStateBlocks;
     bool currentIsGenerator = false;
     bool currentIsAsync = false;
-    std::vector<llvm::BasicBlock*> catchStack;
+    
+    struct CatchInfo {
+        llvm::BasicBlock* catchBB;
+        llvm::Value* pendingExc;
+    };
+    std::vector<CatchInfo> catchStack;
 
     struct FinallyInfo {
         llvm::BasicBlock* finallyBB;
-        llvm::AllocaInst* pendingExc;
+        llvm::Value* pendingExc;
         llvm::BasicBlock* nextFinallyBB;
         llvm::BasicBlock* nextBreakBB;
         llvm::BasicBlock* nextContinueBB;
@@ -201,14 +206,14 @@ private:
 
     llvm::BasicBlock* currentBreakBB = nullptr;
     llvm::BasicBlock* currentContinueBB = nullptr;
-    llvm::AllocaInst* currentReturnValueAlloca = nullptr;
-    llvm::AllocaInst* currentShouldReturnAlloca = nullptr;
+    llvm::Value* currentReturnValueAlloca = nullptr;
+    llvm::Value* currentShouldReturnAlloca = nullptr;
     llvm::BasicBlock* currentReturnBB = nullptr;
 
-    llvm::AllocaInst* currentShouldBreakAlloca = nullptr;
-    llvm::AllocaInst* currentShouldContinueAlloca = nullptr;
-    llvm::AllocaInst* currentBreakTargetAlloca = nullptr;
-    llvm::AllocaInst* currentContinueTargetAlloca = nullptr;
+    llvm::Value* currentShouldBreakAlloca = nullptr;
+    llvm::Value* currentShouldContinueAlloca = nullptr;
+    llvm::Value* currentBreakTargetAlloca = nullptr;
+    llvm::Value* currentContinueTargetAlloca = nullptr;
 
     struct ClassLayout {
         std::vector<std::pair<std::string, std::shared_ptr<Type>>> allFields;

@@ -39,32 +39,20 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
     - **Plan:** Define constants (F_OK, R_OK, etc.) in `Analyzer_StdLib_FS.cpp` as read-only properties of `fs`.
 
 ### Milestone 96.5: Links & Symlinks
-- [ ] **Task 96.5.1:** Implement `fs.link` and `fs.linkSync` (hard links).
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_link`).
-- [ ] **Task 96.5.2:** Implement `fs.symlink` and `fs.symlinkSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_symlink`).
-- [ ] **Task 96.5.3:** Implement `fs.readlink` and `fs.readlinkSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_readlink`).
-- [ ] **Task 96.5.4:** Implement `fs.lstat` and `fs.lstatSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_lstat`).
-- [ ] **Task 96.5.5:** Implement `fs.realpath` and `fs.realpathSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_realpath`).
+- [x] **Task 96.5.1:** Implement `fs.link` and `fs.linkSync` (hard links).
+- [x] **Task 96.5.2:** Implement `fs.symlink` and `fs.symlinkSync`.
+- [x] **Task 96.5.3:** Implement `fs.readlink` and `fs.readlinkSync`.
+- [x] **Task 96.5.4:** Implement `fs.lstat` and `fs.lstatSync`.
+- [x] **Task 96.5.5:** Implement `fs.realpath` and `fs.realpathSync`.
 
 ### Milestone 96.6: File Manipulation & Copying
-- [ ] **Task 96.6.1:** Implement `fs.copyFile` and `fs.copyFileSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_copyfile`).
-- [ ] **Task 96.6.2:** Implement `fs.cp` and `fs.cpSync` (recursive copy).
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using recursive logic).
-- [ ] **Task 96.6.3:** Implement `fs.rename` and `fs.renameSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_rename`).
-- [ ] **Task 96.6.4:** Implement `fs.truncate` and `fs.truncateSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_truncate`).
-- [ ] **Task 96.6.5:** Implement `fs.appendFile` and `fs.appendFileSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `open` with append flag + `write`).
-- [ ] **Task 96.6.6:** Implement `fs.rm` and `fs.rmSync` (recursive delete).
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using recursive logic).
-- [ ] **Task 96.6.7:** Implement `fs.mkdtemp` and `fs.mkdtempSync`.
-    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_mkdtemp`).
+- [x] **Task 96.6.1:** Implement `fs.copyFile` and `fs.copyFileSync`.
+- [x] **Task 96.6.2:** Implement `fs.cp` and `fs.cpSync` (recursive copy).
+- [x] **Task 96.6.3:** Implement `fs.rename` and `fs.renameSync`.
+- [x] **Task 96.6.4:** Implement `fs.truncate` and `fs.truncateSync`.
+- [x] **Task 96.6.5:** Implement `fs.appendFile` and `fs.appendFileSync`.
+- [x] **Task 96.6.6:** Implement `fs.rm` and `fs.rmSync` (recursive delete).
+- [x] **Task 96.6.7:** Implement `fs.mkdtemp` and `fs.mkdtempSync`.
 
 ### Milestone 96.7: Directory Operations & Watching
 - [ ] **Task 96.7.1:** Implement `fs.opendir` and `fs.opendirSync`.
@@ -89,4 +77,19 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_read`/`write` with iov).
 
 ## Action Items
-- [ ] **Current:** Start Milestone 96.5 (Links & Symlinks).
+- [ ] **Current:** Implement `fs.opendir` and `fs.Dir` / `fs.Dirent` classes (Milestone 96.7).
+
+## Reflections & Improvements
+
+### Lessons Learned
+1.  **LLVM Dominance in Async SM**: We encountered "Instruction does not dominate all uses" errors because instructions were being generated in the entry block of the State Machine function but used within state blocks. Since state blocks are reached via a `switch` (non-linear control flow), the entry block is the only safe place for constants, but any logic that depends on the current state must be carefully isolated.
+2.  **Builtin Dispatch Type Safety**: The optimized FS dispatch in the compiler expects raw `TsString*` for string-returning methods (like `readlinkSync`). Returning a boxed `TsValue*` from the runtime causes a type mismatch that leads to empty results or crashes. We must ensure runtime signatures match compiler expectations exactly.
+3.  **Promise Mapping Synchronization**: It is easy to forget to add new FS methods to the `ts_fs_get_promises` map. This leads to "undefined" errors at runtime even if the underlying async implementation is correct.
+4.  **Async Exception Handling**: `setjmp`/`longjmp` is fundamentally incompatible with the stack-less async state machine because the jump target (the `jmp_buf` on the stack) becomes invalid once the function yields and its stack frame is popped. We must use explicit branching and store exception state in the heap-allocated `Frame`.
+5.  **Exception State Management**: In async functions, the `pendingExc` state must be explicitly cleared when entering a `catch` block. Failure to do so causes the `finally` block (or the function's exit path) to rethrow the exception, even if it was successfully handled, leading to "Uncaught exception: undefined" errors.
+
+### Future Improvements
+1.  **Declarative Builtin Definitions**: Move towards a more declarative way of defining builtins that automatically generates both the compiler dispatch and the runtime registration, reducing the chance of signature mismatches.
+2.  **Enhanced Async Debugging**: Add more granular logging to the `ts_async_resume` and `ts_async_await` runtime functions to help track down "Uncaught exception" crashes in complex async flows.
+3.  **Automated FS Tests**: Create a standardized test suite for all FS methods that covers both Sync and Promise variants to catch missing mappings early.
+4.  **Robust Recursive Operations**: The current implementations of `fs.rm` and `fs.cp` are basic. Future work should include a more robust recursive directory walker to handle deep trees and edge cases (like symlink loops) more gracefully.

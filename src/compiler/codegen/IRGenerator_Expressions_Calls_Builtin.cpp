@@ -8,6 +8,7 @@ using namespace ast;
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
+    printf("DEBUG: tryGenerateBuiltinCall %s\n", prop->name.c_str());
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Symbol") {
