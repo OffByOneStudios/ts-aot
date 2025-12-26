@@ -43,6 +43,8 @@ public:
     std::shared_ptr<ClassType> analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments);
     std::shared_ptr<Type> analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments);
 
+    void registerFS();
+
     void reportError(const std::string& message);
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);

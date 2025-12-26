@@ -7,6 +7,7 @@
 #include "TsBuffer.h"
 #include "TsReadStream.h"
 #include "TsWriteStream.h"
+#include "TsDate.h"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -33,9 +34,45 @@ static TsValue* bool_return_helper(void* context) {
     return ts_value_make_bool(val);
 }
 
-static void add_stats_methods(TsMap* stats, bool isFile, bool isDirectory) {
+static void add_stats_methods(TsMap* stats, bool isFile, bool isDirectory, const fs::path& p) {
     stats->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFile));
     stats->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isDirectory));
+    
+    // Add more fields
+    try {
+        auto status = fs::status(p);
+        uint64_t size = 0;
+        if (isFile) size = fs::file_size(p);
+        stats->Set(TsString::Create("size"), TsValue((int64_t)size));
+        
+        auto mtime = fs::last_write_time(p);
+        auto mtime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(mtime.time_since_epoch()).count();
+        stats->Set(TsString::Create("mtimeMs"), TsValue((double)mtime_ms));
+        stats->Set(TsString::Create("mtime"), *ts_value_make_object(TsDate::Create(mtime_ms)));
+
+        // On Windows, some of these might be limited or require different APIs
+        // For now, we'll use std::filesystem where possible
+#ifndef _WIN32
+        struct stat st;
+        if (stat(p.string().c_str(), &st) == 0) {
+            stats->Set(TsString::Create("uid"), TsValue((int64_t)st.st_uid));
+            stats->Set(TsString::Create("gid"), TsValue((int64_t)st.st_gid));
+            stats->Set(TsString::Create("ino"), TsValue((int64_t)st.st_ino));
+            stats->Set(TsString::Create("mode"), TsValue((int64_t)st.st_mode));
+            stats->Set(TsString::Create("nlink"), TsValue((int64_t)st.st_nlink));
+            stats->Set(TsString::Create("dev"), TsValue((int64_t)st.st_dev));
+            stats->Set(TsString::Create("rdev"), TsValue((int64_t)st.st_rdev));
+            stats->Set(TsString::Create("blksize"), TsValue((int64_t)st.st_blksize));
+            stats->Set(TsString::Create("blocks"), TsValue((int64_t)st.st_blocks));
+        }
+#else
+        // Minimal Windows support for now
+        stats->Set(TsString::Create("uid"), TsValue((int64_t)0));
+        stats->Set(TsString::Create("gid"), TsValue((int64_t)0));
+#endif
+    } catch (const std::exception& e) {
+    } catch (...) {
+    }
 }
 
 extern "C" {
@@ -108,19 +145,15 @@ void* ts_fs_statSync(void* path) {
     const char* pathCStr = pathStr->ToUtf8();
     
     try {
-        auto status = fs::status(pathCStr);
-        auto entry = fs::directory_entry(pathCStr);
+        fs::path p(pathCStr);
+        auto status = fs::status(p);
         
         TsMap* stats = TsMap::Create();
-        stats->Set(TsString::Create("size"), TsValue((int64_t)entry.file_size()));
-        
-        auto mtime = fs::last_write_time(pathCStr);
-        auto mtime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(mtime.time_since_epoch()).count();
-        stats->Set(TsString::Create("mtimeMs"), TsValue((double)mtime_ms));
-        
-        add_stats_methods(stats, fs::is_regular_file(status), fs::is_directory(status));
+        add_stats_methods(stats, fs::is_regular_file(status), fs::is_directory(status), p);
         
         return ts_value_make_object(stats);
+    } catch (const std::exception& e) {
+        return ts_value_make_undefined();
     } catch (...) {
         return ts_value_make_undefined();
     }
@@ -139,6 +172,271 @@ void* ts_fs_readdirSync(void* path) {
         // Return empty array or undefined? Node returns error.
     }
     return ts_value_make_object(result);
+}
+
+void ts_fs_accessSync(void* path, int32_t mode) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_access(NULL, &req, pathCStr, mode, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+void ts_fs_chmodSync(void* path, int32_t mode) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_chmod(NULL, &req, pathCStr, mode, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+void ts_fs_chownSync(void* path, int32_t uid, int32_t gid) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_chown(NULL, &req, pathCStr, uid, gid, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+void ts_fs_utimesSync(void* path, double atime, double mtime) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_utime(NULL, &req, pathCStr, atime, mtime, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+void* ts_fs_statfsSync(void* path) {
+    TsString* pathStr = (TsString*)path;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    int r = uv_fs_statfs(NULL, &req, pathCStr, NULL);
+    if (r < 0) {
+        uv_fs_req_cleanup(&req);
+        return ts_value_make_undefined();
+    }
+    
+    uv_statfs_t* s = (uv_statfs_t*)req.ptr;
+    TsMap* result = TsMap::Create();
+    result->Set(TsString::Create("type"), TsValue((int64_t)s->f_type));
+    result->Set(TsString::Create("bsize"), TsValue((int64_t)s->f_bsize));
+    result->Set(TsString::Create("blocks"), TsValue((int64_t)s->f_blocks));
+    result->Set(TsString::Create("bfree"), TsValue((int64_t)s->f_bfree));
+    result->Set(TsString::Create("bavail"), TsValue((int64_t)s->f_bavail));
+    result->Set(TsString::Create("files"), TsValue((int64_t)s->f_files));
+    result->Set(TsString::Create("ffree"), TsValue((int64_t)s->f_ffree));
+    
+    uv_fs_req_cleanup(&req);
+    return ts_value_make_object(result);
+}
+
+void* ts_fs_get_constants() {
+    TsMap* constants = TsMap::Create();
+    constants->Set(TsString::Create("F_OK"), TsValue((int64_t)0));
+    constants->Set(TsString::Create("R_OK"), TsValue((int64_t)4));
+    constants->Set(TsString::Create("W_OK"), TsValue((int64_t)2));
+    constants->Set(TsString::Create("X_OK"), TsValue((int64_t)1));
+    return ts_value_make_object(constants);
+}
+
+static TsValue* readFile_promise_wrapper(void* context, TsValue* path) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_readFile_async(path->ptr_val);
+}
+
+static TsValue* writeFile_promise_wrapper(void* context, TsValue* path, TsValue* content) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    if (!content || content->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_writeFile_async(path->ptr_val, content->ptr_val);
+}
+
+struct FSAsyncWork {
+    ts::TsPromise* promise;
+    std::string path;
+    int mode;
+    int uid;
+    int gid;
+    double atime;
+    double mtime;
+    int result;
+    bool success;
+    enum Type { ACCESS, CHMOD, CHOWN, UTIMES, STATFS } type;
+    uv_statfs_t statfs_res;
+};
+
+static void fs_async_worker(uv_work_t* req) {
+    FSAsyncWork* work = (FSAsyncWork*)req->data;
+    uv_fs_t fs_req;
+    int r = 0;
+    switch (work->type) {
+        case FSAsyncWork::ACCESS:
+            r = uv_fs_access(NULL, &fs_req, work->path.c_str(), work->mode, NULL);
+            break;
+        case FSAsyncWork::CHMOD:
+            r = uv_fs_chmod(NULL, &fs_req, work->path.c_str(), work->mode, NULL);
+            break;
+        case FSAsyncWork::CHOWN:
+            r = uv_fs_chown(NULL, &fs_req, work->path.c_str(), work->uid, work->gid, NULL);
+            break;
+        case FSAsyncWork::UTIMES:
+            r = uv_fs_utime(NULL, &fs_req, work->path.c_str(), work->atime, work->mtime, NULL);
+            break;
+        case FSAsyncWork::STATFS:
+            r = uv_fs_statfs(NULL, &fs_req, work->path.c_str(), NULL);
+            if (r >= 0) {
+                work->statfs_res = *(uv_statfs_t*)fs_req.ptr;
+            }
+            break;
+    }
+    work->result = r;
+    work->success = (r >= 0);
+    uv_fs_req_cleanup(&fs_req);
+}
+
+static void fs_async_after_worker(uv_work_t* req, int status) {
+    FSAsyncWork* work = (FSAsyncWork*)req->data;
+    if (work->success) {
+        if (work->type == FSAsyncWork::STATFS) {
+            TsMap* res = TsMap::Create();
+            res->Set(TsString::Create("type"), TsValue((int64_t)work->statfs_res.f_type));
+            res->Set(TsString::Create("bsize"), TsValue((int64_t)work->statfs_res.f_bsize));
+            res->Set(TsString::Create("blocks"), TsValue((int64_t)work->statfs_res.f_blocks));
+            res->Set(TsString::Create("bfree"), TsValue((int64_t)work->statfs_res.f_bfree));
+            res->Set(TsString::Create("bavail"), TsValue((int64_t)work->statfs_res.f_bavail));
+            res->Set(TsString::Create("files"), TsValue((int64_t)work->statfs_res.f_files));
+            res->Set(TsString::Create("ffree"), TsValue((int64_t)work->statfs_res.f_ffree));
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
+        } else {
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
+        }
+    } else {
+        ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create("FS operation failed")));
+    }
+    work->~FSAsyncWork();
+    GC_free(work);
+    free(req);
+}
+
+void* ts_fs_access_async(void* path, double mode) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->path = ((TsString*)path)->ToUtf8();
+    work->mode = (int)mode;
+    work->type = FSAsyncWork::ACCESS;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_chmod_async(void* path, double mode) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->path = ((TsString*)path)->ToUtf8();
+    work->mode = (int)mode;
+    work->type = FSAsyncWork::CHMOD;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_chown_async(void* path, double uid, double gid) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->path = ((TsString*)path)->ToUtf8();
+    work->uid = (int)uid;
+    work->gid = (int)gid;
+    work->type = FSAsyncWork::CHOWN;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_utimes_async(void* path, double atime, double mtime) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->path = ((TsString*)path)->ToUtf8();
+    work->atime = atime;
+    work->mtime = mtime;
+    work->type = FSAsyncWork::UTIMES;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_statfs_async(void* path) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->path = ((TsString*)path)->ToUtf8();
+    work->type = FSAsyncWork::STATFS;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+static TsValue* access_promise_wrapper(void* context, TsValue* path, TsValue* mode) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    double m = 0;
+    if (mode && (mode->type == ValueType::NUMBER_INT || mode->type == ValueType::NUMBER_DBL)) {
+        m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
+    }
+    return (TsValue*)ts_fs_access_async(path->ptr_val, m);
+}
+
+static TsValue* chmod_promise_wrapper(void* context, TsValue* path, TsValue* mode) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    if (!mode || (mode->type != ValueType::NUMBER_INT && mode->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
+    double m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
+    return (TsValue*)ts_fs_chmod_async(path->ptr_val, m);
+}
+
+static TsValue* chown_promise_wrapper(void* context, TsValue* path, TsValue* uid, TsValue* gid) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    if (!uid || (uid->type != ValueType::NUMBER_INT && uid->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
+    if (!gid || (gid->type != ValueType::NUMBER_INT && gid->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
+    double u = (uid->type == ValueType::NUMBER_INT) ? (double)uid->i_val : uid->d_val;
+    double g = (gid->type == ValueType::NUMBER_INT) ? (double)gid->i_val : gid->d_val;
+    return (TsValue*)ts_fs_chown_async(path->ptr_val, u, g);
+}
+
+static TsValue* utimes_promise_wrapper(void* context, TsValue* path, TsValue* atime, TsValue* mtime) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    if (!atime || (atime->type != ValueType::NUMBER_INT && atime->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
+    if (!mtime || (mtime->type != ValueType::NUMBER_INT && mtime->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
+    double a = (atime->type == ValueType::NUMBER_INT) ? (double)atime->i_val : atime->d_val;
+    double m = (mtime->type == ValueType::NUMBER_INT) ? (double)mtime->i_val : mtime->d_val;
+    return (TsValue*)ts_fs_utimes_async(path->ptr_val, a, m);
+}
+
+static TsValue* statfs_promise_wrapper(void* context, TsValue* path) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_statfs_async(path->ptr_val);
+}
+
+void* ts_fs_get_promises() {
+    TsMap* promises = TsMap::Create();
+    promises->Set(TsString::Create("readFile"), *ts_value_make_function((void*)readFile_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("writeFile"), *ts_value_make_function((void*)writeFile_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("access"), *ts_value_make_function((void*)access_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("chmod"), *ts_value_make_function((void*)chmod_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("chown"), *ts_value_make_function((void*)chown_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("utimes"), *ts_value_make_function((void*)utimes_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("statfs"), *ts_value_make_function((void*)statfs_promise_wrapper, nullptr));
+    return ts_value_make_object(promises);
 }
 
 int64_t ts_fs_openSync(void* path, void* flags) {
@@ -445,7 +743,7 @@ static void stat_after_worker(uv_work_t* req, int status) {
         stats->Set(TsString::Create("size"), TsValue(work->size));
         stats->Set(TsString::Create("mtimeMs"), TsValue(work->mtimeMs));
         
-        add_stats_methods(stats, work->isFile, work->isDirectory);
+        add_stats_methods(stats, work->isFile, work->isDirectory, work->path);
         
         ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(stats));
     } else {

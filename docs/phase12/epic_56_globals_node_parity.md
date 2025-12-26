@@ -19,12 +19,19 @@ To support real-world TypeScript applications (and AoC solutions that read from 
     - [x] `fs.existsSync(path)`.
     - [x] `fs.mkdirSync(path)` and `fs.rmdirSync(path)`.
     - [x] `fs.unlinkSync(path)`.
-    - [x] `fs.statSync(path)` returning a basic `Stats` object.
+    - [x] `fs.statSync(path)` returning a basic `Stats` object (with `size`, `mtimeMs`, `isFile()`, `isDirectory()`).
+    - [x] `fs.accessSync(path, mode)`.
+    - [x] `fs.chmodSync(path, mode)`.
+    - [x] `fs.chownSync(path, uid, gid)`.
+    - [x] `fs.utimesSync(path, atime, mtime)`.
+    - [x] `fs.statfsSync(path)`.
+    - [x] `fs.constants` (F_OK, R_OK, W_OK, X_OK).
 - [x] Implement asynchronous operations (`fs.promises`):
     - [x] `fs.promises.readFile(path)`.
     - [x] `fs.promises.writeFile(path, data)`.
     - [x] `fs.promises.mkdir(path)`.
     - [x] `fs.promises.stat(path)`.
+    - [x] Support for `.then()`, `.catch()`, `.finally()` on FS promises.
     - [x] Integrate with `libuv` thread pool (`uv_fs_t`) and return `TsPromise`.
 
 ### Process

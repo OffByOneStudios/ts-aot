@@ -9,6 +9,11 @@ To ensure feature parity with Node.js LTS, we have established a [Compatibility 
 2.  **Tracking:** Each Epic will update the matrix, changing status from 🔴 (Missing) to 🟡 (Partial) or 🟢 (Implemented).
 3.  **Compliance Tests:** A new test suite `tests/compliance/` will verify the existence and basic signature of these APIs.
 
+## Implementation Strategy
+To maintain compiler performance and code organization, each Node.js module (fs, path, http, etc.) must be implemented in dedicated source files rather than monolithic "Builtin" handlers.
+- **Analysis:** Create `src/compiler/analysis/Analyzer_StdLib_<Module>.cpp`
+- **Codegen:** Create `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
+
 ## Core Objectives
 1.  **File System:** Full `fs` module support (sync and async).
 2.  **Networking:** `net` and `http` modules (building on our existing prototype).

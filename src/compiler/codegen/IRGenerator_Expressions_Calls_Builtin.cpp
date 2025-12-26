@@ -319,10 +319,11 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 return true;
             }
         }
-    } else if (prop->name == "readFileSync" || prop->name == "writeFileSync" || prop->name == "existsSync" || 
-               prop->name == "unlinkSync" || prop->name == "mkdirSync" || prop->name == "rmdirSync" ||
-               prop->name == "statSync" || prop->name == "readdirSync" || prop->name == "openSync" || prop->name == "closeSync" ||
-               prop->name == "readSync" || prop->name == "writeSync" || prop->name == "createReadStream" || prop->name == "createWriteStream") {
+    }
+
+    if (tryGenerateFSCall(node, prop)) return true;
+
+    if (false) {
         // Handle both fs.readFileSync and const fs = require('fs'); fs.readFileSync
         bool isFs = false;
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {

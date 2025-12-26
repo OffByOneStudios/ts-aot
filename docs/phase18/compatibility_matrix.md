@@ -31,8 +31,8 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | copyFileSync | function | 🔴 | |
 | fs | cp | function | 🔴 | |
 | fs | cpSync | function | 🔴 | |
-| fs | createReadStream | function | 🔴 | |
-| fs | createWriteStream | function | 🔴 | |
+| fs | createReadStream | function | 🟢 | |
+| fs | createWriteStream | function | 🟢 | |
 | fs | exists | function | 🔴 | |
 | fs | existsSync | function | 🟢 | |
 | fs | fchmod | function | 🔴 | |

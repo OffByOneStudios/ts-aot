@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstddef>
 
+class TsString;
+
 enum class ValueType : uint8_t {
     UNDEFINED = 0,
     NUMBER_INT,
@@ -30,6 +32,7 @@ struct TaggedValue {
     TaggedValue(double v) : type(ValueType::NUMBER_DBL), d_val(v) {}
     TaggedValue(bool v) : type(ValueType::BOOLEAN), b_val(v) {}
     TaggedValue(void* v) : type(ValueType::OBJECT_PTR), ptr_val(v) {}
+    TaggedValue(TsString* v) : type(ValueType::STRING_PTR), ptr_val(v) {}
     
     operator void*() const { return (type == ValueType::OBJECT_PTR || type == ValueType::STRING_PTR) ? ptr_val : nullptr; }
 };
@@ -63,5 +66,6 @@ extern "C" {
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
+    TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
 }

@@ -727,7 +727,6 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         llvm::Value* arrayPtr = value;
         if (type && type->kind == TypeKind::Any) {
              llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee getObjFn = module->getOrInsertFunction("ts_value_get_object", getObjFt);
              arrayPtr = createCall(getObjFt, getObjFn.getCallee(), { value });
         }
 
@@ -1037,20 +1036,17 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         auto classType = std::static_pointer_cast<ClassType>(type);
         if (classType->isStruct) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
             return builder->CreateLoad(classStruct, objPtr);
         }
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
                type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple ||
                type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     }
     
@@ -1116,7 +1112,6 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
         } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
-                                   name == "ts_alloc" || name == "ts_value_get_object" || name == "ts_value_get_string" ||
                                    name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
                                    name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for")) {
             // Raw pointers
@@ -1190,7 +1185,6 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
         } else if (expectedType->isStructTy()) {
             // Unbox struct from TsValue*
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             result = builder->CreateLoad(expectedType, objPtr);
         }
