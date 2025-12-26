@@ -323,8 +323,10 @@ TsValue* ts_map_size_wrapper(void* context) {
 }
 
 TsValue* ts_map_get_property(void* obj, void* propName) {
+    fprintf(stderr, "DEBUG: ts_map_get_property obj=%p propName=%p\n", obj, propName); fflush(stderr);
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
+    fprintf(stderr, "DEBUG: ts_map_get_property name='%s'\n", name); fflush(stderr);
     
     if (strcmp(name, "get") == 0) {
         return ts_value_make_function((void*)ts_map_get_wrapper, obj);

@@ -9,7 +9,7 @@ public:
     static constexpr uint32_t MAGIC = 0x45564E54; // "EVNT"
     uint32_t magic = MAGIC;
     TsEventEmitter();
-    virtual ~TsEventEmitter();
+    ~TsEventEmitter();
     
     void On(const char* event, void* callback);
     void Emit(const char* event, int argc, void** argv);

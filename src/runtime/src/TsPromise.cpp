@@ -235,9 +235,7 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
     }
 
     if (cb.onFinally.type == ValueType::OBJECT_PTR && cb.onFinally.ptr_val) {
-        TsFunction* tsFunc = (TsFunction*)cb.onFinally.ptr_val;
-        TsFunctionPtrNoArgs fn = (TsFunctionPtrNoArgs)tsFunc->funcPtr;
-        fn(tsFunc->context); // Call with context
+        ts_call_0(&cb.onFinally);
         if (cb.nextPromise) {
             if (promise->state == PromiseState::Fulfilled) {
                 ts_promise_resolve_internal(cb.nextPromise, &value);
@@ -251,11 +249,7 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
     TsValue handler = (promise->state == PromiseState::Fulfilled) ? cb.onFulfilled : cb.onRejected;
     
     if (handler.type == ValueType::OBJECT_PTR && handler.ptr_val) {
-        TsFunction* tsFunc = (TsFunction*)handler.ptr_val;
-        TsFunctionPtr fn = (TsFunctionPtr)tsFunc->funcPtr;
-        TsValue* arg = (TsValue*)ts_alloc(sizeof(TsValue));
-        *arg = value;
-        TsValue* result = fn(tsFunc->context, arg);
+        TsValue* result = ts_call_1(&handler, &value);
         if (cb.nextPromise) {
             if (result) {
                 // If result is a promise, we should really chain it, but for now we just resolve with it.

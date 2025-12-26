@@ -59,12 +59,12 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_opendir`).
 - [x] **Task 96.7.2:** Implement `fs.Dir` and `fs.Dirent` classes.
     - **Plan:** Define classes in `Analyzer_StdLib_FS.cpp`. Implement methods in `src/runtime/src/node/fs.cpp` (wrapping `uv_dir_t`).
-- [ ] **Task 96.7.3:** Implement `fs.watch` and `fs.watchFile`.
+- [x] **Task 96.7.3:** Implement `fs.watch` and `fs.watchFile`.
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_event_t` and `uv_fs_poll_t`).
-- [ ] **Task 96.7.4:** Implement `fs.unwatchFile`.
+- [x] **Task 96.7.4:** Implement `fs.unwatchFile`.
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (stop poll handle).
 
-### Milestone 96.8: Advanced File Descriptors
+## Milestone 96.8: Advanced File Descriptors
 - [ ] **Task 96.8.1:** Implement `fs.fchmod`, `fs.fchown`, `fs.futimes` (and Sync variants).
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_fchmod`, `uv_fs_fchown`, `uv_fs_futime`).
 - [ ] **Task 96.8.2:** Implement `fs.fstat` and `fs.fstatSync`.
@@ -90,6 +90,8 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
 6.  **Member Call Boxing**: When calling methods on objects (like `entry.isFile()`), the compiler must ensure the receiver is boxed if it's an Object/Interface/Any type. Failure to do so results in raw pointers being passed to `ts_value_get_property`, which may fail to recognize the object's magic number if it's at an offset (e.g., due to a vtable).
 7.  **Robust Property Lookup**: `ts_value_get_property` should check for magic numbers at both offset 0 and offset 8 to handle both simple structs and vtable-prefixed objects (like `TsMap` or `TsBuffer`) when receiving raw pointers.
 8.  **Async Data Persistence**: When using `libuv` worker threads, data written to temporary stack variables (like `uv_dirent_t`) must be copied to heap-allocated structures (like `std::string`) to persist until the main thread resumes the async function.
+9.  **Template Literal Unboxing**: Template literals (`` `...${expr}...` ``) generate calls to `ts_string_concat`, which expects raw `TsString*` pointers. If the expression is a boxed `TsValue*` (e.g. from an `Any` type or a function argument), it must be explicitly unboxed using `ts_value_get_string` before concatenation.
+10. **Function Argument Boxing Metadata**: When the runtime calls a compiled function (like an event listener), it passes `TsValue*` arguments. The compiler must track these as `boxedValues` even if they are typed as `Any` or `String` in the signature, so that subsequent uses correctly trigger unboxing instead of treating the `TsValue*` as a raw pointer.
 
 ### Future Improvements
 1.  **Declarative Builtin Definitions**: Move towards a more declarative way of defining builtins that automatically generates both the compiler dispatch and the runtime registration, reducing the chance of signature mismatches.

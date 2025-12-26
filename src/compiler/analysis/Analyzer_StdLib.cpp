@@ -30,6 +30,14 @@ Analyzer::Analyzer() {
     
     symbols.define("JSON", jsonType);
 
+    // Register setTimeout/setInterval
+    auto setTimeoutType = std::make_shared<FunctionType>();
+    setTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    setTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setTimeoutType->returnType = std::make_shared<Type>(TypeKind::Int);
+    symbols.define("setTimeout", setTimeoutType);
+    symbols.define("setInterval", setTimeoutType);
+
     // Register require global
     auto requireType = std::make_shared<FunctionType>();
     requireType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));

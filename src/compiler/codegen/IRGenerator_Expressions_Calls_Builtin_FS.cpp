@@ -334,6 +334,75 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_opendirSync", ft);
         lastValue = createCall(ft, fn.getCallee(), { path, options });
         return true;
+    } else if (prop->name == "watch") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+        
+        llvm::Value* options = nullptr;
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            options = boxValue(lastValue, node->arguments[1]->inferredType);
+        } else {
+            options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::Value* listener = nullptr;
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            listener = boxValue(lastValue, node->arguments[2]->inferredType);
+        } else {
+            listener = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_watch", ft);
+        lastValue = createCall(ft, fn.getCallee(), { path, options, listener });
+        return true;
+    } else if (prop->name == "watchFile") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+        
+        llvm::Value* options = nullptr;
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            options = boxValue(lastValue, node->arguments[1]->inferredType);
+        } else {
+            options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::Value* listener = nullptr;
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            listener = boxValue(lastValue, node->arguments[2]->inferredType);
+        } else {
+            listener = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_watchFile", ft);
+        createCall(ft, fn.getCallee(), { path, options, listener });
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return true;
+    } else if (prop->name == "unwatchFile") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+        
+        llvm::Value* listener = nullptr;
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            listener = boxValue(lastValue, node->arguments[1]->inferredType);
+        } else {
+            listener = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_unwatchFile", ft);
+        createCall(ft, fn.getCallee(), { path, listener });
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return true;
     } else if (prop->name == "readdirSync") {
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());

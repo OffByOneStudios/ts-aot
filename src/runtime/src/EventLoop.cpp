@@ -20,9 +20,7 @@ static void on_timer_callback(uv_timer_t* handle) {
     TimerData* data = (TimerData*)handle->data;
     
     if (data->callback && data->callback->type == ValueType::OBJECT_PTR && data->callback->ptr_val) {
-        TsFunction* tsFunc = (TsFunction*)data->callback->ptr_val;
-        TsFunctionPtrNoArgs func = (TsFunctionPtrNoArgs)tsFunc->funcPtr;
-        func(tsFunc->context);
+        ts_call_0(data->callback);
     }
 
     if (!data->isInterval) {

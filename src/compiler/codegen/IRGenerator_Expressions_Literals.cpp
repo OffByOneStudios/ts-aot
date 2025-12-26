@@ -196,6 +196,9 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
             llvm::FunctionCallee fromDoubleFn = module->getOrInsertFunction("ts_string_from_double", fromDoubleFt);
             exprVal = createCall(fromDoubleFt, fromDoubleFn.getCallee(), { exprVal });
             nonNullValues.insert(exprVal);
+        } else {
+            // Handle boxed values or other types by unboxing to string
+            exprVal = unboxValue(exprVal, std::make_shared<Type>(TypeKind::String));
         }
         
         currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, exprVal });

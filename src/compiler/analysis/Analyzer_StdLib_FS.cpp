@@ -184,6 +184,42 @@ void Analyzer::registerFS() {
     unlinkSync->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["unlinkSync"] = unlinkSync;
 
+    // FSWatcher type
+    auto fsWatcherType = std::make_shared<ObjectType>();
+    
+    auto onFn = std::make_shared<FunctionType>();
+    onFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    onFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    onFn->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsWatcherType->fields["on"] = onFn;
+    
+    auto closeFn = std::make_shared<FunctionType>();
+    closeFn->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsWatcherType->fields["close"] = closeFn;
+
+    // fs.watch(filename: string, options?: any, listener?: (eventType: string, filename: string) => void): FSWatcher
+    auto watch = std::make_shared<FunctionType>();
+    watch->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    watch->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    watch->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    watch->returnType = fsWatcherType;
+    fsType->fields["watch"] = watch;
+
+    // fs.watchFile(filename: string, options?: any, listener: (curr: Stats, prev: Stats) => void): void
+    auto watchFile = std::make_shared<FunctionType>();
+    watchFile->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    watchFile->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    watchFile->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    watchFile->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["watchFile"] = watchFile;
+
+    // fs.unwatchFile(filename: string, listener?: any): void
+    auto unwatchFile = std::make_shared<FunctionType>();
+    unwatchFile->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    unwatchFile->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    unwatchFile->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["unwatchFile"] = unwatchFile;
+
     // fs.renameSync(oldPath: string, newPath: string): void
     auto renameSync = std::make_shared<FunctionType>();
     renameSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
