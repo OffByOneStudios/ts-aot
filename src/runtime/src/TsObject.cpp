@@ -21,6 +21,13 @@ TsValue* ts_value_make_undefined() {
     return v;
 }
 
+TsValue* ts_value_make_null() {
+    TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+    v->type = ValueType::UNDEFINED; // We don't have a NULL type yet, use UNDEFINED with nullptr
+    v->ptr_val = nullptr;
+    return v;
+}
+
 TsValue* ts_value_make_int(int64_t i) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::NUMBER_INT;
@@ -98,12 +105,9 @@ TsValue* ts_value_make_int(int64_t i) {
 
     void* ts_value_get_object(TsValue* v) {
         if (!v) {
-            printf("DEBUG: ts_value_get_object v is null\n");
             return nullptr;
         }
-        printf("DEBUG: ts_value_get_object v=%p type=%d\n", v, (int)v->type);
         if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) return v->ptr_val;
-        printf("DEBUG: ts_value_get_object returning null for type %d\n", (int)v->type);
         return nullptr;
     }
 
@@ -230,8 +234,12 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Fallback for raw pointers (though they should be boxed)
-        uint32_t magic = *(uint32_t*)val;
-        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053 || magic == 0x45564E54) {
+        uint32_t magic0 = *(uint32_t*)val;
+        uint32_t magic8 = *(uint32_t*)((char*)val + 8);
+        if (magic0 == 0x41525259 || magic8 == 0x41525259 || // TsArray
+            magic0 == 0x53545247 || magic8 == 0x53545247 || // TsString
+            magic0 == 0x4D415053 || magic8 == 0x4D415053 || // TsMap
+            magic0 == 0x45564E54 || magic8 == 0x45564E54) { // TsEventEmitter
             return ts_object_get_property(val, keyCStr);
         }
 
@@ -239,10 +247,18 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        if (!boxedFunc) {
+            return ts_value_make_undefined();
+        }
+        if (boxedFunc->type != ValueType::OBJECT_PTR) {
+            return ts_value_make_undefined();
+        }
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
-        TsFunctionPtrNoArgs fn = (TsFunctionPtrNoArgs)func->funcPtr;
-        return fn(func->context);
+        if (!func) {
+            return ts_value_make_undefined();
+        }
+        TsFunctionPtrNoArgs f = (TsFunctionPtrNoArgs)func->funcPtr;
+        return f(func->context);
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {

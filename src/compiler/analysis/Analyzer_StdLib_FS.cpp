@@ -25,6 +25,37 @@ void Analyzer::registerFS() {
     isSymbolicLink->returnType = std::make_shared<Type>(TypeKind::Boolean);
     statsType->fields["isSymbolicLink"] = isSymbolicLink;
 
+    // Define Dirent type
+    auto direntType = std::make_shared<ObjectType>();
+    direntType->fields["name"] = std::make_shared<Type>(TypeKind::String);
+    direntType->fields["isBlockDevice"] = isFile;
+    direntType->fields["isCharacterDevice"] = isFile;
+    direntType->fields["isDirectory"] = isDirectory;
+    direntType->fields["isFIFO"] = isFile;
+    direntType->fields["isFile"] = isFile;
+    direntType->fields["isSocket"] = isFile;
+    direntType->fields["isSymbolicLink"] = isSymbolicLink;
+
+    // Define Dir type
+    auto dirType = std::make_shared<ObjectType>();
+    dirType->fields["path"] = std::make_shared<Type>(TypeKind::String);
+    
+    auto dirReadSync = std::make_shared<FunctionType>();
+    dirReadSync->returnType = direntType;
+    dirType->fields["readSync"] = dirReadSync;
+
+    auto dirReadAsync = std::make_shared<FunctionType>();
+    dirReadAsync->returnType = std::make_shared<Type>(TypeKind::Any); // Promise<Dirent>
+    dirType->fields["read"] = dirReadAsync;
+
+    auto dirCloseSync = std::make_shared<FunctionType>();
+    dirCloseSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    dirType->fields["closeSync"] = dirCloseSync;
+
+    auto dirCloseAsync = std::make_shared<FunctionType>();
+    dirCloseAsync->returnType = std::make_shared<Type>(TypeKind::Any); // Promise<void>
+    dirType->fields["close"] = dirCloseAsync;
+
     // Define fs module
     auto fsType = std::make_shared<ObjectType>();
     
@@ -127,6 +158,19 @@ void Analyzer::registerFS() {
     statSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     statSync->returnType = statsType;
     fsType->fields["statSync"] = statSync;
+
+    // fs.readdirSync(path: string): string[]
+    auto readdirSync = std::make_shared<FunctionType>();
+    readdirSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readdirSync->returnType = std::make_shared<Type>(TypeKind::Any);
+    fsType->fields["readdirSync"] = readdirSync;
+
+    // fs.opendirSync(path: string, options?: any): Dir
+    auto opendirSync = std::make_shared<FunctionType>();
+    opendirSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    opendirSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    opendirSync->returnType = dirType;
+    fsType->fields["opendirSync"] = opendirSync;
 
     // fs.lstatSync(path: string): any
     auto lstatSync = std::make_shared<FunctionType>();
@@ -281,6 +325,17 @@ void Analyzer::registerFS() {
     statAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     statAsync->returnType = std::make_shared<Type>(TypeKind::Any);
     promises->fields["stat"] = statAsync;
+
+    auto readdirAsync = std::make_shared<FunctionType>();
+    readdirAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    readdirAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["readdir"] = readdirAsync;
+
+    auto opendirAsync = std::make_shared<FunctionType>();
+    opendirAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    opendirAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    opendirAsync->returnType = std::make_shared<Type>(TypeKind::Any); // Promise<Dir>
+    promises->fields["opendir"] = opendirAsync;
 
     auto renameAsync = std::make_shared<FunctionType>();
     renameAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));

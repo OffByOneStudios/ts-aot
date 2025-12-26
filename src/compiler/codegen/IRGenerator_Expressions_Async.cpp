@@ -67,7 +67,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
         createCall(setExcFt, setExcFn.getCallee(), { currentAsyncResumedValue });
         
         // Branch to catch
-        builder->CreateBr(catchStack.back());
+        builder->CreateBr(catchStack.back().catchBB);
     } else {
         // Reject promise and return
         llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 5);

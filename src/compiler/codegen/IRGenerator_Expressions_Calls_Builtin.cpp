@@ -389,15 +389,33 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 createCall(ft, fn.getCallee(), { path });
                 lastValue = nullptr;
                 return true;
-            } else if (prop->name == "statSync" || prop->name == "readdirSync") {
+            } else if (prop->name == "readdirSync") {
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* path = lastValue;
                 
-                std::string runtimeName = "ts_fs_" + prop->name;
+                llvm::Value* options = nullptr;
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    options = boxValue(lastValue, node->arguments[1]->inferredType);
+                } else {
+                    options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_readdirSync", ft);
+                
+                lastValue = unboxValue(createCall(ft, fn.getCallee(), { path, options }), node->inferredType);
+                return true;
+            } else if (prop->name == "statSync") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* path = lastValue;
+                
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
                         { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_statSync", ft);
                 
                 lastValue = unboxValue(createCall(ft, fn.getCallee(), { path }), node->inferredType);
                 return true;

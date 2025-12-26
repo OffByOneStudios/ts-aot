@@ -936,12 +936,6 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return val;
     }
 
-    if (type) {
-        SPDLOG_INFO("boxValue: type kind {} val->getValueID() {}", (int)type->kind, val->getValueID());
-    } else {
-        SPDLOG_INFO("boxValue: type is null val->getValueID() {}", val->getValueID());
-    }
-
     llvm::Type* valType = val->getType();
     std::string funcName;
 
@@ -956,7 +950,6 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return res;
     }
     else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val)) {
-        SPDLOG_INFO("boxValue: boxing function via ts_value_make_function");
         llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function", fnFt);
         
@@ -1039,8 +1032,14 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
 }
 
 llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> type) {
-    if (!type) return val;
+    if (!type || !val) return val;
     
+    // If it's not a pointer, it's already unboxed (primitive)
+    if (!val->getType()->isPointerTy()) return val;
+
+    // If it's a pointer but not in boxedValues, it's already unboxed (raw pointer)
+    if (!boxedValues.count(val)) return val;
+
     if (type->kind == TypeKind::Int) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
@@ -1137,7 +1136,8 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
-        } else if (!name.empty() && (name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
+        } else if (!name.empty() && (name.find("ts_value_get_") == 0 || 
+                                   name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
                                    name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
                                    name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for")) {
             // Raw pointers

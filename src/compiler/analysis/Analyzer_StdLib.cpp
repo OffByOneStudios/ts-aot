@@ -527,7 +527,8 @@ Analyzer::Analyzer() {
 
     auto readdirSyncType = std::make_shared<FunctionType>();
     readdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    readdirSyncType->returnType = stringArray;
+    readdirSyncType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    readdirSyncType->returnType = std::make_shared<Type>(TypeKind::Any);
     fsType->fields["readdirSync"] = readdirSyncType;
 
     auto openSyncType = std::make_shared<FunctionType>();
