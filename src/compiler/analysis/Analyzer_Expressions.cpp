@@ -127,39 +127,6 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                     lastType = std::make_shared<Type>(TypeKind::String);
                     return;
                 }
-            } else if (obj->name == "fs") {
-                if (prop->name == "readFileSync") {
-                    lastType = std::make_shared<Type>(TypeKind::String);
-                    return;
-                } else if (prop->name == "writeFileSync") {
-                    lastType = std::make_shared<Type>(TypeKind::Void);
-                    return;
-                } else if (prop->name == "promises") {
-                    // Return a special type for fs.promises
-                    lastType = std::make_shared<Type>(TypeKind::Any);
-                    return;
-                } else if (prop->name == "existsSync") {
-                    lastType = std::make_shared<Type>(TypeKind::Boolean);
-                    return;
-                } else if (prop->name == "mkdirSync" || prop->name == "rmdirSync" || prop->name == "unlinkSync") {
-                    lastType = std::make_shared<Type>(TypeKind::Void);
-                    return;
-                } else if (prop->name == "statSync") {
-                    auto statsType = std::make_shared<ObjectType>();
-                    statsType->fields["size"] = std::make_shared<Type>(TypeKind::Int);
-                    statsType->fields["mtimeMs"] = std::make_shared<Type>(TypeKind::Double);
-                    
-                    auto isFileType = std::make_shared<FunctionType>();
-                    isFileType->returnType = std::make_shared<Type>(TypeKind::Boolean);
-                    statsType->fields["isFile"] = isFileType;
-
-                    auto isDirectoryType = std::make_shared<FunctionType>();
-                    isDirectoryType->returnType = std::make_shared<Type>(TypeKind::Boolean);
-                    statsType->fields["isDirectory"] = isDirectoryType;
-                    
-                    lastType = statsType;
-                    return;
-                }
             } else if (obj->name == "process") {
                 if (prop->name == "cwd") {
                     lastType = std::make_shared<Type>(TypeKind::String);
@@ -180,34 +147,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         if (auto innerProp = dynamic_cast<PropertyAccessExpression*>(prop->expression.get())) {
             if (auto obj = dynamic_cast<Identifier*>(innerProp->expression.get())) {
                 if (obj->name == "fs" && innerProp->name == "promises") {
-                    if (prop->name == "readFile") {
-                        auto promiseType = std::make_shared<ClassType>("Promise");
-                        promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::String));
-                        lastType = promiseType;
-                        return;
-                    } else if (prop->name == "writeFile" || prop->name == "mkdir") {
-                        auto promiseType = std::make_shared<ClassType>("Promise");
-                        promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::Void));
-                        lastType = promiseType;
-                        return;
-                    } else if (prop->name == "stat") {
-                        auto statsType = std::make_shared<ObjectType>();
-                        statsType->fields["size"] = std::make_shared<Type>(TypeKind::Int);
-                        statsType->fields["mtimeMs"] = std::make_shared<Type>(TypeKind::Double);
-                        
-                        auto isFileType = std::make_shared<FunctionType>();
-                        isFileType->returnType = std::make_shared<Type>(TypeKind::Boolean);
-                        statsType->fields["isFile"] = isFileType;
-
-                        auto isDirectoryType = std::make_shared<FunctionType>();
-                        isDirectoryType->returnType = std::make_shared<Type>(TypeKind::Boolean);
-                        statsType->fields["isDirectory"] = isDirectoryType;
-
-                        auto promiseType = std::make_shared<ClassType>("Promise");
-                        promiseType->typeArguments.push_back(statsType);
-                        lastType = promiseType;
-                        return;
-                    }
+                    // Handled by stdlib registration
                 }
             }
         }

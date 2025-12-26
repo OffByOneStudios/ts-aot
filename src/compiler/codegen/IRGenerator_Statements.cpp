@@ -284,6 +284,129 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
 
 void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     emitLocation(node);
+    
+    if (currentIsAsync) {
+        llvm::Function* currentFn = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* tryBB = llvm::BasicBlock::Create(*context, "try", currentFn);
+        llvm::BasicBlock* catchBB = llvm::BasicBlock::Create(*context, "catch", currentFn);
+        llvm::BasicBlock* finallyBB = llvm::BasicBlock::Create(*context, "finally", currentFn);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "try_merge", currentFn);
+
+        auto oldReturnBB = currentReturnBB;
+        auto oldBreakBB = currentBreakBB;
+        auto oldContinueBB = currentContinueBB;
+
+        // Update targets to point to finally
+        currentReturnBB = finallyBB;
+        if (currentBreakBB) currentBreakBB = finallyBB;
+        if (currentContinueBB) currentContinueBB = finallyBB;
+
+        // Setup pending exception storage in the frame
+        std::string baseName = "try_" + std::to_string((uintptr_t)node);
+        llvm::Value* pendingExc = namedValues[baseName + "_pendingExc"];
+        builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
+        
+        catchStack.push_back({ catchBB ? catchBB : (finallyBB ? finallyBB : currentReturnBB), pendingExc });
+        finallyStack.push_back({ finallyBB, pendingExc, oldReturnBB, oldBreakBB, oldContinueBB, false, false });
+
+        builder->CreateBr(tryBB);
+
+        // --- Try Block ---
+        builder->SetInsertPoint(tryBB);
+        for (auto& stmt : node->tryBlock) {
+            visit(stmt.get());
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(finallyBB ? finallyBB : mergeBB);
+        }
+        catchStack.pop_back();
+
+        // --- Catch Block ---
+        if (catchBB) {
+            builder->SetInsertPoint(catchBB);
+            if (node->catchClause) {
+                llvm::Value* exc = builder->CreateLoad(builder->getPtrTy(), pendingExc);
+                // Clear both block-specific and top-level pendingExc
+                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
+                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), namedValues["pendingExc"]);
+                
+                if (node->catchClause->variable) {
+                    generateDestructuring(exc, std::make_shared<Type>(TypeKind::Any), node->catchClause->variable.get());
+                }
+
+                if (finallyBB) catchStack.push_back({ finallyBB, pendingExc });
+                for (auto& stmt : node->catchClause->block) {
+                    visit(stmt.get());
+                }
+                if (finallyBB) catchStack.pop_back();
+
+                if (!builder->GetInsertBlock()->getTerminator()) {
+                    builder->CreateBr(finallyBB ? finallyBB : mergeBB);
+                }
+            } else {
+                // Clear both block-specific and top-level pendingExc
+                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
+                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), namedValues["pendingExc"]);
+                builder->CreateBr(finallyBB ? finallyBB : mergeBB);
+            }
+        }
+
+        // --- Finally Block ---
+        builder->SetInsertPoint(finallyBB);
+        auto info = finallyStack.back();
+        finallyStack.pop_back();
+
+        for (auto& stmt : node->finallyBlock) {
+            visit(stmt.get());
+        }
+
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            // Check for rethrow
+            llvm::Value* toRethrow = builder->CreateLoad(builder->getPtrTy(), pendingExc);
+            llvm::Value* shouldRethrow = builder->CreateIsNotNull(toRethrow);
+            
+            llvm::BasicBlock* rethrowBB = llvm::BasicBlock::Create(*context, "rethrow", currentFn);
+            llvm::BasicBlock* checkReturnBB = llvm::BasicBlock::Create(*context, "check_return", currentFn);
+            builder->CreateCondBr(shouldRethrow, rethrowBB, checkReturnBB);
+            
+            builder->SetInsertPoint(rethrowBB);
+            // Store in global pendingExc and return
+            builder->CreateStore(toRethrow, namedValues["pendingExc"]);
+            builder->CreateBr(info.nextFinallyBB);
+
+            // Check for return
+            builder->SetInsertPoint(checkReturnBB);
+            llvm::Value* shouldReturn = builder->CreateLoad(builder->getInt1Ty(), currentShouldReturnAlloca);
+            llvm::BasicBlock* checkBreakBB = llvm::BasicBlock::Create(*context, "check_break", currentFn);
+            builder->CreateCondBr(shouldReturn, info.nextFinallyBB, checkBreakBB);
+
+            // Check for break
+            builder->SetInsertPoint(checkBreakBB);
+            llvm::Value* shouldBreak = builder->CreateLoad(builder->getInt1Ty(), currentShouldBreakAlloca);
+            llvm::BasicBlock* checkContinueBB = llvm::BasicBlock::Create(*context, "check_continue", currentFn);
+            if (info.nextBreakBB) {
+                builder->CreateCondBr(shouldBreak, info.nextBreakBB, checkContinueBB);
+            } else {
+                builder->CreateBr(checkContinueBB);
+            }
+
+            // Check for continue
+            builder->SetInsertPoint(checkContinueBB);
+            llvm::Value* shouldContinue = builder->CreateLoad(builder->getInt1Ty(), currentShouldContinueAlloca);
+            if (info.nextContinueBB) {
+                builder->CreateCondBr(shouldContinue, info.nextContinueBB, mergeBB);
+            } else {
+                builder->CreateBr(mergeBB);
+            }
+        }
+
+        builder->SetInsertPoint(mergeBB);
+        currentReturnBB = oldReturnBB;
+        currentBreakBB = oldBreakBB;
+        currentContinueBB = oldContinueBB;
+        return;
+    }
+
     llvm::Function* pushFn = getRuntimeFunction("ts_push_exception_handler");
     llvm::Function* popFn = getRuntimeFunction("ts_pop_exception_handler");
     llvm::Function* setjmpFn = getRuntimeFunction("_setjmp");
@@ -296,7 +419,7 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
     llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "try_merge", currentFn);
 
     // 0. Setup pending exception storage
-    llvm::AllocaInst* pendingExc = createEntryBlockAlloca(currentFn, "pendingExc", builder->getPtrTy());
+    llvm::Value* pendingExc = createEntryBlockAlloca(currentFn, "pendingExc", builder->getPtrTy());
     builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
 
     // Push to finally stack
@@ -339,7 +462,7 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
 
     // --- Try Block ---
     builder->SetInsertPoint(tryBB);
-    catchStack.push_back(catchBB);
+    catchStack.push_back({ catchBB, nullptr });
     for (auto& stmt : node->tryBlock) {
         visit(stmt.get());
     }
@@ -469,7 +592,6 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
 
 void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
     emitLocation(node);
-    llvm::Function* throwFn = getRuntimeFunction("ts_throw");
     visit(node->expression.get());
     llvm::Value* exc = lastValue;
     
@@ -478,6 +600,24 @@ void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
         exc = boxValue(exc, node->expression->inferredType);
     }
     
+    if (currentIsAsync) {
+        // Store in top-level pendingExc
+        llvm::Value* pendingExcAlloca = namedValues["pendingExc"];
+        builder->CreateStore(exc, pendingExcAlloca);
+        
+        if (!catchStack.empty()) {
+            // Store in the target's pendingExc
+            if (catchStack.back().pendingExc) {
+                builder->CreateStore(exc, catchStack.back().pendingExc);
+            }
+            builder->CreateBr(catchStack.back().catchBB);
+        } else {
+            builder->CreateBr(currentReturnBB);
+        }
+        return;
+    }
+
+    llvm::Function* throwFn = getRuntimeFunction("ts_throw");
     createCall(throwFn->getFunctionType(), throwFn, {exc});
     builder->CreateUnreachable(); // throw never returns
 }

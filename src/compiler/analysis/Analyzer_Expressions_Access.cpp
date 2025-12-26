@@ -491,6 +491,9 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
         if (objType->kind == TypeKind::Object) {
             auto obj = std::static_pointer_cast<ObjectType>(objType);
+            fmt::print("DEBUG: Accessing property {} on ObjectType. Available fields: ", node->name);
+            for (auto const& [name, type] : obj->fields) fmt::print("{} ", name);
+            fmt::print("\n");
             if (obj->fields.count(node->name)) {
                 lastType = obj->fields[node->name];
                 return;

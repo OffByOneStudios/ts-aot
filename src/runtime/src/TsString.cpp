@@ -34,6 +34,7 @@ TsString* TsString::Create(const char* utf8Str) {
 }
 
 TsString::TsString(const char* utf8Str, uint32_t len) {
+    magic = MAGIC;
     isSmall = true;
     length = len;
     std::memcpy(data.inlineBuffer, utf8Str, len);
@@ -41,6 +42,7 @@ TsString::TsString(const char* utf8Str, uint32_t len) {
 }
 
 TsString::TsString(const char* utf8Str) {
+    magic = MAGIC;
     isSmall = false;
     // Allocate the ICU string on the GC heap as well
     void* mem = ts_alloc(sizeof(icu::UnicodeString));
