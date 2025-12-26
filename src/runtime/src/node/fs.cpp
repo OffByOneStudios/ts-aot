@@ -1,4 +1,5 @@
 #include "IO.h"
+#include "TsEventEmitter.h"
 #include "TsRuntime.h"
 #include "TsString.h"
 #include "TsPromise.h"
@@ -19,6 +20,7 @@
 
 extern void* TsMap_VTable[2];
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
+extern "C" void ts_event_emitter_on(void* emitter, void* event, void* callback);
 
 #ifndef S_ISDIR
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
@@ -41,14 +43,12 @@ namespace fs = std::filesystem;
 
 static TsValue* bool_return_helper(void* context) {
     bool val = (bool)(uintptr_t)context;
-    printf("DEBUG: bool_return_helper val=%d\n", val);
     return ts_value_make_bool(val);
 }
 
 class TsDirent : public TsMap {
 public:
     static TsDirent* Create(const char* name, int type) {
-        printf("DEBUG: TsDirent::Create name='%s' type=%d\n", name, type);
         TsDirent* d = (TsDirent*)GC_malloc(sizeof(TsDirent));
         new (d) TsDirent();
 
@@ -99,6 +99,161 @@ public:
         return d;
     }
 };
+
+extern "C" {
+    TsValue* ts_fs_watcher_on(void* context, int argc, TsValue** argv);
+    TsValue* ts_fs_watcher_close(void* context, int argc, TsValue** argv);
+}
+
+static TsValue* ts_fs_watcher_get_property(void* obj, void* propName);
+static void* TsFSWatcher_VTable[2] = { nullptr, (void*)ts_fs_watcher_get_property };
+
+class TsFSWatcher : public TsEventEmitter {
+public:
+    uv_fs_event_t* event_handle;
+    uv_fs_poll_t* poll_handle;
+    bool closed = false;
+    bool is_poll = false;
+
+    static TsFSWatcher* Create() {
+        TsFSWatcher* w = (TsFSWatcher*)GC_malloc(sizeof(TsFSWatcher));
+        new (w) TsFSWatcher();
+        w->vtable = TsFSWatcher_VTable;
+        w->event_handle = nullptr;
+        w->poll_handle = nullptr;
+        
+        return w;
+    }
+};
+
+static TsValue* ts_fs_watcher_get_property(void* obj, void* propName) {
+    TsString* s = (TsString*)propName;
+    const char* key = s->ToUtf8();
+    if (strcmp(key, "close") == 0) {
+        return ts_value_make_native_function((void*)ts_fs_watcher_close, obj);
+    }
+    if (strcmp(key, "on") == 0) {
+        return ts_value_make_native_function((void*)ts_fs_watcher_on, obj);
+    }
+    return ts_value_make_undefined();
+}
+
+extern "C" {
+    TsValue* ts_fs_watcher_on(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return ts_value_make_undefined();
+        TsFSWatcher* w = (TsFSWatcher*)context;
+        TsString* event = (TsString*)ts_value_get_string(argv[0]);
+        if (event) {
+            w->On(event->ToUtf8(), argv[1]);
+        }
+        return ts_value_make_object(w);
+    }
+
+    TsValue* ts_fs_watcher_close(void* context, int argc, TsValue** argv) {
+        TsFSWatcher* w = (TsFSWatcher*)context;
+        if (w->closed) return ts_value_make_undefined();
+        w->closed = true;
+        
+        if (w->event_handle) {
+            uv_fs_event_stop(w->event_handle);
+            uv_close((uv_handle_t*)w->event_handle, [](uv_handle_t* h) { });
+        }
+        if (w->poll_handle) {
+            uv_fs_poll_stop(w->poll_handle);
+            uv_close((uv_handle_t*)w->poll_handle, [](uv_handle_t* h) { });
+        }
+        return ts_value_make_undefined();
+    }
+
+    void* ts_fs_watch(void* path_val, void* options_val, void* listener_val) {
+        TsString* path = (TsString*)ts_value_get_string((TsValue*)path_val);
+        if (!path) return ts_value_make_undefined();
+        
+        TsFSWatcher* watcher = TsFSWatcher::Create();
+        
+        TsValue* actual_listener = (TsValue*)listener_val;
+        if (ts_value_is_nullish(actual_listener) && !ts_value_is_nullish((TsValue*)options_val)) {
+            if (ts_function_get_ptr((TsValue*)options_val)) {
+                actual_listener = (TsValue*)options_val;
+            }
+        }
+
+        if (actual_listener && !ts_value_is_nullish(actual_listener)) {
+            watcher->On("change", actual_listener);
+        }
+
+        watcher->event_handle = (uv_fs_event_t*)GC_malloc(sizeof(uv_fs_event_t));
+        uv_fs_event_init(uv_default_loop(), watcher->event_handle);
+        watcher->event_handle->data = watcher;
+
+        int flags = 0;
+        
+        uv_fs_event_start(watcher->event_handle, [](uv_fs_event_t* handle, const char* filename, int events, int status) {
+            TsFSWatcher* w = (TsFSWatcher*)handle->data;
+            if (w->closed) return;
+
+            const char* eventType = (events & UV_RENAME) ? "rename" : "change";
+            
+            TsValue* args[2];
+            args[0] = ts_value_make_string(TsString::Create(eventType));
+            args[1] = ts_value_make_string(TsString::Create(filename ? filename : ""));
+            
+            w->Emit("change", 2, (void**)args);
+            if (events & UV_RENAME) {
+                w->Emit("rename", 2, (void**)args);
+            }
+        }, path->ToUtf8(), flags);
+
+        return watcher;
+    }
+
+    void ts_fs_watchFile(void* path_val, void* options_val, void* listener_val) {
+        TsString* path = (TsString*)ts_value_get_string((TsValue*)path_val);
+        if (!path) return;
+        TsFSWatcher* watcher = TsFSWatcher::Create();
+        watcher->is_poll = true;
+
+        TsValue* actual_listener = (TsValue*)listener_val;
+        if (ts_value_is_nullish(actual_listener) && !ts_value_is_nullish((TsValue*)options_val)) {
+            if (ts_function_get_ptr((TsValue*)options_val)) {
+                actual_listener = (TsValue*)options_val;
+            }
+        }
+
+        if (actual_listener && !ts_value_is_nullish(actual_listener)) {
+            watcher->On("change", actual_listener);
+        }
+
+        watcher->poll_handle = (uv_fs_poll_t*)GC_malloc(sizeof(uv_fs_poll_t));
+        uv_fs_poll_init(uv_default_loop(), watcher->poll_handle);
+        watcher->poll_handle->data = watcher;
+
+        int interval = 5007; // Default node interval
+        // TODO: parse options for interval
+
+        uv_fs_poll_start(watcher->poll_handle, [](uv_fs_poll_t* handle, int status, const uv_stat_t* prev, const uv_stat_t* curr) {
+            TsFSWatcher* w = (TsFSWatcher*)handle->data;
+            if (w->closed) return;
+
+            // In Node, watchFile listener gets (curr, prev)
+            // We need to wrap uv_stat_t into Stats objects
+            // For now, let's just emit 'change' with nulls or simple objects
+            
+            TsValue* args[2];
+            args[0] = ts_value_make_null(); // TODO: Stats
+            args[1] = ts_value_make_null(); // TODO: Stats
+            
+            w->Emit("change", 2, (void**)args);
+        }, path->ToUtf8(), interval);
+        
+        // Node's watchFile doesn't return the watcher, but we might want to store it somewhere to unwatch
+        // Actually, Node stores it in a global map.
+    }
+
+    void ts_fs_unwatchFile(void* path_val, void* listener_val) {
+        // TODO: implement unwatchFile by keeping a map of path -> watchers
+    }
+}
 
 static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     bool isFile = (st->st_mode & S_IFMT) == S_IFREG;

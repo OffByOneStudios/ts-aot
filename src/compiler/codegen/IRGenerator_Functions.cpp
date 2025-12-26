@@ -438,7 +438,8 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         }
         std::shared_ptr<Type> paramType = (funcType && idx < funcType->paramTypes.size()) ? funcType->paramTypes[idx] : std::make_shared<Type>(TypeKind::Any);
         
-        // Unbox the argument
+        // Mark as boxed and unbox the argument
+        boxedValues.insert(&arg);
         llvm::Value* unboxedArg = unboxValue(&arg, paramType);
         generateDestructuring(unboxedArg, paramType, param->name.get());
         
@@ -536,6 +537,7 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
+            boxedValues.insert(&arg);
             generateDestructuring(&arg, std::make_shared<Type>(TypeKind::Any), param->name.get());
         }
         ++argIt;
@@ -624,6 +626,7 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
         auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
+            boxedValues.insert(&arg);
             generateDestructuring(&arg, std::make_shared<Type>(TypeKind::Any), param->name.get());
         }
         ++argIt;

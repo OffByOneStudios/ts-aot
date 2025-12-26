@@ -44,14 +44,21 @@ public:
     void* vtable;
 };
 
+enum class FunctionType {
+    COMPILED,
+    NATIVE
+};
+
 class TsFunction : public TsObject {
 public:
     void* funcPtr;
     void* context;
-    TsFunction(void* fp, void* ctx = nullptr) : funcPtr(fp), context(ctx) {}
+    FunctionType type;
+    TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED) 
+        : funcPtr(fp), context(ctx), type(t) {}
 };
 
-typedef TaggedValue* (*TsFunctionPtr)(void* context, TaggedValue* arg);
+typedef TaggedValue* (*TsFunctionPtr)(void* context, int argc, TaggedValue** argv);
 typedef TaggedValue* (*TsFunctionPtrNoArgs)(void* context);
 
 extern "C" {
@@ -63,6 +70,7 @@ extern "C" {
     TsValue* ts_value_make_promise(void* promise);
     TsValue* ts_value_make_array(void* arr);
     TsValue* ts_value_make_function(void* funcPtr, void* context);
+    TsValue* ts_value_make_native_function(void* funcPtr, void* context);
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);

@@ -1136,10 +1136,11 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
-        } else if (!name.empty() && (name.find("ts_value_get_") == 0 || 
+        } else if (!name.empty() && (name == "ts_value_get_int" || name == "ts_value_get_double" || name == "ts_value_get_bool" || name == "ts_value_get_string" ||
                                    name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
                                    name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
-                                   name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for")) {
+                                   name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for" ||
+                                   (name.find("ts_fs_") == 0 && name != "ts_fs_watch"))) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {
             // Most other runtime functions return TsValue*

@@ -7,9 +7,14 @@ namespace ts {
 using namespace ast;
 
 bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
-    SPDLOG_DEBUG("tryGenerateMemberCall");
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
+    printf("DEBUG: tryGenerateMemberCall %s\n", prop->name.c_str());
+    if (prop->expression->inferredType) {
+        printf("DEBUG: tryGenerateMemberCall expr type kind: %d\n", (int)prop->expression->inferredType->kind);
+    } else {
+        printf("DEBUG: tryGenerateMemberCall expr type is NULL\n");
+    }
 
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
@@ -91,6 +96,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                      }
                 }
                 llvm::Value* val = boxValue(lastValue, argType);
+                fprintf(stderr, "DEBUG: MemberCall arg boxed\n");
                 args.push_back(val);
                 paramTypes.push_back(builder->getPtrTy());
             }
