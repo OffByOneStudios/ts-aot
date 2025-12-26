@@ -25,6 +25,8 @@ void ts_console_log_double(double val);
 void ts_console_log_bool(bool val);
 void ts_console_log_value(TsValue* val);
 bool ts_value_is_nullish(TsValue* v);
+TsValue* ts_value_make_undefined();
+TsValue* ts_value_make_null();
 
 // --- Conversions ---
 int32_t ts_double_to_int32(double d);
@@ -116,7 +118,8 @@ void* ts_fs_statSync(void* path);
 void* ts_fs_lstatSync(void* path);
 void* ts_fs_readlinkSync(void* path);
 void* ts_fs_realpathSync(void* path);
-void* ts_fs_readdirSync(void* path);
+void* ts_fs_readdirSync(void* path, void* options);
+void* ts_fs_opendirSync(void* path, void* options);
 void ts_fs_accessSync(void* path, int32_t mode);
 void ts_fs_chmodSync(void* path, int32_t mode);
 void ts_fs_chownSync(void* path, int32_t uid, int32_t gid);
@@ -128,7 +131,8 @@ void* ts_fs_get_constants();
 void* ts_fs_get_promises();
 int64_t ts_fs_openSync(void* path, void* flags);
 void ts_fs_closeSync(int64_t fd);
-void* ts_fs_readdir_async(void* path);
+void* ts_fs_readdir_async(void* path, void* options);
+void* ts_fs_opendir_async(void* path, void* options);
 void* ts_fs_readFile_async(void* path);
 void* ts_fs_writeFile_async(void* path, void* content);
 void* ts_fs_mkdir_async(void* path, void* options);

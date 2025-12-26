@@ -221,6 +221,29 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_mkdtemp_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { prefix });
             return true;
+        } else if (prop->name == "opendir") {
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::Value* options = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                options = boxValue(lastValue, node->arguments[1]->inferredType);
+            } else {
+                options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_opendir_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, options });
+            return true;
+        } else if (prop->name == "readdir") {
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_readdir_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path });
+            return true;
         }
         return false;
     }
@@ -295,6 +318,29 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         
         createCall(ft, fn.getCallee(), { path, options });
         lastValue = nullptr;
+        return true;
+    } else if (prop->name == "opendirSync") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        llvm::Value* options = nullptr;
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            options = boxValue(lastValue, node->arguments[1]->inferredType);
+        } else {
+            options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_opendirSync", ft);
+        lastValue = createCall(ft, fn.getCallee(), { path, options });
+        return true;
+    } else if (prop->name == "readdirSync") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_readdirSync", ft);
+        lastValue = createCall(ft, fn.getCallee(), { path });
         return true;
     } else if (prop->name == "renameSync") {
         if (node->arguments.size() < 2) return true;

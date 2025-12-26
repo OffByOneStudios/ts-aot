@@ -24,8 +24,10 @@ extern "C" {
     void* ts_fs_close_async(int64_t fd);
     void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
     void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
-    void* ts_fs_readdirSync(void* path);
-    void* ts_fs_readdir_async(void* path);
+    void* ts_fs_readdirSync(void* path, void* options);
+    void* ts_fs_readdir_async(void* path, void* options);
+    void* ts_fs_opendirSync(void* path, void* options);
+    void* ts_fs_opendir_async(void* path, void* options);
     void* ts_path_join(void* path1, void* path2);
     void* ts_fs_createReadStream(void* path);
     void ts_event_emitter_on(void* emitter, void* event, void* callback);

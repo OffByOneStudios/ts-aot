@@ -11,14 +11,6 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
 
-    printf("DEBUG: tryGenerateMemberCall %s type=%d\n", prop->name.c_str(), prop->expression->inferredType ? (int)prop->expression->inferredType->kind : -1);
-
-    if (prop->expression->inferredType) {
-        SPDLOG_INFO("tryGenerateMemberCall: prop->name={} type kind={}", prop->name, (int)prop->expression->inferredType->kind);
-    } else {
-        SPDLOG_INFO("tryGenerateMemberCall: prop->name={} type is null", prop->name);
-    }
-
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
     }
@@ -59,10 +51,12 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     }
 
     if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection || prop->expression->inferredType->kind == TypeKind::Any || prop->expression->inferredType->kind == TypeKind::Interface)) {
-        SPDLOG_INFO("tryGenerateMemberCall: Object/Intersection/Any/Interface for {}", prop->name);
         visit(prop->expression.get());
         llvm::Value* objPtr = lastValue;
         emitNullCheckForExpression(prop->expression.get(), objPtr);
+        
+        // Ensure the object is boxed before calling ts_value_get_property
+        llvm::Value* boxedObj = boxValue(objPtr, prop->expression->inferredType);
         
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
@@ -73,7 +67,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
         
-        llvm::Value* boxedFunc = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
+        llvm::Value* boxedFunc = createCall(getPropFt, getPropFn.getCallee(), { boxedObj, propName });
         
         if (node->arguments.empty()) {
             llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);

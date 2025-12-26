@@ -17,6 +17,9 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+extern void* TsMap_VTable[2];
+extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
+
 #ifndef S_ISDIR
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
 #endif
@@ -38,8 +41,64 @@ namespace fs = std::filesystem;
 
 static TsValue* bool_return_helper(void* context) {
     bool val = (bool)(uintptr_t)context;
+    printf("DEBUG: bool_return_helper val=%d\n", val);
     return ts_value_make_bool(val);
 }
+
+class TsDirent : public TsMap {
+public:
+    static TsDirent* Create(const char* name, int type) {
+        printf("DEBUG: TsDirent::Create name='%s' type=%d\n", name, type);
+        TsDirent* d = (TsDirent*)GC_malloc(sizeof(TsDirent));
+        new (d) TsDirent();
+
+        if (!TsMap_VTable[1]) {
+            TsMap_VTable[1] = (void*)ts_map_get_property;
+        }
+        d->vtable = TsMap_VTable;
+
+        d->Set(TsString::Create("name"), *ts_value_make_string(TsString::Create(name)));
+        
+        bool isFile = (type == UV_DIRENT_FILE);
+        bool isDirectory = (type == UV_DIRENT_DIR);
+        bool isSymbolicLink = (type == UV_DIRENT_LINK);
+        bool isBlockDevice = (type == UV_DIRENT_BLOCK);
+        bool isCharacterDevice = (type == UV_DIRENT_CHAR);
+        bool isFIFO = (type == UV_DIRENT_FIFO);
+        bool isSocket = (type == UV_DIRENT_SOCKET);
+
+        d->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFile));
+        d->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isDirectory));
+        d->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSymbolicLink));
+        d->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isBlockDevice));
+        d->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isCharacterDevice));
+        d->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFIFO));
+        d->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSocket));
+
+        return d;
+    }
+};
+
+class TsDir : public TsMap {
+public:
+    uv_dir_t* dir;
+    std::string path;
+
+    static TsDir* Create(uv_dir_t* dir, const char* path) {
+        TsDir* d = (TsDir*)GC_malloc(sizeof(TsDir));
+        new (d) TsDir();
+        d->dir = dir;
+        d->path = path;
+        
+        if (!TsMap_VTable[1]) {
+            TsMap_VTable[1] = (void*)ts_map_get_property;
+        }
+        d->vtable = TsMap_VTable;
+
+        d->Set(TsString::Create("path"), *ts_value_make_string(TsString::Create(path)));
+        return d;
+    }
+};
 
 static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     bool isFile = (st->st_mode & S_IFMT) == S_IFREG;
@@ -353,20 +412,99 @@ void* ts_fs_realpathSync(void* path) {
     return res;
 }
 
-void* ts_fs_readdirSync(void* path) {
+void* ts_fs_readdirSync(void* path, void* options) {
     TsString* pathStr = unboxString(path);
-    if (!pathStr) return ts_value_make_object(TsArray::Create());
+    if (!pathStr) return ts_value_make_array(TsArray::Create());
     const char* pathCStr = pathStr->ToUtf8();
     
+    bool withFileTypes = false;
+    if (options) {
+        TsValue* optVal = (TsValue*)options;
+        if (optVal->type == ValueType::OBJECT_PTR) {
+            TsMap* optMap = (TsMap*)optVal->ptr_val;
+            TsValue wft = optMap->Get(TsString::Create("withFileTypes"));
+            if (wft.type == ValueType::BOOLEAN) {
+                withFileTypes = wft.b_val;
+            }
+        }
+    }
+
     TsArray* result = TsArray::Create();
     try {
         for (const auto& entry : fs::directory_iterator(pathCStr)) {
-            result->Push((int64_t)ts_value_make_string(TsString::Create(entry.path().filename().string().c_str())));
+            std::string name = entry.path().filename().string();
+            if (withFileTypes) {
+                uv_dirent_type_t type = UV_DIRENT_UNKNOWN;
+                if (entry.is_regular_file()) type = UV_DIRENT_FILE;
+                else if (entry.is_directory()) type = UV_DIRENT_DIR;
+                else if (entry.is_symlink()) type = UV_DIRENT_LINK;
+                else if (entry.is_block_file()) type = UV_DIRENT_BLOCK;
+                else if (entry.is_character_file()) type = UV_DIRENT_CHAR;
+                else if (entry.is_fifo()) type = UV_DIRENT_FIFO;
+                else if (entry.is_socket()) type = UV_DIRENT_SOCKET;
+                
+                result->Push((int64_t)ts_value_make_object(TsDirent::Create(name.c_str(), type)));
+            } else {
+                result->Push((int64_t)ts_value_make_string(TsString::Create(name.c_str())));
+            }
         }
-    } catch (...) {
-        // Return empty array or undefined? Node returns error.
+    } catch (...) {}
+    return ts_value_make_array(result);
+}
+
+static TsValue* dir_read_sync_wrapper(void* context);
+static TsValue* dir_close_sync_wrapper(void* context);
+static TsValue* dir_read_async_wrapper(void* context);
+static TsValue* dir_close_async_wrapper(void* context);
+
+static TsValue* dir_read_sync_wrapper(void* context) {
+    TsDir* dir = (TsDir*)context;
+    if (!dir || !dir->dir) return ts_value_make_null();
+    
+    uv_fs_t req;
+    uv_dirent_t ent;
+    dir->dir->dirents = &ent;
+    dir->dir->nentries = 1;
+    int r = uv_fs_readdir(NULL, &req, dir->dir, NULL);
+    if (r <= 0) {
+        uv_fs_req_cleanup(&req);
+        return ts_value_make_null();
     }
-    return ts_value_make_object(result);
+    TsDirent* res = TsDirent::Create(ent.name, ent.type);
+    uv_fs_req_cleanup(&req);
+    return ts_value_make_object(res);
+}
+
+static TsValue* dir_close_sync_wrapper(void* context) {
+    TsDir* dir = (TsDir*)context;
+    if (!dir || !dir->dir) return ts_value_make_undefined();
+    uv_fs_t req;
+    uv_fs_closedir(NULL, &req, dir->dir, NULL);
+    uv_fs_req_cleanup(&req);
+    return ts_value_make_undefined();
+}
+
+void* ts_fs_opendirSync(void* path, void* options) {
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) return ts_value_make_undefined();
+    const char* pathCStr = pathStr->ToUtf8();
+    
+    uv_fs_t req;
+    int r = uv_fs_opendir(NULL, &req, pathCStr, NULL);
+    if (r < 0) {
+        uv_fs_req_cleanup(&req);
+        return ts_value_make_undefined();
+    }
+    
+    uv_dir_t* dir = (uv_dir_t*)req.ptr;
+    TsDir* res = TsDir::Create(dir, pathCStr);
+    res->Set(TsString::Create("readSync"), *ts_value_make_function((void*)dir_read_sync_wrapper, res));
+    res->Set(TsString::Create("closeSync"), *ts_value_make_function((void*)dir_close_sync_wrapper, res));
+    res->Set(TsString::Create("read"), *ts_value_make_function((void*)dir_read_async_wrapper, res));
+    res->Set(TsString::Create("close"), *ts_value_make_function((void*)dir_close_async_wrapper, res));
+    
+    uv_fs_req_cleanup(&req);
+    return ts_value_make_object(res);
 }
 
 void ts_fs_accessSync(void* path, int32_t mode) {
@@ -406,7 +544,8 @@ void ts_fs_utimesSync(void* path, double atime, double mtime) {
 }
 
 void* ts_fs_statfsSync(void* path) {
-    TsString* pathStr = (TsString*)path;
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) return ts_value_make_undefined();
     const char* pathCStr = pathStr->ToUtf8();
     uv_fs_t req;
     int r = uv_fs_statfs(NULL, &req, pathCStr, NULL);
@@ -461,18 +600,28 @@ struct FSAsyncWork {
     int64_t len;
     int result;
     bool success;
+    bool withFileTypes = false;
     enum Type { 
         ACCESS, CHMOD, CHOWN, UTIMES, STATFS, LINK, SYMLINK, READLINK, REALPATH, STAT, LSTAT,
-        RENAME, COPYFILE, TRUNCATE, MKDIR, RMDIR, RM, MKDTEMP, APPEND_FILE
+        RENAME, COPYFILE, TRUNCATE, MKDIR, RMDIR, RM, MKDTEMP, APPEND_FILE,
+        OPENDIR, DIR_READ, DIR_CLOSE, READDIR
     } type;
     uv_statfs_t statfs_res;
     uv_stat_t stat_res;
     std::string string_res;
+    uv_dir_t* dir_ptr;
+    uv_dirent_t dirent_res;
+    struct DirentRes {
+        std::string name;
+        uv_dirent_type_t type;
+    };
+    DirentRes dirent_read_res;
+    std::vector<std::string> readdir_res;
+    std::vector<DirentRes> readdir_dirent_res;
 };
 
 static void fs_async_worker(uv_work_t* req) {
     FSAsyncWork* work = (FSAsyncWork*)req->data;
-    fprintf(stderr, "DEBUG: worker type=%d path='%s' path2='%s'\n", work->type, work->path.c_str(), work->path2.c_str());
     uv_fs_t fs_req;
     memset(&fs_req, 0, sizeof(fs_req));
     int r = 0;
@@ -577,10 +726,94 @@ static void fs_async_worker(uv_work_t* req) {
             uv_fs_req_cleanup(&open_req);
             break;
         }
+        case FSAsyncWork::OPENDIR:
+            r = uv_fs_opendir(NULL, &fs_req, work->path.c_str(), NULL);
+            if (r >= 0) work->dir_ptr = (uv_dir_t*)fs_req.ptr;
+            break;
+        case FSAsyncWork::DIR_READ: {
+            uv_dirent_t ent;
+            work->dir_ptr->dirents = &ent;
+            work->dir_ptr->nentries = 1;
+            r = uv_fs_readdir(NULL, &fs_req, work->dir_ptr, NULL);
+            if (r > 0) {
+                work->dirent_read_res.name = ent.name;
+                work->dirent_read_res.type = ent.type;
+            }
+            break;
+        }
+        case FSAsyncWork::DIR_CLOSE:
+            r = uv_fs_closedir(NULL, &fs_req, work->dir_ptr, NULL);
+            break;
+        case FSAsyncWork::READDIR: {
+            if (work->withFileTypes) {
+                uv_fs_t opendir_req;
+                r = uv_fs_opendir(NULL, &opendir_req, work->path.c_str(), NULL);
+                if (r >= 0) {
+                    uv_dir_t* dir = (uv_dir_t*)opendir_req.ptr;
+                    uv_dirent_t ents[32];
+                    dir->dirents = ents;
+                    dir->nentries = 32;
+                    int n;
+                    while ((n = uv_fs_readdir(NULL, &opendir_req, dir, NULL)) > 0) {
+                        for (int i = 0; i < n; i++) {
+                            work->readdir_dirent_res.push_back({ents[i].name, ents[i].type});
+                        }
+                    }
+                    uv_fs_t closedir_req;
+                    uv_fs_closedir(NULL, &closedir_req, dir, NULL);
+                    uv_fs_req_cleanup(&opendir_req);
+                    uv_fs_req_cleanup(&closedir_req);
+                    r = 0;
+                }
+            } else {
+                uv_fs_t scandir_req;
+                r = uv_fs_scandir(NULL, &scandir_req, work->path.c_str(), 0, NULL);
+                if (r >= 0) {
+                    uv_dirent_t ent;
+                    while (uv_fs_scandir_next(&scandir_req, &ent) != UV_EOF) {
+                        work->readdir_res.push_back(ent.name);
+                    }
+                }
+                uv_fs_req_cleanup(&scandir_req);
+            }
+            break;
+        }
     }
     work->result = r;
     work->success = (r >= 0);
     uv_fs_req_cleanup(&fs_req);
+}
+
+static void fs_async_after_worker(uv_work_t* req, int status);
+
+static TsValue* dir_read_async_wrapper(void* context) {
+    TsDir* dir = (TsDir*)context;
+    if (!dir || !dir->dir) return ts_value_make_promise(ts::ts_promise_create());
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->dir_ptr = dir->dir;
+    work->type = FSAsyncWork::DIR_READ;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+static TsValue* dir_close_async_wrapper(void* context) {
+    TsDir* dir = (TsDir*)context;
+    if (!dir || !dir->dir) return ts_value_make_promise(ts::ts_promise_create());
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    work->dir_ptr = dir->dir;
+    work->type = FSAsyncWork::DIR_CLOSE;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
 }
 
 static void fs_async_after_worker(uv_work_t* req, int status) {
@@ -602,6 +835,32 @@ static void fs_async_after_worker(uv_work_t* req, int status) {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
         } else if (work->type == FSAsyncWork::READLINK || work->type == FSAsyncWork::REALPATH || work->type == FSAsyncWork::MKDTEMP) {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_string(TsString::Create(work->string_res.c_str())));
+        } else if (work->type == FSAsyncWork::OPENDIR) {
+            TsDir* res = TsDir::Create(work->dir_ptr, work->path.c_str());
+            res->Set(TsString::Create("readSync"), *ts_value_make_function((void*)dir_read_sync_wrapper, res));
+            res->Set(TsString::Create("closeSync"), *ts_value_make_function((void*)dir_close_sync_wrapper, res));
+            res->Set(TsString::Create("read"), *ts_value_make_function((void*)dir_read_async_wrapper, res));
+            res->Set(TsString::Create("close"), *ts_value_make_function((void*)dir_close_async_wrapper, res));
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
+        } else if (work->type == FSAsyncWork::DIR_READ) {
+            if (work->result > 0) {
+                TsDirent* res = TsDirent::Create(work->dirent_read_res.name.c_str(), work->dirent_read_res.type);
+                ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
+            } else {
+                ts::ts_promise_resolve_internal(work->promise, ts_value_make_null());
+            }
+        } else if (work->type == FSAsyncWork::READDIR) {
+            TsArray* res = TsArray::Create();
+            if (work->withFileTypes) {
+                for (const auto& entry : work->readdir_dirent_res) {
+                    res->Push((int64_t)ts_value_make_object(TsDirent::Create(entry.name.c_str(), entry.type)));
+                }
+            } else {
+                for (const auto& name : work->readdir_res) {
+                    res->Push((int64_t)ts_value_make_string(TsString::Create(name.c_str())));
+                }
+            }
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_array(res));
         } else {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
         }
@@ -901,6 +1160,20 @@ void* ts_fs_mkdtemp_async(void* prefix) {
     return ts_value_make_promise(promise);
 }
 
+void* ts_fs_opendir_async(void* path, void* options) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+    TsString* pathStr = unboxString(path);
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->type = FSAsyncWork::OPENDIR;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
 void* ts_fs_appendFile_async(void* path, void* content) {
     TsString* pathStr = unboxString(path);
     TsString* contentStr = unboxString(content);
@@ -1040,6 +1313,15 @@ static TsValue* mkdtemp_promise_wrapper(void* context, TsValue* prefix) {
     return (TsValue*)ts_fs_mkdtemp_async(prefix->ptr_val);
 }
 
+static TsValue* opendir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_opendir_async(path->ptr_val, options);
+}
+
+static TsValue* readdir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
+    return (TsValue*)ts_fs_readdir_async(path, options);
+}
+
 void* ts_fs_get_promises() {
     TsMap* promises = TsMap::Create();
     promises->Set(TsString::Create("readFile"), *ts_value_make_function((void*)readFile_promise_wrapper, nullptr));
@@ -1063,14 +1345,16 @@ void* ts_fs_get_promises() {
     promises->Set(TsString::Create("rmdir"), *ts_value_make_function((void*)rmdir_promise_wrapper, nullptr));
     promises->Set(TsString::Create("rm"), *ts_value_make_function((void*)rm_promise_wrapper, nullptr));
     promises->Set(TsString::Create("mkdtemp"), *ts_value_make_function((void*)mkdtemp_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("opendir"), *ts_value_make_function((void*)opendir_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("readdir"), *ts_value_make_function((void*)readdir_promise_wrapper, nullptr));
     return ts_value_make_object(promises);
 }
 
 int64_t ts_fs_openSync(void* path, void* flags) {
-    TsString* pathStr = (TsString*)path;
-    TsString* flagsStr = (TsString*)flags;
-    const char* pathCStr = pathStr->ToUtf8();
-    const char* flagsCStr = flagsStr->ToUtf8();
+    TsString* pathStr = unboxString(path);
+    TsString* flagsStr = unboxString(flags);
+    const char* pathCStr = pathStr ? pathStr->ToUtf8() : "";
+    const char* flagsCStr = flagsStr ? flagsStr->ToUtf8() : "r";
 
     int openFlags = 0;
     std::string f = flagsCStr;
@@ -1123,60 +1407,30 @@ int64_t ts_fs_writeSync(int64_t fd, void* buffer, int64_t offset, int64_t length
     return (int64_t)result;
 }
 
-struct ReadDirWork {
-    ts::TsPromise* promise;
-    std::string path;
-    std::vector<std::string> entries;
-    bool success;
-};
-
-static void readdir_worker(uv_work_t* req) {
-    ReadDirWork* work = (ReadDirWork*)req->data;
-    try {
-        for (const auto& entry : fs::directory_iterator(work->path)) {
-            work->entries.push_back(entry.path().filename().string());
-        }
-        work->success = true;
-    } catch (const std::exception& e) {
-        std::cerr << "readdir_worker failed: " << e.what() << std::endl;
-        work->success = false;
-    } catch (...) {
-        std::cerr << "readdir_worker failed with unknown error" << std::endl;
-        work->success = false;
-    }
-}
-
-static void readdir_after_worker(uv_work_t* req, int status) {
-    ReadDirWork* work = (ReadDirWork*)req->data;
-    if (work->success) {
-        TsArray* arr = TsArray::Create();
-        for (const auto& entry : work->entries) {
-            arr->Push((int64_t)ts_value_make_string(TsString::Create(entry.c_str())));
-        }
-        ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(arr));
-    } else {
-        void* tsStr = ts_string_create("Could not read directory");
-        TsValue* reason = ts_value_make_string(tsStr);
-        ts::ts_promise_reject_internal(work->promise, reason);
-    }
-    work->~ReadDirWork();
-    GC_free(work);
-    free(req);
-}
-
-void* ts_fs_readdir_async(void* path) {
-    TsString* pathStr = (TsString*)path;
+void* ts_fs_readdir_async(void* path, void* options) {
+    TsString* pathStr = unboxString(path);
     ts::TsPromise* promise = ts::ts_promise_create();
     
-    ReadDirWork* work = (ReadDirWork*)GC_malloc_uncollectable(sizeof(ReadDirWork));
-    new (work) ReadDirWork();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
     work->promise = promise;
-    work->path = pathStr->ToUtf8();
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->type = FSAsyncWork::READDIR;
+    
+    if (options) {
+        TsValue* optVal = (TsValue*)options;
+        if (optVal->type == ValueType::OBJECT_PTR) {
+            TsMap* optMap = (TsMap*)optVal->ptr_val;
+            TsValue withFileTypes = optMap->Get(TsString::Create("withFileTypes"));
+            if (withFileTypes.type == ValueType::BOOLEAN) {
+                work->withFileTypes = withFileTypes.b_val;
+            }
+        }
+    }
     
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
     req->data = work;
-    
-    uv_queue_work(uv_default_loop(), req, readdir_worker, readdir_after_worker);
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
     
     return ts_value_make_promise(promise);
 }
@@ -1361,15 +1615,15 @@ static void open_after_worker(uv_work_t* req, int status) {
 }
 
 void* ts_fs_open_async(void* path, void* flags) {
-    TsString* pathStr = (TsString*)path;
-    TsString* flagsStr = (TsString*)flags;
+    TsString* pathStr = unboxString(path);
+    TsString* flagsStr = unboxString(flags);
     ts::TsPromise* promise = ts::ts_promise_create();
     
     OpenWork* work = (OpenWork*)GC_malloc_uncollectable(sizeof(OpenWork));
     new (work) OpenWork();
     work->promise = promise;
-    work->path = pathStr->ToUtf8();
-    work->flags = flagsStr->ToUtf8();
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->flags = flagsStr ? flagsStr->ToUtf8() : "r";
     
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
     req->data = work;
