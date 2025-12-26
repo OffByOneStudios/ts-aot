@@ -97,8 +97,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     void* ts_value_get_object(TsValue* v) {
-        if (!v) return nullptr;
+        if (!v) {
+            printf("DEBUG: ts_value_get_object v is null\n");
+            return nullptr;
+        }
+        printf("DEBUG: ts_value_get_object v=%p type=%d\n", v, (int)v->type);
         if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) return v->ptr_val;
+        printf("DEBUG: ts_value_get_object returning null for type %d\n", (int)v->type);
         return nullptr;
     }
 
@@ -150,103 +155,86 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
-    void* ts_object_get_property(void* obj, void* key) {
-        if (!obj) return nullptr;
+    TsValue* ts_object_get_property(void* obj, const char* keyStr) {
+        if (!obj) {
+            return ts_value_make_undefined();
+        }
         
-        TsString* tsKey = (TsString*)key;
-
-        // Try reading magic at offset 0 (for objects without vtable)
+        // Try reading magic at offset 0 and 8
         uint32_t magic0 = *(uint32_t*)obj;
         uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
 
-        if (magic0 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
-            TsValue val = ((TsMap*)obj)->Get(tsKey);
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            *res = val;
-            return res;
-        }
-        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
-            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
-                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                res->type = ValueType::NUMBER_INT;
-                res->i_val = ((TsArray*)obj)->Length();
-                return res;
-            }
-            return nullptr;
-        }
-        if (magic0 == 0x53545247) { // TsString::MAGIC ("STRG")
-            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
-                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                res->type = ValueType::NUMBER_INT;
-                res->i_val = ((TsString*)obj)->Length();
-                return res;
-            }
-            return nullptr;
-        }
-        
-        // Try reading magic at offset 8 (for TsObjects which have a vtable)
-        if (magic8 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
-            TsValue val = ((TsMap*)obj)->Get(tsKey);
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            *res = val;
-            return res;
-        }
-        if (magic8 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
-            // TsHeaders layout: vtable (8), magic (4), padding (4), map (8)
-            struct FakeHeaders {
-                void* vtable;
-                uint32_t magic;
-                TsMap* map;
-            };
-            TsMap* map = ((FakeHeaders*)obj)->map;
-            TsValue val = map->Get(tsKey);
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            *res = val;
-            return res;
-        }
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
-            if (strcmp(tsKey->ToUtf8(), "length") == 0) {
-                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                res->type = ValueType::NUMBER_INT;
-                res->i_val = ((TsBuffer*)obj)->GetLength();
-                return res;
-            }
-            return nullptr;
-        }
-        if (magic8 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
-            if (strcmp(tsKey->ToUtf8(), "on") == 0) {
-                return ts_value_make_function((void*)ts_event_emitter_on, obj);
-            }
-            return nullptr;
-        }
-
-        // If no magic matches, assume it's a generated class with __get_property at vtable[1]
+        // 1. Check vtable first (preferred for TsMap, TsBuffer, etc.)
         void** vtable = *(void***)obj;
         if (vtable) {
             typedef TsValue* (*GetPropertyFn)(void*, void*);
             GetPropertyFn getProp = (GetPropertyFn)vtable[1];
             if (getProp) {
-                return getProp(obj, key);
+                TsValue* res = getProp(obj, TsString::Create(keyStr));
+                if (res && res->type != ValueType::UNDEFINED) {
+                    return res;
+                }
             }
         }
-        return nullptr;
+
+        // 2. Fallback to magic-based checks for built-ins
+        if (magic0 == 0x41525259 || magic8 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(((TsArray*)obj)->Length());
+            }
+        }
+        if (magic0 == 0x53545247 || magic8 == 0x53545247) { // TsString::MAGIC ("STRG")
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(((TsString*)obj)->Length());
+            }
+        }
+        if (magic0 == 0x42554646 || magic8 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(((TsBuffer*)obj)->GetLength());
+            }
+        }
+        
+        if (magic8 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
+            struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
+            TsMap* map = ((FakeHeaders*)obj)->map;
+            TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(keyStr);
+            TsValue val = map->Get(k);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
+        }
+        if (magic8 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
+            if (strcmp(keyStr, "on") == 0) {
+                return ts_value_make_function((void*)ts_event_emitter_on, obj);
+            }
+        }
+
+        return ts_value_make_undefined();
     }
 
-    void* ts_value_get_property(TsValue* val, void* propName) {
+    TsValue* ts_value_get_property(TsValue* val, void* propName) {
         if (!val || !propName) return nullptr;
         
         TsString* key = (TsString*)propName;
-
-        uint32_t magic = *(uint32_t*)val;
-
-        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053 || magic == 0x45564E54) {
-            return ts_object_get_property(val, key);
-        }
+        const char* keyCStr = key->ToUtf8();
 
         if (val->type == ValueType::OBJECT_PTR || val->type == ValueType::ARRAY_PTR || val->type == ValueType::PROMISE_PTR) {
-            void* ret = ts_object_get_property(val->ptr_val, key);
-            return ret;
+            return ts_object_get_property(val->ptr_val, keyCStr);
         }
+
+        if (val->type == ValueType::STRING_PTR) {
+            TsString* s = (TsString*)val->ptr_val;
+            if (strcmp(keyCStr, "length") == 0) {
+                return ts_value_make_int(s->Length());
+            }
+        }
+
+        // Fallback for raw pointers (though they should be boxed)
+        uint32_t magic = *(uint32_t*)val;
+        if (magic == 0x41525259 || magic == 0x53545247 || magic == 0x4D415053 || magic == 0x45564E54) {
+            return ts_object_get_property(val, keyCStr);
+        }
+
         return nullptr;
     }
 
@@ -285,11 +273,20 @@ TsValue* ts_value_make_int(int64_t i) {
         return fn(func->context, arg1, arg2);
     }
 
+    TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
+        Fn3 fn = (Fn3)func->funcPtr;
+        return fn(func->context, arg1, arg2, arg3);
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
         if (argc == 2) return ts_call_2(boxedFunc, argv[0], argv[1]);
-        // For now, we don't support more than 2 args in this helper
+        if (argc == 3) return ts_call_3(boxedFunc, argv[0], argv[1], argv[2]);
+        // For now, we don't support more than 3 args in this helper
         return ts_value_make_undefined();
     }
 }

@@ -12,7 +12,10 @@ extern "C" {
     TsValue* AsyncGenerator_next_internal(void* context, TsValue* value);
 }
 
+extern void* TsPromise_VTable[];
+
 TsPromise::TsPromise() {
+    vtable = TsPromise_VTable;
     state = PromiseState::Pending;
     handled = false;
 }
@@ -729,5 +732,42 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
         callbacks.push_back(cb);
     }
 }
+
+static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsValue* onRejected) {
+    TsPromise* promise = (TsPromise*)context;
+    TsPromise* next = promise->then(onFulfilled ? *onFulfilled : TsValue(), onRejected ? *onRejected : TsValue());
+    return ts_value_make_promise(next);
+}
+
+static TsValue* ts_promise_catch_wrapper(void* context, TsValue* onRejected) {
+    TsPromise* promise = (TsPromise*)context;
+    TsPromise* next = promise->catch_error(onRejected ? *onRejected : TsValue());
+    return ts_value_make_promise(next);
+}
+
+static TsValue* ts_promise_finally_wrapper(void* context, TsValue* onFinally) {
+    TsPromise* promise = (TsPromise*)context;
+    TsPromise* next = promise->finally(onFinally ? *onFinally : TsValue());
+    return ts_value_make_promise(next);
+}
+
+TsValue* ts_promise_get_property(void* obj, void* propName) {
+    TsString* prop = (TsString*)propName;
+    const char* name = prop->ToUtf8();
+    
+    if (strcmp(name, "then") == 0) {
+        return ts_value_make_function((void*)ts_promise_then_wrapper, obj);
+    } else if (strcmp(name, "catch") == 0) {
+        return ts_value_make_function((void*)ts_promise_catch_wrapper, obj);
+    } else if (strcmp(name, "finally") == 0) {
+        return ts_value_make_function((void*)ts_promise_finally_wrapper, obj);
+    }
+    return ts_value_make_undefined();
+}
+
+void* TsPromise_VTable[] = {
+    nullptr,
+    (void*)ts_promise_get_property
+};
 
 } // namespace ts

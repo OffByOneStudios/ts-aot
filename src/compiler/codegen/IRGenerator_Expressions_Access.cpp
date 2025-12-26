@@ -337,6 +337,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     }
     SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
+
+    if (tryGenerateFSPropertyAccess(node)) return;
+
     if (node->name == "size") {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
             visit(node->expression.get());
@@ -781,14 +784,11 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     }
 
     if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
-            SPDLOG_INFO("generatePropertyAccess: Object/Intersection for {}", node->name);
             visit(node->expression.get());
             llvm::Value* objPtr = unboxValue(lastValue, node->expression->inferredType);
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
-            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
-            llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(node->name) });
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
             
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_object_get_property", getFt);

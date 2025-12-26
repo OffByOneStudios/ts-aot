@@ -118,12 +118,14 @@ private:
     void generateCall(ast::CallExpression* node);
     bool tryGenerateMemberCall(ast::CallExpression* node);
     bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
     void generateElementAccess(ast::ElementAccessExpression* node);
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void generatePropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateFSPropertyAccess(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;

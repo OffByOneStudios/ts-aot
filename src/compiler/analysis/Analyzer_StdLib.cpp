@@ -11,6 +11,8 @@ namespace ts {
 
 using namespace ast;
 Analyzer::Analyzer() {
+    registerFS();
+
     // Register JSON global
     auto jsonType = std::make_shared<ObjectType>();
     
