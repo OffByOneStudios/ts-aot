@@ -55,9 +55,9 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
 - [x] **Task 96.6.7:** Implement `fs.mkdtemp` and `fs.mkdtempSync`.
 
 ### Milestone 96.7: Directory Operations & Watching
-- [ ] **Task 96.7.1:** Implement `fs.opendir` and `fs.opendirSync`.
+- [x] **Task 96.7.1:** Implement `fs.opendir` and `fs.opendirSync`.
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_opendir`).
-- [ ] **Task 96.7.2:** Implement `fs.Dir` and `fs.Dirent` classes.
+- [x] **Task 96.7.2:** Implement `fs.Dir` and `fs.Dirent` classes.
     - **Plan:** Define classes in `Analyzer_StdLib_FS.cpp`. Implement methods in `src/runtime/src/node/fs.cpp` (wrapping `uv_dir_t`).
 - [ ] **Task 96.7.3:** Implement `fs.watch` and `fs.watchFile`.
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_event_t` and `uv_fs_poll_t`).
@@ -77,7 +77,7 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_read`/`write` with iov).
 
 ## Action Items
-- [ ] **Current:** Implement `fs.opendir` and `fs.Dir` / `fs.Dirent` classes (Milestone 96.7).
+- [ ] **Current:** Implement `fs.watch` and `fs.watchFile` (Milestone 96.7).
 
 ## Reflections & Improvements
 
@@ -87,6 +87,9 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
 3.  **Promise Mapping Synchronization**: It is easy to forget to add new FS methods to the `ts_fs_get_promises` map. This leads to "undefined" errors at runtime even if the underlying async implementation is correct.
 4.  **Async Exception Handling**: `setjmp`/`longjmp` is fundamentally incompatible with the stack-less async state machine because the jump target (the `jmp_buf` on the stack) becomes invalid once the function yields and its stack frame is popped. We must use explicit branching and store exception state in the heap-allocated `Frame`.
 5.  **Exception State Management**: In async functions, the `pendingExc` state must be explicitly cleared when entering a `catch` block. Failure to do so causes the `finally` block (or the function's exit path) to rethrow the exception, even if it was successfully handled, leading to "Uncaught exception: undefined" errors.
+6.  **Member Call Boxing**: When calling methods on objects (like `entry.isFile()`), the compiler must ensure the receiver is boxed if it's an Object/Interface/Any type. Failure to do so results in raw pointers being passed to `ts_value_get_property`, which may fail to recognize the object's magic number if it's at an offset (e.g., due to a vtable).
+7.  **Robust Property Lookup**: `ts_value_get_property` should check for magic numbers at both offset 0 and offset 8 to handle both simple structs and vtable-prefixed objects (like `TsMap` or `TsBuffer`) when receiving raw pointers.
+8.  **Async Data Persistence**: When using `libuv` worker threads, data written to temporary stack variables (like `uv_dirent_t`) must be copied to heap-allocated structures (like `std::string`) to persist until the main thread resumes the async function.
 
 ### Future Improvements
 1.  **Declarative Builtin Definitions**: Move towards a more declarative way of defining builtins that automatically generates both the compiler dispatch and the runtime registration, reducing the chance of signature mismatches.

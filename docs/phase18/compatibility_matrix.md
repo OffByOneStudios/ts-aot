@@ -4,8 +4,8 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 
 | Module | Feature | Type | Status | Notes |
 |--------|---------|------|--------|-------|
-| fs | Dir | function | 🔴 | |
-| fs | Dirent | function | 🔴 | |
+| fs | Dir | function | 🟢 | |
+| fs | Dirent | function | 🟢 | |
 | fs | F_OK | number | 🟢 | |
 | fs | FileReadStream | function | 🔴 | |
 | fs | FileWriteStream | function | 🔴 | |
@@ -68,9 +68,9 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | open | function | 🟢 | |
 | fs | openAsBlob | function | 🔴 | |
 | fs | openSync | function | 🟢 | |
-| fs | opendir | function | 🔴 | |
-| fs | opendirSync | function | 🔴 | |
-| fs | promises | object | 🟡 | `readFile`, `writeFile`, `readdir`, `stat`, `mkdir`, `open`, `close`, `read`, `write`, `access`, `chmod`, `chown`, `copyFile`, `cp`, `link`, `lstat`, `lutimes`, `mkdtemp`, `realpath`, `rename`, `rm`, `rmdir`, `symlink`, `truncate`, `unlink`, `utimes`, `appendFile` implemented |
+| fs | opendir | function | 🟢 | |
+| fs | opendirSync | function | 🟢 | |
+| fs | promises | object | 🟡 | `readFile`, `writeFile`, `readdir`, `stat`, `mkdir`, `open`, `close`, `read`, `write`, `access`, `chmod`, `chown`, `copyFile`, `cp`, `link`, `lstat`, `lutimes`, `mkdtemp`, `realpath`, `rename`, `rm`, `rmdir`, `symlink`, `truncate`, `unlink`, `utimes`, `appendFile`, `opendir` implemented |
 | fs | read | function | 🟢 | |
 | fs | readFile | function | 🟢 | |
 | fs | readFileSync | function | 🟢 | |
