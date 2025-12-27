@@ -1,6 +1,6 @@
 # Epic 99: Path & Utilities
 
-**Status:** Planned
+**Status:** In Progress
 **Parent:** [Phase 18 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -9,28 +9,28 @@ Implement the Node.js `path` module, providing utilities for working with file a
 ## Milestones
 
 ### Milestone 99.1: Basic Path Manipulation
-- [ ] **Task 99.1.1:** Implement `path.join(...paths)`.
+- [x] **Task 99.1.1:** Implement `path.join(...paths)`.
     - **Note:** Current implementation is limited to 2 arguments. Need to support variadic arguments.
-- [ ] **Task 99.1.2:** Implement `path.resolve(...paths)`.
-- [ ] **Task 99.1.3:** Implement `path.normalize(path)`.
-- [ ] **Task 99.1.4:** Implement `path.isAbsolute(path)`.
+- [x] **Task 99.1.2:** Implement `path.resolve(...paths)`.
+- [x] **Task 99.1.3:** Implement `path.normalize(path)`.
+- [x] **Task 99.1.4:** Implement `path.isAbsolute(path)`.
 
 ### Milestone 99.2: Path Components
-- [ ] **Task 99.2.1:** Implement `path.basename(path[, ext])`.
-- [ ] **Task 99.2.2:** Implement `path.dirname(path)`.
-- [ ] **Task 99.2.3:** Implement `path.extname(path)`.
+- [x] **Task 99.2.1:** Implement `path.basename(path[, ext])`.
+- [x] **Task 99.2.2:** Implement `path.dirname(path)`.
+- [x] **Task 99.2.3:** Implement `path.extname(path)`.
 
 ### Milestone 99.3: Advanced Path Utilities
-- [ ] **Task 99.3.1:** Implement `path.relative(from, to)`.
+- [x] **Task 99.3.1:** Implement `path.relative(from, to)`.
 - [ ] **Task 99.3.2:** Implement `path.parse(path)` and `path.format(pathObject)`.
 - [ ] **Task 99.3.3:** Implement `path.toNamespacedPath(path)`.
 
 ### Milestone 99.4: Platform Specifics & Constants
-- [ ] **Task 99.4.1:** Implement `path.sep` and `path.delimiter`.
+- [x] **Task 99.4.1:** Implement `path.sep` and `path.delimiter`.
 - [ ] **Task 99.4.2:** Implement `path.win32` and `path.posix` objects.
 
 ## Action Items
-- [ ] **Current:** Define `path` module in `Analyzer_StdLib_Path.cpp`.
+- [x] **Current:** Define `path` module in `Analyzer_StdLib_Path.cpp`.
 
 ## Reflections & Improvements
-- [ ] **Task 99.5.1:** Ensure `path` methods handle both Windows and POSIX separators correctly based on the target platform.
+- [x] **Task 99.5.1:** Ensure `path` methods handle both Windows and POSIX separators correctly based on the target platform.

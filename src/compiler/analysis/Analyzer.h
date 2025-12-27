@@ -43,7 +43,11 @@ public:
     std::shared_ptr<ClassType> analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments);
     std::shared_ptr<Type> analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments);
 
+    void registerStdLib();
     void registerFS();
+    void registerPath();
+    void registerEvents();
+    void registerBuffer();
 
     void reportError(const std::string& message);
 

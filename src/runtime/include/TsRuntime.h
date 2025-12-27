@@ -170,10 +170,16 @@ void* ts_fs_createReadStream(void* path);
 
 // --- Path ---
 void* ts_path_join(void* path1, void* path2);
-void* ts_path_resolve(void* path);
+void* ts_path_join_variadic(void* paths);
+void* ts_path_resolve(void* paths);
+void* ts_path_normalize(void* path);
+int ts_path_is_absolute(void* path);
+void* ts_path_basename(void* path, void* ext);
 void* ts_path_dirname(void* path);
-void* ts_path_basename(void* path);
 void* ts_path_extname(void* path);
+void* ts_path_relative(void* from, void* to);
+void* ts_path_get_sep();
+void* ts_path_get_delimiter();
 TsValue* ts_promise_race(TsValue* iterable);
 TsValue* ts_promise_allSettled(TsValue* iterable);
 TsValue* ts_promise_any(TsValue* iterable);

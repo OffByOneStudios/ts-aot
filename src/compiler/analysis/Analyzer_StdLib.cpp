@@ -12,6 +12,7 @@ namespace ts {
 using namespace ast;
 Analyzer::Analyzer() {
     registerFS();
+    registerPath();
 
     // Register JSON global
     auto jsonType = std::make_shared<ObjectType>();
@@ -602,15 +603,6 @@ Analyzer::Analyzer() {
     fsType->fields["createWriteStream"] = createWriteStreamType;
 
     symbols.define("fs", fsType);
-
-    // Register path global
-    auto pathType = std::make_shared<ObjectType>();
-    auto joinType = std::make_shared<FunctionType>();
-    joinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    joinType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    joinType->returnType = std::make_shared<Type>(TypeKind::String);
-    pathType->fields["join"] = joinType;
-    symbols.define("path", pathType);
 
     // Register process global
     auto processType = std::make_shared<ObjectType>();

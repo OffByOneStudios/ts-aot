@@ -354,6 +354,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
 
     if (tryGenerateFSPropertyAccess(node)) return;
+    if (tryGeneratePathPropertyAccess(node)) return;
 
     if (node->name == "size") {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
