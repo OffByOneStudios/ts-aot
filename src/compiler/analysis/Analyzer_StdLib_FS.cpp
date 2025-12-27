@@ -567,6 +567,28 @@ void Analyzer::registerFS() {
     fhWrite->returnType = fhWritePromise;
     fileHandleType->fields["write"] = fhWrite;
 
+    auto fhReadv = std::make_shared<FunctionType>();
+    fhReadv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array)); // buffers
+    fhReadv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    auto fhReadvRes = std::make_shared<ObjectType>();
+    fhReadvRes->fields["bytesRead"] = std::make_shared<Type>(TypeKind::Double);
+    fhReadvRes->fields["buffers"] = std::make_shared<Type>(TypeKind::Array);
+    auto fhReadvPromise = std::make_shared<ClassType>("Promise");
+    fhReadvPromise->typeArguments.push_back(fhReadvRes);
+    fhReadv->returnType = fhReadvPromise;
+    fileHandleType->fields["readv"] = fhReadv;
+
+    auto fhWritev = std::make_shared<FunctionType>();
+    fhWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array)); // buffers
+    fhWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    auto fhWritevRes = std::make_shared<ObjectType>();
+    fhWritevRes->fields["bytesWritten"] = std::make_shared<Type>(TypeKind::Double);
+    fhWritevRes->fields["buffers"] = std::make_shared<Type>(TypeKind::Array);
+    auto fhWritevPromise = std::make_shared<ClassType>("Promise");
+    fhWritevPromise->typeArguments.push_back(fhWritevRes);
+    fhWritev->returnType = fhWritevPromise;
+    fileHandleType->fields["writev"] = fhWritev;
+
     // fs.promises
     auto promises = std::make_shared<ObjectType>();
     
@@ -712,6 +734,25 @@ void Analyzer::registerFS() {
     mkdtempAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     mkdtempAsync->returnType = std::make_shared<Type>(TypeKind::Any);
     promises->fields["mkdtemp"] = mkdtempAsync;
+
+    auto unlinkAsync = std::make_shared<FunctionType>();
+    unlinkAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    unlinkAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["unlink"] = unlinkAsync;
+
+    auto pReadv = std::make_shared<FunctionType>();
+    pReadv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // handle
+    pReadv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array)); // buffers
+    pReadv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    pReadv->returnType = fhReadvPromise;
+    promises->fields["readv"] = pReadv;
+
+    auto pWritev = std::make_shared<FunctionType>();
+    pWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // handle
+    pWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array)); // buffers
+    pWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    pWritev->returnType = fhWritevPromise;
+    promises->fields["writev"] = pWritev;
 
     fsType->fields["promises"] = promises;
 

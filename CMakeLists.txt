@@ -31,7 +31,7 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
     set(RUNTIME_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/src")
     set(RUNTIME_INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/include")
     
-    file(GLOB RUNTIME_SOURCES "${RUNTIME_SRC_DIR}/*.cpp")
+    file(GLOB_RECURSE RUNTIME_SOURCES "${RUNTIME_SRC_DIR}/*.cpp")
     set(RUNTIME_BC_FILES "")
     
     foreach(src ${RUNTIME_SOURCES})

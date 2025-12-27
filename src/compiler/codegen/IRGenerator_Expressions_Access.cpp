@@ -809,6 +809,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_object_get_property", getFt);
             
             lastValue = createCall(getFt, getFn.getCallee(), { objPtr, keyStr });
+            boxedValues.insert(lastValue);
             
             // Find the field type to unbox correctly
             std::shared_ptr<Type> fieldType = std::make_shared<Type>(TypeKind::Any);
@@ -838,6 +839,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
             
             lastValue = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
+            boxedValues.insert(lastValue);
             return;
         }
         
