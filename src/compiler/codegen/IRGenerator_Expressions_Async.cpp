@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -13,11 +15,14 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     }
 
     // 1. Evaluate expression
+    SPDLOG_INFO("visitAwaitExpression: evaluating expression");
     visit(node->expression.get());
     llvm::Value* promiseVal = lastValue;
+    SPDLOG_INFO("visitAwaitExpression: promiseVal={}", (void*)promiseVal);
     
     // Box it if needed
     promiseVal = boxValue(promiseVal, node->expression->inferredType);
+    SPDLOG_INFO("visitAwaitExpression: boxed promiseVal={}", (void*)promiseVal);
 
     lastValue = emitAwait(promiseVal, node->inferredType);
 
@@ -84,7 +89,9 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     
     // The resumed value is in currentAsyncResumedValue
     // Unbox it to the expected type
-    return unboxValue(currentAsyncResumedValue, type);
+    llvm::Value* res = unboxValue(currentAsyncResumedValue, type);
+    SPDLOG_INFO("emitAwait: returning res={}, boxed={}", (void*)res, (int)boxedValues.count(res));
+    return res;
 }
 
 void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
@@ -123,16 +130,10 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     // 5. Start next state
     builder->SetInsertPoint(nextBB);
     
-    // DEBUG: Print state entry
-    {
-        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM State %d Entry\n"), llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState) });
-        
-        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
-        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
-    }
+        // 5. Start next state
+    builder->SetInsertPoint(nextBB);
+    
+    // Check for error
 
     // The resumed value (from next()) is in currentAsyncResumedValue
     lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
@@ -280,11 +281,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     for (const auto& var : vars) {
         int idx = frameMap[var.name];
         llvm::Value* ptr = builder->CreateStructGEP(frameType, frame, idx);
-        if (var.llvmType->isPointerTy()) {
-            builder->CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(var.llvmType)), ptr);
-        } else {
-            builder->CreateStore(llvm::ConstantInt::get(var.llvmType, 0), ptr);
-        }
+        builder->CreateStore(llvm::Constant::getNullValue(var.llvmType), ptr);
     }
 
     // Copy arguments to frame
@@ -371,19 +368,6 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     llvm::BasicBlock* smEntryBB = llvm::BasicBlock::Create(*context, "entry", smFunc);
     builder->SetInsertPoint(smEntryBB);
 
-    // DEBUG: Print SM entry
-    {
-        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-        llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smFunc->getArg(0), 1);
-        llvm::Value* stateVal = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
-        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM Entry: ctx=%p state=%d resumedVal=%p\n"), smFunc->getArg(0), stateVal, smFunc->getArg(1) });
-        
-        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
-        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
-    }
-
     llvm::Value* smCtx = smFunc->getArg(0);
     llvm::Value* smResumedVal = smFunc->getArg(1);
 
@@ -439,14 +423,16 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Initialize return-related variables for the SM function
     currentReturnBB = llvm::BasicBlock::Create(*context, "return", smFunc);
     if (currentIsAsync) {
-        currentShouldReturnAlloca = namedValues["__shouldReturn"];
-        currentShouldBreakAlloca = namedValues["__shouldBreak"];
-        currentShouldContinueAlloca = namedValues["__shouldContinue"];
-        currentReturnValueAlloca = namedValues["__returnValue"];
+        currentShouldReturnAlloca = nullptr; // namedValues["__shouldReturn"];
+        currentShouldBreakAlloca = nullptr; // namedValues["__shouldBreak"];
+        currentShouldContinueAlloca = nullptr; // namedValues["__shouldContinue"];
+        currentReturnValueAlloca = nullptr; // namedValues["__returnValue"];
         
         // Targets are still local allocas for now as they are BasicBlock pointers
-        currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
-        currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+        // currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
+        // currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+        currentBreakTargetAlloca = nullptr;
+        currentContinueTargetAlloca = nullptr;
     } else {
         currentShouldReturnAlloca = createEntryBlockAlloca(smFunc, "shouldReturn", builder->getInt1Ty());
         builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
@@ -456,8 +442,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         currentShouldContinueAlloca = createEntryBlockAlloca(smFunc, "shouldContinue", builder->getInt1Ty());
         builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
         
-        currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
-        currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+        // currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
+        // currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
+        currentBreakTargetAlloca = nullptr;
+        currentContinueTargetAlloca = nullptr;
         
         currentReturnValueAlloca = createEntryBlockAlloca(smFunc, "returnValue", builder->getPtrTy());
         builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
@@ -473,17 +461,6 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smCtx, 1);
     llvm::Value* state = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
-
-    // DEBUG: Print state before switch
-    {
-        llvm::FunctionType* printfFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, true);
-        llvm::FunctionCallee printfFn = module->getOrInsertFunction("printf", printfFt);
-        createCall(printfFt, printfFn.getCallee(), { builder->CreateGlobalStringPtr("SM Switch: state=%d\n"), state });
-        
-        llvm::FunctionType* fflushFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fflushFn = module->getOrInsertFunction("fflush", fflushFt);
-        createCall(fflushFt, fflushFn.getCallee(), { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
-    }
 
     llvm::BasicBlock* state0 = llvm::BasicBlock::Create(*context, "state0", smFunc);
     asyncStateBlocks.push_back(state0);
@@ -568,7 +545,12 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     if (isAsync && !isGenerator) {
         // Resolve promise with return value or undefined
-        llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+        llvm::Value* retVal = nullptr;
+        if (currentReturnValueAlloca) {
+            retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+        } else {
+            retVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
         llvm::Value* isNull = builder->CreateIsNull(retVal);
         llvm::Value* finalVal = builder->CreateSelect(isNull, undefinedVal, retVal);
 

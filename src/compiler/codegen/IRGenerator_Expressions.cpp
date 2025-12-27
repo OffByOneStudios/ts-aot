@@ -7,6 +7,7 @@
 namespace ts {
 
 void IRGenerator::visitIdentifier(ast::Identifier* node) {
+    SPDLOG_INFO("visitIdentifier: {}", node->name);
     if (node->name == "undefined" || node->name == "null") {
         lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
         return;
@@ -29,6 +30,17 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             lastValue = func->getArg(0); // Fallback for global functions if they ever use 'this'
         }
         return;
+    }
+
+    if (currentAsyncFrame) {
+        auto it = currentAsyncFrameMap.find(node->name);
+        if (it != currentAsyncFrameMap.end()) {
+            SPDLOG_INFO("visitIdentifier: found {} in async frame at index {}", node->name, it->second);
+            llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+            lastValue = builder->CreateLoad(currentAsyncFrameType->getStructElementType(it->second), ptr);
+            SPDLOG_INFO("visitIdentifier: loaded {} from async frame, lastValue={}", node->name, (void*)lastValue);
+            return;
+        }
     }
 
     if (namedValues.count(node->name)) {
@@ -636,7 +648,7 @@ void IRGenerator::visitThisExpression(ast::ThisExpression* node) {
         auto it = currentAsyncFrameMap.find("this");
         if (it != currentAsyncFrameMap.end()) {
             llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
-            lastValue = builder->CreateLoad(currentAsyncFrameType->getElementType(it->second), ptr);
+            lastValue = builder->CreateLoad(currentAsyncFrameType->getStructElementType(it->second), ptr);
             return;
         }
     }

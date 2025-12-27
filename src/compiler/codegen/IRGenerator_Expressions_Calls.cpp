@@ -46,7 +46,6 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 void IRGenerator::generateCall(ast::CallExpression* node) { 
     emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
-    printf("DEBUG: generateCall callee type: %s\n", typeid(*node->callee).name());
 
     if (node->isComptime) {
         SPDLOG_DEBUG("Handling comptime call");

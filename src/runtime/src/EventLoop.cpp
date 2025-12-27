@@ -69,6 +69,8 @@ extern "C" void ts_clear_timer(TsValue* timerId) {
     uv_close((uv_handle_t*)timer, on_timer_close);
 }
 
+#include <windows.h>
+
 static std::vector<std::function<void()>> microtasks;
 
 extern "C" void ts_queue_microtask(void (*callback)(void*), void* data) {
@@ -91,7 +93,8 @@ extern "C" void ts_loop_run() {
     while (true) {
         ts_run_microtasks();
         
-        if (uv_loop_alive(loop)) {
+        bool alive = uv_loop_alive(loop);
+        if (alive) {
             uv_run(loop, UV_RUN_ONCE);
         } else {
             break;

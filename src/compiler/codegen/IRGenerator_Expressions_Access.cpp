@@ -7,6 +7,21 @@
 namespace ts {
 using namespace ast;
 void IRGenerator::visitIdentifier(ast::Identifier* node) {
+    if (node->name == "undefined" || node->name == "null") {
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return;
+    }
+
+    if (node->name == "this") {
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        if (func->arg_size() > 1) {
+            lastValue = func->getArg(1);
+        } else {
+            lastValue = func->getArg(0);
+        }
+        return;
+    }
+
     if (namedValues.count(node->name)) {
         llvm::Value* val = namedValues[node->name];
         llvm::Type* type = nullptr;

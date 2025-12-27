@@ -78,9 +78,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
-        fprintf(stderr, "DEBUG: ts_value_make_function funcPtr=%p context=%p\n", funcPtr, context); fflush(stderr);
         TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED);
-        fprintf(stderr, "DEBUG: ts_value_make_function func=%p\n", func); fflush(stderr);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::OBJECT_PTR;
         v->ptr_val = func;
@@ -193,7 +191,6 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
-        fprintf(stderr, "DEBUG: ts_object_get_property obj=%p keyStr='%s'\n", obj, keyStr); fflush(stderr);
         if (!obj) {
             return ts_value_make_undefined();
         }
@@ -251,7 +248,6 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_get_property(TsValue* val, void* propName) {
-        fprintf(stderr, "DEBUG: ts_value_get_property val=%p propName=%p\n", val, propName); fflush(stderr);
         if (!val || !propName) return nullptr;
         
         const char* keyCStr = nullptr;
@@ -267,10 +263,8 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         if (!keyCStr) {
-            fprintf(stderr, "DEBUG: ts_value_get_property: propName is not a string!\n"); fflush(stderr);
             return ts_value_make_undefined();
         }
-        fprintf(stderr, "DEBUG: ts_value_get_property key='%s'\n", keyCStr); fflush(stderr);
 
         if (val->type == ValueType::OBJECT_PTR || val->type == ValueType::ARRAY_PTR || val->type == ValueType::PROMISE_PTR) {
             return ts_object_get_property(val->ptr_val, keyCStr);
@@ -322,21 +316,16 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
-        fprintf(stderr, "DEBUG: ts_call_2 boxedFunc=%p arg1=%p arg2=%p\n", boxedFunc, arg1, arg2); fflush(stderr);
         if (!boxedFunc) {
-            fprintf(stderr, "DEBUG: ts_call_2: boxedFunc is NULL!\n"); fflush(stderr);
             return ts_value_make_undefined();
         }
         if (boxedFunc->type != ValueType::OBJECT_PTR) {
-            fprintf(stderr, "DEBUG: ts_call_2: boxedFunc type is not OBJECT_PTR (type=%d)!\n", (int)boxedFunc->type); fflush(stderr);
             return ts_value_make_undefined();
         }
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
         if (!func) {
-            fprintf(stderr, "DEBUG: ts_call_2: func is NULL!\n"); fflush(stderr);
             return ts_value_make_undefined();
         }
-        fprintf(stderr, "DEBUG: ts_call_2: funcPtr=%p context=%p type=%d\n", func->funcPtr, func->context, (int)func->type); fflush(stderr);
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[2] = { arg1, arg2 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);

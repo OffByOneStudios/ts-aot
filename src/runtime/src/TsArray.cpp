@@ -121,6 +121,16 @@ bool TsArray::Includes(int64_t value) {
     return IndexOf(value) != -1;
 }
 
+void TsArray::Remove(int64_t value) {
+    int64_t index = IndexOf(value);
+    if (index == -1) return;
+    
+    if (index < (int64_t)length - 1) {
+        std::memmove((int64_t*)elements + index, (int64_t*)elements + index + 1, (length - index - 1) * 8);
+    }
+    length--;
+}
+
 void* TsArray::Flat(int64_t depth) {
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; ++i) {

@@ -608,10 +608,8 @@ extern "C" {
     }
 
     void* ts_string_create(const char* str) {
-        fprintf(stderr, "DEBUG: ts_string_create '%s'\n", str); fflush(stderr);
-        void* res = TsString::Create(str);
-        fprintf(stderr, "DEBUG: ts_string_create '%s' -> %p\n", str, res); fflush(stderr);
-        return res;
+        TsString* res = TsString::Create(str);
+        return (void*)res;
     }
 
     int64_t ts_string_length(void* str) {

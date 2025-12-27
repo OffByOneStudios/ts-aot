@@ -99,7 +99,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | truncateSync | function | 🟢 | |
 | fs | unlink | function | 🟢 | |
 | fs | unlinkSync | function | 🟢 | |
-| fs | unwatchFile | function | 🟡 | Placeholder implemented |
+| fs | unwatchFile | function | 🟢 | |
 | fs | utimes | function | 🟢 | |
 | fs | utimesSync | function | 🟢 | |
 | fs | watch | function | 🟢 | |
@@ -137,7 +137,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | events | getEventListeners | function | 🔴 | |
 | events | getMaxListeners | function | 🔴 | |
 | events | init | function | 🔴 | |
-| events | listenerCount | function | 🔴 | |
+| events | listenerCount | function | 🟡 | Implemented in runtime |
 | events | on | function | 🔴 | |
 | events | once | function | 🔴 | |
 | events | setMaxListeners | function | 🔴 | |

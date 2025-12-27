@@ -58,14 +58,24 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
 
 void IRGenerator::generateBodies(const std::vector<Specialization>& specializations) {
     for (const auto& spec : specializations) {
+        if (spec.specializedName.find("lambda") != std::string::npos) {
+            SPDLOG_INFO("Skipping body generation for {}", spec.specializedName);
+            continue;
+        }
         llvm::Function* function = module->getFunction(spec.specializedName);
-        if (!function) continue;
+        if (!function) {
+            printf("Function %s not found in module\n", spec.specializedName.c_str());
+            continue;
+        }
 
         if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
             if (methodNode->isAbstract || !methodNode->hasBody) continue;
         }
 
-        if (!function->empty()) continue;
+        if (!function->empty()) {
+            printf("Function %s already has body\n", spec.specializedName.c_str());
+            continue;
+        }
 
         // Re-analyze the body with the specialized types to ensure inferredType is correct for THIS specialization
         if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
@@ -90,6 +100,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         }
 
         SPDLOG_DEBUG("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
+        printf("Generating body for: %s isAsync: %d\n", spec.specializedName.c_str(), isAsync);
+        SPDLOG_INFO("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
 
         // Clear function-specific state
         namedValues.clear();
@@ -343,22 +355,27 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             }
         }
 
-        if (!builder->GetInsertBlock()->getTerminator()) {
+        llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+        if (!currentBB->getTerminator()) {
             builder->CreateBr(currentReturnBB);
         }
 
         // Emit the actual return block
-        builder->SetInsertPoint(currentReturnBB);
-        llvm::Type* retType = function->getReturnType();
-        if (retType->isVoidTy()) {
-            builder->CreateRetVoid();
+        if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
+            currentReturnBB->eraseFromParent();
         } else {
-            llvm::Value* retVal = builder->CreateLoad(retType, currentReturnValueAlloca);
-            if (!retVal) {
-                 // Fallback if for some reason it wasn't initialized
-                 retVal = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(retType));
+            builder->SetInsertPoint(currentReturnBB);
+            llvm::Type* retType = function->getReturnType();
+            if (retType->isVoidTy()) {
+                builder->CreateRetVoid();
+            } else {
+                llvm::Value* retVal = builder->CreateLoad(retType, currentReturnValueAlloca);
+                if (!retVal) {
+                     // Fallback if for some reason it wasn't initialized
+                     retVal = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(retType));
+                }
+                builder->CreateRet(retVal);
             }
-            builder->CreateRet(retVal);
         }
 
         if (debug && spec.node) {

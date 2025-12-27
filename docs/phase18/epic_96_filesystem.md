@@ -66,6 +66,10 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
 
 ## Milestone 96.8: Advanced File Descriptors
 - [ ] **Task 96.8.1:** Implement `fs.fchmod`, `fs.fchown`, `fs.futimes` (and Sync variants).
+        - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (stop poll handle).
+
+## Milestone 96.8: Advanced File Descriptors
+- [ ] **Task 96.8.1:** Implement `fs.fchmod`, `fs.fchown`, `fs.futimes` (and Sync variants).
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_fchmod`, `uv_fs_fchown`, `uv_fs_futime`).
 - [ ] **Task 96.8.2:** Implement `fs.fstat` and `fs.fstatSync`.
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_fstat`).
@@ -77,7 +81,36 @@ Implement the Node.js `fs` module, providing both synchronous and asynchronous f
     - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_read`/`write` with iov).
 
 ## Action Items
-- [ ] **Current:** Implement `fs.watch` and `fs.watchFile` (Milestone 96.7).
+- [ ] **Current:** Implement `fs.fchmod`, `fs.fchown`, `fs.futimes` (Milestone 96.8).
+
+## Reflections & Improvements
+
+### Lessons Learned
+1.  **LLVM Dominance in Async SM**: We encountered "Instruction does not dominate all uses" errors because instructions were being generated in the entry block of the State Machine function but used within state blocks. Since state blocks are reached via a `switch` (non-linear control flow), the entry block is the only safe place for constants, but any logic that depends on the current state must be carefully isolated.
+2.  **Builtin Dispatch Type Safety**: The optimized FS dispatch in the compiler expects raw `TsString*` for string-returning methods (like `readlinkSync`). Returning a boxed `TsValue*` from the runtime causes a type mismatch that leads to empty results or crashes. We must ensure runtime signatures match compiler expectations exactly.
+3.  **Promise Mapping Synchronization**: It is easy to forget to add new FS methods to the `ts_fs_get_promises` map. This leads to "undefined" errors at runtime even if the underlying async implementation is correct.
+4.  **Async Exception Handling**: `setjmp`/`longjmp` is fundamentally incompatible with the stack-less async state machine because the jump target (the `jmp_buf` on the stack) becomes invalid once the function yields and its stack frame is popped. We must use explicit branching and store exception state in the heap-allocated `Frame`.
+5.  **Exception State Management**: In async functions, the `pendingExc` state must be explicitly cleared when entering a `catch` block. Failure to do so causes the `finally` block (or the function's exit path) to rethrow the exception, even if it was successfully handled, leading to "Uncaught exception: undefined" errors.
+6.  **Member Call Boxing**: When calling methods on objects (like `entry.isFile()`), the compiler must ensure the receiver is boxed if it's an Object/Interface/Any type. Failure to do so results in raw pointers being passed to `ts_value_get_property`, which may fail to recognize the object's magic number if it's at an offset (e.g., due to a vtable).
+7.  **Robust Property Lookup**: `ts_value_get_property` should check for magic numbers at both offset 0 and offset 8 to handle both simple structs and vtable-prefixed objects (like `TsMap` or `TsBuffer`) when receiving raw pointers.
+8.  **Async Data Persistence**: When using `libuv` worker threads, data written to temporary stack variables (like `uv_dirent_t`) must be copied to heap-allocated structures (like `std::string`) to persist until the main thread resumes the async function.
+9.  **Template Literal Unboxing**: Template literals (`` `...${expr}...` ``) generate calls to `ts_string_concat`, which expects raw `TsString*` pointers. If the expression is a boxed `TsValue*` (e.g. from an `Any` type or a function argument), it must be explicitly unboxed using `ts_value_get_string` before concatenation.
+10. **Function Argument Boxing Metadata**: When the runtime calls a compiled function (like an event listener), it passes `TsValue*` arguments. The compiler must track these as `boxedValues` even if they are typed as `Any` or `String` in the signature, so that subsequent uses correctly trigger unboxing instead of treating the `TsValue*` as a raw pointer.
+11. **Function Identity in EventEmitters**: The compiler re-boxes functions on every access, creating different `TsValue*` pointers for the same function. `RemoveListener` must compare the underlying `funcPtr` and `context` to correctly identify and remove listeners.
+12. **Global Identifier Resolution**: The compiler's `visitIdentifier` must fall back to checking the LLVM module's global variables and functions if a name is not found in the local `namedValues` map, ensuring top-level functions can be passed as arguments.
+
+### Future Improvements
+- [ ] **Task 96.8.2:** Implement `fs.fstat` and `fs.fstatSync`.
+    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_fstat`).
+- [ ] **Task 96.8.3:** Implement `fs.fsync` and `fs.fdatasync` (and Sync variants).
+    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_fsync`, `uv_fs_fdatasync`).
+- [ ] **Task 96.8.4:** Implement `fs.ftruncate` and `fs.ftruncateSync`.
+    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_ftruncate`).
+- [ ] **Task 96.8.5:** Implement `fs.readv` and `fs.writev` (and Sync variants).
+    - **Plan:** `Analyzer_StdLib_FS.cpp`, `IRGenerator_Expressions_Calls_Builtin_FS.cpp`, `src/runtime/src/node/fs.cpp` (impl using `uv_fs_read`/`write` with iov).
+
+## Action Items
+- [ ] **Current:** Implement `fs.fchmod`, `fs.fchown`, `fs.futimes` (Milestone 96.8).
 
 ## Reflections & Improvements
 

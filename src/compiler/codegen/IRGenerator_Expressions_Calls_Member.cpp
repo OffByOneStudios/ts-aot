@@ -9,12 +9,6 @@ using namespace ast;
 bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
-    printf("DEBUG: tryGenerateMemberCall %s\n", prop->name.c_str());
-    if (prop->expression->inferredType) {
-        printf("DEBUG: tryGenerateMemberCall expr type kind: %d\n", (int)prop->expression->inferredType->kind);
-    } else {
-        printf("DEBUG: tryGenerateMemberCall expr type is NULL\n");
-    }
 
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
@@ -96,7 +90,6 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                      }
                 }
                 llvm::Value* val = boxValue(lastValue, argType);
-                fprintf(stderr, "DEBUG: MemberCall arg boxed\n");
                 args.push_back(val);
                 paramTypes.push_back(builder->getPtrTy());
             }
@@ -579,7 +572,8 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         if (classType->isStruct && !thisArg->getType()->isPointerTy()) {
             // If it's a struct value, we need to pass a pointer to it.
             // Store it to a temporary alloca.
-            llvm::Value* temp = builder->CreateAlloca(thisArg->getType());
+            llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+            llvm::Value* temp = createEntryBlockAlloca(currentFunc, "temp_struct_this", thisArg->getType());
             builder->CreateStore(thisArg, temp);
             thisArg = temp;
         }
@@ -599,9 +593,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
 
             if (argIdx < (int)methodType->paramTypes.size()) {
                 auto expectedType = methodType->paramTypes[argIdx];
-                printf("DEBUG: Method call arg %d expected type kind %d\n", argIdx, (int)expectedType->kind);
                 if (expectedType->kind == TypeKind::Any || expectedType->kind == TypeKind::Function) {
-                    printf("DEBUG: Boxing argument %d\n", argIdx);
                     val = boxValue(val, argType);
                 } else if (argType && argType->kind == TypeKind::Any && expectedType->kind != TypeKind::Any) {
                     val = unboxValue(val, expectedType);
