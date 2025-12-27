@@ -33,10 +33,46 @@ function test() {
     console.log("resolve(foo, bar, baz):", resolved);
 
     const relative = path.relative("/data/orandea/test/aaa", "/data/orandea/impl/bbb");
-    console.log("relative(/data/orandea/test/aaa, /data/orandea/impl/bbb):", relative);
+    console.log("relative(/data/orandea/test/aaa, /data/orandea/impl/bbb): " + relative);
 
-    console.log("sep:", path.sep);
-    console.log("delimiter:", path.delimiter);
+    console.log("sep: " + path.sep);
+    console.log("delimiter: " + path.delimiter);
+
+    console.log("Testing path.parse()...");
+    const p3 = "C:\\path\\to\\file.txt";
+    const parsed = path.parse(p3);
+    console.log("Root: " + parsed.root);
+    console.log("Dir: " + parsed.dir);
+    console.log("Base: " + parsed.base);
+    console.log("Ext: " + parsed.ext);
+    console.log("Name: " + parsed.name);
+
+    const formatted = path.format(parsed);
+    console.log("Formatted: " + formatted);
+
+    console.log("Testing path.toNamespacedPath()...");
+    console.log("Namespaced: " + path.toNamespacedPath(p3));
+
+    console.log("Testing path.win32 and path.posix...");
+    console.log("win32.join: " + path.win32.join("a", "b"));
+    console.log("posix.join: " + path.posix.join("a", "b"));
+
+    console.log("win32.sep: " + path.win32.sep);
+    console.log("posix.sep: " + path.posix.sep);
+
+    console.log("win32.isAbsolute(C:\\\\foo): " + path.win32.isAbsolute("C:\\\\foo"));
+    console.log("posix.isAbsolute(C:\\\\foo): " + path.posix.isAbsolute("C:\\\\foo"));
+
+    console.log("win32.basename(a\\\\b\\\\c.txt): " + path.win32.basename("a\\\\b\\\\c.txt"));
+    console.log("posix.basename(a\\\\b\\\\c.txt): " + path.posix.basename("a\\\\b\\\\c.txt"));
+
+    const parsedWin32 = path.win32.parse("C:\\\\path\\\\to\\\\file.txt");
+    console.log("win32.parse root: " + parsedWin32.root);
+    console.log("win32.parse dir: " + parsedWin32.dir);
+
+    const parsedPosix = path.posix.parse("/path/to/file.txt");
+    console.log("posix.parse root: " + parsedPosix.root);
+    console.log("posix.parse dir: " + parsedPosix.dir);
 }
 
 test();
