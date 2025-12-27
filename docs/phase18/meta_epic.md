@@ -37,3 +37,9 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [ ] **CommonJS Support:** `require()` implementation that searches `node_modules`.
 - [ ] **ESM Support:** `import` implementation.
 - [ ] **JSON Imports:** Support `require('./data.json')`.
+
+### [Epic 99: Path & Utilities](./epic_99_path.md)
+- [ ] **Path Manipulation:** `join`, `resolve`, `relative`, `normalize`.
+- [ ] **Path Components:** `basename`, `dirname`, `extname`, `parse`, `format`.
+- [ ] **Platform Specifics:** `sep`, `delimiter`, `win32`, `posix`.
+- [ ] **Verification:** Update `compatibility_matrix.md` for `path` module.
