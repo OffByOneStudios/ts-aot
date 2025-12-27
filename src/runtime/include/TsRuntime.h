@@ -148,6 +148,18 @@ void* ts_fs_mkdtemp_async(void* prefix);
 void* ts_fs_access_async(void* path, double mode);
 void* ts_fs_chmod_async(void* path, double mode);
 void* ts_fs_chown_async(void* path, double uid, double gid);
+
+// --- FileHandle ---
+TsValue* ts_fs_filehandle_read_async(TsValue* handle, TsValue* buffer, double offset, double length, double position);
+TsValue* ts_fs_filehandle_write_async(TsValue* handle, TsValue* buffer, double offset, double length, double position);
+TsValue* ts_fs_filehandle_close_async(TsValue* handle);
+TsValue* ts_fs_filehandle_stat_async(TsValue* handle);
+TsValue* ts_fs_filehandle_sync_async(TsValue* handle);
+TsValue* ts_fs_filehandle_datasync_async(TsValue* handle);
+TsValue* ts_fs_filehandle_truncate_async(TsValue* handle, double len);
+TsValue* ts_fs_filehandle_readv_async(TsValue* handle, TsValue* buffers, double position);
+TsValue* ts_fs_filehandle_writev_async(TsValue* handle, TsValue* buffers, double position);
+
 void* ts_fs_utimes_async(void* path, double atime, double mtime);
 void* ts_fs_statfs_async(void* path);
 void* ts_fs_link_async(void* existingPath, void* newPath);

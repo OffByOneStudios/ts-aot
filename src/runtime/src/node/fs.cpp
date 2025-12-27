@@ -1,5 +1,4 @@
 #include "TsObject.h"
-#include "IO.h"
 #include "TsEventEmitter.h"
 #include "TsRuntime.h"
 #include "TsString.h"
@@ -21,6 +20,7 @@
 
 extern void* TsMap_VTable[2];
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
+extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
 extern "C" void ts_event_emitter_on(void* emitter, void* event, void* callback);
 
 #ifndef S_ISDIR
@@ -81,6 +81,7 @@ public:
 };
 
 static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
+    printf("add_stats_methods: size=%lld\n", (long long)st->st_size);
     bool isFile = (st->st_mode & S_IFMT) == S_IFREG;
     bool isDirectory = (st->st_mode & S_IFMT) == S_IFDIR;
     bool isSymbolicLink = (st->st_mode & S_IFMT) == S_IFLNK;
@@ -89,7 +90,7 @@ static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     stats->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isDirectory));
     stats->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSymbolicLink));
     
-    stats->Set(TsString::Create("size"), TsValue((int64_t)st->st_size));
+    stats->Set(TsString::Create("size"), TsValue((double)st->st_size));
     
     double mtime_ms = (double)st->st_mtim.tv_sec * 1000.0 + (double)st->st_mtim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("mtimeMs"), TsValue(mtime_ms));
@@ -189,6 +190,8 @@ extern "C" {
     TsValue* ts_fs_filehandle_utimes(void* context, int argc, TsValue** argv);
     TsValue* ts_fs_filehandle_read(void* context, int argc, TsValue** argv);
     TsValue* ts_fs_filehandle_write(void* context, int argc, TsValue** argv);
+    TsValue* ts_fs_filehandle_readv(void* context, int argc, TsValue** argv);
+    TsValue* ts_fs_filehandle_writev(void* context, int argc, TsValue** argv);
 }
 
 static TsValue* ts_fs_filehandle_get_property(void* obj, void* propName) {
@@ -204,6 +207,8 @@ static TsValue* ts_fs_filehandle_get_property(void* obj, void* propName) {
     if (strcmp(key, "utimes") == 0) return ts_value_make_native_function((void*)ts_fs_filehandle_utimes, obj);
     if (strcmp(key, "read") == 0) return ts_value_make_native_function((void*)ts_fs_filehandle_read, obj);
     if (strcmp(key, "write") == 0) return ts_value_make_native_function((void*)ts_fs_filehandle_write, obj);
+    if (strcmp(key, "readv") == 0) return ts_value_make_native_function((void*)ts_fs_filehandle_readv, obj);
+    if (strcmp(key, "writev") == 0) return ts_value_make_native_function((void*)ts_fs_filehandle_writev, obj);
     
     return ts_map_get_property(obj, propName);
 }
@@ -247,7 +252,9 @@ struct FSPromiseWork {
     ts::TsPromise* promise;
     uv_buf_t buf;
     std::vector<uv_buf_t> bufs;
-    TsValue* bufferValue; // Keep buffer alive
+    TsValue bufferValue; // Keep buffer alive
+
+    FSPromiseWork() : promise(nullptr), bufferValue(nullptr) {}
 };
 
 static void fs_promise_callback(uv_fs_t* req) {
@@ -265,6 +272,11 @@ static void fs_promise_callback(uv_fs_t* req) {
         } else if (req->fs_type == UV_FS_READ || req->fs_type == UV_FS_WRITE) {
             TsMap* res = TsMap::Create();
             res->Set(TsString::Create(req->fs_type == UV_FS_READ ? "bytesRead" : "bytesWritten"), *ts_value_make_double((double)req->result));
+            if (work->bufs.size() > 0) {
+                res->Set(TsString::Create("buffers"), work->bufferValue);
+            } else {
+                res->Set(TsString::Create("buffer"), work->bufferValue);
+            }
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
         } else {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
@@ -917,7 +929,7 @@ struct FSAsyncWork {
     bool withFileTypes = false;
     enum Type { 
         ACCESS, CHMOD, CHOWN, UTIMES, STATFS, LINK, SYMLINK, READLINK, REALPATH, STAT, LSTAT,
-        RENAME, COPYFILE, TRUNCATE, MKDIR, RMDIR, RM, MKDTEMP, APPEND_FILE,
+        RENAME, COPYFILE, TRUNCATE, MKDIR, RMDIR, RM, UNLINK, MKDTEMP, APPEND_FILE,
         OPENDIR, DIR_READ, DIR_CLOSE, READDIR
     } type;
     uv_statfs_t statfs_res;
@@ -1017,6 +1029,9 @@ static void fs_async_worker(uv_work_t* req) {
                 }
                 uv_fs_req_cleanup(&rm_req);
             }
+            break;
+        case FSAsyncWork::UNLINK:
+            r = uv_fs_unlink(NULL, &fs_req, work->path.c_str(), NULL);
             break;
         case FSAsyncWork::MKDTEMP:
             r = uv_fs_mkdtemp(NULL, &fs_req, work->path.c_str(), NULL);
@@ -1459,6 +1474,21 @@ void* ts_fs_rm_async(void* path, void* options) {
     return ts_value_make_promise(promise);
 }
 
+void* ts_fs_unlink_async(void* path) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+
+    TsString* pathStr = unboxString(path);
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->type = FSAsyncWork::UNLINK;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
 void* ts_fs_mkdtemp_async(void* prefix) {
     ts::TsPromise* promise = ts::ts_promise_create();
     FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
@@ -1635,10 +1665,64 @@ static TsValue* readdir_promise_wrapper(void* context, TsValue* path, TsValue* o
     return (TsValue*)ts_fs_readdir_async(path, options);
 }
 
+void* ts_fs_open_async(void* path_val, void* flags_val, double mode);
+void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
+void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
+void* ts_fs_readv_async(int64_t fd, void* buffers_val, double position);
+void* ts_fs_writev_async(int64_t fd, void* buffers_val, double position);
+void* ts_fs_unlink_async(void* path_val);
+TsValue* ts_fs_filehandle_read_async(TsValue* handle, TsValue* buffer, double offset, double length, double position);
+TsValue* ts_fs_filehandle_write_async(TsValue* handle, TsValue* buffer, double offset, double length, double position);
+TsValue* ts_fs_filehandle_readv_async(TsValue* handle, TsValue* buffers, double position);
+TsValue* ts_fs_filehandle_writev_async(TsValue* handle, TsValue* buffers, double position);
+
+static TsValue* open_promise_wrapper(void* context, TsValue* path, TsValue* flags, TsValue* mode) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    double m = 0666;
+    if (mode && (mode->type == ValueType::NUMBER_INT || mode->type == ValueType::NUMBER_DBL)) {
+        m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
+    }
+    return (TsValue*)ts_fs_open_async(path->ptr_val, flags, m);
+}
+
+static TsValue* read_promise_wrapper(void* context, TsValue* handle, TsValue* buffer, TsValue* offset, TsValue* length, TsValue* position) {
+    double o = offset ? ts_value_get_double(offset) : 0;
+    double l = length ? ts_value_get_double(length) : -1;
+    double p = position ? ts_value_get_double(position) : -1;
+    return ts_fs_filehandle_read_async(handle, buffer, o, l, p);
+}
+
+static TsValue* write_promise_wrapper(void* context, TsValue* handle, TsValue* buffer, TsValue* offset, TsValue* length, TsValue* position) {
+    double o = offset ? ts_value_get_double(offset) : 0;
+    double l = length ? ts_value_get_double(length) : -1;
+    double p = position ? ts_value_get_double(position) : -1;
+    return ts_fs_filehandle_write_async(handle, buffer, o, l, p);
+}
+
+static TsValue* readv_promise_wrapper(void* context, TsValue* handle, TsValue* buffers, TsValue* position) {
+    double p = position ? ts_value_get_double(position) : -1;
+    return ts_fs_filehandle_readv_async(handle, buffers, p);
+}
+
+static TsValue* writev_promise_wrapper(void* context, TsValue* handle, TsValue* buffers, TsValue* position) {
+    double p = position ? ts_value_get_double(position) : -1;
+    return ts_fs_filehandle_writev_async(handle, buffers, p);
+}
+
+static TsValue* unlink_promise_wrapper(void* context, TsValue* path) {
+    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_unlink_async(path->ptr_val);
+}
+
 void* ts_fs_get_promises() {
     TsMap* promises = TsMap::Create();
     promises->Set(TsString::Create("readFile"), *ts_value_make_function((void*)readFile_promise_wrapper, nullptr));
     promises->Set(TsString::Create("writeFile"), *ts_value_make_function((void*)writeFile_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("open"), *ts_value_make_function((void*)open_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("read"), *ts_value_make_function((void*)read_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("write"), *ts_value_make_function((void*)write_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("readv"), *ts_value_make_function((void*)readv_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("writev"), *ts_value_make_function((void*)writev_promise_wrapper, nullptr));
     promises->Set(TsString::Create("access"), *ts_value_make_function((void*)access_promise_wrapper, nullptr));
     promises->Set(TsString::Create("chmod"), *ts_value_make_function((void*)chmod_promise_wrapper, nullptr));
     promises->Set(TsString::Create("chown"), *ts_value_make_function((void*)chown_promise_wrapper, nullptr));
@@ -1657,6 +1741,7 @@ void* ts_fs_get_promises() {
     promises->Set(TsString::Create("mkdir"), *ts_value_make_function((void*)mkdir_promise_wrapper, nullptr));
     promises->Set(TsString::Create("rmdir"), *ts_value_make_function((void*)rmdir_promise_wrapper, nullptr));
     promises->Set(TsString::Create("rm"), *ts_value_make_function((void*)rm_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("unlink"), *ts_value_make_function((void*)unlink_promise_wrapper, nullptr));
     promises->Set(TsString::Create("mkdtemp"), *ts_value_make_function((void*)mkdtemp_promise_wrapper, nullptr));
     promises->Set(TsString::Create("opendir"), *ts_value_make_function((void*)opendir_promise_wrapper, nullptr));
     promises->Set(TsString::Create("readdir"), *ts_value_make_function((void*)readdir_promise_wrapper, nullptr));
@@ -2194,7 +2279,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_read(void* context, int argc, TsV
     FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
-    work->bufferValue = argv[0];
+    work->bufferValue = *argv[0];
     work->buf = uv_buf_init((char*)buffer->GetData() + (size_t)offset, (unsigned int)length);
     req->data = work;
     uv_fs_read(uv_default_loop(), req, (uv_file)h->fd, &work->buf, 1, (int64_t)position, fs_promise_callback);
@@ -2227,7 +2312,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_write(void* context, int argc, Ts
     FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
-    work->bufferValue = argv[0];
+    work->bufferValue = *argv[0];
     work->buf = uv_buf_init((char*)buffer->GetData() + (size_t)offset, (unsigned int)length);
     req->data = work;
     uv_fs_write(uv_default_loop(), req, (uv_file)h->fd, &work->buf, 1, (int64_t)position, fs_promise_callback);
@@ -2240,6 +2325,86 @@ extern "C" __declspec(noinline) TsValue* ts_fs_filehandle_write_async(TsValue* h
     TsValue v_position(position);
     TsValue* args[4] = { buffer, &v_offset, &v_length, &v_position };
     return ts_fs_filehandle_write(ts_value_get_object(handle), 4, args);
+}
+
+static TsValue* ts_fs_readv_internal(int fd, TsValue* buffers_val, double position) {
+    TsArray* buffers = (TsArray*)ts_value_get_object(buffers_val);
+    if (!buffers) return ts_value_make_undefined();
+
+    ts::TsPromise* promise = ts::ts_promise_create();
+    uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
+    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    new (work) FSPromiseWork();
+    work->promise = promise;
+    work->bufferValue = *buffers_val;
+    
+    for (int i = 0; i < buffers->Length(); ++i) {
+        int64_t bits = buffers->Get(i);
+        TsValue* v = (TsValue*)bits;
+        TsBuffer* b = (TsBuffer*)ts_value_get_object(v);
+        if (b) {
+            work->bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
+        }
+    }
+    
+    req->data = work;
+    uv_fs_read(uv_default_loop(), req, (uv_file)fd, work->bufs.data(), (unsigned int)work->bufs.size(), (int64_t)position, fs_promise_callback);
+    return ts_value_make_promise(promise);
+}
+
+TsValue* ts_fs_filehandle_readv(void* context, int argc, TsValue** argv) {
+    TsFileHandle* h = (TsFileHandle*)context;
+    if (argc < 1) return ts_value_make_undefined();
+    double position = argc > 1 ? ts_value_get_double(argv[1]) : -1;
+    return ts_fs_readv_internal(h->fd, argv[0], position);
+}
+
+extern "C" void* ts_fs_readv_async(int64_t fd, void* buffers_val, double position) {
+    return ts_fs_readv_internal((int)fd, (TsValue*)buffers_val, position);
+}
+
+extern "C" TsValue* ts_fs_filehandle_readv_async(TsValue* handle, TsValue* buffers, double position) {
+    return ts_fs_readv_internal((int)ts_value_get_double(ts_object_get_property(ts_value_get_object(handle), "fd")), buffers, position);
+}
+
+static TsValue* ts_fs_writev_internal(int fd, TsValue* buffers_val, double position) {
+    TsArray* buffers = (TsArray*)ts_value_get_object(buffers_val);
+    if (!buffers) return ts_value_make_undefined();
+
+    ts::TsPromise* promise = ts::ts_promise_create();
+    uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
+    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    new (work) FSPromiseWork();
+    work->promise = promise;
+    work->bufferValue = *buffers_val;
+    
+    for (int i = 0; i < buffers->Length(); ++i) {
+        int64_t bits = buffers->Get(i);
+        TsValue* v = (TsValue*)bits;
+        TsBuffer* b = (TsBuffer*)ts_value_get_object(v);
+        if (b) {
+            work->bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
+        }
+    }
+    
+    req->data = work;
+    uv_fs_write(uv_default_loop(), req, (uv_file)fd, work->bufs.data(), (unsigned int)work->bufs.size(), (int64_t)position, fs_promise_callback);
+    return ts_value_make_promise(promise);
+}
+
+TsValue* ts_fs_filehandle_writev(void* context, int argc, TsValue** argv) {
+    TsFileHandle* h = (TsFileHandle*)context;
+    if (argc < 1) return ts_value_make_undefined();
+    double position = argc > 1 ? ts_value_get_double(argv[1]) : -1;
+    return ts_fs_writev_internal(h->fd, argv[0], position);
+}
+
+extern "C" void* ts_fs_writev_async(int64_t fd, void* buffers_val, double position) {
+    return ts_fs_writev_internal((int)fd, (TsValue*)buffers_val, position);
+}
+
+extern "C" TsValue* ts_fs_filehandle_writev_async(TsValue* handle, TsValue* buffers, double position) {
+    return ts_fs_writev_internal((int)ts_value_get_double(ts_object_get_property(ts_value_get_object(handle), "fd")), buffers, position);
 }
 
 void ts_fs_fchmod(double fd, double mode, void* callback) {
@@ -2516,8 +2681,9 @@ double ts_fs_readvSync(double fd, void* buffers_val, double position) {
 
     std::vector<uv_buf_t> bufs;
     for (int i = 0; i < buffers->Length(); ++i) {
-        TsValue v = buffers->Get(i);
-        TsBuffer* b = (TsBuffer*)ts_value_get_object(&v);
+        int64_t bits = buffers->Get(i);
+        TsValue* v = (TsValue*)bits;
+        TsBuffer* b = (TsBuffer*)ts_value_get_object(v);
         if (b) {
             bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
         }
@@ -2536,8 +2702,9 @@ double ts_fs_writevSync(double fd, void* buffers_val, double position) {
 
     std::vector<uv_buf_t> bufs;
     for (int i = 0; i < buffers->Length(); ++i) {
-        TsValue v = buffers->Get(i);
-        TsBuffer* b = (TsBuffer*)ts_value_get_object(&v);
+        int64_t bits = buffers->Get(i);
+        TsValue* v = (TsValue*)bits;
+        TsBuffer* b = (TsBuffer*)ts_value_get_object(v);
         if (b) {
             bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
         }

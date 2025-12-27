@@ -323,9 +323,22 @@ TsValue* ts_map_size_wrapper(void* context) {
 }
 
 TsValue* ts_map_get_property(void* obj, void* propName) {
+    TsMap* map = (TsMap*)obj;
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
     
+    // Fallback: look in the map (for object-like behavior)
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = prop;
+    
+    if (map->Has(key)) {
+        TsValue val = map->Get(key);
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        *res = val;
+        return res;
+    }
+
     if (strcmp(name, "get") == 0) {
         return ts_value_make_function((void*)ts_map_get_wrapper, obj);
     } else if (strcmp(name, "set") == 0) {
@@ -338,19 +351,6 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
         return ts_value_make_function((void*)ts_map_clear_wrapper, obj);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_map_size(obj));
-    }
-    
-    // Fallback: look in the map (for object-like behavior)
-    TsValue key;
-    key.type = ValueType::STRING_PTR;
-    key.ptr_val = prop;
-    
-    TsMap* map = (TsMap*)obj;
-    if (map->Has(key)) {
-        TsValue val = map->Get(key);
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        *res = val;
-        return res;
     }
     
     return ts_value_make_undefined();

@@ -434,7 +434,6 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         if (currentAsyncFrame) {
             auto it = currentAsyncFrameMap.find(id->name);
             if (it != currentAsyncFrameMap.end()) {
-                SPDLOG_INFO("generateDestructuring: found {} in async frame", id->name);
                 llvm::Value* ptr = namedValues[id->name];
                 if (!ptr) {
                     ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
@@ -461,8 +460,6 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 }
 
                 return;
-            } else {
-                SPDLOG_INFO("generateDestructuring: {} NOT found in async frame", id->name);
             }
         }
 
@@ -866,13 +863,11 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 
     if (auto decl = dynamic_cast<ast::VariableDeclaration*>(node)) {
         if (auto id = dynamic_cast<ast::Identifier*>(decl->name.get())) {
-            SPDLOG_INFO("collectVariables: found variable {}", id->name);
             vars.push_back({id->name, decl->resolvedType, getLLVMType(decl->resolvedType)});
         } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(decl->name.get())) {
             for (auto& elem : obp->elements) {
                 if (auto bindingElem = dynamic_cast<ast::BindingElement*>(elem.get())) {
                     if (auto id = dynamic_cast<ast::Identifier*>(bindingElem->name.get())) {
-                        SPDLOG_INFO("collectVariables: found destructuring variable {}", id->name);
                         vars.push_back({id->name, std::make_shared<Type>(TypeKind::Any), builder->getPtrTy()});
                     }
                 }
@@ -882,7 +877,6 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
                 if (!elem) continue;
                 if (auto bindingElem = dynamic_cast<ast::BindingElement*>(elem.get())) {
                     if (auto id = dynamic_cast<ast::Identifier*>(bindingElem->name.get())) {
-                        SPDLOG_INFO("collectVariables: found destructuring variable {}", id->name);
                         vars.push_back({id->name, std::make_shared<Type>(TypeKind::Any), builder->getPtrTy()});
                     }
                 }
@@ -896,18 +890,25 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
     } else if (auto tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
         // Add implicit variable for pending exception
         std::string baseName = "try_" + std::to_string((uintptr_t)node);
-        vars.push_back({ baseName + "_pendingExc", std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+        std::string pendingExcName = baseName + "_pendingExc";
+        vars.push_back({ pendingExcName, std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
 
         for (auto& stmt : tryStmt->tryBlock) collectVariables(stmt.get(), vars);
         if (tryStmt->catchClause) {
-            if (tryStmt->catchClause->variable) {
-                collectVariables(tryStmt->catchClause->variable.get(), vars);
-            }
-            for (auto& stmt : tryStmt->catchClause->block) collectVariables(stmt.get(), vars);
+            collectVariables(tryStmt->catchClause.get(), vars);
         }
         for (auto& stmt : tryStmt->finallyBlock) {
             collectVariables(stmt.get(), vars);
         }
+    } else if (auto catchClause = dynamic_cast<ast::CatchClause*>(node)) {
+        if (catchClause->variable) {
+            if (auto id = dynamic_cast<ast::Identifier*>(catchClause->variable.get())) {
+                vars.push_back({ id->name, std::make_shared<Type>(TypeKind::Any), builder->getPtrTy() });
+            } else {
+                collectVariables(catchClause->variable.get(), vars);
+            }
+        }
+        for (auto& stmt : catchClause->block) collectVariables(stmt.get(), vars);
     } else if (auto switchStmt = dynamic_cast<ast::SwitchStatement*>(node)) {
         for (auto& clause : switchStmt->clauses) {
             if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {

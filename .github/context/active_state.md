@@ -1,29 +1,25 @@
 # Active Project State
 
-**Last Updated:** 2025-12-24
-**Current Phase:** Phase 17 (Language Completeness)
+**Last Updated:** 2025-12-26
+**Current Phase:** Phase 18 (Node.js Compatibility)
 
 ## Current Focus
-We are in **Phase 17: Language Completeness**, focusing on high-performance implementations of modern TypeScript features. We have just completed **Epic 93: Error Handling & Stack Traces**.
+We are in **Phase 18: Node.js Compatibility**, focusing on implementing the core Node.js modules (`fs`, `path`, `events`, `buffer`, `http`, `crypto`). We have just completed **Milestone 96.8: Advanced File Descriptors**.
 
 ## Active Tasks
-1.  **Epic 94:** Modern Syntax Sugar (Optional Chaining, Nullish Coalescing).
-2.  **Epic 95:** Extended Types & Runtime (BigInt, Symbols, Set).
+1.  **Epic 96:** The File System (fs) - Milestone 96.9 (Watching & Events).
+2.  **Epic 97:** Networking (http/https).
 
 ## Recent Accomplishments
-*   **Milestone 96.5: Links & Symlinks:** Implemented `fs.link`, `fs.symlink`, `fs.readlink`, `fs.realpath`, and `fs.lstat` (sync and async).
-*   **Compiler Optimization:** Fixed optimized FS dispatch for string-returning builtins (`readlinkSync`, `realpathSync`).
-*   **Async Codegen Fix:** Resolved LLVM "Instruction does not dominate all uses" errors in async state machines by isolating control-flow state.
-*   **Epic 93: Error Handling & Stack Traces:** Implemented `try/catch/finally` with `setjmp/longjmp`. Added `Error` class and symbolicated stack traces on Windows using `DbgHelp` and LLVM `DIBuilder` for source line mapping.
-*   **Advanced Classes:** Implemented Private Fields (`#field`), Static Blocks (`static {}`), and basic Comptime literal inlining (`ts_aot.comptime`). Fixed monomorphization issues with private fields in generic classes.
-*   **Workspace Cleanup:** Removed obsolete test targets and redundant `find_package` calls from the root `CMakeLists.txt`. Cleaned up build artifacts (`.exe`, `.lib`, `.obj`, `.ll`, `.json`) from the source tree. Updated benchmark scripts to point to new executable locations.
-*   **Build Hygiene:** Resolved all compiler warnings in the compiler and runtime. Fixed build errors in example projects (HTTP server, raytracer) by correcting CMake custom commands and adding missing Windows system libraries (`crypt32`).
-*   **Async Iteration Fix:** Resolved a critical "double-boxing" crash in `for await...of` loops by ensuring boxing is idempotent and pointers remain stable across state machine suspensions.
-*   **Logging Infrastructure:** Refactored the compiler to use `spdlog` macros (`SPDLOG_DEBUG`, etc.), enabling source-location metadata (file/line) and a cleaner, compiler-like output format without timestamps.
-*   **CLI Enhancements:** Added `--log-level` flag to control compiler output verbosity.
-*   **Phase 16:** Completed Single Binary Static Build and CLI Driver.
-*   **Epic 90/91:** Implemented Async/Await and Generators with state machine transformation.
-
-## Next Steps
-1.  Implement the `ts-aot` CLI (Epic 85).
-2.  Verify protocol compliance for custom async iterators (Task 90.7).
+*   **Compiler Fix:** Resolved "Operand is null" error in Async State Machine by ensuring all variables (including `catch` variables and internal control flags) are correctly spilled to the async frame.
+*   **Milestone 96.8: Advanced File Descriptors:** Implemented `sync`, `datasync`, `truncate`, `readv`, `writev`, `fstat`, `fchmod`, `fchown`, and `futimes` for `FileHandle` and `fs`.
+*   **Compiler Fix:** Resolved property unboxing issues for `Stats.size` and other numeric properties.
+*   **Runtime Fix:** Fixed `TsMap` property priority to ensure `Stats.size` is correctly retrieved before prototype helpers.
+*   **Async Lifetime Fix:** Resolved `readv`/`writev` buffer lifetime issues by moving `uv_buf_t` descriptors to heap-allocated `FSPromiseWork`.
+*   **Milestone 96.7:** Directory Operations & Watching (opendir, Dir, Dirent).
+*   **Milestone 96.6:** File Manipulation & Copying (copyFile, cp, rename, truncate, appendFile, rm, mkdtemp).
+*   **Milestone 96.5:** Links & Symlinks (link, symlink, readlink, realpath, lstat).
+*   **Milestone 96.4:** Extended Metadata & Permissions (access, chmod, chown, utimes, statfs, Stats fields, constants).
+*   **Milestone 96.3:** File Handles & Streams (openSync, closeSync, readSync, writeSync, createReadStream, createWriteStream).
+*   **Milestone 96.2:** Asynchronous IO (readFile, writeFile, Promises API).
+*   **Milestone 96.1:** Synchronous IO (readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, rmdirSync, statSync, readdirSync).

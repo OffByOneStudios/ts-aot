@@ -124,6 +124,40 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_filehandle_utimes_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { h, atime, mtime });
             return true;
+        } else if (prop->name == "readv") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* h = boxValue(lastValue, prop->expression->inferredType);
+            visit(node->arguments[0].get());
+            llvm::Value* buffers = lastValue;
+            llvm::Value* position = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                position = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            } else {
+                position = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), -1.0);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_filehandle_readv_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { h, buffers, position });
+            return true;
+        } else if (prop->name == "writev") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* h = boxValue(lastValue, prop->expression->inferredType);
+            visit(node->arguments[0].get());
+            llvm::Value* buffers = lastValue;
+            llvm::Value* position = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                position = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            } else {
+                position = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), -1.0);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_filehandle_writev_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { h, buffers, position });
+            return true;
         } else if (prop->name == "read") {
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
@@ -212,6 +246,28 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
                     { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_filehandle_write_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { h, buffer, offset, length, position });
+            boxedValues.insert(lastValue);
+            return true;
+        } else if (prop->name == "readv" || prop->name == "writev") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* h = boxValue(lastValue, prop->expression->inferredType);
+            visit(node->arguments[0].get());
+            llvm::Value* buffers = boxValue(lastValue, node->arguments[0]->inferredType);
+            
+            llvm::Value* position = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                position = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            } else {
+                position = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), -1.0);
+            }
+            
+            std::string runtimeName = "ts_fs_filehandle_" + prop->name + "_async";
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { h, buffers, position });
             boxedValues.insert(lastValue);
             return true;
         }
@@ -304,7 +360,7 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
                 visit(node->arguments[2].get());
                 mode = castValue(lastValue, llvm::Type::getDoubleTy(*context));
             } else {
-                mode = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0);
+                mode = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 438.0); // 0o666
             }
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
                     { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
@@ -408,6 +464,51 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_appendFile_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { path, data });
+            return true;
+        } else if (prop->name == "unlink") {
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_unlink_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path });
+            return true;
+        } else if (prop->name == "readv" || prop->name == "writev") {
+            if (node->arguments.size() < 2) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* handle = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* buffers = boxValue(lastValue, node->arguments[1]->inferredType);
+            
+            llvm::Value* position = nullptr;
+            if (node->arguments.size() > 2) {
+                visit(node->arguments[2].get());
+                position = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            } else {
+                position = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), -1.0);
+            }
+            
+            llvm::Value* fd = nullptr;
+            if (node->arguments[0]->inferredType->kind == TypeKind::Object) {
+                // Extract fd from FileHandle object
+                llvm::Value* objPtr = unboxValue(handle, node->arguments[0]->inferredType);
+                
+                llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_object_get_property", getPropFt);
+                llvm::Value* fdKey = builder->CreateGlobalStringPtr("fd");
+                llvm::Value* boxedFd = createCall(getPropFt, getPropFn.getCallee(), { objPtr, fdKey });
+                boxedValues.insert(boxedFd);
+                
+                fd = castValue(boxedFd, llvm::Type::getInt64Ty(*context));
+            } else {
+                fd = castValue(handle, llvm::Type::getInt64Ty(*context));
+            }
+            
+            std::string runtimeName = "ts_fs_" + prop->name + "_async";
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+                    { llvm::Type::getInt64Ty(*context), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { fd, buffers, position });
             return true;
         } else if (prop->name == "mkdir" || prop->name == "rmdir" || prop->name == "rm") {
             if (node->arguments.empty()) return true;

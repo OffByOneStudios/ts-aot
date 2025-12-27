@@ -35,20 +35,20 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | createWriteStream | function | 🟢 | |
 | fs | exists | function | 🟢 | |
 | fs | existsSync | function | 🟢 | |
-| fs | fchmod | function | 🔴 | |
-| fs | fchmodSync | function | 🔴 | |
-| fs | fchown | function | 🔴 | |
-| fs | fchownSync | function | 🔴 | |
-| fs | fdatasync | function | 🔴 | |
-| fs | fdatasyncSync | function | 🔴 | |
-| fs | fstat | function | 🔴 | |
-| fs | fstatSync | function | 🔴 | |
-| fs | fsync | function | 🔴 | |
-| fs | fsyncSync | function | 🔴 | |
-| fs | ftruncate | function | 🔴 | |
-| fs | ftruncateSync | function | 🔴 | |
-| fs | futimes | function | 🔴 | |
-| fs | futimesSync | function | 🔴 | |
+| fs | fchmod | function | 🟢 | |
+| fs | fchmodSync | function | 🟢 | |
+| fs | fchown | function | 🟢 | |
+| fs | fchownSync | function | 🟢 | |
+| fs | fdatasync | function | 🟢 | |
+| fs | fdatasyncSync | function | 🟢 | |
+| fs | fstat | function | 🟢 | |
+| fs | fstatSync | function | 🟢 | |
+| fs | fsync | function | 🟢 | |
+| fs | fsyncSync | function | 🟢 | |
+| fs | ftruncate | function | 🟢 | |
+| fs | ftruncateSync | function | 🟢 | |
+| fs | futimes | function | 🟢 | |
+| fs | futimesSync | function | 🟢 | |
 | fs | glob | function | 🔴 | |
 | fs | globSync | function | 🔴 | |
 | fs | lchmod | undefined | 🔴 | |
@@ -70,7 +70,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | openSync | function | 🟢 | |
 | fs | opendir | function | 🟢 | |
 | fs | opendirSync | function | 🟢 | |
-| fs | promises | object | 🟡 | `readFile`, `writeFile`, `readdir`, `stat`, `mkdir`, `open`, `close`, `read`, `write`, `access`, `chmod`, `chown`, `copyFile`, `cp`, `link`, `lstat`, `lutimes`, `mkdtemp`, `realpath`, `rename`, `rm`, `rmdir`, `symlink`, `truncate`, `unlink`, `utimes`, `appendFile`, `opendir` implemented |
+| fs | promises | object | 🟡 | `readFile`, `writeFile`, `readdir`, `stat`, `mkdir`, `open`, `close`, `read`, `write`, `access`, `chmod`, `chown`, `copyFile`, `cp`, `link`, `lstat`, `lutimes`, `mkdtemp`, `realpath`, `rename`, `rm`, `rmdir`, `symlink`, `truncate`, `unlink`, `utimes`, `appendFile`, `opendir`, `FileHandle.sync`, `FileHandle.datasync`, `FileHandle.readv`, `FileHandle.writev` implemented |
 | fs | read | function | 🟢 | |
 | fs | readFile | function | 🟢 | |
 | fs | readFileSync | function | 🟢 | |
@@ -79,8 +79,8 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | readdirSync | function | 🟢 | |
 | fs | readlink | function | 🟢 | |
 | fs | readlinkSync | function | 🟢 | |
-| fs | readv | function | 🔴 | |
-| fs | readvSync | function | 🔴 | |
+| fs | readv | function | 🟢 | |
+| fs | readvSync | function | 🟢 | |
 | fs | realpath | function | 🟢 | |
 | fs | realpathSync | function | 🟢 | |
 | fs | rename | function | 🟢 | |
@@ -108,8 +108,8 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | writeFile | function | 🟢 | |
 | fs | writeFileSync | function | 🟢 | |
 | fs | writeSync | function | 🟢 | |
-| fs | writev | function | 🔴 | |
-| fs | writevSync | function | 🔴 | |
+| fs | writev | function | 🟢 | |
+| fs | writevSync | function | 🟢 | |
 | path | _makeLong | function | 🔴 | |
 | path | basename | function | 🔴 | |
 | path | delimiter | string | 🔴 | |

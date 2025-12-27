@@ -304,7 +304,16 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
         // Setup pending exception storage in the frame
         std::string baseName = "try_" + std::to_string((uintptr_t)node);
         llvm::Value* pendingExc = namedValues[baseName + "_pendingExc"];
+        if (!pendingExc) {
+            // Fallback to a local alloca if frame mapping failed (should not happen)
+            pendingExc = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), baseName + "_pendingExc", builder->getPtrTy());
+        }
         builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
+        
+        llvm::Value* globalPendingExc = namedValues["pendingExc"];
+        if (globalPendingExc) {
+            builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), globalPendingExc);
+        }
         
         catchStack.push_back({ catchBB ? catchBB : (finallyBB ? finallyBB : currentReturnBB), pendingExc });
         finallyStack.push_back({ finallyBB, pendingExc, oldReturnBB, oldBreakBB, oldContinueBB, false, false });

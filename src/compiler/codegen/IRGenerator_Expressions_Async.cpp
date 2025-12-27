@@ -196,6 +196,13 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
                 paramNames.push_back(id->name);
             }
         }
+    } else if (auto funcExpr = dynamic_cast<ast::FunctionExpression*>(node)) {
+        for (auto& stmt : funcExpr->body) collectVariables(stmt.get(), vars);
+        for (auto& param : funcExpr->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                paramNames.push_back(id->name);
+            }
+        }
     } else if (auto arrowNode = dynamic_cast<ast::ArrowFunction*>(node)) {
         if (auto block = dynamic_cast<ast::BlockStatement*>(arrowNode->body.get())) {
             for (auto& stmt : block->statements) collectVariables(stmt.get(), vars);
@@ -423,14 +430,12 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Initialize return-related variables for the SM function
     currentReturnBB = llvm::BasicBlock::Create(*context, "return", smFunc);
     if (currentIsAsync) {
-        currentShouldReturnAlloca = nullptr; // namedValues["__shouldReturn"];
-        currentShouldBreakAlloca = nullptr; // namedValues["__shouldBreak"];
-        currentShouldContinueAlloca = nullptr; // namedValues["__shouldContinue"];
-        currentReturnValueAlloca = nullptr; // namedValues["__returnValue"];
+        currentShouldReturnAlloca = namedValues["__shouldReturn"];
+        currentShouldBreakAlloca = namedValues["__shouldBreak"];
+        currentShouldContinueAlloca = namedValues["__shouldContinue"];
+        currentReturnValueAlloca = namedValues["__returnValue"];
         
         // Targets are still local allocas for now as they are BasicBlock pointers
-        // currentBreakTargetAlloca = createEntryBlockAlloca(smFunc, "breakTarget", builder->getPtrTy());
-        // currentContinueTargetAlloca = createEntryBlockAlloca(smFunc, "continueTarget", builder->getPtrTy());
         currentBreakTargetAlloca = nullptr;
         currentContinueTargetAlloca = nullptr;
     } else {
@@ -516,6 +521,21 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     
     // Check pendingExc
     llvm::Value* pendingExcAlloca = namedValues["pendingExc"];
+    if (!pendingExcAlloca) {
+        // If missing, just return/resolve normally
+        if (isAsync && !isGenerator) {
+            llvm::Value* res = currentAsyncResumedValue;
+            if (!res) res = getUndefinedValue();
+            
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
+            llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
+            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+            createCall(resolveFt, resolveFn.getCallee(), { promise, res });
+        }
+        builder->CreateRetVoid();
+        return;
+    }
     llvm::Value* exc = builder->CreateLoad(builder->getPtrTy(), pendingExcAlloca);
     llvm::Value* hasExc = builder->CreateIsNotNull(exc);
     
