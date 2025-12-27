@@ -1,6 +1,6 @@
 # Epic 99: Path & Utilities
 
-**Status:** In Progress
+**Status:** Completed
 **Parent:** [Phase 18 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -22,12 +22,12 @@ Implement the Node.js `path` module, providing utilities for working with file a
 
 ### Milestone 99.3: Advanced Path Utilities
 - [x] **Task 99.3.1:** Implement `path.relative(from, to)`.
-- [ ] **Task 99.3.2:** Implement `path.parse(path)` and `path.format(pathObject)`.
-- [ ] **Task 99.3.3:** Implement `path.toNamespacedPath(path)`.
+- [x] **Task 99.3.2:** Implement `path.parse(path)` and `path.format(pathObject)`.
+- [x] **Task 99.3.3:** Implement `path.toNamespacedPath(path)`.
 
 ### Milestone 99.4: Platform Specifics & Constants
 - [x] **Task 99.4.1:** Implement `path.sep` and `path.delimiter`.
-- [ ] **Task 99.4.2:** Implement `path.win32` and `path.posix` objects.
+- [x] **Task 99.4.2:** Implement `path.win32` and `path.posix` objects.
 
 ## Action Items
 - [x] **Current:** Define `path` module in `Analyzer_StdLib_Path.cpp`.

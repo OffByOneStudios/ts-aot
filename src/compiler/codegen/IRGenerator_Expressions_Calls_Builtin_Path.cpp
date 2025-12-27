@@ -6,8 +6,21 @@ using namespace ast;
 
 bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     bool isPath = false;
+    int platform = 0; // 0: default, 1: win32, 2: posix
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "path") isPath = true;
+    } else if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+        if (auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+            if (id->name == "path") {
+                if (innerProp->name == "win32") {
+                    isPath = true;
+                    platform = 1;
+                } else if (innerProp->name == "posix") {
+                    isPath = true;
+                    platform = 2;
+                }
+            }
+        }
     }
 
     if (!isPath) return false;
@@ -15,16 +28,24 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
     if (!node) {
         // Property access
         if (prop->name == "sep") {
+            const char* fnName = "ts_path_get_sep";
+            if (platform == 1) fnName = "ts_path_get_sep_win32";
+            else if (platform == 2) fnName = "ts_path_get_sep_posix";
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_get_sep", ft);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
             lastValue = createCall(ft, fn.getCallee(), {});
-            lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
             return true;
         } else if (prop->name == "delimiter") {
+            const char* fnName = "ts_path_get_delimiter";
+            if (platform == 1) fnName = "ts_path_get_delimiter_win32";
+            else if (platform == 2) fnName = "ts_path_get_delimiter_posix";
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_get_delimiter", ft);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
             lastValue = createCall(ft, fn.getCallee(), {});
-            lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+            return true;
+        } else if (prop->name == "win32" || prop->name == "posix") {
+            // Return a dummy object or just undefined for now if not called
+            lastValue = getUndefinedValue();
             return true;
         }
         return false;
@@ -49,10 +70,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
             createCall(arraySetFt, arraySetFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i] });
         }
 
-        llvm::FunctionType* joinFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee joinFn = module->getOrInsertFunction("ts_path_join_variadic", joinFt);
-        lastValue = createCall(joinFt, joinFn.getCallee(), { array });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* joinFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee joinFn = module->getOrInsertFunction("ts_path_join_variadic_ex", joinFt);
+            lastValue = createCall(joinFt, joinFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* joinFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee joinFn = module->getOrInsertFunction("ts_path_join_variadic", joinFt);
+            lastValue = createCall(joinFt, joinFn.getCallee(), { array });
+        }
         return true;
     } else if (prop->name == "resolve") {
         std::vector<llvm::Value*> args;
@@ -72,10 +98,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
             createCall(arraySetFt, arraySetFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i] });
         }
 
-        llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_path_resolve", resolveFt);
-        lastValue = createCall(resolveFt, resolveFn.getCallee(), { array });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_path_resolve_ex", resolveFt);
+            lastValue = createCall(resolveFt, resolveFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_path_resolve", resolveFt);
+            lastValue = createCall(resolveFt, resolveFn.getCallee(), { array });
+        }
         return true;
     } else if (prop->name == "normalize") {
         if (node->arguments.size() < 1) {
@@ -84,10 +115,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         }
         visit(node->arguments[0].get());
         llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_normalize", ft);
-        lastValue = createCall(ft, fn.getCallee(), { p });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_normalize_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_normalize", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
         return true;
     } else if (prop->name == "isAbsolute") {
         if (node->arguments.size() < 1) {
@@ -96,9 +132,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         }
         visit(node->arguments[0].get());
         llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_is_absolute", ft);
-        lastValue = createCall(ft, fn.getCallee(), { p });
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_is_absolute_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_is_absolute", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
         lastValue = builder->CreateICmpNE(lastValue, builder->getInt32(0));
         return true;
     } else if (prop->name == "basename") {
@@ -115,10 +157,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         } else {
             ext = llvm::ConstantPointerNull::get(builder->getPtrTy());
         }
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_basename", ft);
-        lastValue = createCall(ft, fn.getCallee(), { p, ext });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_basename_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, ext, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_basename", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, ext });
+        }
         return true;
     } else if (prop->name == "dirname") {
         if (node->arguments.size() < 1) {
@@ -127,10 +174,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         }
         visit(node->arguments[0].get());
         llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_dirname", ft);
-        lastValue = createCall(ft, fn.getCallee(), { p });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_dirname_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_dirname", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
         return true;
     } else if (prop->name == "extname") {
         if (node->arguments.size() < 1) {
@@ -139,10 +191,15 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         }
         visit(node->arguments[0].get());
         llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_extname", ft);
-        lastValue = createCall(ft, fn.getCallee(), { p });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_extname_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_extname", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
         return true;
     } else if (prop->name == "relative") {
         if (node->arguments.size() < 2) {
@@ -153,10 +210,66 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         llvm::Value* from = boxValue(lastValue, node->arguments[0]->inferredType);
         visit(node->arguments[1].get());
         llvm::Value* to = boxValue(lastValue, node->arguments[1]->inferredType);
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_relative", ft);
-        lastValue = createCall(ft, fn.getCallee(), { from, to });
-        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::String));
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_relative_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { from, to, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_relative", ft);
+            lastValue = createCall(ft, fn.getCallee(), { from, to });
+        }
+        return true;
+    } else if (prop->name == "parse") {
+        if (node->arguments.size() < 1) {
+            lastValue = getUndefinedValue();
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_parse_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_parse", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
+        return true;
+    } else if (prop->name == "format") {
+        if (node->arguments.size() < 1) {
+            lastValue = getUndefinedValue();
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_format_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_format", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
+        return true;
+    } else if (prop->name == "toNamespacedPath") {
+        if (node->arguments.size() < 1) {
+            lastValue = getUndefinedValue();
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* p = boxValue(lastValue, node->arguments[0]->inferredType);
+        if (platform != 0) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_to_namespaced_path_ex", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), platform) });
+        } else {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_path_to_namespaced_path", ft);
+            lastValue = createCall(ft, fn.getCallee(), { p });
+        }
         return true;
     }
 
