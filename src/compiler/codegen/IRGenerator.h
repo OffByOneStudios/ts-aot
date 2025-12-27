@@ -119,6 +119,9 @@ private:
     bool tryGenerateMemberCall(ast::CallExpression* node);
     bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
@@ -126,6 +129,9 @@ private:
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void generatePropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateFSPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGeneratePathPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateEventsPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateBufferPropertyAccess(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;

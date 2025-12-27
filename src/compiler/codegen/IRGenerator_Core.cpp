@@ -1148,6 +1148,11 @@ void IRGenerator::dumpIR() {
 }
 
 llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args) {
+    std::string name;
+    llvm::Value* actualCallee = callee->stripPointerCasts();
+    if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
+    SPDLOG_INFO("createCall: {} with {} args", name, args.size());
+
     if (ft->getNumParams() != args.size()) {
         // Some functions might be vararg or we might have optional args
         // For now, just warn if not vararg

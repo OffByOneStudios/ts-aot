@@ -46,6 +46,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::BOOLEAN;
         v->b_val = b;
+        printf("ts_value_make_bool(%d) -> %p\n", b, v);
         return v;
     }
 
@@ -101,8 +102,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
     bool ts_value_get_bool(TsValue* v) {
         if (!v) return false;
-        if (v->type == ValueType::BOOLEAN) return v->b_val;
-        return false;
+        bool res = false;
+        if (v->type == ValueType::BOOLEAN) res = v->b_val;
+        else res = ts_value_to_bool(v);
+        printf("ts_value_get_bool(%p) type=%d -> %d\n", v, (int)v->type, res);
+        return res;
     }
 
     void* ts_value_get_string(TsValue* v) {

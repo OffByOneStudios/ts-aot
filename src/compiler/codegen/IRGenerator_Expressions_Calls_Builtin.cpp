@@ -322,6 +322,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     }
 
     if (tryGenerateFSCall(node, prop)) return true;
+    if (tryGeneratePathCall(node, prop)) return true;
 
     if (false) {
         // Handle both fs.readFileSync and const fs = require('fs'); fs.readFileSync
@@ -656,22 +657,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     lastValue = createCall(readdirFt, readdirFn.getCallee(), { path });
                     return true;
                 }
-            }
-        }
-    } else if (prop->name == "join") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "path") {
-                if (node->arguments.size() < 2) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* p1 = lastValue;
-                visit(node->arguments[1].get());
-                llvm::Value* p2 = lastValue;
-                
-                llvm::FunctionType* joinFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee joinFn = module->getOrInsertFunction("ts_path_join", joinFt);
-                
-                lastValue = createCall(joinFt, joinFn.getCallee(), { p1, p2 });
-                return true;
             }
         }
     } else if (prop->name == "exit") {
