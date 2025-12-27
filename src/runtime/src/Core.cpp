@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstdlib>
 #include <filesystem>
+#include <windows.h>
 
 #ifdef _MSC_VER
 #include <crtdbg.h>

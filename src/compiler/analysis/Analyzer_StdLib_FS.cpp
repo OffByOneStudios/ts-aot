@@ -72,6 +72,78 @@ void Analyzer::registerFS() {
     writeFileSync->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["writeFileSync"] = writeFileSync;
 
+    // fs.openSync(path: string, flags?: string|number, mode?: number): number
+    auto openSync = std::make_shared<FunctionType>();
+    openSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    openSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    openSync->returnType = std::make_shared<Type>(TypeKind::Double);
+    fsType->fields["openSync"] = openSync;
+
+    // fs.closeSync(fd: number): void
+    auto closeSync = std::make_shared<FunctionType>();
+    closeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    closeSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["closeSync"] = closeSync;
+
+    // fs.readSync(fd: number, buffer: any, offset?: number, length?: number, position?: number): number
+    auto readSync = std::make_shared<FunctionType>();
+    readSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    readSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readSync->returnType = std::make_shared<Type>(TypeKind::Double);
+    fsType->fields["readSync"] = readSync;
+
+    // fs.writeSync(fd: number, buffer: any, offset?: number, length?: number, position?: number): number
+    auto writeSync = std::make_shared<FunctionType>();
+    writeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writeSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writeSync->returnType = std::make_shared<Type>(TypeKind::Double);
+    fsType->fields["writeSync"] = writeSync;
+
+    // fs.open(path: string, flags: any, mode: any, callback: any): void
+    auto open = std::make_shared<FunctionType>();
+    open->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    open->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    open->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    open->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    open->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["open"] = open;
+
+    // fs.close(fd: number, callback: any): void
+    auto close = std::make_shared<FunctionType>();
+    close->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    close->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    close->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["close"] = close;
+
+    // fs.read(fd: number, buffer: any, offset: number, length: number, position: number, callback: any): void
+    auto read = std::make_shared<FunctionType>();
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    read->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    read->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["read"] = read;
+
+    // fs.write(fd: number, buffer: any, offset: number, length: number, position: number, callback: any): void
+    auto write = std::make_shared<FunctionType>();
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    write->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    write->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["write"] = write;
+
     // fs.existsSync(path: string): boolean
     auto existsSync = std::make_shared<FunctionType>();
     existsSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
@@ -153,7 +225,71 @@ void Analyzer::registerFS() {
     realpathSync->returnType = std::make_shared<Type>(TypeKind::String);
     fsType->fields["realpathSync"] = realpathSync;
 
-    // fs.statSync(path: string): any
+    // fs.fchmodSync(fd: number, mode: number): void
+    auto fchmodSync = std::make_shared<FunctionType>();
+    fchmodSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmodSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmodSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchmodSync"] = fchmodSync;
+
+    // fs.fchownSync(fd: number, uid: number, gid: number): void
+    auto fchownSync = std::make_shared<FunctionType>();
+    fchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchownSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchownSync"] = fchownSync;
+
+    // fs.futimesSync(fd: number, atime: number, mtime: number): void
+    auto futimesSync = std::make_shared<FunctionType>();
+    futimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimesSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["futimesSync"] = futimesSync;
+
+    // fs.fstatSync(fd: number): Stats
+    auto fstatSync = std::make_shared<FunctionType>();
+    fstatSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fstatSync->returnType = statsType;
+    fsType->fields["fstatSync"] = fstatSync;
+
+    // fs.fsyncSync(fd: number): void
+    auto fsyncSync = std::make_shared<FunctionType>();
+    fsyncSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fsyncSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fsyncSync"] = fsyncSync;
+
+    // fs.fdatasyncSync(fd: number): void
+    auto fdatasyncSync = std::make_shared<FunctionType>();
+    fdatasyncSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fdatasyncSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fdatasyncSync"] = fdatasyncSync;
+
+    // fs.ftruncateSync(fd: number, len?: number): void
+    auto ftruncateSync = std::make_shared<FunctionType>();
+    ftruncateSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncateSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncateSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["ftruncateSync"] = ftruncateSync;
+
+    // fs.readvSync(fd: number, buffers: any[], position?: number): number
+    auto readvSync = std::make_shared<FunctionType>();
+    readvSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readvSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
+    readvSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readvSync->returnType = std::make_shared<Type>(TypeKind::Double);
+    fsType->fields["readvSync"] = readvSync;
+
+    // fs.writevSync(fd: number, buffers: any[], position?: number): number
+    auto writevSync = std::make_shared<FunctionType>();
+    writevSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writevSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
+    writevSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writevSync->returnType = std::make_shared<Type>(TypeKind::Double);
+    fsType->fields["writevSync"] = writevSync;
+
+    // fs.lstatSync(path: string): Stats
     auto statSync = std::make_shared<FunctionType>();
     statSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     statSync->returnType = statsType;
@@ -276,6 +412,79 @@ void Analyzer::registerFS() {
     mkdtempSync->returnType = std::make_shared<Type>(TypeKind::String);
     fsType->fields["mkdtempSync"] = mkdtempSync;
 
+    // fs.fchmod(fd: number, mode: number, callback: any): void
+    auto fchmod = std::make_shared<FunctionType>();
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fchmod->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchmod"] = fchmod;
+
+    // fs.fchown(fd: number, uid: number, gid: number, callback: any): void
+    auto fchown = std::make_shared<FunctionType>();
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fchown->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchown"] = fchown;
+
+    // fs.futimes(fd: number, atime: number, mtime: number, callback: any): void
+    auto futimes = std::make_shared<FunctionType>();
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    futimes->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["futimes"] = futimes;
+
+    // fs.fstat(fd: number, callback: any): void
+    auto fstat = std::make_shared<FunctionType>();
+    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fstat->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fstat"] = fstat;
+
+    // fs.fsync(fd: number, callback: any): void
+    auto fsync = std::make_shared<FunctionType>();
+    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fsync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fsync"] = fsync;
+
+    // fs.fdatasync(fd: number, callback: any): void
+    auto fdatasync = std::make_shared<FunctionType>();
+    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fdatasync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fdatasync"] = fdatasync;
+
+    // fs.ftruncate(fd: number, len: number, callback: any): void
+    auto ftruncate = std::make_shared<FunctionType>();
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    ftruncate->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["ftruncate"] = ftruncate;
+
+    // fs.readv(fd: number, buffers: any[], position: number, callback: any): void
+    auto readv = std::make_shared<FunctionType>();
+    readv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
+    readv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    readv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    readv->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["readv"] = readv;
+
+    // fs.writev(fd: number, buffers: any[], position: number, callback: any): void
+    auto writev = std::make_shared<FunctionType>();
+    writev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
+    writev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    writev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    writev->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["writev"] = writev;
+
     // fs.constants
     auto constants = std::make_shared<ObjectType>();
     constants->fields["F_OK"] = std::make_shared<Type>(TypeKind::Double);
@@ -284,9 +493,92 @@ void Analyzer::registerFS() {
     constants->fields["X_OK"] = std::make_shared<Type>(TypeKind::Double);
     fsType->fields["constants"] = constants;
 
+    // FileHandle type
+    auto fileHandleType = std::make_shared<ObjectType>();
+    fileHandleType->fields["fd"] = std::make_shared<Type>(TypeKind::Double);
+    
+    auto fhClose = std::make_shared<FunctionType>();
+    auto fhClosePromise = std::make_shared<ClassType>("Promise");
+    fhClosePromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::Void));
+    fhClose->returnType = fhClosePromise;
+    fileHandleType->fields["close"] = fhClose;
+
+    auto fhStat = std::make_shared<FunctionType>();
+    auto fhStatPromise = std::make_shared<ClassType>("Promise");
+    fhStatPromise->typeArguments.push_back(statsType);
+    fhStat->returnType = fhStatPromise;
+    fileHandleType->fields["stat"] = fhStat;
+
+    auto fhChmod = std::make_shared<FunctionType>();
+    fhChmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    auto fhChmodPromise = std::make_shared<ClassType>("Promise");
+    fhChmodPromise->typeArguments.push_back(std::make_shared<Type>(TypeKind::Void));
+    fhChmod->returnType = fhChmodPromise;
+    fileHandleType->fields["chmod"] = fhChmod;
+
+    auto fhChown = std::make_shared<FunctionType>();
+    fhChown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fhChown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fhChown->returnType = fhChmodPromise;
+    fileHandleType->fields["chown"] = fhChown;
+
+    auto fhSync = std::make_shared<FunctionType>();
+    fhSync->returnType = fhChmodPromise;
+    fileHandleType->fields["sync"] = fhSync;
+
+    auto fhDatasync = std::make_shared<FunctionType>();
+    fhDatasync->returnType = fhChmodPromise;
+    fileHandleType->fields["datasync"] = fhDatasync;
+
+    auto fhTruncate = std::make_shared<FunctionType>();
+    fhTruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fhTruncate->returnType = fhChmodPromise;
+    fileHandleType->fields["truncate"] = fhTruncate;
+
+    auto fhUtimes = std::make_shared<FunctionType>();
+    fhUtimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fhUtimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fhUtimes->returnType = fhChmodPromise;
+    fileHandleType->fields["utimes"] = fhUtimes;
+
+    auto fhRead = std::make_shared<FunctionType>();
+    fhRead->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    fhRead->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // offset
+    fhRead->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // length
+    fhRead->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    auto fhReadRes = std::make_shared<ObjectType>();
+    fhReadRes->fields["bytesRead"] = std::make_shared<Type>(TypeKind::Double);
+    fhReadRes->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+    auto fhReadPromise = std::make_shared<ClassType>("Promise");
+    fhReadPromise->typeArguments.push_back(fhReadRes);
+    fhRead->returnType = fhReadPromise;
+    fileHandleType->fields["read"] = fhRead;
+
+    auto fhWrite = std::make_shared<FunctionType>();
+    fhWrite->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Buffer
+    fhWrite->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // offset
+    fhWrite->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // length
+    fhWrite->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
+    auto fhWriteRes = std::make_shared<ObjectType>();
+    fhWriteRes->fields["bytesWritten"] = std::make_shared<Type>(TypeKind::Double);
+    fhWriteRes->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+    auto fhWritePromise = std::make_shared<ClassType>("Promise");
+    fhWritePromise->typeArguments.push_back(fhWriteRes);
+    fhWrite->returnType = fhWritePromise;
+    fileHandleType->fields["write"] = fhWrite;
+
     // fs.promises
     auto promises = std::make_shared<ObjectType>();
     
+    auto openAsync = std::make_shared<FunctionType>();
+    openAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    openAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    openAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    auto openPromise = std::make_shared<ClassType>("Promise");
+    openPromise->typeArguments.push_back(fileHandleType);
+    openAsync->returnType = openPromise;
+    promises->fields["open"] = openAsync;
+
     auto readFileAsync = std::make_shared<FunctionType>();
     readFileAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     readFileAsync->returnType = std::make_shared<Type>(TypeKind::Any); // Promise<string|Buffer>

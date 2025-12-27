@@ -16,12 +16,12 @@ extern "C" {
     void* ts_fs_statfsSync(void* path);
     void* ts_fs_get_constants();
     void* ts_fs_get_promises();
-    int64_t ts_fs_openSync(void* path, void* flags);
-    void ts_fs_closeSync(int64_t fd);
-    int64_t ts_fs_readSync(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
-    int64_t ts_fs_writeSync(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
-    void* ts_fs_open_async(void* path, void* flags);
-    void* ts_fs_close_async(int64_t fd);
+    double ts_fs_openSync(void* path, void* flags, double mode);
+    void ts_fs_closeSync(double fd);
+    double ts_fs_readSync(double fd, void* buffer, double offset, double length, double position);
+    double ts_fs_writeSync(double fd, void* buffer, double offset, double length, double position);
+    void* ts_fs_open_async(void* path, void* flags, double mode);
+    void* ts_fs_close_async(double fd);
     void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
     void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position);
     void* ts_fs_readdirSync(void* path, void* options);

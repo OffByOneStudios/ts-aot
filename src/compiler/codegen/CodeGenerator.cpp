@@ -88,6 +88,9 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
     else if (optLevel == "z") level = llvm::OptimizationLevel::Oz;
     else level = llvm::OptimizationLevel::O0;
 
+    // FORCE O0 for debugging
+    level = llvm::OptimizationLevel::O0;
+
     if (level != llvm::OptimizationLevel::O0) {
         SPDLOG_INFO("Running IR optimizations (Level O{})", optLevel);
         llvm::ModulePassManager MPM;
@@ -95,7 +98,7 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
         MPM.addPass(llvm::ModuleInlinerWrapperPass());
         
         llvm::FunctionPassManager FPM;
-        FPM.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
+        // FPM.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
         FPM.addPass(llvm::GVNPass());
         MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
         
@@ -136,7 +139,15 @@ bool CodeGenerator::emitObjectFile(const std::string& filename, const std::strin
         return false;
     }
 
+    SPDLOG_INFO("Dumping debug IR to debug_ir.ll");
+    std::error_code ec2;
+    llvm::raw_fd_ostream debugFile("debug_ir.ll", ec2, llvm::sys::fs::OF_None);
+    module->print(debugFile, nullptr);
+    debugFile.flush();
+
+    SPDLOG_INFO("Starting CodeGen passes");
     pass.run(*module);
+    SPDLOG_INFO("Finished CodeGen passes");
     dest.flush();
 
     return true;

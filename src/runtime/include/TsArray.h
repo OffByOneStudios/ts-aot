@@ -23,6 +23,7 @@ public:
     void Sort();
     int64_t IndexOf(int64_t value);
     bool Includes(int64_t value);
+    void Remove(int64_t value);
     int64_t At(int64_t index);
     void* Slice(int64_t start, int64_t end);
     void* Join(void* separator);

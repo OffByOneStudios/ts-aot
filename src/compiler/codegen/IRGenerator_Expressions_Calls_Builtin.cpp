@@ -8,7 +8,6 @@ using namespace ast;
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
-    printf("DEBUG: tryGenerateBuiltinCall %s\n", prop->name.c_str());
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Symbol") {
@@ -425,24 +424,25 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::Value* path = lastValue;
                 visit(node->arguments[1].get());
                 llvm::Value* flags = lastValue;
+                llvm::Value* mode = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0);
                 
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
-                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), 
+                        { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_openSync", ft);
                 
-                llvm::Value* fd = createCall(ft, fn.getCallee(), { path, flags });
+                llvm::Value* fd = createCall(ft, fn.getCallee(), { path, flags, mode });
                 
-                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee makeIntFn = module->getOrInsertFunction("ts_value_make_int", makeIntFt);
-                lastValue = createCall(makeIntFt, makeIntFn.getCallee(), { fd });
+                llvm::FunctionType* makeDoubleFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false);
+                llvm::FunctionCallee makeDoubleFn = module->getOrInsertFunction("ts_value_make_double", makeDoubleFt);
+                lastValue = createCall(makeDoubleFt, makeDoubleFn.getCallee(), { fd });
                 return true;
             } else if (prop->name == "closeSync") {
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
-                llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
                 
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
-                        { llvm::Type::getInt64Ty(*context) }, false);
+                        { llvm::Type::getDoubleTy(*context) }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_closeSync", ft);
                 
                 createCall(ft, fn.getCallee(), { fd });
@@ -590,11 +590,12 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::Value* path = lastValue;
                     visit(node->arguments[1].get());
                     llvm::Value* flags = lastValue;
+                    llvm::Value* mode = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0);
                     
-                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_open_async", ft);
                     
-                    lastValue = createCall(ft, fn.getCallee(), { path, flags });
+                    lastValue = createCall(ft, fn.getCallee(), { path, flags, mode });
                     return true;
                 }
             }
@@ -605,9 +606,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (obj->name == "fs" && innerProp->name == "promises") {
                     if (node->arguments.empty()) return true;
                     visit(node->arguments[0].get());
-                    llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+                    llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
                     
-                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getDoubleTy(*context) }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_close_async", ft);
                     
                     lastValue = createCall(ft, fn.getCallee(), { fd });

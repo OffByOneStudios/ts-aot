@@ -878,7 +878,7 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             
             std::string keyName = "unknown";
             if (auto id = dynamic_cast<ast::Identifier*>(pa->nameNode.get())) keyName = id->name;
-            SPDLOG_INFO("PropertyAssignment: key={} typeKind={}", keyName, (pa->initializer->inferredType ? (int)pa->initializer->inferredType->kind : -1));
+            SPDLOG_DEBUG("PropertyAssignment: key={} typeKind={}", keyName, (pa->initializer->inferredType ? (int)pa->initializer->inferredType->kind : -1));
 
             // Box the value
             llvm::Value* boxedVal = boxValue(val, pa->initializer->inferredType);
@@ -893,7 +893,8 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
                 keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(pa->name) });
             }
             
-            createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
+            llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+            createCall(setMapFt, setFn.getCallee(), { map, boxedKey, boxedVal });
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
             auto it = namedValues.find(spa->name);
             if (it != namedValues.end()) {

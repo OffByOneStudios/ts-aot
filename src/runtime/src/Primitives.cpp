@@ -112,7 +112,6 @@ TsString* ts_typeof(void* val) {
 }
 
 bool ts_value_is_nullish(TsValue* v) {
-    fprintf(stderr, "DEBUG: ts_value_is_nullish v=%p\n", v); fflush(stderr);
     if (!v) return true;
     if (v->type == ValueType::UNDEFINED) return true;
     if (v->type == ValueType::OBJECT_PTR && v->ptr_val == nullptr) return true;

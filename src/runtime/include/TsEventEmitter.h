@@ -12,7 +12,9 @@ public:
     ~TsEventEmitter();
     
     void On(const char* event, void* callback);
+    void RemoveListener(const char* event, void* callback);
     void Emit(const char* event, int argc, void** argv);
+    int ListenerCount(const char* event);
 
 protected:
     TsMap* listeners;

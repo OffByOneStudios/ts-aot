@@ -4,6 +4,7 @@
 #include "TsMap.h"
 #include <iostream>
 #include <cstdio>
+#include <windows.h>
 
 namespace ts {
 
@@ -84,7 +85,6 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
 }
 
 TsPromise* TsAsyncGenerator::next(TsValue* value) {
-    printf("TsAsyncGenerator::next: this=%p, done=%d\n", this, (int)done);
     TsPromise* p = ts_promise_create();
     if (done) {
         ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
@@ -93,7 +93,6 @@ TsPromise* TsAsyncGenerator::next(TsValue* value) {
     
     ctx->pendingNextPromise = p;
     ctx->yielded = false;
-    printf("TsAsyncGenerator::next: resuming SM\n");
     ctx->resumeFn(ctx, value);
     
     return p;
@@ -197,10 +196,7 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
     if (ctx->resumeFn) {
-        printf("ts_async_resume: ctx=%p, state=%d, value type=%d\n", ctx, ctx->state, (int)value->type);
         ctx->resumeFn(ctx, value);
-    } else {
-        printf("ts_async_resume: ctx=%p, NO resumeFn!\n", ctx);
     }
 }
 
@@ -307,6 +303,7 @@ TsValue* ts_promise_reject_internal_helper(void* context, TsValue* reason) {
 }
 
 void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
+    if (!promise) return;
     if (promise->state != PromiseState::Pending) return;
 
     if (value && value->type == ValueType::PROMISE_PTR) {
@@ -340,7 +337,6 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
 
 void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
     if (promise->state != PromiseState::Pending) return;
-    printf("DEBUG: ts_promise_reject_internal promise=%p reason type=%d\n", promise, reason ? (int)reason->type : -1);
     promise->state = PromiseState::Rejected;
     promise->value = reason ? *reason : TsValue();
 
@@ -422,10 +418,7 @@ TsValue* ts_promise_await(TsValue* promise) {
 }
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
-    printf("ts_async_await: promise=%p, ctx=%p\n", promise, ctx);
     if (!promise || promise->type != ValueType::PROMISE_PTR || !promise->ptr_val) {
-        if (promise) printf("ts_async_await: not a promise, type=%d, ptr=%p\n", (int)promise->type, promise->ptr_val);
-        else printf("ts_async_await: null promise\n");
         ts_async_resume(ctx, promise);
         return;
     }
