@@ -49,6 +49,8 @@ public:
     void registerEvents();
     void registerStreams();
     void registerBuffer();
+    void registerNet();
+    void registerHTTP();
 
     void reportError(const std::string& message);
 

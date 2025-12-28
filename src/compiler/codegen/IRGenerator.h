@@ -123,6 +123,8 @@ private:
     bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
