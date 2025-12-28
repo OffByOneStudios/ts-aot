@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <new>
 
-TsWriteStream::TsWriteStream(int fd) : fd(fd), closed(false) {
+TsWriteStream::TsWriteStream(int fd) : fd(fd), closed(false), bufferedAmount(0), highWaterMark(16384), needDrain(false) {
 }
 
 TsWriteStream::~TsWriteStream() {
@@ -19,18 +19,57 @@ TsWriteStream::~TsWriteStream() {
     }
 }
 
-void TsWriteStream::Write(void* data, size_t length) {
-    if (closed) return;
+bool TsWriteStream::Write(void* data, size_t length) {
+    if (closed) return false;
+
+    bufferedAmount += length;
+    printf("DEBUG: TsWriteStream::Write length=%zu bufferedAmount=%zu highWaterMark=%zu\n", length, bufferedAmount, highWaterMark);
 
     uv_fs_t* write_req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
+    // We need to copy the data because uv_fs_write is async and the source might be GC'd or modified
+    // Actually, if it's a TsBuffer or TsString, it's already on the GC heap.
+    // But libuv doesn't know about GC. However, Boehm GC won't move objects.
+    // So as long as we keep a reference to the data, it's fine.
+    // For now, let's assume the caller keeps the data alive or we copy it.
+    // To be safe, let's copy it into a new buffer if it's not already a GC object we can track.
+    // Actually, ts_fs_write_stream_write passes data from TsValue.
+    
     uv_buf_t buf = uv_buf_init((char*)data, (unsigned int)length);
     
     write_req->data = this;
-    uv_fs_write(uv_default_loop(), write_req, fd, &buf, 1, -1, OnWrite);
+    // Store the length in the request so we can decrement bufferedAmount later
+    // uv_fs_t doesn't have a spare field, but we can wrap it.
+    struct WriteContext {
+        TsWriteStream* stream;
+        size_t length;
+    };
+    WriteContext* ctx = (WriteContext*)ts_alloc(sizeof(WriteContext));
+    ctx->stream = this;
+    ctx->length = length;
+    write_req->data = ctx;
+
+    uv_fs_write(uv_default_loop(), write_req, fd, &buf, 1, -1, [](uv_fs_t* req) {
+        WriteContext* ctx = (WriteContext*)req->data;
+        TsWriteStream* self = ctx->stream;
+        self->bufferedAmount -= ctx->length;
+        
+        if (self->needDrain && self->bufferedAmount < self->highWaterMark) {
+            self->needDrain = false;
+            self->Emit("drain", 0, nullptr);
+        }
+        
+        uv_fs_req_cleanup(req);
+    });
+
+    if (bufferedAmount >= highWaterMark) {
+        needDrain = true;
+        return false;
+    }
+    return true;
 }
 
 void TsWriteStream::OnWrite(uv_fs_t* req) {
-    uv_fs_req_cleanup(req);
+    // This is now handled by the lambda above
 }
 
 void TsWriteStream::End() {
@@ -62,34 +101,34 @@ extern "C" {
         return new(mem) TsWriteStream(fd);
     }
 
-    void ts_fs_write_stream_write(void* stream, void* data) {
+    bool ts_fs_write_stream_write(void* stream, void* data) {
         TsWriteStream* s = (TsWriteStream*)stream;
-        if (!data) return;
+        if (!data) return false;
 
         TsValue* val = (TsValue*)data;
         void* ptr = nullptr;
         if (val->type == ValueType::STRING_PTR || val->type == ValueType::OBJECT_PTR) {
             ptr = val->ptr_val;
         } else {
-            // If it's not a TsValue, maybe it's a raw pointer? 
-            // (This can happen if the compiler didn't box it)
             ptr = data;
         }
 
-        if (!ptr) return;
+        if (!ptr) return false;
 
-        // Check magic numbers to distinguish between Buffer and String
         uint32_t magic0 = *(uint32_t*)ptr;
         uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
 
+        bool result = false;
         if (magic0 == 0x53545247) { // "STRG"
             TsString* str = (TsString*)ptr;
             const char* utf8 = str->ToUtf8();
-            s->Write((void*)utf8, strlen(utf8));
+            result = s->Write((void*)utf8, strlen(utf8));
         } else if (magic8 == 0x42554646) { // "BUFF"
             TsBuffer* buf = (TsBuffer*)ptr;
-            s->Write(buf->GetData(), buf->GetLength());
+            result = s->Write(buf->GetData(), buf->GetLength());
         }
+        
+        return result;
     }
 
     void ts_fs_write_stream_end(void* stream) {

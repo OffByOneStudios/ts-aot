@@ -138,16 +138,16 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | events | getMaxListeners | function | 🟢 | |
 | events | init | function | 🔴 | |
 | events | listenerCount | function | 🟢 | |
-| events | on | function | 🔴 | |
+| events | on | function | 🟢 | Alias for addListener |
 | events | once | function | 🟢 | |
 | events | setMaxListeners | function | 🟢 | |
 | events | usingDomains | boolean | 🔴 | |
 | stream | Duplex | function | 🟢 | |
 | stream | PassThrough | function | 🔴 | |
-| stream | Readable | function | 🟢 | |
+| stream | Readable | function | 🟢 | Flowing/Paused modes, backpressure |
 | stream | Stream | function | 🟢 | |
 | stream | Transform | function | 🟢 | |
-| stream | Writable | function | 🟢 | |
+| stream | Writable | function | 🟢 | Buffering, highWaterMark, drain event |
 | stream | _isArrayBufferView | function | 🔴 | |
 | stream | _isUint8Array | function | 🔴 | |
 | stream | _uint8ArrayToBuffer | function | 🔴 | |

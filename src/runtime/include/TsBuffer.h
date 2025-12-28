@@ -51,8 +51,8 @@ private:
 };
 
 extern "C" {
-    void* ts_buffer_alloc(void* vtable, int64_t length);
-    void* ts_buffer_from_string(void* vtable, void* str, void* encoding);
+    void* ts_buffer_alloc(int64_t length);
+    void* ts_buffer_from(void* data);
     int64_t ts_buffer_length(void* buf);
     uint8_t ts_buffer_get(void* buf, int64_t index);
     void ts_buffer_set(void* buf, int64_t index, uint8_t value);

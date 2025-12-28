@@ -18,8 +18,8 @@ Implement the core Node.js `events` and `stream` modules. This is a critical pre
 
 ### Milestone 97.2: Stream Base Classes
 - [x] **Task 97.2.1:** Define `Stream`, `Readable`, `Writable`, `Duplex`, and `Transform` in `Analyzer_StdLib.cpp`.
-- [ ] **Task 97.2.2:** Implement the `Readable` state machine (flowing vs paused mode).
-- [ ] **Task 97.2.3:** Implement the `Writable` buffering and drain logic.
+- [x] **Task 97.2.2:** Implement the `Readable` state machine (flowing vs paused mode).
+- [x] **Task 97.2.3:** Implement the `Writable` buffering and drain logic.
 - [x] **Task 97.2.4:** Implement `pipe(dest)` with backpressure support.
 
 ### Milestone 97.3: Integration
@@ -27,4 +27,4 @@ Implement the core Node.js `events` and `stream` modules. This is a critical pre
 - [x] **Task 97.3.2:** Update `compatibility_matrix.md` for `events` and `stream`.
 
 ## Action Items
-- [ ] **Current:** Milestone 97.2 - Stream Base Classes (State Machine & Buffering).
+- [x] **Completed:** Milestone 97.3 - Integration & Compatibility Matrix.
