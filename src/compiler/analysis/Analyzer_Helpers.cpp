@@ -248,7 +248,7 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         name = name.substr(5);
     }
 
-    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http") {
+    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "events") {
         if (modules.count("builtin:" + name)) {
             return modules["builtin:" + name];
         }
@@ -281,6 +281,14 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             if (httpSym) {
                 auto httpType = std::static_pointer_cast<ObjectType>(httpSym->type);
                 for (auto& [fieldName, type] : httpType->fields) {
+                    module->exports->define(fieldName, type);
+                }
+            }
+        } else if (name == "events") {
+            auto eventsSym = symbols.lookup("events");
+            if (eventsSym) {
+                auto eventsType = std::static_pointer_cast<ObjectType>(eventsSym->type);
+                for (auto& [fieldName, type] : eventsType->fields) {
                     module->exports->define(fieldName, type);
                 }
             }

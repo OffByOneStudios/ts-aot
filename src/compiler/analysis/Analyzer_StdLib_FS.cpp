@@ -153,13 +153,13 @@ void Analyzer::registerFS() {
     // fs.createReadStream(path: string): ReadStream
     auto createReadStream = std::make_shared<FunctionType>();
     createReadStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    createReadStream->returnType = std::make_shared<Type>(TypeKind::Any); // TODO: Define ReadStream type
+    createReadStream->returnType = symbols.lookupType("ReadStream");
     fsType->fields["createReadStream"] = createReadStream;
 
     // fs.createWriteStream(path: string): WriteStream
     auto createWriteStream = std::make_shared<FunctionType>();
     createWriteStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    createWriteStream->returnType = std::make_shared<Type>(TypeKind::Any); // TODO: Define WriteStream type
+    createWriteStream->returnType = symbols.lookupType("WriteStream");
     fsType->fields["createWriteStream"] = createWriteStream;
 
     // fs.accessSync(path: string, mode?: number): void

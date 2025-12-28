@@ -1,4 +1,6 @@
 #include "IRGenerator.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
@@ -604,6 +606,11 @@ void IRGenerator::visitThrowStatement(ast::ThrowStatement* node) {
     visit(node->expression.get());
     llvm::Value* exc = lastValue;
     
+    if (!exc) {
+        SPDLOG_ERROR("visitThrowStatement: expression did not produce a value");
+        return;
+    }
+
     // Ensure the exception is boxed
     if (!boxedValues.count(exc)) {
         exc = boxValue(exc, node->expression->inferredType);

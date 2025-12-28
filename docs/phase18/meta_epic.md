@@ -22,24 +22,24 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 ## Milestones
 
 ### [Epic 96: The File System (fs)](./epic_96_filesystem.md)
-- [ ] **Sync API:** `readFileSync`, `writeFileSync`, `statSync`, etc.
-- [ ] **Async API:** `readFile`, `writeFile` using `libuv` thread pool.
-- [ ] **File Handles:** `open`, `read`, `write`, `close`.
-- [ ] **Verification:** Update `compatibility_matrix.md` for `fs` module.
+- [x] **Sync API:** `readFileSync`, `writeFileSync`, `statSync`, etc.
+- [x] **Async API:** `readFile`, `writeFile` using `libuv` thread pool.
+- [x] **File Handles:** `open`, `read`, `write`, `close`.
+- [x] **Verification:** Update `compatibility_matrix.md` for `fs` module.
 
-### Epic 97: Streams & Events
+### [Epic 97: Streams & Events](./epic_97_streams_events.md)
 - [ ] **EventEmitter:** A robust C++ implementation of `EventEmitter`.
 - [ ] **Stream Base:** Abstract base classes for Streams.
 - [ ] **Piping:** Efficient `src.pipe(dest)` implementation (using `sendfile` where possible).
 - [ ] **Verification:** Update `compatibility_matrix.md` for `events` and `stream`.
 
-### Epic 98: Module Resolution
+### [Epic 98: Module Resolution](./epic_98_module_resolution.md)
 - [ ] **CommonJS Support:** `require()` implementation that searches `node_modules`.
 - [ ] **ESM Support:** `import` implementation.
 - [ ] **JSON Imports:** Support `require('./data.json')`.
 
 ### [Epic 99: Path & Utilities](./epic_99_path.md)
-- [ ] **Path Manipulation:** `join`, `resolve`, `relative`, `normalize`.
-- [ ] **Path Components:** `basename`, `dirname`, `extname`, `parse`, `format`.
-- [ ] **Platform Specifics:** `sep`, `delimiter`, `win32`, `posix`.
-- [ ] **Verification:** Update `compatibility_matrix.md` for `path` module.
+- [x] **Path Manipulation:** `join`, `resolve`, `relative`, `normalize`.
+- [x] **Path Components:** `basename`, `dirname`, `extname`, `parse`, `format`.
+- [x] **Platform Specifics:** `sep`, `delimiter`, `win32`, `posix`.
+- [x] **Verification:** Update `compatibility_matrix.md` for `path` module.
