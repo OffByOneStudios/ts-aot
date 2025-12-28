@@ -28,10 +28,10 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Verification:** Update `compatibility_matrix.md` for `fs` module.
 
 ### [Epic 97: Streams & Events](./epic_97_streams_events.md)
-- [ ] **EventEmitter:** A robust C++ implementation of `EventEmitter`.
-- [ ] **Stream Base:** Abstract base classes for Streams.
-- [ ] **Piping:** Efficient `src.pipe(dest)` implementation (using `sendfile` where possible).
-- [ ] **Verification:** Update `compatibility_matrix.md` for `events` and `stream`.
+- [x] **EventEmitter:** A robust C++ implementation of `EventEmitter`.
+- [x] **Stream Base:** Abstract base classes for Streams.
+- [x] **Piping:** Efficient `src.pipe(dest)` implementation (using `sendfile` where possible).
+- [x] **Verification:** Update `compatibility_matrix.md` for `events` and `stream`.
 
 ### [Epic 98: Module Resolution](./epic_98_module_resolution.md)
 - [ ] **CommonJS Support:** `require()` implementation that searches `node_modules`.
@@ -43,3 +43,29 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Path Components:** `basename`, `dirname`, `extname`, `parse`, `format`.
 - [x] **Platform Specifics:** `sep`, `delimiter`, `win32`, `posix`.
 - [x] **Verification:** Update `compatibility_matrix.md` for `path` module.
+
+### [Epic 100: Networking (net & http)](./epic_100_networking.md)
+- [ ] **TCP Sockets:** `net.Socket` and `net.Server` using `libuv`.
+- [ ] **HTTP Parser:** Integration with `llhttp` or similar for `http.IncomingMessage`.
+- [ ] **HTTP Client:** `http.request` and `http.get`.
+- [ ] **HTTP Server:** `http.createServer` and `ServerResponse`.
+- [ ] **Verification:** Update `compatibility_matrix.md` for `net` and `http`.
+
+### [Epic 101: Buffer & Primitives](./epic_101_buffer.md)
+- [ ] **Buffer API:** `Buffer.from`, `Buffer.allocUnsafe`, `Buffer.concat`.
+- [ ] **Encoding:** Support for `hex`, `base64`, `utf8` in Buffers.
+- [ ] **TypedArrays:** Better integration between `Buffer` and `Uint8Array`.
+- [ ] **Verification:** Update `compatibility_matrix.md` for `buffer`.
+
+### [Epic 102: Process & Globals](./epic_102_process_globals.md)
+- [ ] **Process:** `process.argv`, `process.env`, `process.exit`, `process.nextTick`.
+- [ ] **Standard I/O:** `process.stdout`, `process.stderr`, `process.stdin` as Streams.
+- [ ] **Timers:** `setTimeout`, `setInterval`, `setImmediate`.
+- [ ] **Console:** Full `console` implementation (log, error, warn, info, table).
+- [ ] **Verification:** Update `compatibility_matrix.md` for `process` and `globals`.
+
+### [Epic 103: Utilities (util & url)](./epic_103_utils.md)
+- [ ] **URL API:** `URL` and `URLSearchParams` (WHATWG).
+- [ ] **Util:** `util.promisify`, `util.inspect`, `util.inherits`.
+- [ ] **Text Encoding:** `TextEncoder` and `TextDecoder`.
+- [ ] **Verification:** Update `compatibility_matrix.md` for `util` and `url`.

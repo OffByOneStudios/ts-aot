@@ -58,6 +58,8 @@ add_library(tsruntime STATIC
     src/node/EventEmitter.cpp
     src/node/ReadStream.cpp
     src/node/WriteStream.cpp
+    src/node/Socket.cpp
+    src/node/Server.cpp
     src/Primitives.cpp
     src/Math.cpp
     src/TsMap.cpp

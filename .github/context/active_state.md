@@ -1,23 +1,19 @@
 # Active Project State
 
-**Last Updated:** 2025-12-26
+**Last Updated:** 2025-12-27
 **Current Phase:** Phase 18 (Node.js Compatibility)
 
 ## Current Focus
-We are in **Phase 18: Node.js Compatibility**, focusing on implementing the core Node.js modules (`fs`, `path`, `events`, `buffer`, `http`, `crypto`). We have just completed **Milestone 96.8: Advanced File Descriptors**.
+We are in **Phase 18: Node.js Compatibility**, focusing on implementing the core Node.js modules. We have just completed **Epic 97: Streams & Events** and are now starting **Epic 100: Networking (net & http)**.
 
 ## Active Tasks
-1.  **Epic 96:** The File System (fs) - Milestone 96.9 (Watching & Events).
-2.  **Epic 97:** Networking (http/https).
+1.  **Epic 100:** Networking (net & http) - Milestone 100.1 (TCP Sockets).
+2.  **Epic 98:** Module Resolution.
 
 ## Recent Accomplishments
-*   **Compiler Fix:** Resolved "Operand is null" error in Async State Machine by ensuring all variables (including `catch` variables and internal control flags) are correctly spilled to the async frame.
-*   **Milestone 96.8: Advanced File Descriptors:** Implemented `sync`, `datasync`, `truncate`, `readv`, `writev`, `fstat`, `fchmod`, `fchown`, and `futimes` for `FileHandle` and `fs`.
-*   **Compiler Fix:** Resolved property unboxing issues for `Stats.size` and other numeric properties.
-*   **Runtime Fix:** Fixed `TsMap` property priority to ensure `Stats.size` is correctly retrieved before prototype helpers.
-*   **Async Lifetime Fix:** Resolved `readv`/`writev` buffer lifetime issues by moving `uv_buf_t` descriptors to heap-allocated `FSPromiseWork`.
-*   **Milestone 96.7:** Directory Operations & Watching (opendir, Dir, Dirent).
-*   **Milestone 96.6:** File Manipulation & Copying (copyFile, cp, rename, truncate, appendFile, rm, mkdtemp).
+*   **Epic 97: Streams & Events:** Implemented robust `EventEmitter`, `Readable`/`Writable` state machines, backpressure, and `pipe()`.
+*   **Epic 99: Path & Utilities:** Implemented full `path` module support.
+*   **Epic 96: The File System (fs):** Implemented sync/async file operations, file handles, and directory operations.
 *   **Milestone 96.5:** Links & Symlinks (link, symlink, readlink, realpath, lstat).
 *   **Milestone 96.4:** Extended Metadata & Permissions (access, chmod, chown, utimes, statfs, Stats fields, constants).
 *   **Milestone 96.3:** File Handles & Streams (openSync, closeSync, readSync, writeSync, createReadStream, createWriteStream).
