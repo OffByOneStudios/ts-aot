@@ -12,7 +12,10 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
-        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error") continue;
+        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error" || 
+            name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" || 
+            name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
+            name == "Buffer") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -664,6 +667,19 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), { buffer });
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "EventEmitter") {
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "Readable" || className == "Writable" || className == "Stream" || className == "Duplex" || className == "Transform") {
+            // For now, just create an EventEmitter as a base
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
         }
         
         // 1. Get Struct Type
@@ -847,6 +863,12 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                     { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_regexp_create", createRegExpFt);
             lastValue = createCall(createRegExpFt, fn.getCallee(), { pattern, flags });
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (id->name == "EventEmitter") {
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;
         }

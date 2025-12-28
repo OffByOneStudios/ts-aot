@@ -9,6 +9,12 @@ using namespace ast;
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
 
+    if (tryGenerateFSCall(node, prop)) return true;
+    if (tryGeneratePathCall(node, prop)) return true;
+    if (tryGenerateEventsCall(node, prop)) return true;
+    if (tryGenerateStreamCall(node, prop)) return true;
+    if (tryGenerateBufferCall(node, prop)) return true;
+
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Symbol") {
             if (prop->name == "for") {
@@ -1016,56 +1022,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_trim", trimFt);
          lastValue = createCall(trimFt, fn.getCallee(), { obj });
          return true;
-    } else if (prop->name == "on") {
-         visit(prop->expression.get());
-         llvm::Value* obj = lastValue;
-         
-         if (node->arguments.size() < 2) return true;
-         visit(node->arguments[0].get());
-         llvm::Value* event = lastValue;
-         visit(node->arguments[1].get());
-         llvm::Value* callback = lastValue;
-
-         // Box the callback if it's a function
-         if (node->arguments[1]->getKind() == "ArrowFunction" || node->arguments[1]->getKind() == "FunctionExpression") {
-             callback = boxValue(callback, std::make_shared<Type>(TypeKind::Function));
-         } else {
-             callback = boxValue(callback, node->arguments[1]->inferredType);
-         }
-         
-         llvm::FunctionType* onFt = llvm::FunctionType::get(builder->getPtrTy(),
-                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-         llvm::FunctionCallee onFn = module->getOrInsertFunction("ts_event_emitter_on", onFt);
-         lastValue = createCall(onFt, onFn.getCallee(), { obj, event, callback });
-         return true;
-    } else if (prop->name == "write") {
-         visit(prop->expression.get());
-         llvm::Value* obj = lastValue;
-         
-         if (node->arguments.empty()) return true;
-         visit(node->arguments[0].get());
-         llvm::Value* data = lastValue;
-         
-         if (node->arguments[0]->inferredType && node->arguments[0]->inferredType->kind == TypeKind::Any) {
-             data = unboxValue(data, std::make_shared<Type>(TypeKind::Object));
-         }
-
-         llvm::FunctionType* writeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-         llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_write_stream_write", writeFt);
-         createCall(writeFt, writeFn.getCallee(), { obj, data });
-         lastValue = nullptr;
-         return true;
-    } else if (prop->name == "end") {
-         visit(prop->expression.get());
-         llvm::Value* obj = lastValue;
-         
-         llvm::FunctionType* endFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { builder->getPtrTy() }, false);
-         llvm::FunctionCallee endFn = module->getOrInsertFunction("ts_fs_write_stream_end", endFt);
-         createCall(endFt, endFn.getCallee(), { obj });
-         lastValue = nullptr;
-         return true;
     } else if (prop->name == "startsWith") {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
@@ -1715,47 +1671,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                             { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_json_stringify", stringifyFt);
                     lastValue = createCall(stringifyFt, fn.getCallee(), { objArg, replacer, space });
-                    return true;
-                }
-            }
-        }
-    } else if (prop->name == "alloc" || prop->name == "from") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "Buffer") {
-                if (node->arguments.empty()) return true;
-                
-                if (prop->name == "alloc") {
-                    visit(node->arguments[0].get());
-                    llvm::Value* len = lastValue;
-                    if (len->getType()->isPointerTy()) {
-                        llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
-                        len = createCall(unboxFt, unboxFn.getCallee(), { len });
-                    }
-                    
-                    llvm::Value* vtable = module->getGlobalVariable("Buffer_VTable_Global");
-                    if (!vtable) vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
-
-                    llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_alloc", allocFt);
-                    lastValue = createCall(allocFt, fn.getCallee(), { vtable, len });
-                    return true;
-                } else if (prop->name == "from") {
-                    visit(node->arguments[0].get());
-                    llvm::Value* str = lastValue;
-                    llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
-                    
-                    if (node->arguments.size() > 1) {
-                        visit(node->arguments[1].get());
-                        encoding = lastValue;
-                    }
-                    
-                    llvm::Value* vtable = module->getGlobalVariable("Buffer_VTable_Global");
-                    if (!vtable) vtable = llvm::ConstantPointerNull::get(builder->getPtrTy());
-
-                    llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_from_string", fromFt);
-                    lastValue = createCall(fromFt, fn.getCallee(), { vtable, str, encoding });
                     return true;
                 }
             }

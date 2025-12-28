@@ -200,6 +200,15 @@ void Analyzer::visitCallExpression(CallExpression* node) {
                     return;
                 }
             }
+        } else if (objType->kind == TypeKind::Object) {
+            auto obj = std::static_pointer_cast<ObjectType>(objType);
+            if (obj->fields.count(prop->name)) {
+                auto fieldType = obj->fields[prop->name];
+                if (fieldType->kind == TypeKind::Function) {
+                    lastType = std::static_pointer_cast<FunctionType>(fieldType)->returnType;
+                    return;
+                }
+            }
         }
     }
     

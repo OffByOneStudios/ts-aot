@@ -65,6 +65,11 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
     visit(node->operand.get());
     llvm::Value* val = lastValue;
     
+    if (!val) {
+        SPDLOG_ERROR("visitPostfixUnaryExpression: operand did not produce a value");
+        return;
+    }
+
     if (node->op == "++" || node->op == "--") {
         llvm::Value* next;
         if (val->getType()->isDoubleTy()) {

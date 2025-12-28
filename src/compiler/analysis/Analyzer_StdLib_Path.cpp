@@ -60,15 +60,23 @@ void Analyzer::registerPath() {
     relativeType->returnType = std::make_shared<Type>(TypeKind::String);
     pathType->fields["relative"] = relativeType;
 
-    // path.parse(path: string): any
+    // ParsedPath interface
+    auto parsedPathType = std::make_shared<ObjectType>();
+    parsedPathType->fields["root"] = std::make_shared<Type>(TypeKind::String);
+    parsedPathType->fields["dir"] = std::make_shared<Type>(TypeKind::String);
+    parsedPathType->fields["base"] = std::make_shared<Type>(TypeKind::String);
+    parsedPathType->fields["ext"] = std::make_shared<Type>(TypeKind::String);
+    parsedPathType->fields["name"] = std::make_shared<Type>(TypeKind::String);
+
+    // path.parse(path: string): ParsedPath
     auto parseType = std::make_shared<FunctionType>();
     parseType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    parseType->returnType = std::make_shared<Type>(TypeKind::Any);
+    parseType->returnType = parsedPathType;
     pathType->fields["parse"] = parseType;
 
-    // path.format(pathObject: any): string
+    // path.format(pathObject: ParsedPath): string
     auto formatType = std::make_shared<FunctionType>();
-    formatType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    formatType->paramTypes.push_back(parsedPathType);
     formatType->returnType = std::make_shared<Type>(TypeKind::String);
     pathType->fields["format"] = formatType;
 

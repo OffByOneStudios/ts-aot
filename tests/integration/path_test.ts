@@ -53,4 +53,22 @@ test("path.extname none", path.extname("/a/b/c"), "");
 // relative
 test("path.relative basic", path.relative("/data/orandea/test/aaa", "/data/orandea/impl/bbb"), isWindows ? "..\\..\\impl\\bbb" : "../../impl/bbb");
 
+// parse
+const parsed = path.parse(isWindows ? "C:\\path\\dir\\file.txt" : "/home/user/dir/file.txt");
+test("path.parse root", parsed.root, isWindows ? "C:\\" : "/");
+test("path.parse base", parsed.base, "file.txt");
+test("path.parse ext", parsed.ext, ".txt");
+test("path.parse name", parsed.name, "file");
+
+// format
+const formatted = path.format({
+    root: isWindows ? "C:\\" : "/",
+    dir: isWindows ? "C:\\path\\dir" : "/home/user/dir",
+    base: "file.txt"
+});
+test("path.format basic", formatted, isWindows ? "C:\\path\\dir\\file.txt" : "/home/user/dir/file.txt");
+
+// toNamespacedPath
+test("path.toNamespacedPath is string", typeof path.toNamespacedPath("C:\\test"), "string");
+
 console.log("All path tests passed!");

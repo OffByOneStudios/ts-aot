@@ -167,6 +167,10 @@ void* ts_fs_symlink_async(void* target, void* path, void* type);
 void* ts_fs_readlink_async(void* path);
 void* ts_fs_realpath_async(void* path);
 void* ts_fs_createReadStream(void* path);
+void* ts_fs_createWriteStream(void* path);
+void ts_fs_write_stream_write(void* stream, void* data);
+void ts_fs_write_stream_end(void* stream);
+void* ts_stream_pipe(void* src, void* dest);
 
 // --- Path ---
 void* ts_path_join(void* path1, void* path2);
@@ -178,6 +182,9 @@ void* ts_path_basename(void* path, void* ext);
 void* ts_path_dirname(void* path);
 void* ts_path_extname(void* path);
 void* ts_path_relative(void* from, void* to);
+void* ts_path_parse(void* path);
+void* ts_path_format(void* pathObject);
+void* ts_path_to_namespaced_path(void* path);
 void* ts_path_get_sep();
 void* ts_path_get_delimiter();
 TsValue* ts_promise_race(TsValue* iterable);

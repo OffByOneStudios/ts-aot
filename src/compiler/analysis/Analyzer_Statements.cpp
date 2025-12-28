@@ -21,6 +21,15 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     // Declare first so it's in scope for the initializer
     declareBindingPattern(node->name.get(), type);
 
+    if (functionDepth == 0) {
+        if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
+            auto sym = std::make_shared<Symbol>();
+            sym->name = id->name;
+            sym->type = type;
+            topLevelVariables.push_back(sym);
+        }
+    }
+
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {

@@ -714,6 +714,13 @@ extern "C" {
 
     void* ts_string_from_value(TsValue* val) {
         if (!val) return TsString::Create("undefined");
+        
+        // Check for raw TsString
+        uint32_t magic = *(uint32_t*)val;
+        if (magic == 0x53545247) { // TsString::MAGIC
+            return val;
+        }
+
         switch (val->type) {
             case ValueType::UNDEFINED: return TsString::Create("undefined");
             case ValueType::NUMBER_INT: return TsString::FromInt(val->i_val);

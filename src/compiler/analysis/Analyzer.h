@@ -47,6 +47,7 @@ public:
     void registerFS();
     void registerPath();
     void registerEvents();
+    void registerStreams();
     void registerBuffer();
 
     void reportError(const std::string& message);
@@ -64,6 +65,7 @@ public:
     std::map<std::string, std::shared_ptr<Module>> modules;
     std::vector<std::string> moduleOrder;
     std::vector<ast::Expression*> expressions;
+    std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
 private:
     SymbolTable symbols;

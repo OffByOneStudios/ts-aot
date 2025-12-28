@@ -10,10 +10,10 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | fs | FileReadStream | function | 🔴 | |
 | fs | FileWriteStream | function | 🔴 | |
 | fs | R_OK | number | 🟢 | |
-| fs | ReadStream | function | 🔴 | |
+| fs | ReadStream | function | 🟢 | |
 | fs | Stats | function | 🟢 | |
 | fs | W_OK | number | 🟢 | |
-| fs | WriteStream | function | 🔴 | |
+| fs | WriteStream | function | 🟢 | |
 | fs | X_OK | number | 🟢 | |
 | fs | _toUnixTimestamp | function | 🔴 | |
 | fs | access | function | 🟢 | |
@@ -127,7 +127,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | path | sep | string | 🟢 | |
 | path | toNamespacedPath | function | 🟢 | |
 | path | win32 | object | 🟢 | |
-| events | EventEmitter | function | 🟡 | Base class implemented in runtime |
+| events | EventEmitter | function | 🟢 | Robust implementation in runtime |
 | events | EventEmitterAsyncResource | function | 🔴 | |
 | events | addAbortListener | function | 🔴 | |
 | events | captureRejectionSymbol | symbol | 🔴 | |
@@ -135,19 +135,19 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | events | defaultMaxListeners | number | 🔴 | |
 | events | errorMonitor | symbol | 🔴 | |
 | events | getEventListeners | function | 🔴 | |
-| events | getMaxListeners | function | 🔴 | |
+| events | getMaxListeners | function | 🟢 | |
 | events | init | function | 🔴 | |
-| events | listenerCount | function | 🟡 | Implemented in runtime |
+| events | listenerCount | function | 🟢 | |
 | events | on | function | 🔴 | |
-| events | once | function | 🔴 | |
-| events | setMaxListeners | function | 🔴 | |
+| events | once | function | 🟢 | |
+| events | setMaxListeners | function | 🟢 | |
 | events | usingDomains | boolean | 🔴 | |
-| stream | Duplex | function | 🔴 | |
+| stream | Duplex | function | 🟢 | |
 | stream | PassThrough | function | 🔴 | |
-| stream | Readable | function | 🔴 | |
-| stream | Stream | function | 🔴 | |
-| stream | Transform | function | 🔴 | |
-| stream | Writable | function | 🔴 | |
+| stream | Readable | function | 🟢 | |
+| stream | Stream | function | 🟢 | |
+| stream | Transform | function | 🟢 | |
+| stream | Writable | function | 🟢 | |
 | stream | _isArrayBufferView | function | 🔴 | |
 | stream | _isUint8Array | function | 🔴 | |
 | stream | _uint8ArrayToBuffer | function | 🔴 | |
@@ -238,6 +238,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | net | createConnection | function | 🔴 | |
 | net | createServer | function | 🔴 | |
 | net | getDefaultAutoSelectFamily | function | 🔴 | |
+
 | net | getDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
 | net | isIP | function | 🔴 | |
 | net | isIPv4 | function | 🔴 | |

@@ -76,4 +76,5 @@ extern "C" {
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
+    TsValue* ts_object_get_property(void* obj, const char* key);
 }

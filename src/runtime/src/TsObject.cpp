@@ -46,11 +46,11 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::BOOLEAN;
         v->b_val = b;
-        printf("ts_value_make_bool(%d) -> %p\n", b, v);
         return v;
     }
 
     TsValue* ts_value_make_string(void* s) {
+        // printf("ts_value_make_string(%p)\n", s);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::STRING_PTR;
         v->ptr_val = s;
@@ -142,7 +142,9 @@ TsValue* ts_value_make_int(int64_t i) {
             return v;
         }
 
-        if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) return v->ptr_val;
+        if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) {
+            return v->ptr_val;
+        }
         return nullptr;
     }
 
@@ -166,11 +168,29 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsBuffer*)val)->GetLength();
         }
 
+        // Check for TsEventEmitter (magic at offset 16 due to C++ vtable + TsObject::vtable)
+        uint32_t magic16 = *(uint32_t*)((char*)val + 16);
+        if (magic16 == 0x45564E54) { // TsEventEmitter::MAGIC
+            // EventEmitter doesn't have a length, but maybe it's a derived class?
+            return 0;
+        }
+
+        if (val->type == ValueType::ARRAY_PTR) {
+            return ts_array_length(val->ptr_val);
+        }
         if (val->type == ValueType::ARRAY_PTR) {
             return ts_array_length(val->ptr_val);
         }
         if (val->type == ValueType::STRING_PTR) {
-            return ts_string_length(val->ptr_val);
+            return ((TsString*)val->ptr_val)->Length();
+        }
+        if (val->type == ValueType::OBJECT_PTR) {
+            void* obj = val->ptr_val;
+            if (!obj) return 0;
+            uint32_t m8 = *(uint32_t*)((char*)obj + 8);
+            if (m8 == 0x42554646) { // TsBuffer::MAGIC
+                return ((TsBuffer*)obj)->GetLength();
+            }
         }
         return 0;
     }

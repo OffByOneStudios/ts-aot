@@ -192,7 +192,9 @@ void IRGenerator::emitLocation(ast::Node* node) {
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     const auto& globals = analyzer.getSymbolTable().getGlobalSymbols();
+    SPDLOG_INFO("generateGlobals: processing {} global symbols", globals.size());
     for (auto& [name, symbol] : globals) {
+        SPDLOG_INFO("  Global symbol: {} (type kind {})", name, (int)symbol->type->kind);
         if (module->getGlobalVariable(name)) continue;
         
         // Skip functions, they are handled by generatePrototypes or are runtime functions
@@ -201,12 +203,26 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         // Skip runtime functions and other ts_ symbols
         if (name.find("ts_") == 0) continue;
         
-        // Skip classes and interfaces
-        if (symbol->type->kind == TypeKind::Class || symbol->type->kind == TypeKind::Interface) continue;
+        // Skip interfaces (they don't have runtime representation)
+        if (symbol->type->kind == TypeKind::Interface) continue;
 
         llvm::Type* type = getLLVMType(symbol->type);
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
             llvm::Constant::getNullValue(type), name);
+    }
+
+    // Also process top-level variables from modules
+    SPDLOG_INFO("generateGlobals: processing {} top-level variables", analyzer.topLevelVariables.size());
+    for (auto& symbol : analyzer.topLevelVariables) {
+        if (module->getGlobalVariable(symbol->name)) continue;
+        if (symbol->type->kind == TypeKind::Function) continue;
+        if (symbol->name.find("ts_") == 0) continue;
+        if (symbol->type->kind == TypeKind::Interface) continue;
+
+        SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
+        llvm::Type* type = getLLVMType(symbol->type);
+        new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::Constant::getNullValue(type), symbol->name);
     }
 }
 
@@ -962,8 +978,11 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
     if (!val) {
+        if (type && type->kind == TypeKind::Void) {
+            return getUndefinedValue();
+        }
         SPDLOG_ERROR("boxValue: val is NULL! type={}", type ? (int)type->kind : -1);
-        return nullptr;
+        return getUndefinedValue();
     }
     if (boxedValues.count(val)) {
         return val;
@@ -977,7 +996,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
     else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
-    else if (valType->isIntegerTy(8)) {
+    else if (valType->isVoidTy() || valType->isIntegerTy(8)) {
         llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
         llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
@@ -1189,6 +1208,8 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
                                    name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
                                    name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
                                    name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for" ||
+                                   name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||
+                                   name == "ts_path_get_sep" || name == "ts_path_get_delimiter" ||
                                    (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {
@@ -1210,7 +1231,12 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
 
     // Boxing: primitive -> ptr
     if (!val->getType()->isPointerTy() && expectedType->isPointerTy()) {
-        if (val->getType()->isStructTy()) {
+        if (val->getType()->isVoidTy()) {
+            // Void -> undefined
+            llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+            result = builder->CreateCall(undefFt, undefFn.getCallee());
+        } else if (val->getType()->isStructTy()) {
             // Box struct
             llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
             llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
