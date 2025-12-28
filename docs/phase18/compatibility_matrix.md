@@ -246,22 +246,22 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | net | setDefaultAutoSelectFamily | function | 🔴 | |
 | net | setDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
 | http | Agent | function | 🔴 | |
-| http | ClientRequest | function | 🔴 | |
+| http | ClientRequest | function | 🟡 | Basic implementation for requests |
 | http | CloseEvent | function | 🔴 | |
-| http | IncomingMessage | function | 🔴 | |
+| http | IncomingMessage | function | 🟢 | |
 | http | METHODS | object | 🔴 | |
 | http | MessageEvent | function | 🔴 | |
 | http | OutgoingMessage | function | 🔴 | |
 | http | STATUS_CODES | object | 🔴 | |
-| http | Server | function | 🔴 | |
-| http | ServerResponse | function | 🔴 | |
+| http | Server | function | 🟢 | |
+| http | ServerResponse | function | 🟢 | |
 | http | WebSocket | function | 🔴 | |
 | http | _connectionListener | function | 🔴 | |
-| http | createServer | function | 🔴 | |
-| http | get | function | 🔴 | |
+| http | createServer | function | 🟢 | |
+| http | get | function | 🟡 | Basic implementation |
 | http | globalAgent | object | 🔴 | |
 | http | maxHeaderSize | number | 🔴 | |
-| http | request | function | 🔴 | |
+| http | request | function | 🟡 | Basic implementation |
 | http | setMaxIdleHTTPParsers | function | 🔴 | |
 | http | validateHeaderName | function | 🔴 | |
 | http | validateHeaderValue | function | 🔴 | |
