@@ -93,6 +93,25 @@ void Analyzer::registerHTTP() {
     createServerType->paramTypes.push_back(requestCallback);
     createServerType->returnType = serverClass;
     httpType->fields["createServer"] = createServerType;
+
+    auto clientRequestClass = std::make_shared<ClassType>("ClientRequest");
+    clientRequestClass->baseClass = writableClass;
+    symbols.defineType("ClientRequest", clientRequestClass);
+
+    auto responseCallback = std::make_shared<FunctionType>();
+    responseCallback->paramTypes.push_back(incomingMessageClass);
+
+    auto requestType = std::make_shared<FunctionType>();
+    requestType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options
+    requestType->paramTypes.push_back(responseCallback);
+    requestType->returnType = clientRequestClass;
+    httpType->fields["request"] = requestType;
+
+    auto getType = std::make_shared<FunctionType>();
+    getType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options
+    getType->paramTypes.push_back(responseCallback);
+    getType->returnType = clientRequestClass;
+    httpType->fields["get"] = getType;
     
     symbols.define("http", httpType);
 }

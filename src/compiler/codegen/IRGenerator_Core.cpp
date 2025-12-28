@@ -1210,6 +1210,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
                                    name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for" ||
                                    name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||
                                    name == "ts_path_get_sep" || name == "ts_path_get_delimiter" ||
+                                   name == "ts_http_request" || name == "ts_http_get" || name == "ts_http_create_server" ||
                                    (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {
