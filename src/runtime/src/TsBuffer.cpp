@@ -49,16 +49,13 @@ TsString* TsBuffer::ToString(TsString* encoding) {
 }
 
 extern "C" {
-    void* ts_buffer_alloc(void* vtable, int64_t length) {
-        TsBuffer* buf = TsBuffer::Create((size_t)length);
-        buf->vtable = vtable;
-        return buf;
+    void* ts_buffer_alloc(int64_t length) {
+        return TsBuffer::Create((size_t)length);
     }
 
-    void* ts_buffer_from_string(void* vtable, void* str, void* encoding) {
-        TsBuffer* buf = TsBuffer::FromString((TsString*)str, (TsString*)encoding);
-        if (buf) buf->vtable = vtable;
-        return buf;
+    void* ts_buffer_from(void* data) {
+        // Handle string or array
+        return nullptr; // TODO
     }
 
     int64_t ts_buffer_length(void* buf) {

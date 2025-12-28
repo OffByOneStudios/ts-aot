@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include <new>
 
-TsReadStream::TsReadStream(int fd) : fd(fd), closed(false) {
-    buffer = TsBuffer::Create(64 * 1024); // 64KB buffer
+TsReadStream::TsReadStream(int fd) : fd(fd), closed(false), flowing(false), reading(false) {
+    buffer = TsBuffer::Create(65536); // 64KB buffer
 }
 
 TsReadStream::~TsReadStream() {
@@ -18,7 +18,30 @@ TsReadStream::~TsReadStream() {
     }
 }
 
+void TsReadStream::On(const char* event, void* callback) {
+    TsEventEmitter::On(event, callback);
+    if (strcmp(event, "data") == 0) {
+        Resume();
+    }
+}
+
+void TsReadStream::Pause() {
+    flowing = false;
+}
+
+void TsReadStream::Resume() {
+    if (!flowing) {
+        flowing = true;
+        if (!reading) {
+            Start();
+        }
+    }
+}
+
 void TsReadStream::Start() {
+    if (closed || reading || !flowing) return;
+    reading = true;
+    
     uv_fs_t* req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
     req->data = this;
     
@@ -28,6 +51,7 @@ void TsReadStream::Start() {
 
 void TsReadStream::OnRead(uv_fs_t* req) {
     TsReadStream* self = (TsReadStream*)req->data;
+    self->reading = false;
     int result = (int)req->result;
     
     if (result > 0) {
@@ -39,10 +63,11 @@ void TsReadStream::OnRead(uv_fs_t* req) {
         void* args[] = { arg0 };
         self->Emit("data", 1, args);
         
-        // Read next chunk
+        // Read next chunk if still flowing
+        if (self->flowing && !self->closed) {
+            self->Start();
+        }
         uv_fs_req_cleanup(req);
-        uv_buf_t buf = uv_buf_init((char*)self->buffer->GetData(), (unsigned int)self->buffer->GetLength());
-        uv_fs_read(uv_default_loop(), req, self->fd, &buf, 1, -1, OnRead);
     } else {
         // EOF or error
         if (result == 0) {
@@ -79,17 +104,6 @@ extern "C" {
         void* mem = ts_alloc(sizeof(TsReadStream));
         TsReadStream* stream = new(mem) TsReadStream(fd);
         
-        // Start on next tick to allow listeners to be attached
-        uv_idle_t* idle = (uv_idle_t*)ts_alloc(sizeof(uv_idle_t));
-        uv_idle_init(uv_default_loop(), idle);
-        idle->data = stream;
-        uv_idle_start(idle, [](uv_idle_t* handle) {
-            TsReadStream* s = (TsReadStream*)handle->data;
-            s->Start();
-            uv_idle_stop(handle);
-            uv_close((uv_handle_t*)handle, nullptr);
-        });
-
         return stream;
     }
 
@@ -125,5 +139,15 @@ extern "C" {
         s->On("end", endCb);
 
         return dest;
+    }
+
+    void ts_stream_pause(void* stream) {
+        TsReadStream* s = (TsReadStream*)stream;
+        s->Pause();
+    }
+
+    void ts_stream_resume(void* stream) {
+        TsReadStream* s = (TsReadStream*)stream;
+        s->Resume();
     }
 }

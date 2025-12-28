@@ -258,6 +258,14 @@ extern "C" {
         e->On(s->ToUtf8(), callback);
     }
 
+    void ts_event_emitter_once(void* emitter, void* event, void* callback) {
+        TsEventEmitter* e = (TsEventEmitter*)emitter;
+        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        TsString* s = (TsString*)event;
+        if (!s) return;
+        e->Once(s->ToUtf8(), callback);
+    }
+
     void ts_event_emitter_prepend_listener(void* emitter, void* event, void* callback) {
         TsEventEmitter* e = (TsEventEmitter*)emitter;
         if (!e || e->magic != TsEventEmitter::MAGIC) return;

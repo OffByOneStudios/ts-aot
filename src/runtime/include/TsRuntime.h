@@ -147,6 +147,15 @@ void* ts_fs_appendFile_async(void* path, void* content);
 void* ts_fs_mkdtemp_async(void* prefix);
 void* ts_fs_access_async(void* path, double mode);
 void* ts_fs_chmod_async(void* path, double mode);
+void ts_event_emitter_on(void* emitter, void* event, void* callback);
+void ts_event_emitter_once(void* emitter, void* event, void* callback);
+void ts_event_emitter_prepend_listener(void* emitter, void* event, void* callback);
+void ts_event_emitter_prepend_once_listener(void* emitter, void* event, void* callback);
+void ts_event_emitter_remove_listener(void* emitter, void* event, void* callback);
+void ts_event_emitter_remove_all_listeners(void* emitter, void* event);
+void ts_event_emitter_set_max_listeners(void* emitter, int n);
+void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
+
 void* ts_fs_chown_async(void* path, double uid, double gid);
 
 // --- FileHandle ---
@@ -168,9 +177,11 @@ void* ts_fs_readlink_async(void* path);
 void* ts_fs_realpath_async(void* path);
 void* ts_fs_createReadStream(void* path);
 void* ts_fs_createWriteStream(void* path);
-void ts_fs_write_stream_write(void* stream, void* data);
+bool ts_fs_write_stream_write(void* stream, void* buffer);
 void ts_fs_write_stream_end(void* stream);
 void* ts_stream_pipe(void* src, void* dest);
+void ts_stream_pause(void* stream);
+void ts_stream_resume(void* stream);
 
 // --- Path ---
 void* ts_path_join(void* path1, void* path2);

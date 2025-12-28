@@ -11,7 +11,7 @@ public:
     TsEventEmitter();
     virtual ~TsEventEmitter();
     
-    void On(const char* event, void* callback);
+    virtual void On(const char* event, void* callback);
     void Once(const char* event, void* callback);
     void PrependListener(const char* event, void* callback);
     void PrependOnceListener(const char* event, void* callback);

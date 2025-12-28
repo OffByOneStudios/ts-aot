@@ -7,12 +7,15 @@ public:
     TsWriteStream(int fd);
     virtual ~TsWriteStream();
 
-    void Write(void* data, size_t length);
+    bool Write(void* data, size_t length);
     void End();
 
 private:
     int fd;
     bool closed;
+    size_t bufferedAmount;
+    size_t highWaterMark;
+    bool needDrain;
 
     static void OnWrite(uv_fs_t* req);
 };

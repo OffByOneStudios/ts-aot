@@ -15,11 +15,10 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
             data = unboxValue(data, std::make_shared<Type>(TypeKind::Object));
         }
 
-        llvm::FunctionType* writeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+        llvm::FunctionType* writeFt = llvm::FunctionType::get(builder->getInt1Ty(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_write_stream_write", writeFt);
-        createCall(writeFt, writeFn.getCallee(), { obj, data });
-        lastValue = nullptr;
+        lastValue = createCall(writeFt, writeFn.getCallee(), { obj, data });
         return true;
     } else if (prop->name == "end") {
         visit(prop->expression.get());
@@ -43,6 +42,26 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee pipeFn = module->getOrInsertFunction("ts_stream_pipe", pipeFt);
         lastValue = createCall(pipeFt, pipeFn.getCallee(), { src, dest });
+        return true;
+    } else if (prop->name == "pause") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+        
+        llvm::FunctionType* pauseFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee pauseFn = module->getOrInsertFunction("ts_stream_pause", pauseFt);
+        createCall(pauseFt, pauseFn.getCallee(), { obj });
+        lastValue = obj;
+        return true;
+    } else if (prop->name == "resume") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+        
+        llvm::FunctionType* resumeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee resumeFn = module->getOrInsertFunction("ts_stream_resume", resumeFt);
+        createCall(resumeFt, resumeFn.getCallee(), { obj });
+        lastValue = obj;
         return true;
     }
     
