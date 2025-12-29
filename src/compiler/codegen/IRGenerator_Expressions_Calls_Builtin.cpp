@@ -14,6 +14,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateEventsCall(node, prop)) return true;
     if (tryGenerateStreamCall(node, prop)) return true;
     if (tryGenerateBufferCall(node, prop)) return true;
+    if (tryGenerateProcessCall(node, prop)) return true;
     if (tryGenerateHTTPCall(node, prop)) return true;  // HTTP before Net - HTTP Server.listen() uses ts_http_server_listen
     if (tryGenerateNetCall(node, prop)) return true;
 
@@ -265,10 +266,33 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
         }
     }
 
-    if (prop->name == "log") {
+    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "trace") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "console") {
+                if (prop->name == "time" || prop->name == "timeEnd") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* label = unboxValue(lastValue, node->arguments[0]->inferredType);
+                    
+                    std::string funcName = (prop->name == "time") ? "ts_console_time" : "ts_console_time_end";
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+                    createCall(ft, fn.getCallee(), { label });
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "trace") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_trace", ft);
+                    createCall(ft, fn.getCallee(), {});
+                    lastValue = nullptr;
+                    return true;
+                }
+
                 if (node->arguments.empty()) return true;
+                
+                bool isError = (prop->name == "error" || prop->name == "warn");
                 
                 for (size_t i = 0; i < node->arguments.size(); ++i) {
                     visit(node->arguments[i].get());
@@ -277,26 +301,26 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
 
                     llvm::Type* argType = arg->getType();
                     
-                    std::string funcName = "ts_console_log";
+                    std::string funcName = isError ? "ts_console_error" : "ts_console_log";
                     llvm::Type* paramType = llvm::PointerType::getUnqual(*context);
 
                     if (argType->isIntegerTy(64)) {
-                        funcName = "ts_console_log_int";
+                        funcName = isError ? "ts_console_error_int" : "ts_console_log_int";
                         paramType = llvm::Type::getInt64Ty(*context);
                     } else if (argType->isDoubleTy()) {
-                        funcName = "ts_console_log_double";
+                        funcName = isError ? "ts_console_error_double" : "ts_console_log_double";
                         paramType = llvm::Type::getDoubleTy(*context);
                     } else if (argType->isIntegerTy(1)) {
-                        funcName = "ts_console_log_bool";
+                        funcName = isError ? "ts_console_error_bool" : "ts_console_log_bool";
                         paramType = llvm::Type::getInt1Ty(*context);
                     } else if (argType->isPointerTy()) {
                         // If it's a pointer, it could be a TsString* or a TsValue*
                         // For now, assume it's a TsValue* and use ts_console_log_value
                         // unless we know for sure it's a string.
                         if (node->arguments[i]->inferredType && node->arguments[i]->inferredType->kind == TypeKind::String) {
-                            funcName = "ts_console_log";
+                            funcName = isError ? "ts_console_error" : "ts_console_log";
                         } else {
-                            funcName = "ts_console_log_value";
+                            funcName = isError ? "ts_console_error_value" : "ts_console_log_value";
                             arg = boxValue(arg, node->arguments[i]->inferredType);
                         }
                         paramType = llvm::PointerType::getUnqual(*context);
@@ -665,35 +689,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     lastValue = createCall(readdirFt, readdirFn.getCallee(), { path });
                     return true;
                 }
-            }
-        }
-    } else if (prop->name == "exit") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "process") {
-                llvm::Value* code = nullptr;
-                if (node->arguments.empty()) {
-                    code = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
-                } else {
-                    visit(node->arguments[0].get());
-                    code = lastValue;
-                }
-                
-                llvm::FunctionType* exitFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee exitFn = module->getOrInsertFunction("ts_process_exit", exitFt);
-                
-                createCall(exitFt, exitFn.getCallee(), { code });
-                lastValue = nullptr;
-                return true;
-            }
-        }
-    } else if (prop->name == "cwd") {
-        if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
-            if (obj->name == "process") {
-                llvm::FunctionType* cwdFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                llvm::FunctionCallee cwdFn = module->getOrInsertFunction("ts_process_cwd", cwdFt);
-                
-                lastValue = unboxValue(createCall(cwdFt, cwdFn.getCallee(), {}), node->inferredType);
-                return true;
             }
         }
     } else if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {

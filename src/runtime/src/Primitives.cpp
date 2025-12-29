@@ -4,8 +4,68 @@
 #include "TsSymbol.h"
 #include <cstdio>
 #include <cmath>
+#include <chrono>
+#include <map>
+#include <string>
+
+static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 
 extern "C" {
+
+void ts_console_error(TsString* str) {
+    if (str) {
+        std::fprintf(stderr, "%s\n", str->ToUtf8());
+    } else {
+        std::fprintf(stderr, "undefined\n");
+    }
+    std::fflush(stderr);
+}
+
+void ts_console_error_int(int64_t val) {
+    std::fprintf(stderr, "%lld\n", val);
+    std::fflush(stderr);
+}
+
+void ts_console_error_double(double val) {
+    std::fprintf(stderr, "%f\n", val);
+    std::fflush(stderr);
+}
+
+void ts_console_error_bool(bool val) {
+    std::fprintf(stderr, "%s\n", val ? "true" : "false");
+    std::fflush(stderr);
+}
+
+void ts_console_error_value(TsValue* val) {
+    // For now, just use the same logic as log_value but to stderr
+    // We should probably implement a proper toString/inspect
+    if (!val) {
+        std::fprintf(stderr, "undefined\n");
+        std::fflush(stderr);
+        return;
+    }
+    ts_console_log_value(val); // Fallback to stdout for now if complex
+}
+
+void ts_console_time(TsString* label) {
+    std::string key = label ? label->ToUtf8() : "default";
+    consoleTimers[key] = std::chrono::steady_clock::now();
+}
+
+void ts_console_time_end(TsString* label) {
+    std::string key = label ? label->ToUtf8() : "default";
+    auto it = consoleTimers.find(key);
+    if (it != consoleTimers.end()) {
+        auto end = std::chrono::steady_clock::now();
+        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - it->second).count();
+        std::printf("%s: %lldms\n", key.c_str(), (long long)diff);
+        consoleTimers.erase(it);
+    }
+}
+
+void ts_console_trace() {
+    std::printf("Trace: (stack trace not yet implemented)\n");
+}
 
 int32_t ts_double_to_int32(double d) {
     if (std::isnan(d) || std::isinf(d)) return 0;

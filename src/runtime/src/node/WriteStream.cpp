@@ -103,4 +103,16 @@ extern "C" {
         void* mem = ts_alloc(sizeof(TsWriteStream));
         return new(mem) TsWriteStream(fd);
     }
+
+    bool ts_fs_write_stream_write(void* stream, void* buffer) {
+        TsWriteStream* s = (TsWriteStream*)stream;
+        TsBuffer* b = (TsBuffer*)ts_value_get_object((TsValue*)buffer);
+        if (!b) b = (TsBuffer*)buffer; // Fallback if not boxed
+        return s->Write(b->GetData(), b->GetLength());
+    }
+
+    void ts_fs_write_stream_end(void* stream) {
+        TsWriteStream* s = (TsWriteStream*)stream;
+        s->End();
+    }
 }

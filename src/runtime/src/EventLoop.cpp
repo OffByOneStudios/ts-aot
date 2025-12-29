@@ -69,6 +69,29 @@ extern "C" void ts_clear_timer(TsValue* timerId) {
     uv_close((uv_handle_t*)timer, on_timer_close);
 }
 
+extern "C" TsValue* ts_set_immediate(TsValue* callback) {
+    // Use a zero-timeout timer instead of uv_check_t
+    // uv_check callbacks only fire after I/O poll, which blocks if there's no I/O
+    uv_timer_t* timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+    uv_timer_init(uv_default_loop(), timer);
+    
+    TimerData* data = new TimerData();
+    data->callback = callback;
+    data->timer = timer;
+    data->isInterval = false;
+    
+    timer->data = data;
+    uv_timer_start(timer, on_timer_callback, 0, 0);  // Zero delay = immediate
+    
+    return ts_value_make_int((int64_t)timer);
+}
+
+extern "C" void ts_process_next_tick(TsValue* callback) {
+    ts_queue_microtask([](void* data) {
+        ts_call_0((TsValue*)data);
+    }, callback);
+}
+
 #include <windows.h>
 
 static std::vector<std::function<void()>> microtasks;

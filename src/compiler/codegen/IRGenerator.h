@@ -120,9 +120,10 @@ private:
     bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
-    bool tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);

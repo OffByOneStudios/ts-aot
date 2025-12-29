@@ -673,6 +673,24 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         createCall(setFt, setFn.getCallee(), { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+        if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+            if (innerProp->name == "env") {
+                if (auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                    if (id->name == "process") {
+                        llvm::FunctionType* setEnvFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                                { builder->getPtrTy(), builder->getPtrTy() }, false);
+                        llvm::FunctionCallee setEnvFn = module->getOrInsertFunction("ts_process_set_env", setEnvFt);
+                        
+                        llvm::Value* key = builder->CreateGlobalStringPtr(prop->name);
+                        llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+                        createCall(setEnvFt, setEnvFn.getCallee(), { key, boxedVal });
+                        lastValue = val;
+                        return;
+                    }
+                }
+            }
+        }
+
         if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(prop->expression.get());
             llvm::Value* obj = lastValue;
@@ -706,6 +724,16 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 }
                 
                 createCall(setFt, fn.getCallee(), { re, indexVal });
+                lastValue = val;
+                return;
+            }
+        }
+
+        if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (id->name == "process" && prop->name == "exitCode") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { llvm::Type::getInt64Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_set_exit_code", ft);
+                createCall(ft, fn.getCallee(), { val });
                 lastValue = val;
                 return;
             }
