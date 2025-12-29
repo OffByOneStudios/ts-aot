@@ -6,6 +6,7 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 - `.github/DEVELOPMENT.md` - Detailed development guidelines
 - `.github/instructions/code-snippets.md` - Copy-paste ready code templates
 - `.github/instructions/runtime-extensions.instructions.md` - Runtime extension guide
+- `.github/instructions/adding-nodejs-api.instructions.md` - How to add new Node.js APIs
 
 ## ⛔ STOP AND CHECK - Before ANY Runtime Edit ⛔
 
