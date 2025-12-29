@@ -48,6 +48,7 @@ public:
     void registerPath();
     void registerEvents();
     void registerStreams();
+    void registerProcess();
     void registerBuffer();
     void registerNet();
     void registerHTTP();

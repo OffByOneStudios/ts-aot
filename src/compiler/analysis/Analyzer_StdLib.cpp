@@ -36,6 +36,18 @@ Analyzer::Analyzer() {
     symbols.define("setTimeout", setTimeoutType);
     symbols.define("setInterval", setTimeoutType);
 
+    auto clearTimeoutType = std::make_shared<FunctionType>();
+    clearTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    clearTimeoutType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("clearTimeout", clearTimeoutType);
+    symbols.define("clearInterval", clearTimeoutType);
+
+    auto setImmediateType = std::make_shared<FunctionType>();
+    setImmediateType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    setImmediateType->returnType = std::make_shared<Type>(TypeKind::Int);
+    symbols.define("setImmediate", setImmediateType);
+    symbols.define("clearImmediate", clearTimeoutType);
+
     // Register require global
     auto requireType = std::make_shared<FunctionType>();
     requireType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
@@ -314,6 +326,20 @@ Analyzer::Analyzer() {
     logType->returnType = std::make_shared<Type>(TypeKind::Void);
     consoleType->fields["log"] = logType;
     consoleType->fields["error"] = logType;
+    consoleType->fields["warn"] = logType;
+    consoleType->fields["info"] = logType;
+    consoleType->fields["debug"] = logType;
+
+    auto timeType = std::make_shared<FunctionType>();
+    timeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    timeType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["time"] = timeType;
+    consoleType->fields["timeEnd"] = timeType;
+
+    auto traceType = std::make_shared<FunctionType>();
+    traceType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["trace"] = traceType;
+
     symbols.define("console", consoleType);
 
     // Register ts_console_log
@@ -422,24 +448,6 @@ Analyzer::Analyzer() {
     asyncNextMethod->returnType = wrappedResult;
     asyncGeneratorClass->methods["next"] = asyncNextMethod;
     symbols.defineType("AsyncGenerator", asyncGeneratorClass);
-
-    // Register process global
-    auto processType = std::make_shared<ObjectType>();
-    processType->fields["argv"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
-    
-    auto envType = std::make_shared<ObjectType>(); // Map-like object
-    processType->fields["env"] = envType;
-
-    auto exitType = std::make_shared<FunctionType>();
-    exitType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
-    exitType->returnType = std::make_shared<Type>(TypeKind::Void);
-    processType->fields["exit"] = exitType;
-
-    auto cwdType = std::make_shared<FunctionType>();
-    cwdType->returnType = std::make_shared<Type>(TypeKind::String);
-    processType->fields["cwd"] = cwdType;
-
-    symbols.define("process", processType);
 
     // Register Map class
     auto mapClass = std::make_shared<ClassType>("Map");
@@ -710,6 +718,7 @@ Analyzer::Analyzer() {
 
     registerEvents();
     registerStreams();
+    registerProcess();
     registerBuffer();
     registerFS();
     registerPath();

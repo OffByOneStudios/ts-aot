@@ -100,23 +100,6 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 }
 
 void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
-    if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
-        if (id->name == "Math" && node->name == "PI") {
-            lastType = std::make_shared<Type>(TypeKind::Double);
-            return;
-        }
-        if (id->name == "process") {
-            if (node->name == "argv") {
-                lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
-                return;
-            }
-            if (node->name == "env") {
-                lastType = std::make_shared<ObjectType>();
-                return;
-            }
-        }
-    }
-
     visit(node->expression.get());
     auto objType = lastType;
 

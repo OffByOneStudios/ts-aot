@@ -2,6 +2,8 @@
 #include "TsArray.h"
 #include "TsString.h"
 #include "TsMap.h"
+#include "TsWriteStream.h"
+#include "TsReadStream.h"
 #include <cstdio>
 #include <setjmp.h>
 #include <vector>
@@ -13,6 +15,7 @@
 #include <crtdbg.h>
 #include <direct.h>
 #define getcwd _getcwd
+#define chdir _chdir
 extern "C" char** _environ;
 #else
 #include <unistd.h>
@@ -29,6 +32,10 @@ static std::vector<ExceptionContext*> exceptionStack;
 static TsValue* currentException = nullptr;
 static TsValue* process_argv = nullptr;
 static TsValue* process_env = nullptr;
+static int64_t process_exit_code = 0;
+static TsWriteStream* process_stdout = nullptr;
+static TsWriteStream* process_stderr = nullptr;
+static TsReadStream* process_stdin = nullptr;
 
 extern "C" {
 
@@ -61,6 +68,21 @@ void* ts_get_process_env() {
     return process_env;
 }
 
+void ts_process_set_env(const char* key, TsValue* val) {
+    void* env = ts_get_process_env();
+    TsMap* envMap = (TsMap*)ts_value_get_object((TsValue*)env);
+    
+    TsString* sVal = (TsString*)ts_value_get_string(val);
+    if (sVal) {
+        envMap->Set(TsString::Create(key), *val);
+#ifdef _MSC_VER
+        _putenv_s(key, sVal->ToUtf8());
+#else
+        setenv(key, sVal->ToUtf8(), 1);
+#endif
+    }
+}
+
 void ts_process_exit(int64_t code) {
     exit((int)code);
 }
@@ -71,6 +93,62 @@ void* ts_process_cwd() {
         return ts_value_make_string(TsString::Create(buf));
     }
     return ts_value_make_string(TsString::Create(""));
+}
+
+void ts_process_chdir(void* dir) {
+    TsString* s = (TsString*)dir;
+    if (s) {
+        chdir(s->ToUtf8());
+    }
+}
+
+int64_t ts_process_get_exit_code() {
+    return process_exit_code;
+}
+
+void ts_process_set_exit_code(int64_t code) {
+    process_exit_code = code;
+}
+
+void* ts_process_get_platform() {
+#ifdef _WIN32
+    return ts_value_make_string(TsString::Create("win32"));
+#elif __APPLE__
+    return ts_value_make_string(TsString::Create("darwin"));
+#else
+    return ts_value_make_string(TsString::Create("linux"));
+#endif
+}
+
+void* ts_process_get_arch() {
+#ifdef _M_X64
+    return ts_value_make_string(TsString::Create("x64"));
+#elif _M_ARM64
+    return ts_value_make_string(TsString::Create("arm64"));
+#else
+    return ts_value_make_string(TsString::Create("x64"));
+#endif
+}
+
+void* ts_process_get_stdout() {
+    if (!process_stdout) {
+        process_stdout = new (ts_alloc(sizeof(TsWriteStream))) TsWriteStream(1);
+    }
+    return process_stdout;
+}
+
+void* ts_process_get_stderr() {
+    if (!process_stderr) {
+        process_stderr = new (ts_alloc(sizeof(TsWriteStream))) TsWriteStream(2);
+    }
+    return process_stderr;
+}
+
+void* ts_process_get_stdin() {
+    if (!process_stdin) {
+        process_stdin = new (ts_alloc(sizeof(TsReadStream))) TsReadStream(0);
+    }
+    return process_stdin;
 }
 
 void* ts_push_exception_handler() {

@@ -24,6 +24,17 @@ void ts_console_log_int(int64_t val);
 void ts_console_log_double(double val);
 void ts_console_log_bool(bool val);
 void ts_console_log_value(TsValue* val);
+
+void ts_console_error(TsString* str);
+void ts_console_error_int(int64_t val);
+void ts_console_error_double(double val);
+void ts_console_error_bool(bool val);
+void ts_console_error_value(TsValue* val);
+
+void ts_console_time(TsString* label);
+void ts_console_time_end(TsString* label);
+void ts_console_trace();
+
 bool ts_value_is_nullish(TsValue* v);
 TsValue* ts_value_make_undefined();
 TsValue* ts_value_make_null();
@@ -63,8 +74,23 @@ TsValue* ts_get_exception();
 int ts_main(int argc, char** argv, TsValue* (*user_main)(void*));
 void* ts_get_process_argv();
 void* ts_get_process_env();
+void ts_process_set_env(const char* key, TsValue* val);
 void ts_process_exit(int64_t code);
 void* ts_process_cwd();
+void ts_process_chdir(void* dir);
+int64_t ts_process_get_exit_code();
+void ts_process_set_exit_code(int64_t code);
+void* ts_process_get_platform();
+void* ts_process_get_arch();
+void* ts_process_get_stdout();
+void* ts_process_get_stderr();
+void* ts_process_get_stdin();
+void ts_process_next_tick(TsValue* callback);
+
+TsValue* ts_set_timeout(TsValue* callback, int64_t delay);
+TsValue* ts_set_interval(TsValue* callback, int64_t delay);
+TsValue* ts_set_immediate(TsValue* callback);
+void ts_clear_timer(TsValue* timerId);
 
 // --- BigInt ---
 void* ts_bigint_create_int(int64_t val);

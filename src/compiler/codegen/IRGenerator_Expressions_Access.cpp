@@ -122,13 +122,30 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* obj = lastValue;
         emitNullCheckForExpression(node->expression.get(), obj);
         visit(node->argumentExpression.get());
-        llvm::Value* key = lastValue;
+        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
         
         llvm::Value* res = createCall(getFt, getFn.getCallee(), { obj, key });
         lastValue = unboxValue(res, std::make_shared<Type>(TypeKind::Any));
+        return;
+    }
+
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
+        visit(node->expression.get());
+        llvm::Value* mapVal = lastValue;
+        emitNullCheckForExpression(node->expression.get(), mapVal);
+        
+        visit(node->argumentExpression.get());
+        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+        
+        // ts_map_get expects the raw TsMap*
+        llvm::Value* rawMap = unboxValue(mapVal, node->expression->inferredType);
+        lastValue = createCall(getFt, getFn.getCallee(), { rawMap, key });
         return;
     }
 
@@ -356,6 +373,25 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateFSPropertyAccess(node)) return;
     if (tryGeneratePathPropertyAccess(node)) return;
 
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
+        visit(node->expression.get());
+        llvm::Value* mapVal = lastValue;
+        emitNullCheckForExpression(node->expression.get(), mapVal);
+        
+        llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create_utf8", createStrFt);
+        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->name.length()) });
+        
+        key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+        
+        lastValue = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
+        return;
+    }
+
     if (node->name == "size") {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
             visit(node->expression.get());
@@ -469,6 +505,42 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::FunctionType* envFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee envFn = module->getOrInsertFunction("ts_get_process_env", envFt);
             lastValue = unboxValue(createCall(envFt, envFn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "exitCode") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exit_code", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "platform") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_platform", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "arch") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_arch", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "stdout") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stdout", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "stderr") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stderr", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "stdin") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stdin", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
     }

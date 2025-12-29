@@ -302,27 +302,27 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | process | _tickCallback | function | 🔴 | |
 | process | abort | function | 🔴 | |
 | process | allowedNodeEnvironmentFlags | object | 🔴 | |
-| process | arch | string | 🔴 | |
-| process | argv | object | 🔴 | |
+| process | arch | string | 🟢 | `ts_process_get_arch()` |
+| process | argv | object | 🟢 | `ts_get_process_argv()` |
 | process | argv0 | string | 🔴 | |
 | process | assert | function | 🔴 | |
 | process | availableMemory | function | 🔴 | |
 | process | binding | function | 🔴 | |
-| process | chdir | function | 🔴 | |
+| process | chdir | function | 🟢 | `ts_process_chdir()` |
 | process | config | object | 🔴 | |
 | process | constrainedMemory | function | 🔴 | |
 | process | cpuUsage | function | 🔴 | |
-| process | cwd | function | 🔴 | |
+| process | cwd | function | 🟢 | `ts_process_cwd()` |
 | process | debugPort | number | 🔴 | |
 | process | dlopen | function | 🔴 | |
 | process | domain | object | 🔴 | |
 | process | emitWarning | function | 🔴 | |
-| process | env | object | 🔴 | |
+| process | env | object | 🟢 | `ts_get_process_env()` |
 | process | execArgv | object | 🔴 | |
 | process | execPath | string | 🔴 | |
 | process | execve | function | 🔴 | |
-| process | exit | function | 🔴 | |
-| process | exitCode | undefined | 🔴 | |
+| process | exit | function | 🟢 | `ts_process_exit()` |
+| process | exitCode | number | 🟢 | `ts_process_get/set_exit_code()` |
 | process | features | object | 🔴 | |
 | process | finalization | object | 🔴 | |
 | process | getActiveResourcesInfo | function | 🔴 | |
@@ -334,10 +334,10 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | process | mainModule | object | 🔴 | |
 | process | memoryUsage | function | 🔴 | |
 | process | moduleLoadList | object | 🔴 | |
-| process | nextTick | function | 🔴 | |
+| process | nextTick | function | 🟢 | `ts_process_next_tick()` |
 | process | openStdin | function | 🔴 | |
 | process | pid | number | 🔴 | |
-| process | platform | string | 🔴 | |
+| process | platform | string | 🟢 | `ts_process_get_platform()` |
 | process | ppid | number | 🔴 | |
 | process | reallyExit | function | 🔴 | |
 | process | ref | function | 🔴 | |
@@ -347,21 +347,21 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | process | setSourceMapsEnabled | function | 🔴 | |
 | process | setUncaughtExceptionCaptureCallback | function | 🔴 | |
 | process | sourceMapsEnabled | boolean | 🔴 | |
-| process | stderr | object | 🔴 | |
-| process | stdin | object | 🔴 | |
-| process | stdout | object | 🔴 | |
+| process | stderr | object | 🟢 | `ts_process_get_stderr()` Writable stream |
+| process | stdin | object | 🟢 | `ts_process_get_stdin()` Readable stream |
+| process | stdout | object | 🟢 | `ts_process_get_stdout()` Writable stream |
 | process | title | string | 🔴 | |
 | process | umask | function | 🔴 | |
 | process | unref | function | 🔴 | |
 | process | uptime | function | 🔴 | |
 | process | version | string | 🔴 | |
 | process | versions | object | 🔴 | |
-| globals | console | object | 🟡 | Basic `log` support via `ts_console_log` |
-| globals | setTimeout | function | 🔴 | |
-| globals | setInterval | function | 🔴 | |
-| globals | clearTimeout | function | 🔴 | |
-| globals | clearInterval | function | 🔴 | |
-| globals | setImmediate | function | 🔴 | |
-| globals | clearImmediate | function | 🔴 | |
+| globals | console | object | 🟢 | `log`, `error`, `warn`, `info`, `time`, `timeEnd`, `trace` |
+| globals | setTimeout | function | 🟢 | `ts_set_timeout()` |
+| globals | setInterval | function | 🟢 | `ts_set_interval()` |
+| globals | clearTimeout | function | 🟢 | `ts_clear_timer()` |
+| globals | clearInterval | function | 🟢 | `ts_clear_timer()` |
+| globals | setImmediate | function | 🟢 | `ts_set_immediate()` (zero-timeout timer) |
+| globals | clearImmediate | function | 🟢 | `ts_clear_timer()` |
 | globals | TextEncoder | function | 🔴 | |
 | globals | TextDecoder | function | 🔴 | |

@@ -1,5 +1,7 @@
 #include "IRGenerator.h"
 #include <spdlog/spdlog.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
 
 namespace ts {
 using namespace ast;
