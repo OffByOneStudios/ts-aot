@@ -90,6 +90,10 @@ int main(int argc, char** argv) {
         // Auto-detect debug runtime if compiler was built in debug mode, or if explicitly requested
         driverOpts.debugRuntime = result["debug-runtime"].as<bool>() || ts::isDebugBuild();
         
+        if (driverOpts.debugRuntime && !result["debug-runtime"].as<bool>()) {
+            SPDLOG_INFO("Compiler built in Debug mode - using debug runtime");
+        }
+        
         if (result.count("output")) {
             driverOpts.outputFile = result["output"].as<std::string>();
         } else if (result.count("emit-exe")) {
@@ -107,7 +111,21 @@ int main(int argc, char** argv) {
             driverOpts.runAfterLink = true;
         }
 
-        driverOpts.optLevel = result["opt"].as<std::string>();
+        // Handle optimization level
+        // If user specified an opt level, use it. Otherwise:
+        // - Debug runtime: force O0 (MSVC debug CRT compatibility)
+        // - Release runtime: default to O2 for performance
+        if (result.count("opt")) {
+            driverOpts.optLevel = result["opt"].as<std::string>();
+            // Warn if using optimizations with debug runtime
+            if (driverOpts.debugRuntime && driverOpts.optLevel != "0") {
+                SPDLOG_WARN("Using optimization level -{} with debug runtime may cause issues", driverOpts.optLevel);
+            }
+        } else {
+            // Auto-select optimization level based on runtime mode
+            driverOpts.optLevel = driverOpts.debugRuntime ? "0" : "2";
+        }
+        
         driverOpts.debugAst = result["debug-ast"].as<bool>();
         driverOpts.dumpIR = result["dump-ir"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
