@@ -1,5 +1,24 @@
 #pragma once
 
+/*
+ * ⚠️ HTTP RUNTIME DEVELOPMENT GUIDE ⚠️
+ * 
+ * Before editing this file, read: .github/instructions/runtime-extensions.instructions.md
+ * 
+ * CRITICAL RULES:
+ * 1. Memory: Use ts_alloc() for GC objects, NOT new/malloc
+ * 2. Strings: Use TsString::Create(), NOT std::string
+ * 3. Casting: Use AsXxx() or dynamic_cast, NOT C-style casts
+ * 4. Boxing: Use ts_value_get_object() to unbox void* params
+ * 5. Errors: ts_error_create() returns ALREADY-BOXED TsValue*
+ * 
+ * ADDING NEW PROPERTIES:
+ * 1. Add field to class (e.g., int statusCode = 0;)
+ * 2. Set in callback (e.g., on_headers_complete)
+ * 3. Handle in ts_object_get_property() using dynamic_cast
+ * 4. Add extern "C" getter if needed for codegen
+ */
+
 #include "TsString.h"
 #include "TsObject.h"
 #include "TsMap.h"

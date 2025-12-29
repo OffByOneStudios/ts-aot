@@ -1,6 +1,77 @@
 # Runtime Extension Development Guide
 
+**⚠️ READ THIS BEFORE EDITING ANY RUNTIME CODE ⚠️**
+
 When extending the ts-aot runtime (adding new Node.js APIs, native functions, etc.), follow these critical patterns to avoid memory corruption and crashes.
+
+## Pre-Edit Checklist
+
+Before making ANY changes, verify:
+
+- [ ] Am I using `ts_alloc()` for all GC-managed allocations? (NOT `new`/`malloc`)
+- [ ] Am I using `TsString::Create()` for strings? (NOT `std::string`)
+- [ ] Am I using `AsXxx()` or `dynamic_cast` for casting? (NOT C-style casts)
+- [ ] Am I using `ts_value_get_*()` helpers for unboxing? 
+- [ ] Am I calling the correct config (Release or Debug) that matches the runtime?
+
+## Quick Reference - Copy These Patterns
+
+### Pattern 1: Safe Object Casting
+```cpp
+// ✅ CORRECT - use AsXxx() helpers
+TsEventEmitter* emitter = ((TsObject*)ptr)->AsEventEmitter();
+if (!emitter) return;  // Always null-check!
+
+// ✅ ALSO CORRECT - use dynamic_cast  
+TsSocket* socket = dynamic_cast<TsSocket*>((TsObject*)ptr);
+if (!socket) return;
+
+// ❌ WRONG - NEVER do this
+TsEventEmitter* e = (TsEventEmitter*)ptr;  // BROKEN with virtual inheritance!
+```
+
+### Pattern 2: Unboxing void* Parameters
+```cpp
+// ✅ CORRECT - always unbox first
+void* rawPtr = ts_value_get_object((TsValue*)param);
+if (!rawPtr) rawPtr = param;  // Fallback if not boxed
+TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+
+// ❌ WRONG - assuming param is the raw pointer
+TsSocket* s = (TsSocket*)param;  // May be a TsValue*, not raw!
+```
+
+### Pattern 3: Memory Allocation
+```cpp
+// ✅ CORRECT - use ts_alloc for GC-managed objects
+void* mem = ts_alloc(sizeof(TsMyClass));
+TsMyClass* obj = new (mem) TsMyClass();
+
+// ❌ WRONG - raw new is NOT GC-managed
+TsMyClass* obj = new TsMyClass();  // WILL LEAK or crash!
+```
+
+### Pattern 4: String Creation
+```cpp
+// ✅ CORRECT - use TsString::Create
+TsString* str = TsString::Create("hello");
+
+// ❌ WRONG - std::string is not compatible
+std::string s = "hello";  // Cannot pass to runtime APIs!
+```
+
+### Pattern 5: Error Creation (Already Boxed)
+```cpp
+// ✅ CORRECT - ts_error_create returns boxed TsValue*
+TsValue* err = ts_error_create("Something failed");
+callback(err);  // Use directly
+
+// ❌ WRONG - double-boxing
+TsValue* err = ts_error_create("message");
+TsValue* boxed = ts_value_make_object(err);  // DOUBLE-BOXED!
+```
+
+---
 
 ## Memory Layout
 

@@ -2,6 +2,22 @@
 #include "TsDuplex.h"
 #include <uv.h>
 
+/*
+ * ⚠️ VIRTUAL INHERITANCE WARNING ⚠️
+ * 
+ * TsSocket inherits from TsDuplex which uses virtual inheritance.
+ * 
+ * To cast to TsSocket:
+ *   TsSocket* s = ((TsObject*)ptr)->AsSocket();        // ✅ CORRECT
+ *   TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)ptr); // ✅ CORRECT
+ *   TsSocket* s = (TsSocket*)ptr;                      // ❌ BROKEN!
+ * 
+ * When receiving void* params, ALWAYS unbox first:
+ *   void* rawPtr = ts_value_get_object((TsValue*)param);
+ *   if (!rawPtr) rawPtr = param;
+ *   TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+ */
+
 class TsSocket : public TsDuplex {
 public:
     TsSocket();
