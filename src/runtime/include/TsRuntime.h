@@ -87,6 +87,38 @@ void* ts_process_get_stderr();
 void* ts_process_get_stdin();
 void ts_process_next_tick(TsValue* callback);
 
+// --- Process Info (Milestone 102.5) ---
+int64_t ts_process_get_pid();
+int64_t ts_process_get_ppid();
+void* ts_process_get_version();
+void* ts_process_get_versions();
+void* ts_process_get_argv0();
+void* ts_process_get_exec_path();
+void* ts_process_get_exec_argv();
+void* ts_process_get_title();
+void ts_process_set_title(void* title);
+
+// --- High-Resolution Time & Resource Usage (Milestone 102.6) ---
+void* ts_process_hrtime(void* prevTime);
+int64_t ts_process_hrtime_bigint();
+double ts_process_uptime();
+void* ts_process_memory_usage();
+int64_t ts_process_memory_usage_rss();
+void* ts_process_cpu_usage(void* prevUsage);
+void* ts_process_resource_usage();
+
+// --- Process Control (Milestone 102.7) ---
+int32_t ts_process_kill(int64_t pid, int32_t signal);
+void ts_process_abort();
+int32_t ts_process_umask(int32_t mask);
+void ts_process_emit_warning(void* warning);
+
+// --- Configuration & Features (Milestone 102.10) ---
+void* ts_process_get_config();
+void* ts_process_get_features();
+void* ts_process_get_release();
+int64_t ts_process_get_debug_port();
+
 TsValue* ts_set_timeout(TsValue* callback, int64_t delay);
 TsValue* ts_set_interval(TsValue* callback, int64_t delay);
 TsValue* ts_set_immediate(TsValue* callback);

@@ -543,6 +543,88 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
+        
+        // ====================================================================
+        // Milestone 102.5: Process Info Properties
+        // ====================================================================
+        
+        if (id->name == "process" && node->name == "pid") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_pid", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "ppid") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_ppid", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "version") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_version", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "versions") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_versions", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "argv0") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_argv0", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "execPath") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exec_path", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        if (id->name == "process" && node->name == "execArgv") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exec_argv", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "title") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_title", ft);
+            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            return;
+        }
+        
+        // ====================================================================
+        // Milestone 102.10: Configuration & Features Properties
+        // ====================================================================
+        
+        if (id->name == "process" && node->name == "config") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_config", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "features") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_features", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "release") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_release", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "debugPort") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_debug_port", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {

@@ -300,62 +300,62 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | process | _startProfilerIdleNotifier | function | 🔴 | |
 | process | _stopProfilerIdleNotifier | function | 🔴 | |
 | process | _tickCallback | function | 🔴 | |
-| process | abort | function | 🔴 | |
+| process | abort | function | 🟢 | `ts_process_abort()` |
 | process | allowedNodeEnvironmentFlags | object | 🔴 | |
 | process | arch | string | 🟢 | `ts_process_get_arch()` |
 | process | argv | object | 🟢 | `ts_get_process_argv()` |
-| process | argv0 | string | 🔴 | |
+| process | argv0 | string | 🟢 | `ts_process_get_argv0()` |
 | process | assert | function | 🔴 | |
 | process | availableMemory | function | 🔴 | |
 | process | binding | function | 🔴 | |
 | process | chdir | function | 🟢 | `ts_process_chdir()` |
-| process | config | object | 🔴 | |
+| process | config | object | 🟢 | `ts_process_get_config()` |
 | process | constrainedMemory | function | 🔴 | |
-| process | cpuUsage | function | 🔴 | |
+| process | cpuUsage | function | 🟢 | `ts_process_cpu_usage()` |
 | process | cwd | function | 🟢 | `ts_process_cwd()` |
-| process | debugPort | number | 🔴 | |
+| process | debugPort | number | 🟢 | `ts_process_get_debug_port()` |
 | process | dlopen | function | 🔴 | |
 | process | domain | object | 🔴 | |
-| process | emitWarning | function | 🔴 | |
+| process | emitWarning | function | 🟢 | `ts_process_emit_warning()` |
 | process | env | object | 🟢 | `ts_get_process_env()` |
-| process | execArgv | object | 🔴 | |
-| process | execPath | string | 🔴 | |
+| process | execArgv | object | 🟢 | `ts_process_get_exec_argv()` |
+| process | execPath | string | 🟢 | `ts_process_get_exec_path()` |
 | process | execve | function | 🔴 | |
 | process | exit | function | 🟢 | `ts_process_exit()` |
 | process | exitCode | number | 🟢 | `ts_process_get/set_exit_code()` |
-| process | features | object | 🔴 | |
+| process | features | object | 🟢 | `ts_process_get_features()` |
 | process | finalization | object | 🔴 | |
 | process | getActiveResourcesInfo | function | 🔴 | |
 | process | getBuiltinModule | function | 🔴 | |
 | process | hasUncaughtExceptionCaptureCallback | function | 🔴 | |
-| process | hrtime | function | 🔴 | |
-| process | kill | function | 🔴 | |
+| process | hrtime | function | 🟢 | `ts_process_hrtime()` |
+| process | kill | function | 🟢 | `ts_process_kill()` |
 | process | loadEnvFile | function | 🔴 | |
 | process | mainModule | object | 🔴 | |
-| process | memoryUsage | function | 🔴 | |
+| process | memoryUsage | function | 🟢 | `ts_process_memory_usage()` |
 | process | moduleLoadList | object | 🔴 | |
 | process | nextTick | function | 🟢 | `ts_process_next_tick()` |
 | process | openStdin | function | 🔴 | |
-| process | pid | number | 🔴 | |
+| process | pid | number | 🟢 | `ts_process_get_pid()` |
 | process | platform | string | 🟢 | `ts_process_get_platform()` |
-| process | ppid | number | 🔴 | |
+| process | ppid | number | 🟢 | `ts_process_get_ppid()` |
 | process | reallyExit | function | 🔴 | |
 | process | ref | function | 🔴 | |
-| process | release | object | 🔴 | |
+| process | release | object | 🟢 | `ts_process_get_release()` |
 | process | report | object | 🔴 | |
-| process | resourceUsage | function | 🔴 | |
+| process | resourceUsage | function | 🟢 | `ts_process_resource_usage()` |
 | process | setSourceMapsEnabled | function | 🔴 | |
 | process | setUncaughtExceptionCaptureCallback | function | 🔴 | |
 | process | sourceMapsEnabled | boolean | 🔴 | |
 | process | stderr | object | 🟢 | `ts_process_get_stderr()` Writable stream |
 | process | stdin | object | 🟢 | `ts_process_get_stdin()` Readable stream |
 | process | stdout | object | 🟢 | `ts_process_get_stdout()` Writable stream |
-| process | title | string | 🔴 | |
-| process | umask | function | 🔴 | |
+| process | title | string | 🟢 | `ts_process_get_title()` |
+| process | umask | function | 🟢 | `ts_process_umask()` |
 | process | unref | function | 🔴 | |
-| process | uptime | function | 🔴 | |
-| process | version | string | 🔴 | |
-| process | versions | object | 🔴 | |
+| process | uptime | function | 🟢 | `ts_process_uptime()` |
+| process | version | string | 🟢 | `ts_process_get_version()` |
+| process | versions | object | 🟢 | `ts_process_get_versions()` |
 | globals | console | object | 🟢 | `log`, `error`, `warn`, `info`, `time`, `timeEnd`, `trace` |
 | globals | setTimeout | function | 🟢 | `ts_set_timeout()` |
 | globals | setInterval | function | 🟢 | `ts_set_interval()` |
