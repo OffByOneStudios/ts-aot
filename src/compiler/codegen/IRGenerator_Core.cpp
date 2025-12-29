@@ -982,13 +982,17 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             return getUndefinedValue();
         }
         SPDLOG_ERROR("boxValue: val is NULL! type={}", type ? (int)type->kind : -1);
+        // Print stack trace or more info if possible
         return getUndefinedValue();
     }
     if (boxedValues.count(val)) {
         return val;
     }
 
-    SPDLOG_INFO("boxValue: val={}, type={}", (void*)val, type ? (int)type->kind : -1);
+    SPDLOG_INFO("boxValue: val={}, type={}, llvm_type={}", (void*)val, type ? (int)type->kind : -1, (int)val->getType()->getTypeID());
+    if (auto func = llvm::dyn_cast<llvm::Function>(val)) {
+        SPDLOG_INFO("boxValue: val is function {}", func->getName().str());
+    }
 
     llvm::Type* valType = val->getType();
     std::string funcName;
@@ -1170,7 +1174,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
     std::string name;
     llvm::Value* actualCallee = callee->stripPointerCasts();
     if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
-    SPDLOG_INFO("createCall: {} with {} args", name, args.size());
+    SPDLOG_INFO("createCall: {} with {} args, returnType={}", name, args.size(), (int)ft->getReturnType()->getTypeID());
 
     if (ft->getNumParams() != args.size()) {
         // Some functions might be vararg or we might have optional args
@@ -1192,6 +1196,12 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
     }
     
     llvm::Value* res = builder->CreateCall(ft, callee, castedArgs);
+    if (res) {
+        SPDLOG_INFO("createCall: {} with {} args, returnType={}, resType={}", name, args.size(), (int)ft->getReturnType()->getTypeID(), (int)res->getType()->getTypeID());
+    } else {
+        SPDLOG_INFO("createCall: {} with {} args, returnType={}, res=NULL", name, args.size(), (int)ft->getReturnType()->getTypeID());
+    }
+
     if (ft->getReturnType()->isPointerTy()) {
         // If it returns a pointer, check if it's a TsValue*
         // For now, assume any function returning ptr that isn't ts_map_create, etc. returns a boxed value
@@ -1211,6 +1221,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
                                    name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||
                                    name == "ts_path_get_sep" || name == "ts_path_get_delimiter" ||
                                    name == "ts_http_request" || name == "ts_http_get" || name == "ts_http_create_server" ||
+                                   name == "ts_writable_write" || name == "ts_writable_end" ||
                                    (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
             // Raw pointers
         } else if (ft->getReturnType()->isPointerTy()) {

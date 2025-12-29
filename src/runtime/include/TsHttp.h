@@ -20,6 +20,7 @@ public:
     TsString* method;
     TsString* url;
     TsHeaders* headers;
+    int statusCode = 0;  // For HTTP client responses
 
     // TsReadable implementation
     virtual void Pause() override;
@@ -94,7 +95,7 @@ private:
 extern "C" {
     void* ts_http_create_server(void* callback);
     void ts_http_server_listen(void* server, int64_t port, void* callback);
-    void ts_http_server_response_write_head(void* res, int64_t status, void* headers);
+    void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers);
     bool ts_http_server_response_write(void* res, void* data);
     void ts_http_server_response_end(void* res, void* data);
 

@@ -1,7 +1,7 @@
 import * as http from 'http';
 
 const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === '/json') {
+    if (req.url === '/json' || req.url === '/test-url') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: 'Hello, World!', timestamp: Date.now() }));
     } else {

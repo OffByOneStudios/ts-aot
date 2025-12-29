@@ -13,6 +13,25 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
     *   **Strings:** NEVER use `std::string` for runtime values. Use `TsString` (ICU-based).
 *   **Async:** Use `libuv` for the event loop.
 *   **IO:** Use `ts_console_log`.
+*   **Virtual Inheritance & C API Bindings (CRITICAL):**
+    *   The runtime uses virtual inheritance for Node.js-like stream classes (e.g., `TsReadable : public virtual TsEventEmitter`).
+    *   **Pointer Layout:** TsObject has: offset 0 = C++ vtable (8 bytes), offset 8 = explicit magic/vtable member.
+    *   **NEVER use pointer arithmetic** for virtual inheritance classes. With virtual inheritance, base class pointers are NOT at predictable offsets.
+    *   **ALWAYS use `dynamic_cast<TargetClass*>`** when casting between base and derived classes with virtual inheritance.
+    *   **Boxed Values:** Many C API functions receive `void*` that may be either:
+        1. A raw object pointer (e.g., `TsEventEmitter*`)
+        2. A boxed `TsValue*` (with `type` field <= 10 and `ptr_val` containing the actual object)
+    *   **Unboxing Pattern:** Before using a `void*` parameter, check if it's a boxed TsValue:
+        ```cpp
+        TsValue* val = (TsValue*)param;
+        void* rawPtr = param;
+        if ((uint8_t)val->type <= 10 && val->type == ValueType::OBJECT_PTR) {
+            rawPtr = val->ptr_val;  // Unbox
+        }
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+        ```
+    *   **TsMap Magic:** TsMap has magic value `0x4D415053` at offset 16 (not 8!) due to TsObject layout.
+    *   **Error Objects:** `ts_error_create` returns an already-boxed `TsValue*` - do NOT double-box.
 *   **LLVM 18 (Opaque Pointers):**
     *   **Pointers:** Use `builder->getPtrTy()` for all pointer types. NEVER use `getPointerTo()`.
     *   **GEP:** Always provide the source element type: `builder->CreateGEP(type, ptr, indices)`.

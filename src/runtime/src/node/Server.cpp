@@ -5,7 +5,7 @@
 #include <new>
 
 TsServer::TsServer() : listening(false), closed(false) {
-    handle = (uv_tcp_t*)ts_alloc(sizeof(uv_tcp_t));
+    handle = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(uv_default_loop(), handle);
     handle->data = this;
 }
@@ -14,6 +14,7 @@ TsServer::~TsServer() {
     if (!closed) {
         Close();
     }
+    free(handle);
 }
 
 void TsServer::Listen(int port, void* callback) {
@@ -22,13 +23,13 @@ void TsServer::Listen(int port, void* callback) {
     struct sockaddr_in addr;
     uv_ip4_addr("0.0.0.0", port, &addr);
 
-    uv_tcp_bind(handle, (const struct sockaddr*)&addr, 0);
+    int r = uv_tcp_bind(handle, (const struct sockaddr*)&addr, 0);
     
-    int r = uv_listen((uv_stream_t*)handle, 128, OnConnection);
+    r = uv_listen((uv_stream_t*)handle, 128, OnConnection);
     if (r == 0) {
         listening = true;
         if (callback) {
-            // TODO: Call callback
+            On("listening", callback);
         }
         Emit("listening", 0, nullptr);
     } else {

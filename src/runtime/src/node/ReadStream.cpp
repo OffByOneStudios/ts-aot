@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <new>
 
-TsReadStream::TsReadStream(int fd) : fd(fd), closed(false), flowing(false), reading(false) {
+TsReadStream::TsReadStream(int fd) : fd(fd), closed(false) {
+    flowing = false;
+    reading = false;
     buffer = TsBuffer::Create(65536); // 64KB buffer
 }
 

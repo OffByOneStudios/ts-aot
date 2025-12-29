@@ -157,7 +157,6 @@ double ts_value_get_double(TsValue* v) {
 }
 
 bool ts_value_to_bool(TsValue* v) {
-    fprintf(stderr, "DEBUG: ts_value_to_bool v=%p\n", v); fflush(stderr);
     if (!v) return false;
     switch (v->type) {
         case ValueType::UNDEFINED: return false;

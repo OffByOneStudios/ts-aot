@@ -1,21 +1,17 @@
 #pragma once
-#include "TsEventEmitter.h"
+#include "TsWritable.h"
 #include <uv.h>
 
-class TsWriteStream : public TsEventEmitter {
+class TsWriteStream : public TsWritable {
 public:
     TsWriteStream(int fd);
     virtual ~TsWriteStream();
 
-    bool Write(void* data, size_t length);
-    void End();
+    virtual bool Write(void* data, size_t length) override;
+    virtual void End() override;
 
 private:
     int fd;
-    bool closed;
-    size_t bufferedAmount;
-    size_t highWaterMark;
-    bool needDrain;
 
     static void OnWrite(uv_fs_t* req);
 };

@@ -4,13 +4,14 @@
 **Current Phase:** Phase 18 (Node.js Compatibility)
 
 ## Current Focus
-We are in **Phase 18: Node.js Compatibility**, focusing on implementing the core Node.js modules. We have just completed **Epic 97: Streams & Events** and are now starting **Epic 100: Networking (net & http)**.
+We are in **Phase 18: Node.js Compatibility**, focusing on implementing the core Node.js modules. We have just completed **Milestone 100.3 (HTTP Server)** and are now moving to **Milestone 100.4 (HTTP Client)**.
 
 ## Active Tasks
-1.  **Epic 100:** Networking (net & http) - Milestone 100.1 (TCP Sockets).
+1.  **Epic 100:** Networking (net & http) - Milestone 100.4 (HTTP Client).
 2.  **Epic 98:** Module Resolution.
 
 ## Recent Accomplishments
+*   **Epic 100: Networking:** Implemented TCP Sockets, HTTP Parsing, and a functional HTTP Server with JSON support.
 *   **Epic 97: Streams & Events:** Implemented robust `EventEmitter`, `Readable`/`Writable` state machines, backpressure, and `pipe()`.
 *   **Epic 99: Path & Utilities:** Implemented full `path` module support.
 *   **Epic 96: The File System (fs):** Implemented sync/async file operations, file handles, and directory operations.

@@ -33,7 +33,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
-                callback = boxValue(lastValue, node->arguments[0]->inferredType);
+                callback = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -44,12 +44,12 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             if (node->arguments.empty()) return true;
             
             visit(node->arguments[0].get());
-            llvm::Value* options = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::Value* options = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
             
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
                 visit(node->arguments[1].get());
-                callback = boxValue(lastValue, node->arguments[1]->inferredType);
+                callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -72,7 +72,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
                 visit(node->arguments[1].get());
-                callback = boxValue(lastValue, node->arguments[1]->inferredType);
+                callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), builder->getPtrTy() }, false);
@@ -87,7 +87,8 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         if (prop->name == "writeHead" && isServerResponse) {
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
-            llvm::Value* res = lastValue;
+            llvm::Value* boxedRes = lastValue;
+            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
             
             visit(node->arguments[0].get());
             llvm::Value* status = castValue(lastValue, llvm::Type::getInt64Ty(*context));
@@ -95,33 +96,35 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::Value* headers = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
                 visit(node->arguments[1].get());
-                headers = boxValue(lastValue, node->arguments[1]->inferredType);
+                headers = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_response_write_head", ft);
             createCall(ft, fn.getCallee(), { res, status, headers });
-            lastValue = res;
+            lastValue = boxedRes;
             return true;
         } else if (prop->name == "write") {
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
-            llvm::Value* res = lastValue;
+            llvm::Value* boxedRes = lastValue;
+            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
             if (!res) {
                 SPDLOG_ERROR("tryGenerateHTTPCall: write: res is NULL!");
                 return true;
             }
             visit(node->arguments[0].get());
-            llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::Value* data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_writable_write", ft);
             createCall(ft, fn.getCallee(), { res, data });
-            lastValue = res; // Return 'this' for chaining
+            lastValue = boxedRes; // Return 'this' for chaining
             return true;
         } else if (prop->name == "end") {
             visit(prop->expression.get());
-            llvm::Value* res = lastValue;
+            llvm::Value* boxedRes = lastValue;
+            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
             if (!res) {
                 SPDLOG_ERROR("tryGenerateHTTPCall: end: res is NULL!");
                 return true;
@@ -130,13 +133,13 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
-                data = boxValue(lastValue, node->arguments[0]->inferredType);
+                data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_writable_end", ft);
             createCall(ft, fn.getCallee(), { res, data });
-            lastValue = res; // Return 'this' for chaining
+            lastValue = boxedRes; // Return 'this' for chaining
             return true;
         }
     }

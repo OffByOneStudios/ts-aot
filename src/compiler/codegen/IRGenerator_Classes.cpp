@@ -15,7 +15,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error" || 
             name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" || 
             name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
-            name == "Buffer") continue;
+            name == "Buffer" || name == "Socket" || name == "Server" || name == "IncomingMessage" || 
+            name == "ServerResponse" || name == "ClientRequest") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {

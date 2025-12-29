@@ -4,6 +4,7 @@
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsEventEmitter.h"
+#include "TsHttp.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -102,11 +103,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     bool ts_value_get_bool(TsValue* v) {
         if (!v) return false;
-        bool res = false;
-        if (v->type == ValueType::BOOLEAN) res = v->b_val;
-        else res = ts_value_to_bool(v);
-        printf("ts_value_get_bool(%p) type=%d -> %d\n", v, (int)v->type, res);
-        return res;
+        if (v->type == ValueType::BOOLEAN) return v->b_val;
+        return ts_value_to_bool(v);
     }
 
     void* ts_value_get_string(TsValue* v) {
@@ -219,21 +217,41 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
         
-        // Try reading magic at offset 0 and 8
-        uint32_t magic0 = *(uint32_t*)obj;
-        uint32_t magic8 = *(uint32_t*)((char*)obj + sizeof(void*));
-
-        // 1. Check vtable first (preferred for TsMap, TsBuffer, etc.)
-        void** vtable = *(void***)obj;
-        if (vtable) {
-            typedef TsValue* (*GetPropertyFn)(void*, void*);
-            GetPropertyFn getProp = (GetPropertyFn)vtable[1];
-            if (getProp) {
-                TsValue* res = getProp(obj, TsString::Create(keyStr));
-                if (res && res->type != ValueType::UNDEFINED) {
-                    return res;
-                }
+        // Try dynamic_cast for TsIncomingMessage first (has virtual inheritance)
+        TsObject* tsObj = (TsObject*)obj;
+        TsIncomingMessage* incomingMsg = dynamic_cast<TsIncomingMessage*>(tsObj);
+        if (incomingMsg) {
+            if (strcmp(keyStr, "statusCode") == 0) {
+                return ts_value_make_int(incomingMsg->statusCode);
             }
+            if (strcmp(keyStr, "method") == 0) {
+                return ts_value_make_string(incomingMsg->method);
+            }
+            if (strcmp(keyStr, "url") == 0) {
+                return ts_value_make_string(incomingMsg->url);
+            }
+            if (strcmp(keyStr, "headers") == 0) {
+                return ts_value_make_object(incomingMsg->headers);
+            }
+        }
+        
+        // TsObject layout: vtable (8) + TsObject::vtable member (8) = 16 bytes
+        // TsMap adds: magic (4) + impl (8)
+        // So magic is at offset 16 for TsMap, TsEventEmitter, etc.
+        uint32_t magic0 = *(uint32_t*)obj;
+        uint32_t magic8 = *(uint32_t*)((char*)obj + 8);
+        uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+
+        // Check for TsMap (magic at offset 16 after vtables)
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
+            TsMap* map = (TsMap*)obj;
+            TsValue k;
+            k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::Create(keyStr);
+            TsValue val = map->Get(k);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            *res = val;
+            return res;
         }
 
         // 2. Fallback to magic-based checks for built-ins
@@ -272,7 +290,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_get_property(TsValue* val, void* propName) {
-        if (!val || !propName) return nullptr;
+        if (!val || !propName) {
+            return nullptr;
+        }
         
         const char* keyCStr = nullptr;
         // Check if propName is a raw TsString* or a TsValue*
@@ -327,9 +347,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+            return ts_value_make_undefined();
+        }
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
-        if (!func) return ts_value_make_undefined();
+        if (!func) {
+            return ts_value_make_undefined();
+        }
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);

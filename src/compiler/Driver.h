@@ -16,12 +16,22 @@ struct DriverOptions {
     bool dumpTypes = false;
     bool compileOnly = false;
     bool debug = false;
+    bool debugRuntime = false;  // Link against debug version of tsruntime
     bool runAfterLink = false;
     bool smallIcu = false;
     bool verbose = false;
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };
+
+// Helper to detect if the compiler was built in debug mode
+inline bool isDebugBuild() {
+#ifdef _DEBUG
+    return true;
+#else
+    return false;
+#endif
+}
 
 class Driver {
 public:

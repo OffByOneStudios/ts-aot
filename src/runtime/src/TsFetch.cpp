@@ -105,12 +105,6 @@ static void try_ssl_step(FetchContext* ctx) {
         static char ssl_read_buf[16384];
         int ret = SSL_read(ctx->ssl, ssl_read_buf, sizeof(ssl_read_buf));
         if (ret > 0) {
-            
-            for (int i = 0; i < (ret > 10 ? 10 : ret); i++) {
-                fprintf(stderr, "%02x ", (unsigned char)ssl_read_buf[i]);
-            }
-            fprintf(stderr, "\n");
-            
             llhttp_errno_t err = llhttp_execute(&ctx->parser, ssl_read_buf, ret);
             if (err != HPE_OK) {
                 
@@ -436,6 +430,18 @@ TsString* TsHeaders::Get(TsString* name) {
         return (TsString*)val.ptr_val;
     }
     return nullptr;
+}
+
+void TsHeaders::Set(TsString* name, TsString* value) {
+    map->Set(name, TsValue(value));
+}
+
+bool TsHeaders::Has(TsString* name) {
+    return map->Has(name);
+}
+
+void TsHeaders::Delete(TsString* name) {
+    map->Delete(name);
 }
 
 // --- TsResponse ---

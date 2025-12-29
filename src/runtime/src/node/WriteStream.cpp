@@ -8,7 +8,11 @@
 #include <stdlib.h>
 #include <new>
 
-TsWriteStream::TsWriteStream(int fd) : fd(fd), closed(false), bufferedAmount(0), highWaterMark(16384), needDrain(false) {
+TsWriteStream::TsWriteStream(int fd) : fd(fd) {
+    closed = false;
+    bufferedAmount = 0;
+    highWaterMark = 16384;
+    needDrain = false;
 }
 
 TsWriteStream::~TsWriteStream() {
@@ -23,7 +27,6 @@ bool TsWriteStream::Write(void* data, size_t length) {
     if (closed) return false;
 
     bufferedAmount += length;
-    printf("DEBUG: TsWriteStream::Write length=%zu bufferedAmount=%zu highWaterMark=%zu\n", length, bufferedAmount, highWaterMark);
 
     uv_fs_t* write_req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
     // We need to copy the data because uv_fs_write is async and the source might be GC'd or modified
@@ -99,40 +102,5 @@ extern "C" {
         
         void* mem = ts_alloc(sizeof(TsWriteStream));
         return new(mem) TsWriteStream(fd);
-    }
-
-    bool ts_fs_write_stream_write(void* stream, void* data) {
-        TsWriteStream* s = (TsWriteStream*)stream;
-        if (!data) return false;
-
-        TsValue* val = (TsValue*)data;
-        void* ptr = nullptr;
-        if (val->type == ValueType::STRING_PTR || val->type == ValueType::OBJECT_PTR) {
-            ptr = val->ptr_val;
-        } else {
-            ptr = data;
-        }
-
-        if (!ptr) return false;
-
-        uint32_t magic0 = *(uint32_t*)ptr;
-        uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
-
-        bool result = false;
-        if (magic0 == 0x53545247) { // "STRG"
-            TsString* str = (TsString*)ptr;
-            const char* utf8 = str->ToUtf8();
-            result = s->Write((void*)utf8, strlen(utf8));
-        } else if (magic8 == 0x42554646) { // "BUFF"
-            TsBuffer* buf = (TsBuffer*)ptr;
-            result = s->Write(buf->GetData(), buf->GetLength());
-        }
-        
-        return result;
-    }
-
-    void ts_fs_write_stream_end(void* stream) {
-        TsWriteStream* s = (TsWriteStream*)stream;
-        s->End();
     }
 }
