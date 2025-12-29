@@ -24,6 +24,16 @@ bool LinkerDriver::link(const Options& options) {
         args.push_back("/debug");
     }
 
+    // Link correct CRT based on debug/release mode
+    // This must match the runtime library's CRT to avoid LNK2038 errors
+    if (options.debugRuntime) {
+        args.push_back("/defaultlib:libcmtd");
+        args.push_back("/nodefaultlib:libcmt");
+    } else {
+        args.push_back("/defaultlib:libcmt");
+        args.push_back("/nodefaultlib:libcmtd");
+    }
+
     // Add library paths
     std::vector<std::string> libPathArgs;
     for (const auto& path : options.libraryPaths) {

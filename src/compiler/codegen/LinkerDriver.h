@@ -13,6 +13,7 @@ public:
         std::vector<std::string> libraryPaths;
         std::vector<std::string> libraries;
         bool debug = false;
+        bool debugRuntime = false;  // Use debug CRT (libcmtd vs libcmt)
     };
 
     static bool link(const Options& options);
