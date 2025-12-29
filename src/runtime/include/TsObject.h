@@ -44,6 +44,7 @@ public:
     virtual ~TsObject() {}
     virtual class TsEventEmitter* AsEventEmitter() { return nullptr; }
     void* vtable;
+    uint32_t magic;
 };
 
 enum class FunctionType {

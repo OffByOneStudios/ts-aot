@@ -149,7 +149,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             // Bounds check
             if (!isSafe) {
                 llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 3);
+                llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 4);
                 llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                 emitBoundsCheck(index, length);
             }
@@ -178,17 +178,17 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
 
                 // Bounds check
                 if (!isSafe) {
-                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
-                    llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
+                llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 3);
+                llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                     emitBoundsCheck(index, length);
                 }
 
-                llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 1);
+                llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
                 llvm::Value* bufferPtr = builder->CreateLoad(builder->getPtrTy(), bufferPtrPtr);
                 
-                // TsBuffer layout: vtable (0), magic (1), data (2), length (3)
+                // TsBuffer layout: vtable (0), vtable (1), magic (2), data (3), length (4)
                 llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 2);
+                llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 3);
                 llvm::Value* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
                 
                 llvm::Value* ptr = builder->CreateGEP(llvmElemType, dataPtr, { index });
@@ -427,7 +427,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
                 
                 if (tsTypedArrayType) {
-                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, obj, 2);
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, obj, 3);
                     llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                     
                     // Add range metadata
@@ -442,7 +442,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 }
             } else if (cls->name == "Buffer") {
                 llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, obj, 3);
+                llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, obj, 4);
                 llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                 
                 // Add range metadata

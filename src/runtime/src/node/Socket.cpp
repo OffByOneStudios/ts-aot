@@ -6,8 +6,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <new>
+#include <iostream>
+#include <stdio.h>
 
 TsSocket::TsSocket() : connected(false) {
+    this->magic = 0x534F434B; // "SOCK"
     flowing = false;
     reading = false;
     closed = false;
@@ -20,6 +23,7 @@ TsSocket::TsSocket() : connected(false) {
 }
 
 TsSocket::TsSocket(uv_tcp_t* h) : handle(h), connected(true) {
+    this->magic = 0x534F434B; // "SOCK"
     flowing = false;
     reading = false;
     closed = false;
@@ -38,36 +42,69 @@ TsSocket::~TsSocket() {
 void TsSocket::Connect(const char* host, int port, void* callback) {
     if (closed) return;
 
-    struct sockaddr_in dest;
-    uv_ip4_addr(host, port, &dest);
-
-    uv_connect_t* req = (uv_connect_t*)ts_alloc(sizeof(uv_connect_t));
-    
     struct ConnectContext {
         TsSocket* socket;
         void* callback;
+        int port;
     };
     ConnectContext* ctx = (ConnectContext*)ts_alloc(sizeof(ConnectContext));
     ctx->socket = this;
     ctx->callback = callback;
-    req->data = ctx;
+    ctx->port = port;
 
-    uv_tcp_connect(req, handle, (const struct sockaddr*)&dest, [](uv_connect_t* req, int status) {
+    uv_getaddrinfo_t* dns_req = (uv_getaddrinfo_t*)ts_alloc(sizeof(uv_getaddrinfo_t));
+    dns_req->data = ctx;
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;  // Force IPv4 for now (server only binds to 0.0.0.0)
+    hints.ai_socktype = SOCK_STREAM;
+
+    char port_str[16];
+    sprintf(port_str, "%d", port);
+
+    int r = uv_getaddrinfo(uv_default_loop(), dns_req, [](uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
         ConnectContext* ctx = (ConnectContext*)req->data;
         TsSocket* self = ctx->socket;
-        
-        if (status == 0) {
-            self->connected = true;
-            self->Emit("connect", 0, nullptr);
-            if (ctx->callback) {
-                // Call the callback
-                // TODO: Implement calling JS function from C++
+
+        if (status < 0) {
+            self->Emit("error", 0, nullptr);
+            return;
+        }
+
+        uv_connect_t* connect_req = (uv_connect_t*)ts_alloc(sizeof(uv_connect_t));
+        connect_req->data = ctx;
+
+        int r = uv_tcp_connect(connect_req, self->handle, res->ai_addr, [](uv_connect_t* req, int status) {
+            ConnectContext* ctx = (ConnectContext*)req->data;
+            TsSocket* self = ctx->socket;
+            
+            if (status == 0) {
+                self->connected = true;
+                self->OnConnected();
+                if (ctx->callback) {
+                    // TODO: Implement calling JS function from C++
+                }
+            } else {
+                self->Emit("error", 0, nullptr);
             }
-        } else {
-            // Emit error
+        });
+
+        if (r < 0) {
             self->Emit("error", 0, nullptr);
         }
-    });
+
+        uv_freeaddrinfo(res);
+    }, host, port_str, &hints);
+
+    if (r < 0) {
+        Emit("error", 0, nullptr);
+    }
+}
+
+void TsSocket::OnConnected() {
+    Resume();
+    Emit("connect", 0, nullptr);
 }
 
 void TsSocket::On(const char* event, void* callback) {
@@ -98,23 +135,31 @@ void TsSocket::OnAlloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf
 
 void TsSocket::OnRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     TsSocket* self = (TsSocket*)stream->data;
-    
+    self->HandleRead(nread, buf);
+}
+
+void TsSocket::HandleRead(ssize_t nread, const uv_buf_t* buf) {
     if (nread > 0) {
         TsBuffer* chunk = TsBuffer::Create(nread);
         memcpy(chunk->GetData(), buf->base, nread);
         
         TsValue* arg0 = ts_value_make_object(chunk);
         void* args[] = { arg0 };
-        self->Emit("data", 1, args);
+        Emit("data", 1, args);
     } else if (nread < 0) {
         if (nread == UV_EOF) {
-            self->Emit("end", 0, nullptr);
+            Emit("end", 0, nullptr);
         } else {
-            self->Emit("error", 0, nullptr);
+            Emit("error", 0, nullptr);
         }
-        self->End();
+        End();
     }
 }
+
+struct WriteContext {
+    TsSocket* socket;
+    size_t length;
+};
 
 bool TsSocket::Write(void* data, size_t length) {
     if (closed || !connected) return false;
@@ -123,10 +168,6 @@ bool TsSocket::Write(void* data, size_t length) {
 
     uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
     
-    struct WriteContext {
-        TsSocket* socket;
-        size_t length;
-    };
     WriteContext* ctx = (WriteContext*)ts_alloc(sizeof(WriteContext));
     ctx->socket = this;
     ctx->length = length;
@@ -134,22 +175,28 @@ bool TsSocket::Write(void* data, size_t length) {
 
     uv_buf_t buf = uv_buf_init((char*)data, (unsigned int)length);
     
-    uv_write(req, (uv_stream_t*)handle, &buf, 1, [](uv_write_t* req, int status) {
-        WriteContext* ctx = (WriteContext*)req->data;
-        TsSocket* self = ctx->socket;
-        self->bufferedAmount -= ctx->length;
-        
-        if (self->needDrain && self->bufferedAmount < self->highWaterMark) {
-            self->needDrain = false;
-            self->Emit("drain", 0, nullptr);
-        }
-    });
+    uv_write(req, (uv_stream_t*)handle, &buf, 1, OnWrite);
 
     if (bufferedAmount >= highWaterMark) {
         needDrain = true;
         return false;
     }
     return true;
+}
+
+void TsSocket::OnWrite(uv_write_t* req, int status) {
+    WriteContext* ctx = (WriteContext*)req->data;
+    TsSocket* self = ctx->socket;
+    self->HandleWrite(status, ctx->length);
+}
+
+void TsSocket::HandleWrite(int status, size_t length) {
+    bufferedAmount -= length;
+    
+    if (needDrain && bufferedAmount < highWaterMark) {
+        needDrain = false;
+        Emit("drain", 0, nullptr);
+    }
 }
 
 void TsSocket::End() {

@@ -547,7 +547,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 // Bounds check
                 if (!isSafe) {
                     llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 3);
+                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, buf, 4);
                     llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                     emitBoundsCheck(index, length);
                 }
@@ -578,16 +578,16 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
                     // Bounds check
                     if (!isSafe) {
-                        llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
+                        llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 3);
                         llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
                         emitBoundsCheck(index, length);
                     }
 
-                    llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 1);
+                    llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
                     llvm::Value* bufferPtr = builder->CreateLoad(builder->getPtrTy(), bufferPtrPtr);
                     
                     llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                    llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 2);
+                    llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 3);
                     llvm::Value* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
                     
                     llvm::Value* ptr = builder->CreateGEP(llvmElemType, dataPtr, { index });

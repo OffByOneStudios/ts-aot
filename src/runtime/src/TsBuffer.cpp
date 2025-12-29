@@ -8,7 +8,8 @@
 
 TsBuffer* TsBuffer::Create(size_t length) {
     void* mem = ts_alloc(sizeof(TsBuffer));
-    return new(mem) TsBuffer(length);
+    TsBuffer* buf = new(mem) TsBuffer(length);
+    return buf;
 }
 
 TsBuffer* TsBuffer::FromString(TsString* str, TsString* encoding) {
@@ -21,6 +22,7 @@ TsBuffer* TsBuffer::FromString(TsString* str, TsString* encoding) {
 }
 
 TsBuffer::TsBuffer(size_t length) {
+    this->magic = MAGIC;
     this->length = length;
     this->data = (uint8_t*)ts_alloc(length);
     std::memset(this->data, 0, length);

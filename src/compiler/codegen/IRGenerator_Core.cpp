@@ -136,7 +136,8 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
 
     auto tsBufferType = llvm::StructType::create(*context, "TsBuffer");
     tsBufferType->setBody({
-        builder->getPtrTy(),              // vtable
+        builder->getPtrTy(),              // C++ vtable
+        builder->getPtrTy(),              // TsObject::vtable
         llvm::Type::getInt32Ty(*context), // magic
         builder->getPtrTy(),              // data
         llvm::Type::getInt64Ty(*context)  // length
@@ -150,7 +151,8 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
 
     auto tsTypedArrayType = llvm::StructType::create(*context, "TsTypedArray");
     tsTypedArrayType->setBody({
-        builder->getPtrTy(),              // vtable
+        builder->getPtrTy(),              // C++ vtable
+        builder->getPtrTy(),              // TsObject::vtable
         builder->getPtrTy(),              // buffer
         llvm::Type::getInt64Ty(*context)  // length
     });
@@ -1221,6 +1223,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
                                    name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||
                                    name == "ts_path_get_sep" || name == "ts_path_get_delimiter" ||
                                    name == "ts_http_request" || name == "ts_http_get" || name == "ts_http_create_server" ||
+                                   name == "ts_https_request" || name == "ts_https_get" || name == "ts_https_create_server" ||
                                    name == "ts_writable_write" || name == "ts_writable_end" ||
                                    (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
             // Raw pointers

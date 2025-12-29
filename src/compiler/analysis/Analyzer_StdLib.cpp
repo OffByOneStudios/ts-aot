@@ -313,6 +313,7 @@ Analyzer::Analyzer() {
     logType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     logType->returnType = std::make_shared<Type>(TypeKind::Void);
     consoleType->fields["log"] = logType;
+    consoleType->fields["error"] = logType;
     symbols.define("console", consoleType);
 
     // Register ts_console_log
@@ -714,5 +715,6 @@ Analyzer::Analyzer() {
     registerPath();
     registerNet();
     registerHTTP();
+    registerHTTPS();
 }
 } // namespace ts

@@ -266,8 +266,8 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | http | validateHeaderName | function | 🔴 | |
 | http | validateHeaderValue | function | 🔴 | |
 | https | Agent | function | 🔴 | |
-| https | Server | function | 🔴 | |
-| https | createServer | function | 🔴 | |
+| https | Server | function | 🟢 | TLS server with certificate support |
+| https | createServer | function | 🟢 | Full implementation with key/cert options |
 | https | get | function | 🟢 | |
 | https | request | function | 🟢 | |
 | buffer | Blob | function | 🔴 | |

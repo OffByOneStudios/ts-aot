@@ -117,7 +117,9 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         if (v->type == ValueType::STRING_PTR) return v->ptr_val;
-        return nullptr;
+        
+        // If it's not a string, try to convert it (makes unboxing more robust)
+        return ts_string_from_value(v);
     }
 
     void* ts_value_get_object(TsValue* v) {
@@ -149,67 +151,83 @@ TsValue* ts_value_make_int(int64_t i) {
     int64_t ts_value_length(TsValue* val) {
         if (!val) return 0;
 
-        // Check for raw pointers
-        uint32_t magic = *(uint32_t*)val;
-        if (magic == 0x41525259) { // TsArray::MAGIC
-            return ((TsArray*)val)->Length();
-        }
-        if (magic == 0x53545247) { // TsString::MAGIC
-            return ((TsString*)val)->Length();
-        }
-
-        // Check for TsBuffer (magic at offset 8 due to vtable)
-        // We need to be careful not to read out of bounds if it's a small TsValue
-        // But TsValue is at least 16 bytes (enum + union), so offset 8 is safe.
-        uint32_t magic8 = *(uint32_t*)((char*)val + 8);
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
-            return ((TsBuffer*)val)->GetLength();
-        }
-
-        // Check for TsEventEmitter (magic at offset 16 due to C++ vtable + TsObject::vtable)
-        uint32_t magic16 = *(uint32_t*)((char*)val + 16);
-        if (magic16 == 0x45564E54) { // TsEventEmitter::MAGIC
-            // EventEmitter doesn't have a length, but maybe it's a derived class?
-            return 0;
-        }
-
-        if (val->type == ValueType::ARRAY_PTR) {
-            return ts_array_length(val->ptr_val);
-        }
-        if (val->type == ValueType::ARRAY_PTR) {
-            return ts_array_length(val->ptr_val);
-        }
-        if (val->type == ValueType::STRING_PTR) {
-            return ((TsString*)val->ptr_val)->Length();
-        }
-        if (val->type == ValueType::OBJECT_PTR) {
-            void* obj = val->ptr_val;
-            if (!obj) return 0;
-            uint32_t m8 = *(uint32_t*)((char*)obj + 8);
-            if (m8 == 0x42554646) { // TsBuffer::MAGIC
-                return ((TsBuffer*)obj)->GetLength();
+        void* rawPtr = val;
+        
+        // Check if it's a boxed TsValue
+        uint8_t type = *(uint8_t*)val;
+        if (type <= 10) {
+            if (type == (uint8_t)ValueType::STRING_PTR) return ((TsString*)val->ptr_val)->Length();
+            if (type == (uint8_t)ValueType::ARRAY_PTR) return ((TsArray*)val->ptr_val)->Length();
+            if (type == (uint8_t)ValueType::OBJECT_PTR) {
+                rawPtr = val->ptr_val;
+                if (!rawPtr) return 0;
+            } else {
+                return 0;
             }
         }
+
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x41525259) return ((TsArray*)rawPtr)->Length();
+        if (magic0 == 0x53545247) return ((TsString*)rawPtr)->Length();
+
+        uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
+        if (magic8 == 0x42554646) {
+            return ((TsBuffer*)rawPtr)->GetLength();
+        }
+
+        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic16 == 0x42554646) {
+            return ((TsBuffer*)rawPtr)->GetLength();
+        }
+
         return 0;
     }
 
-    void* ts_value_get_element(TsValue* val, int64_t index) {
-        if (!val) return nullptr;
+    void* ts_value_get_element(void* param, int64_t index) {
+        if (!param) return ts_value_make_undefined();
 
-        uint32_t magic = *(uint32_t*)val;
-        if (magic == 0x41525259) { // TsArray::MAGIC
-            return ts_array_get(val, index);
+        TsValue* val = (TsValue*)param;
+        void* rawPtr = param;
+        
+        // Unbox if it's a TsValue*
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::ARRAY_PTR || val->type == ValueType::OBJECT_PTR) {
+                rawPtr = val->ptr_val;
+            } else if (val->type == ValueType::STRING_PTR) {
+                TsString* s = (TsString*)val->ptr_val;
+                return s->Substring(index, index + 1);
+            } else if (val->type == ValueType::NUMBER_INT || val->type == ValueType::NUMBER_DBL || val->type == ValueType::BOOLEAN || val->type == ValueType::UNDEFINED) {
+                return ts_value_make_undefined();
+            }
         }
 
-        if (val->type == ValueType::ARRAY_PTR) {
-            return ts_array_get(val->ptr_val, index);
+        if (!rawPtr) return ts_value_make_undefined();
+
+        // Check magics
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x41525259) { // TsArray::MAGIC
+            return ts_array_get(rawPtr, index);
         }
-        if (val->type == ValueType::STRING_PTR) {
-            // Return a single character string
-            TsString* s = (TsString*)val->ptr_val;
-            return s->Substring(index, index + 1);
+
+        uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
+        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
+            TsBuffer* buf = (TsBuffer*)rawPtr;
+            if (index < 0 || (size_t)index >= buf->GetLength()) {
+                return ts_value_make_undefined();
+            }
+            return ts_value_make_int(buf->GetData()[index]);
         }
-        return nullptr;
+
+        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic16 == 0x42554646) { // TsBuffer::MAGIC
+            TsBuffer* buf = (TsBuffer*)rawPtr;
+            if (index < 0 || (size_t)index >= buf->GetLength()) {
+                return ts_value_make_undefined();
+            }
+            return ts_value_make_int(buf->GetData()[index]);
+        }
+
+        return ts_value_make_undefined();
     }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
@@ -255,23 +273,24 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // 2. Fallback to magic-based checks for built-ins
-        if (magic0 == 0x41525259 || magic8 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+        if (magic0 == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC ("ARRY")
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(((TsArray*)obj)->Length());
             }
         }
-        if (magic0 == 0x53545247 || magic8 == 0x53545247) { // TsString::MAGIC ("STRG")
+        if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247) { // TsString::MAGIC ("STRG")
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(((TsString*)obj)->Length());
             }
         }
-        if (magic0 == 0x42554646 || magic8 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
+        if (magic0 == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
             if (strcmp(keyStr, "length") == 0) {
-                return ts_value_make_int(((TsBuffer*)obj)->GetLength());
+                TsBuffer* buf = (TsBuffer*)obj;
+                return ts_value_make_int(buf->GetLength());
             }
         }
         
-        if (magic8 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
+        if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
             struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
             TsMap* map = ((FakeHeaders*)obj)->map;
             TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(keyStr);
@@ -280,7 +299,7 @@ TsValue* ts_value_make_int(int64_t i) {
             *res = val;
             return res;
         }
-        if (magic8 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
+        if (magic8 == 0x45564E54 || magic16 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
             if (strcmp(keyStr, "on") == 0) {
                 return ts_value_make_function((void*)ts_event_emitter_on, obj);
             }
@@ -342,7 +361,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
         } else {
             typedef TsValue* (*Fn0)(void*);
-            return ((Fn0)func->funcPtr)(func->context);
+            TsValue* result = ((Fn0)func->funcPtr)(func->context);
+            return result;
         }
     }
 
@@ -376,10 +396,12 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[2] = { arg1, arg2 };
-            return ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);
+            TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);
+            return result;
         } else {
             typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
-            return ((Fn2)func->funcPtr)(func->context, arg1, arg2);
+            TsValue* result = ((Fn2)func->funcPtr)(func->context, arg1, arg2);
+            return result;
         }
     }
 

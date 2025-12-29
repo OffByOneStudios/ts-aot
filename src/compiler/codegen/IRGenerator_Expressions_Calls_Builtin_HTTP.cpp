@@ -6,9 +6,11 @@ namespace ts {
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     SPDLOG_INFO("tryGenerateHTTPCall: prop->name={}", prop->name);
     bool isHttp = false;
+    bool isHttps = false;
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         SPDLOG_INFO("tryGenerateHTTPCall: id->name={}", id->name);
         if (id->name == "http") isHttp = true;
+        else if (id->name == "https") isHttps = true;
     }
 
     bool isServer = false;
@@ -16,29 +18,60 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
     bool isIncomingMessage = false;
     bool isClientRequest = false;
 
-    if (!isHttp) {
+    if (!isHttp && !isHttps) {
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+            SPDLOG_INFO("tryGenerateHTTPCall: classType->name={}", classType->name);
             if (classType->name == "Server") isServer = true;
             else if (classType->name == "ServerResponse") isServerResponse = true;
             else if (classType->name == "IncomingMessage") isIncomingMessage = true;
             else if (classType->name == "ClientRequest") isClientRequest = true;
+        } else if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+            // For untyped variables (e.g., callback parameters without type annotations),
+            // try to infer the type from the method name being called
+            SPDLOG_INFO("tryGenerateHTTPCall: expression has Any type, checking method name={}", prop->name);
+            if (prop->name == "writeHead" || prop->name == "write" || prop->name == "end" || 
+                prop->name == "statusCode" || prop->name == "setHeader") {
+                // Could be ServerResponse or ClientRequest
+                isServerResponse = true;  // Default to ServerResponse for these methods
+                SPDLOG_INFO("tryGenerateHTTPCall: inferred isServerResponse=true from method name");
+            } else if (prop->name == "headers" || prop->name == "method" || prop->name == "url") {
+                isIncomingMessage = true;
+                SPDLOG_INFO("tryGenerateHTTPCall: inferred isIncomingMessage=true from method name");
+            }
+        } else if (prop->expression->inferredType) {
+            SPDLOG_INFO("tryGenerateHTTPCall: expression type kind={}", (int)prop->expression->inferredType->kind);
+        } else {
+            SPDLOG_INFO("tryGenerateHTTPCall: expression has no inferred type");
         }
     }
 
-    if (!isHttp && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest) return false;
+    if (!isHttp && !isHttps && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest) return false;
 
-    if (isHttp) {
+    if (isHttp || isHttps) {
         if (prop->name == "createServer") {
-            llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
-            if (!node->arguments.empty()) {
+            llvm::Value* options = getUndefinedValue();
+            llvm::Value* callback = getUndefinedValue();
+
+            if (node->arguments.size() == 1) {
                 visit(node->arguments[0].get());
-                callback = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
+                auto argType = node->arguments[0]->inferredType;
+                if (argType && argType->kind == TypeKind::Function) {
+                    callback = boxValue(lastValue, argType);
+                } else {
+                    options = boxValue(lastValue, argType);
+                }
+            } else if (node->arguments.size() >= 2) {
+                visit(node->arguments[0].get());
+                options = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                callback = boxValue(lastValue, node->arguments[1]->inferredType);
             }
             
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_create_server", ft);
-            lastValue = createCall(ft, fn.getCallee(), { callback });
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            const char* fnName = isHttps ? "ts_https_create_server" : "ts_http_create_server";
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { options, callback });
             return true;
         } else if (prop->name == "request" || prop->name == "get") {
             if (node->arguments.empty()) return true;
@@ -53,7 +86,12 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            const char* fnName = (prop->name == "request") ? "ts_http_request" : "ts_http_get";
+            const char* fnName;
+            if (isHttps) {
+                fnName = (prop->name == "request") ? "ts_https_request" : "ts_https_get";
+            } else {
+                fnName = (prop->name == "request") ? "ts_http_request" : "ts_http_get";
+            }
             llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
             lastValue = createCall(ft, fn.getCallee(), { options, callback });
             return true;
@@ -67,7 +105,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::Value* server = lastValue;
             
             visit(node->arguments[0].get());
-            llvm::Value* port = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            llvm::Value* port = boxValue(lastValue, node->arguments[0]->inferredType);
             
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
@@ -75,20 +113,28 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
                 callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
             }
             
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), builder->getPtrTy() }, false);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_listen", ft);
             createCall(ft, fn.getCallee(), { server, port, callback });
             lastValue = server;
             return true;
         }
     }
-
     if (isServerResponse || isClientRequest) {
         if (prop->name == "writeHead" && isServerResponse) {
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
             llvm::Value* boxedRes = lastValue;
-            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
+            
+            // For Any-typed expressions, we need to unbox as Object
+            llvm::Value* res;
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+                res = createCall(unboxFt, unboxFn.getCallee(), { boxedRes });
+            } else {
+                res = unboxValue(boxedRes, prop->expression->inferredType);
+            }
             
             visit(node->arguments[0].get());
             llvm::Value* status = castValue(lastValue, llvm::Type::getInt64Ty(*context));
@@ -108,7 +154,16 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
             llvm::Value* boxedRes = lastValue;
-            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
+            
+            // For Any-typed expressions, we need to unbox as Object
+            llvm::Value* res;
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+                res = createCall(unboxFt, unboxFn.getCallee(), { boxedRes });
+            } else {
+                res = unboxValue(boxedRes, prop->expression->inferredType);
+            }
             if (!res) {
                 SPDLOG_ERROR("tryGenerateHTTPCall: write: res is NULL!");
                 return true;
@@ -124,7 +179,16 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         } else if (prop->name == "end") {
             visit(prop->expression.get());
             llvm::Value* boxedRes = lastValue;
-            llvm::Value* res = unboxValue(boxedRes, prop->expression->inferredType);
+            
+            // For Any-typed expressions, we need to unbox as Object
+            llvm::Value* res;
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+                res = createCall(unboxFt, unboxFn.getCallee(), { boxedRes });
+            } else {
+                res = unboxValue(boxedRes, prop->expression->inferredType);
+            }
             if (!res) {
                 SPDLOG_ERROR("tryGenerateHTTPCall: end: res is NULL!");
                 return true;

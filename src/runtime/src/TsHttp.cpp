@@ -1,4 +1,5 @@
 #include "TsHttp.h"
+#include "TsSecureSocket.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "TsSocket.h"
@@ -13,21 +14,22 @@
 
 struct HttpContext {
     TsHttpServer* server;
-    uv_stream_t* client;
+    TsSocket* socket;
     llhttp_t parser;
     llhttp_settings_t settings;
     TsIncomingMessage* currentRequest;
     TsServerResponse* currentResponse;
     TsString* currentHeaderField;
 
-    HttpContext(TsHttpServer* s, uv_stream_t* c) 
-        : server(s), client(c), currentRequest(nullptr), currentResponse(nullptr), currentHeaderField(nullptr) {
+    HttpContext(TsHttpServer* s, TsSocket* sock) 
+        : server(s), socket(sock), currentRequest(nullptr), currentResponse(nullptr), currentHeaderField(nullptr) {
         parser.data = this;
     }
 };
 
 // TsIncomingMessage
 TsIncomingMessage::TsIncomingMessage() : TsEventEmitter(), TsReadable(), method(nullptr), url(nullptr) {
+    this->magic = MAGIC;
     headers = TsHeaders::Create();
 }
 
@@ -45,11 +47,13 @@ void TsIncomingMessage::Resume() {
 }
 
 // TsServerResponse
-TsServerResponse::TsServerResponse(uv_stream_t* client) : TsEventEmitter(), TsWritable(), client(client) {}
+TsServerResponse::TsServerResponse(TsSocket* socket) : TsEventEmitter(), TsWritable(), socket(socket) {
+    this->magic = MAGIC;
+}
 
-TsServerResponse* TsServerResponse::Create(uv_stream_t* client) {
+TsServerResponse* TsServerResponse::Create(TsSocket* socket) {
     void* mem = ts_alloc(sizeof(TsServerResponse));
-    return new (mem) TsServerResponse(client);
+    return new (mem) TsServerResponse(socket);
 }
 
 void TsServerResponse::WriteHead(int status, TsObject* headers) {
@@ -60,16 +64,7 @@ void TsServerResponse::WriteHead(int status, TsObject* headers) {
     head += "Transfer-Encoding: chunked\r\n";
     head += "\r\n";
 
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    
-    // We need to copy the string because head is on stack
-    char* persistent_head = (char*)ts_alloc(head.length());
-    memcpy(persistent_head, head.c_str(), head.length());
-    uv_buf_t uv_buf = uv_buf_init(persistent_head, (unsigned int)head.length());
-
-    uv_write(req, client, &uv_buf, 1, [](uv_write_t* req, int status) {
-        // GC handles cleanup
-    });
+    socket->Write((void*)head.c_str(), head.length());
 }
 
 bool TsServerResponse::Write(void* data, size_t length) {
@@ -79,19 +74,9 @@ bool TsServerResponse::Write(void* data, size_t length) {
     char chunk_header[32];
     int header_len = sprintf(chunk_header, "%x\r\n", (unsigned int)length);
     
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    
-    uv_buf_t bufs[3];
-    
-    char* h = (char*)ts_alloc(header_len);
-    memcpy(h, chunk_header, header_len);
-    bufs[0] = uv_buf_init(h, (unsigned int)header_len);
-    
-    bufs[1] = uv_buf_init((char*)data, (unsigned int)length);
-    bufs[2] = uv_buf_init((char*)"\r\n", 2);
-
-    uv_write(req, client, bufs, 3, [](uv_write_t* req, int status) {
-    });
+    socket->Write((void*)chunk_header, header_len);
+    socket->Write(data, length);
+    socket->Write((void*)"\r\n", 2);
 
     return true;
 }
@@ -106,7 +91,8 @@ void TsServerResponse::End(TsValue data) {
     if (data.type != ValueType::UNDEFINED) {
         if (data.type == ValueType::STRING_PTR) {
             TsString* str = (TsString*)data.ptr_val;
-            Write((void*)str->ToUtf8(), str->Length());
+            std::string s = str->ToUtf8();
+            Write((void*)s.c_str(), s.length());
         } else if (data.type == ValueType::OBJECT_PTR) {
             TsBuffer* buf = (TsBuffer*)data.ptr_val;
             Write(buf->GetData(), buf->GetLength());
@@ -115,15 +101,10 @@ void TsServerResponse::End(TsValue data) {
 
     if (!headersSent) WriteHead(200, nullptr);
 
-    const char* footer = "0\r\n\r\n";
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    uv_buf_t uv_buf = uv_buf_init((char*)footer, 5);
-    
-    uv_write(req, client, &uv_buf, 1, [](uv_write_t* req, int status) {
-        uv_close((uv_handle_t*)req->handle, nullptr);
-    });
+    socket->Write((void*)"0\r\n\r\n", 5);
     
     closed = true;
+    Emit("finish", 0, nullptr);
 }
 
 // llhttp callbacks
@@ -190,9 +171,11 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 }
 
 // TsHttpServer
-TsHttpServer::TsHttpServer() : TsServer() {}
+TsHttpServer::TsHttpServer() : TsServer() {
+    this->magic = MAGIC;
+}
 
-TsHttpServer* TsHttpServer::Create(void* callback) {
+TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
     void* mem = ts_alloc(sizeof(TsHttpServer));
     TsHttpServer* server = new (mem) TsHttpServer();
     
@@ -201,13 +184,12 @@ TsHttpServer* TsHttpServer::Create(void* callback) {
     }
 
     // Listen for "connection" event from base TsServer
-    server->On("connection", ts_value_make_function((void*)[](void* ctx, TsValue* arg0) {
+    server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpServer* self = (TsHttpServer*)ctx;
-        TsSocket* socket = (TsSocket*)arg0->ptr_val;
-        uv_stream_t* client = socket->GetStream();
+        TsSocket* socket = (TsSocket*)argv[0]->ptr_val;
 
         HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
-        new (httpCtx) HttpContext(self, client);
+        new (httpCtx) HttpContext(self, socket);
         
         llhttp_settings_init(&httpCtx->settings);
         httpCtx->settings.on_url = on_url;
@@ -220,12 +202,18 @@ TsHttpServer* TsHttpServer::Create(void* callback) {
         httpCtx->parser.data = httpCtx;
         
         httpCtx->currentRequest = TsIncomingMessage::Create();
-        httpCtx->currentResponse = TsServerResponse::Create(client);
+        httpCtx->currentResponse = TsServerResponse::Create(socket);
         
-        client->data = httpCtx;
-        uv_read_start(client, on_alloc, on_read);
+        socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            HttpContext* httpCtx = (HttpContext*)ctx;
+            if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
+                TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
+                llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+            }
+            return nullptr;
+        }, httpCtx));
 
-        return (TsValue*)nullptr;
+        return nullptr;
     }, server));
 
     return server;
@@ -237,22 +225,26 @@ static void client_on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t
     buf->len = (unsigned int)suggested_size;
 }
 
-TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : TsEventEmitter(), TsWritable(), callback(callback) {
-    TsValue options;
+TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_https) : TsEventEmitter(), TsWritable(), callback(callback), is_https(is_https) {
     if (optionsPtr) {
         options = *optionsPtr;
     } else {
         options.type = ValueType::UNDEFINED;
     }
 
-    socket = (uv_tcp_t*)ts_alloc(sizeof(uv_tcp_t));
-    uv_tcp_init(uv_default_loop(), socket);
-    socket->data = this;
+    if (is_https) {
+        socket = new (ts_alloc(sizeof(TsSecureSocket))) TsSecureSocket();
+        port = 443;
+    } else {
+        socket = new (ts_alloc(sizeof(TsSocket))) TsSocket();
+        port = 80;
+    }
 
     if (options.type == ValueType::STRING_PTR) {
         std::string url = ((TsString*)options.ptr_val)->ToUtf8();
-        if (url.find("http://") == 0) {
-            url = url.substr(7);
+        std::string protocol = is_https ? "https://" : "http://";
+        if (url.find(protocol) == 0) {
+            url = url.substr(protocol.length());
             size_t slash = url.find('/');
             if (slash != std::string::npos) {
                 host = url.substr(0, slash);
@@ -339,47 +331,58 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : TsEventE
     Connect();
 }
 
-TsClientRequest* TsClientRequest::Create(TsValue* options, void* callback) {
+TsClientRequest* TsClientRequest::Create(TsValue* options, void* callback, bool is_https) {
     void* mem = ts_alloc(sizeof(TsClientRequest));
-    return new (mem) TsClientRequest(options, callback);
+    return new (mem) TsClientRequest(options, callback, is_https);
+}
+
+static TsValue* client_on_data(void* context, int argc, TsValue** argv) {
+    TsClientRequest* self = (TsClientRequest*)context;
+    if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
+        TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
+        llhttp_execute(&self->parser, (const char*)buf->GetData(), buf->GetLength());
+    }
+    return nullptr;
+}
+
+static TsValue* client_on_connect(void* context, int argc, TsValue** argv) {
+    TsClientRequest* self = (TsClientRequest*)context;
+    self->connected = true;
+    self->SendHeaders();
+    return nullptr;
+}
+
+static TsValue* client_on_error(void* context, int argc, TsValue** argv) {
+    TsClientRequest* self = (TsClientRequest*)context;
+    self->Emit("error", argc, (void**)argv);
+    return nullptr;
 }
 
 void TsClientRequest::Connect() {
-    struct sockaddr_in dest;
-    if (host == "localhost") {
-        uv_ip4_addr("127.0.0.1", port, &dest);
-    } else {
-        uv_ip4_addr(host.c_str(), port, &dest);
-    }
+    socket->On("data", ts_value_make_native_function((void*)client_on_data, this));
+    socket->On("error", ts_value_make_native_function((void*)client_on_error, this));
+    
+    socket->Connect(host.c_str(), port, nullptr);
+    
+    if (is_https) {
+        TsSecureSocket* secureSocket = (TsSecureSocket*)socket;
+        bool rejectUnauthorized = true;
+        TsValue* ca = nullptr;
 
-    uv_connect_t* connect_req = (uv_connect_t*)ts_alloc(sizeof(uv_connect_t));
-    connect_req->data = this;
-    int r = uv_tcp_connect(connect_req, socket, (const struct sockaddr*)&dest, [](uv_connect_t* req, int status) {
-        TsClientRequest* self = (TsClientRequest*)req->data;
-        if (status == 0) {
-            self->connected = true;
-            self->SendHeaders();
-            uv_read_start((uv_stream_t*)self->socket, client_on_alloc, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-                TsClientRequest* req = (TsClientRequest*)stream->data;
-                if (nread > 0) {
-                    llhttp_execute(&req->parser, buf->base, nread);
-                } else if (nread < 0) {
-                    uv_close((uv_handle_t*)stream, nullptr);
-                }
-            });
-        } else {
-            // ts_error_create returns an already-boxed TsValue*
-            TsValue* errVal = (TsValue*)ts_error_create(TsString::Create(uv_strerror(status)));
-            TsValue* args[1] = { errVal };
-            self->Emit("error", 1, (void**)args);
+        if (options.type == ValueType::OBJECT_PTR) {
+            TsMap* opts = (TsMap*)options.ptr_val;
+            TsValue v_reject = opts->Get(TsValue(TsString::Create("rejectUnauthorized")));
+            if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
+            
+            TsValue v_ca = opts->Get(TsValue(TsString::Create("ca")));
+            if (v_ca.type != ValueType::UNDEFINED) ca = &v_ca;
         }
-    });
+        
+        secureSocket->SetVerify(rejectUnauthorized, ca);
 
-    if (r != 0) {
-        // ts_error_create returns an already-boxed TsValue*
-        TsValue* errVal = (TsValue*)ts_error_create(TsString::Create(uv_strerror(r)));
-        TsValue* args[1] = { errVal };
-        Emit("error", 1, (void**)args);
+        socket->On("secureConnect", ts_value_make_native_function((void*)client_on_connect, this));
+    } else {
+        socket->On("connect", ts_value_make_native_function((void*)client_on_connect, this));
     }
 }
 
@@ -424,14 +427,7 @@ void TsClientRequest::SendHeaders() {
     req += "\r\n";
 
     if (connected) {
-        uv_write_t* write_req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-        write_req->data = this;
-        char* persistent_req = (char*)ts_alloc(req.length());
-        memcpy(persistent_req, req.c_str(), req.length());
-        uv_buf_t uv_buf = uv_buf_init(persistent_req, (unsigned int)req.length());
-
-        uv_write(write_req, (uv_stream_t*)socket, &uv_buf, 1, [](uv_write_t* req, int status) {
-        });
+        socket->Write((void*)req.c_str(), req.length());
     } else {
         headersSent = false; 
     }
@@ -445,12 +441,7 @@ bool TsClientRequest::Write(void* data, size_t length) {
         return false;
     }
 
-    uv_write_t* write_req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    char* persistent_data = (char*)ts_alloc(length);
-    memcpy(persistent_data, data, length);
-    uv_buf_t uv_buf = uv_buf_init(persistent_data, (unsigned int)length);
-    uv_write(write_req, (uv_stream_t*)socket, &uv_buf, 1, [](uv_write_t* req, int status) {
-    });
+    socket->Write(data, length);
     return true;
 }
 
@@ -484,13 +475,145 @@ void TsClientRequest::End(TsValue data) {
     }
 }
 
-extern "C" {
-void* ts_http_create_server(void* callback) {
-    return TsHttpServer::Create(callback);
+// TsHttpsServer
+TsHttpsServer::TsHttpsServer(TsValue* options) : TsHttpServer(), options(options) {}
+
+TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
+    void* mem = ts_alloc(sizeof(TsHttpsServer));
+    TsHttpsServer* server = new (mem) TsHttpsServer(options);
+    
+    if (callback) {
+        server->On("request", callback);
+    }
+
+    // Reuse the same "connection" logic as TsHttpServer
+    server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        TsHttpsServer* self = (TsHttpsServer*)ctx;
+        TsSocket* socket = (TsSocket*)argv[0]->ptr_val;
+
+        HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
+        new (httpCtx) HttpContext(self, socket);
+        
+        llhttp_settings_init(&httpCtx->settings);
+        httpCtx->settings.on_url = on_url;
+        httpCtx->settings.on_header_field = on_header_field;
+        httpCtx->settings.on_header_value = on_header_value;
+        httpCtx->settings.on_headers_complete = on_headers_complete;
+        httpCtx->settings.on_message_complete = on_message_complete;
+        
+        llhttp_init(&httpCtx->parser, HTTP_REQUEST, &httpCtx->settings);
+        httpCtx->parser.data = httpCtx;
+        
+        httpCtx->currentRequest = TsIncomingMessage::Create();
+        httpCtx->currentResponse = TsServerResponse::Create(socket);
+        
+        socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            HttpContext* httpCtx = (HttpContext*)ctx;
+            if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
+                TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
+                llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+            }
+            return nullptr;
+        }, httpCtx));
+
+        return nullptr;
+    }, server));
+
+    return server;
 }
 
-void ts_http_server_listen(void* server, int64_t port, void* callback) {
-    ((TsHttpServer*)server)->Listen((int)port, callback);
+void TsHttpsServer::HandleConnection(int status) {
+    if (status < 0) return;
+
+    uv_tcp_t* client = (uv_tcp_t*)ts_alloc(sizeof(uv_tcp_t));
+    uv_tcp_init(uv_default_loop(), client);
+    
+    if (uv_accept((uv_stream_t*)handle, (uv_stream_t*)client) == 0) {
+        void* mem = ts_alloc(sizeof(TsSecureSocket));
+        TsSecureSocket* socket = new (mem) TsSecureSocket(client, true);
+        
+        if (options && options->type == ValueType::OBJECT_PTR) {
+            TsMap* opts = (TsMap*)options->ptr_val;
+            
+            TsValue v_key = opts->Get(TsValue(TsString::Create("key")));
+            TsValue v_cert = opts->Get(TsValue(TsString::Create("cert")));
+            
+            TsBuffer* keyBuf = nullptr;
+            TsBuffer* certBuf = nullptr;
+
+            if (v_key.type == ValueType::OBJECT_PTR) {
+                TsObject* obj = (TsObject*)v_key.ptr_val;
+                if (obj->magic == 0x42554646) { // TsBuffer magic
+                    keyBuf = (TsBuffer*)obj;
+                } else if (obj->magic == 0x53545247) { // TsString magic
+                    TsString* s = (TsString*)obj;
+                    keyBuf = TsBuffer::Create(s->Length());
+                    memcpy(keyBuf->GetData(), s->ToUtf8(), s->Length());
+                } else {
+                    // Try dynamic_cast to TsBuffer
+                    TsBuffer* b = dynamic_cast<TsBuffer*>(obj);
+                    if (b) {
+                        keyBuf = b;
+                    }
+                }
+            } else if (v_key.type == ValueType::STRING_PTR) {
+                TsString* s = (TsString*)v_key.ptr_val;
+                keyBuf = TsBuffer::Create(s->Length());
+                memcpy(keyBuf->GetData(), s->ToUtf8(), s->Length());
+            }
+
+            if (v_cert.type == ValueType::OBJECT_PTR) {
+                TsObject* obj = (TsObject*)v_cert.ptr_val;
+                if (obj->magic == 0x42554646) { // TsBuffer magic
+                    certBuf = (TsBuffer*)obj;
+                } else if (obj->magic == 0x53545247) { // TsString magic
+                    TsString* s = (TsString*)obj;
+                    certBuf = TsBuffer::Create(s->Length());
+                    memcpy(certBuf->GetData(), s->ToUtf8(), s->Length());
+                } else {
+                    // Try dynamic_cast to TsBuffer
+                    TsBuffer* b = dynamic_cast<TsBuffer*>(obj);
+                    if (b) {
+                        certBuf = b;
+                    }
+                }
+            } else if (v_cert.type == ValueType::STRING_PTR) {
+                TsString* s = (TsString*)v_cert.ptr_val;
+                certBuf = TsBuffer::Create(s->Length());
+                memcpy(certBuf->GetData(), s->ToUtf8(), s->Length());
+            }
+            
+            if (keyBuf && certBuf) {
+                socket->SetCertificate(certBuf, keyBuf);
+            }
+        }
+        
+        TsValue* arg0 = ts_value_make_object(socket);
+        void* args[] = { arg0 };
+        Emit("connection", 1, args);
+    } else {
+        uv_close((uv_handle_t*)client, nullptr);
+    }
+}
+
+extern "C" {
+void* ts_http_create_server(TsValue* options, void* callback) {
+    return TsHttpServer::Create(options, callback);
+}
+
+void* ts_https_create_server(TsValue* options, void* callback) {
+    return TsHttpsServer::Create(options, callback);
+}
+
+void ts_http_server_listen(void* server, void* port_val, void* callback) {
+    TsValue* p = (TsValue*)port_val;
+    int port = 0;
+    if (p->type == ValueType::NUMBER_DBL) {
+        port = (int)p->d_val;
+    } else if (p->type == ValueType::NUMBER_INT) {
+        port = (int)p->i_val;
+    }
+    ((TsHttpServer*)server)->Listen(port, callback);
 }
 
 void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers) {
@@ -500,6 +623,28 @@ void ts_http_server_response_write_head(void* res, int64_t status, TsValue* head
         h = (TsObject*)headers->ptr_val;
     }
     r->WriteHead((int)status, h);
+}
+
+bool ts_http_server_response_write(void* res, void* data) {
+    TsServerResponse* r = (TsServerResponse*)res;
+    TsValue* val = (TsValue*)data;
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        return r->Write((void*)str->ToUtf8(), str->Length());
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsBuffer* buf = (TsBuffer*)val->ptr_val;
+        return r->Write(buf->GetData(), buf->GetLength());
+    }
+    return false;
+}
+
+void ts_http_server_response_end(void* res, void* data) {
+    TsServerResponse* r = (TsServerResponse*)res;
+    if (data) {
+        r->End(*(TsValue*)data);
+    } else {
+        r->End();
+    }
 }
 
 void* ts_incoming_message_url(void* ctx, void* msg) {
@@ -519,16 +664,23 @@ void* ts_incoming_message_headers(void* ctx, void* msg) {
 
 void* ts_http_request(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
-    // Return TsEventEmitter* - the compiler knows the full type hierarchy and will
-    // correctly adjust the pointer for virtual inheritance
     return static_cast<TsEventEmitter*>(req);
 }
 
 void* ts_http_get(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     req->End();
-    // Return TsEventEmitter* - the compiler knows the full type hierarchy and will
-    // correctly adjust the pointer for virtual inheritance
+    return static_cast<TsEventEmitter*>(req);
+}
+
+void* ts_https_request(TsValue* options, void* callback) {
+    TsClientRequest* req = TsClientRequest::Create(options, callback, true);
+    return static_cast<TsEventEmitter*>(req);
+}
+
+void* ts_https_get(TsValue* options, void* callback) {
+    TsClientRequest* req = TsClientRequest::Create(options, callback, true);
+    req->End();
     return static_cast<TsEventEmitter*>(req);
 }
 }
