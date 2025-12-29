@@ -201,6 +201,183 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         return true;
     }
 
+    // ========================================================================
+    // Milestone 102.8: Process Events
+    // ========================================================================
+
+    if (prop->name == "on" || prop->name == "once") {
+        if (node->arguments.size() < 2) return true;
+        
+        visit(node->arguments[0].get());
+        llvm::Value* event = lastValue;
+        
+        visit(node->arguments[1].get());
+        llvm::Value* callback = boxValue(lastValue, node->arguments[1]->inferredType);
+        
+        const char* funcName = (prop->name == "on") ? "ts_process_on" : "ts_process_once";
+        llvm::FunctionType* onFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee onFn = module->getOrInsertFunction(funcName, onFt);
+        
+        createCall(onFt, onFn.getCallee(), { event, callback });
+        
+        // Return process for chaining
+        llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee getPlatformFn = module->getOrInsertFunction("ts_process_get_platform", getPtrFt);
+        lastValue = createCall(getPtrFt, getPlatformFn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "removeListener") {
+        if (node->arguments.size() < 2) return true;
+        
+        visit(node->arguments[0].get());
+        llvm::Value* event = lastValue;
+        
+        visit(node->arguments[1].get());
+        llvm::Value* callback = boxValue(lastValue, node->arguments[1]->inferredType);
+        
+        llvm::FunctionType* removeFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee removeFn = module->getOrInsertFunction("ts_process_remove_listener", removeFt);
+        
+        createCall(removeFt, removeFn.getCallee(), { event, callback });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "removeAllListeners") {
+        llvm::Value* event = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            event = lastValue;
+        } else {
+            event = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+        
+        llvm::FunctionType* removeFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee removeFn = module->getOrInsertFunction("ts_process_remove_all_listeners", removeFt);
+        
+        createCall(removeFt, removeFn.getCallee(), { event });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "setUncaughtExceptionCaptureCallback") {
+        if (node->arguments.empty()) return true;
+        
+        visit(node->arguments[0].get());
+        llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
+        
+        llvm::FunctionType* setFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_process_set_uncaught_exception_capture_callback", setFt);
+        
+        createCall(setFt, setFn.getCallee(), { callback });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "hasUncaughtExceptionCaptureCallback") {
+        llvm::FunctionType* hasFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), {}, false);
+        llvm::FunctionCallee hasFn = module->getOrInsertFunction("ts_process_has_uncaught_exception_capture_callback", hasFt);
+        
+        lastValue = createCall(hasFt, hasFn.getCallee(), {});
+        return true;
+    }
+
+    // ========================================================================
+    // Milestone 102.9: Event Loop Handles
+    // ========================================================================
+
+    if (prop->name == "ref") {
+        llvm::FunctionType* refFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+        llvm::FunctionCallee refFn = module->getOrInsertFunction("ts_process_ref", refFt);
+        
+        createCall(refFt, refFn.getCallee(), {});
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "unref") {
+        llvm::FunctionType* unrefFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+        llvm::FunctionCallee unrefFn = module->getOrInsertFunction("ts_process_unref", unrefFt);
+        
+        createCall(unrefFt, unrefFn.getCallee(), {});
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "getActiveResourcesInfo") {
+        llvm::FunctionType* getInfoFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee getInfoFn = module->getOrInsertFunction("ts_process_get_active_resources_info", getInfoFt);
+        
+        lastValue = createCall(getInfoFt, getInfoFn.getCallee(), {});
+        return true;
+    }
+
+    // ========================================================================
+    // Milestone 102.12: Memory Info
+    // ========================================================================
+
+    if (prop->name == "constrainedMemory") {
+        llvm::FunctionType* constrainedFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee constrainedFn = module->getOrInsertFunction("ts_process_constrained_memory", constrainedFt);
+        
+        lastValue = createCall(constrainedFt, constrainedFn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "availableMemory") {
+        llvm::FunctionType* availableFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee availableFn = module->getOrInsertFunction("ts_process_available_memory", availableFt);
+        
+        lastValue = createCall(availableFt, availableFn.getCallee(), {});
+        return true;
+    }
+
+    // ========================================================================
+    // Milestone 102.13: Internal/Debug APIs
+    // ========================================================================
+
+    if (prop->name == "_getActiveHandles") {
+        llvm::FunctionType* getHandlesFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee getHandlesFn = module->getOrInsertFunction("ts_process_get_active_handles", getHandlesFt);
+        
+        lastValue = createCall(getHandlesFt, getHandlesFn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "_getActiveRequests") {
+        llvm::FunctionType* getRequestsFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee getRequestsFn = module->getOrInsertFunction("ts_process_get_active_requests", getRequestsFt);
+        
+        lastValue = createCall(getRequestsFt, getRequestsFn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "_tickCallback") {
+        llvm::FunctionType* tickFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+        llvm::FunctionCallee tickFn = module->getOrInsertFunction("ts_process_tick_callback", tickFt);
+        
+        createCall(tickFt, tickFn.getCallee(), {});
+        lastValue = nullptr;
+        return true;
+    }
+
     return false;
 }
 

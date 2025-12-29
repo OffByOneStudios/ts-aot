@@ -95,6 +95,53 @@ Analyzer::Analyzer() {
     uint8ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
     symbols.defineType("Uint8Array", uint8ArrayClass);
 
+    // ========================================================================
+    // TextEncoder (Milestone 102.11)
+    // Note: encode() returns Buffer in ts-aot (not Uint8Array)
+    // ========================================================================
+    auto textEncoderClass = std::make_shared<ClassType>("TextEncoder");
+    textEncoderClass->fields["encoding"] = std::make_shared<Type>(TypeKind::String);
+    
+    // We register types after registerBuffer(), so we look up Buffer class
+    // For now, return Any to avoid struct lookup issues
+    auto encodeMethod = std::make_shared<FunctionType>();
+    encodeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    encodeMethod->returnType = std::make_shared<Type>(TypeKind::Any); // Returns TsBuffer* at runtime
+    textEncoderClass->methods["encode"] = encodeMethod;
+    
+    auto encodeIntoResult = std::make_shared<ObjectType>();
+    encodeIntoResult->fields["read"] = std::make_shared<Type>(TypeKind::Int);
+    encodeIntoResult->fields["written"] = std::make_shared<Type>(TypeKind::Int);
+    
+    auto encodeIntoMethod = std::make_shared<FunctionType>();
+    encodeIntoMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    encodeIntoMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    encodeIntoMethod->returnType = encodeIntoResult;
+    textEncoderClass->methods["encodeInto"] = encodeIntoMethod;
+    
+    symbols.defineType("TextEncoder", textEncoderClass);
+    
+    // TextEncoder constructor - register the class as its own constructor
+    symbols.define("TextEncoder", textEncoderClass);
+    
+    // ========================================================================
+    // TextDecoder (Milestone 102.11)
+    // ========================================================================
+    auto textDecoderClass = std::make_shared<ClassType>("TextDecoder");
+    textDecoderClass->fields["encoding"] = std::make_shared<Type>(TypeKind::String);
+    textDecoderClass->fields["fatal"] = std::make_shared<Type>(TypeKind::Boolean);
+    textDecoderClass->fields["ignoreBOM"] = std::make_shared<Type>(TypeKind::Boolean);
+    
+    auto decodeMethod = std::make_shared<FunctionType>();
+    decodeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Accepts TsBuffer* at runtime
+    decodeMethod->returnType = std::make_shared<Type>(TypeKind::String);
+    textDecoderClass->methods["decode"] = decodeMethod;
+    
+    symbols.defineType("TextDecoder", textDecoderClass);
+    
+    // TextDecoder constructor - register the class as its own constructor
+    symbols.define("TextDecoder", textDecoderClass);
+
     auto uint32ArrayClass = std::make_shared<ClassType>("Uint32Array");
     uint32ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
     uint32ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);

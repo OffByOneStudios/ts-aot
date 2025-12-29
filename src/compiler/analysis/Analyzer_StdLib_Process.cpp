@@ -221,6 +221,121 @@ void Analyzer::registerProcess() {
     // process.debugPort: number
     processType->fields["debugPort"] = std::make_shared<Type>(TypeKind::Int);
 
+    // ========================================================================
+    // Milestone 102.8: Process Events
+    // ========================================================================
+    
+    // process.on(event: string, listener: Function): this
+    auto onType = std::make_shared<FunctionType>();
+    onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    onType->returnType = processType;
+    processType->fields["on"] = onType;
+    
+    // process.once(event: string, listener: Function): this
+    auto onceType = std::make_shared<FunctionType>();
+    onceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    onceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    onceType->returnType = processType;
+    processType->fields["once"] = onceType;
+    
+    // process.removeListener(event: string, listener: Function): this
+    auto removeListenerType = std::make_shared<FunctionType>();
+    removeListenerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    removeListenerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    removeListenerType->returnType = processType;
+    processType->fields["removeListener"] = removeListenerType;
+    
+    // process.removeAllListeners(event?: string): this
+    auto removeAllListenersType = std::make_shared<FunctionType>();
+    removeAllListenersType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    removeAllListenersType->returnType = processType;
+    processType->fields["removeAllListeners"] = removeAllListenersType;
+    
+    // process.setUncaughtExceptionCaptureCallback(fn: Function | null): void
+    auto setUncaughtType = std::make_shared<FunctionType>();
+    setUncaughtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    setUncaughtType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setUncaughtExceptionCaptureCallback"] = setUncaughtType;
+    
+    // process.hasUncaughtExceptionCaptureCallback(): boolean
+    auto hasUncaughtType = std::make_shared<FunctionType>();
+    hasUncaughtType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    processType->fields["hasUncaughtExceptionCaptureCallback"] = hasUncaughtType;
+    
+    // ========================================================================
+    // Milestone 102.9: Event Loop Handles
+    // ========================================================================
+    
+    // process.ref(): this
+    auto refType = std::make_shared<FunctionType>();
+    refType->returnType = processType;
+    processType->fields["ref"] = refType;
+    
+    // process.unref(): this
+    auto unrefType = std::make_shared<FunctionType>();
+    unrefType->returnType = processType;
+    processType->fields["unref"] = unrefType;
+    
+    // process.getActiveResourcesInfo(): string[]
+    auto getActiveResourcesInfoType = std::make_shared<FunctionType>();
+    getActiveResourcesInfoType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    processType->fields["getActiveResourcesInfo"] = getActiveResourcesInfoType;
+    
+    // ========================================================================
+    // Milestone 102.12: Memory Info
+    // ========================================================================
+    
+    // process.constrainedMemory(): number | undefined
+    auto constrainedMemoryType = std::make_shared<FunctionType>();
+    constrainedMemoryType->returnType = std::make_shared<Type>(TypeKind::Any); // number | undefined
+    processType->fields["constrainedMemory"] = constrainedMemoryType;
+    
+    // process.availableMemory(): number
+    auto availableMemoryType = std::make_shared<FunctionType>();
+    availableMemoryType->returnType = std::make_shared<Type>(TypeKind::Int);
+    processType->fields["availableMemory"] = availableMemoryType;
+    
+    // ========================================================================
+    // Milestone 102.13: Internal/Debug APIs
+    // ========================================================================
+    
+    // process._getActiveHandles(): any[]
+    auto getActiveHandlesType = std::make_shared<FunctionType>();
+    getActiveHandlesType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    processType->fields["_getActiveHandles"] = getActiveHandlesType;
+    
+    // process._getActiveRequests(): any[]
+    auto getActiveRequestsType = std::make_shared<FunctionType>();
+    getActiveRequestsType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    processType->fields["_getActiveRequests"] = getActiveRequestsType;
+    
+    // process._tickCallback(): void
+    auto tickCallbackType = std::make_shared<FunctionType>();
+    tickCallbackType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["_tickCallback"] = tickCallbackType;
+    
+    // ========================================================================
+    // Milestone 102.14: Diagnostics & Reporting
+    // ========================================================================
+    
+    // process.report: object
+    auto reportType = std::make_shared<ObjectType>();
+    
+    auto getReportType = std::make_shared<FunctionType>();
+    getReportType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reportType->fields["getReport"] = getReportType;
+    
+    auto writeReportType = std::make_shared<FunctionType>();
+    writeReportType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    writeReportType->returnType = std::make_shared<Type>(TypeKind::Void);
+    reportType->fields["writeReport"] = writeReportType;
+    
+    reportType->fields["directory"] = std::make_shared<Type>(TypeKind::String);
+    reportType->fields["filename"] = std::make_shared<Type>(TypeKind::String);
+    
+    processType->fields["report"] = reportType;
+
     symbols.define("process", processType);
 }
 

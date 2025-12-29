@@ -16,7 +16,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" || 
             name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
             name == "Buffer" || name == "Socket" || name == "Server" || name == "IncomingMessage" || 
-            name == "ServerResponse" || name == "ClientRequest") continue;
+            name == "ServerResponse" || name == "ClientRequest" || name == "TextEncoder" ||
+            name == "TextDecoder") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -127,7 +128,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -679,6 +680,34 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "TextEncoder") {
+            // new TextEncoder()
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_encoder_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "TextDecoder") {
+            // new TextDecoder(label?, options?)
+            llvm::Value* label = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* fatal = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+            llvm::Value* ignoreBOM = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+            
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                label = lastValue;
+            }
+            // TODO: Parse options object for fatal and ignoreBOM if node->arguments.size() >= 2
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(
+                builder->getPtrTy(), 
+                { builder->getPtrTy(), llvm::Type::getInt1Ty(*context), llvm::Type::getInt1Ty(*context) }, 
+                false
+            );
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { label, fatal, ignoreBOM });
             nonNullValues.insert(lastValue);
             return;
         }

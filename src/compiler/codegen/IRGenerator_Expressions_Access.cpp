@@ -625,6 +625,13 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
+        if (id->name == "process" && node->name == "report") {
+            // Return an object with getReport, writeReport, directory, filename
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_report", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
@@ -690,6 +697,40 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_size", ft);
                     lastValue = createCall(ft, fn.getCallee(), { obj });
                 }
+                return;
+            }
+        } else if (cls->name == "TextEncoder") {
+            // TextEncoder property access
+            visit(node->expression.get());
+            llvm::Value* encoder = lastValue;
+            emitNullCheckForExpression(node->expression.get(), encoder);
+            
+            if (node->name == "encoding") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_encoder_get_encoding", ft);
+                lastValue = unboxValue(createCall(ft, fn.getCallee(), { encoder }), node->inferredType);
+                return;
+            }
+        } else if (cls->name == "TextDecoder") {
+            // TextDecoder property access
+            visit(node->expression.get());
+            llvm::Value* decoder = lastValue;
+            emitNullCheckForExpression(node->expression.get(), decoder);
+            
+            if (node->name == "encoding") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_get_encoding", ft);
+                lastValue = unboxValue(createCall(ft, fn.getCallee(), { decoder }), node->inferredType);
+                return;
+            } else if (node->name == "fatal") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_is_fatal", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decoder });
+                return;
+            } else if (node->name == "ignoreBOM") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_ignore_bom", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decoder });
                 return;
             }
         }
