@@ -125,6 +125,30 @@ void Analyzer::registerHTTP() {
     getType->paramTypes.push_back(responseCallback);
     getType->returnType = clientRequestClass;
     httpType->fields["get"] = getType;
+
+    // http.METHODS - array of HTTP method strings
+    auto methodsType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    httpType->fields["METHODS"] = methodsType;
+
+    // http.STATUS_CODES - object mapping status codes to descriptions
+    auto statusCodesType = std::make_shared<ObjectType>();
+    httpType->fields["STATUS_CODES"] = statusCodesType;
+
+    // http.maxHeaderSize - number
+    httpType->fields["maxHeaderSize"] = std::make_shared<Type>(TypeKind::Int);
+
+    // http.validateHeaderName(name: string) -> void (throws on invalid)
+    auto validateHeaderNameType = std::make_shared<FunctionType>();
+    validateHeaderNameType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    validateHeaderNameType->returnType = std::make_shared<Type>(TypeKind::Void);
+    httpType->fields["validateHeaderName"] = validateHeaderNameType;
+
+    // http.validateHeaderValue(name: string, value: string) -> void (throws on invalid)
+    auto validateHeaderValueType = std::make_shared<FunctionType>();
+    validateHeaderValueType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    validateHeaderValueType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    validateHeaderValueType->returnType = std::make_shared<Type>(TypeKind::Void);
+    httpType->fields["validateHeaderValue"] = validateHeaderValueType;
     
     symbols.define("http", httpType);
 }

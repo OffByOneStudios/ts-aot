@@ -59,4 +59,13 @@ extern "C" {
     void ts_net_socket_connect(void* socket, void* port, void* host, void* callback);
     bool ts_net_socket_write(void* socket, void* data);
     void ts_net_socket_end(void* socket);
+    
+    // net module utilities
+    int64_t ts_net_is_ip(void* input);
+    bool ts_net_is_ipv4(void* input);
+    bool ts_net_is_ipv6(void* input);
+    bool ts_net_get_default_auto_select_family();
+    void ts_net_set_default_auto_select_family(bool value);
+    int64_t ts_net_get_default_auto_select_family_attempt_timeout();
+    void ts_net_set_default_auto_select_family_attempt_timeout(int64_t value);
 }

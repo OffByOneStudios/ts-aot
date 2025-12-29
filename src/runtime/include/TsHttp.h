@@ -139,4 +139,11 @@ extern "C" {
     void* ts_http_get(TsValue* options, void* callback);
     void* ts_https_request(TsValue* options, void* callback);
     void* ts_https_get(TsValue* options, void* callback);
+
+    // http module constants and utilities
+    void* ts_http_get_methods();
+    void* ts_http_get_status_codes();
+    int64_t ts_http_get_max_header_size();
+    void ts_http_validate_header_name(void* name);
+    void ts_http_validate_header_value(void* name, void* value);
 }

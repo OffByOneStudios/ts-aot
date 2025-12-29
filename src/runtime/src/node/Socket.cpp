@@ -222,4 +222,65 @@ extern "C" {
         TsString* h = (TsString*)host;
         s->Connect(h->ToUtf8(), (int)p->i_val, callback);
     }
+
+    // Global state for auto-select family settings
+    static bool g_default_auto_select_family = true;
+    static int64_t g_default_auto_select_family_attempt_timeout = 250; // ms
+
+    // net.isIP(input) -> 0 (invalid), 4 (IPv4), or 6 (IPv6)
+    int64_t ts_net_is_ip(void* input) {
+        if (!input) return 0;
+        
+        TsString* str = nullptr;
+        TsValue* val = (TsValue*)input;
+        if (val->type == ValueType::STRING_PTR) {
+            str = (TsString*)val->ptr_val;
+        } else if (val->type == ValueType::OBJECT_PTR) {
+            str = dynamic_cast<TsString*>((TsObject*)val->ptr_val);
+        } else {
+            str = (TsString*)input;
+        }
+        if (!str) return 0;
+        
+        std::string s = str->ToUtf8();
+        if (s.empty()) return 0;
+        
+        // Try IPv4
+        struct sockaddr_in sa4;
+        if (uv_inet_pton(AF_INET, s.c_str(), &sa4.sin_addr) == 0) {
+            return 4;
+        }
+        
+        // Try IPv6
+        struct sockaddr_in6 sa6;
+        if (uv_inet_pton(AF_INET6, s.c_str(), &sa6.sin6_addr) == 0) {
+            return 6;
+        }
+        
+        return 0;
+    }
+
+    bool ts_net_is_ipv4(void* input) {
+        return ts_net_is_ip(input) == 4;
+    }
+
+    bool ts_net_is_ipv6(void* input) {
+        return ts_net_is_ip(input) == 6;
+    }
+
+    bool ts_net_get_default_auto_select_family() {
+        return g_default_auto_select_family;
+    }
+
+    void ts_net_set_default_auto_select_family(bool value) {
+        g_default_auto_select_family = value;
+    }
+
+    int64_t ts_net_get_default_auto_select_family_attempt_timeout() {
+        return g_default_auto_select_family_attempt_timeout;
+    }
+
+    void ts_net_set_default_auto_select_family_attempt_timeout(int64_t value) {
+        g_default_auto_select_family_attempt_timeout = value;
+    }
 }
