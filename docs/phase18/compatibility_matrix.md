@@ -227,16 +227,16 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | url | resolveObject | function | 🔴 | |
 | url | urlToHttpOptions | function | 🔴 | |
 | net | BlockList | function | 🔴 | |
-| net | Server | function | 🔴 | |
-| net | Socket | function | 🔴 | |
+| net | Server | function | 🟢 | TCP server via uv_tcp_t |
+| net | Socket | function | 🟢 | TCP socket via uv_tcp_t |
 | net | SocketAddress | function | 🔴 | |
 | net | Stream | function | 🔴 | |
 | net | _createServerHandle | function | 🔴 | |
 | net | _normalizeArgs | function | 🔴 | |
 | net | _setSimultaneousAccepts | function | 🔴 | |
-| net | connect | function | 🔴 | |
+| net | connect | function | 🟢 | |
 | net | createConnection | function | 🔴 | |
-| net | createServer | function | 🔴 | |
+| net | createServer | function | 🟢 | |
 | net | getDefaultAutoSelectFamily | function | 🔴 | |
 
 | net | getDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
@@ -246,7 +246,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | net | setDefaultAutoSelectFamily | function | 🔴 | |
 | net | setDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
 | http | Agent | function | 🔴 | |
-| http | ClientRequest | function | 🟡 | Basic implementation for requests |
+| http | ClientRequest | function | 🟢 | Full implementation with events, statusCode, data/end handlers |
 | http | CloseEvent | function | 🔴 | |
 | http | IncomingMessage | function | 🟢 | |
 | http | METHODS | object | 🔴 | |
@@ -258,15 +258,20 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | http | WebSocket | function | 🔴 | |
 | http | _connectionListener | function | 🔴 | |
 | http | createServer | function | 🟢 | |
-| http | get | function | 🟡 | Basic implementation |
+| http | get | function | 🟢 | Working implementation |
 | http | globalAgent | object | 🔴 | |
 | http | maxHeaderSize | number | 🔴 | |
-| http | request | function | 🟡 | Basic implementation |
+| http | request | function | 🟢 | Working implementation |
 | http | setMaxIdleHTTPParsers | function | 🔴 | |
 | http | validateHeaderName | function | 🔴 | |
 | http | validateHeaderValue | function | 🔴 | |
+| https | Agent | function | 🔴 | |
+| https | Server | function | 🔴 | |
+| https | createServer | function | 🔴 | |
+| https | get | function | 🟢 | |
+| https | request | function | 🟢 | |
 | buffer | Blob | function | 🔴 | |
-| buffer | Buffer | function | 🔴 | |
+| buffer | Buffer | function | 🟡 | `TsBuffer` core implemented (length, indexing, data access) |
 | buffer | File | function | 🔴 | |
 | buffer | INSPECT_MAX_BYTES | number | 🔴 | |
 | buffer | SlowBuffer | function | 🔴 | |
@@ -351,7 +356,7 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | process | uptime | function | 🔴 | |
 | process | version | string | 🔴 | |
 | process | versions | object | 🔴 | |
-| globals | console | object | 🔴 | |
+| globals | console | object | 🟡 | Basic `log` support via `ts_console_log` |
 | globals | setTimeout | function | 🔴 | |
 | globals | setInterval | function | 🔴 | |
 | globals | clearTimeout | function | 🔴 | |
