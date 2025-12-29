@@ -6,6 +6,9 @@ class TsServer : public TsEventEmitter {
 public:
     TsServer();
     virtual ~TsServer();
+    
+    // Safe casting helper
+    virtual TsServer* AsServer() override { return this; }
 
     void Listen(int port, void* callback);
     void Close();

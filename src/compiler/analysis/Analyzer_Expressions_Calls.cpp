@@ -8,10 +8,97 @@
 
 namespace ts {
 using namespace ast;
+
+// Helper to get expected callback type for known APIs
+static std::shared_ptr<FunctionType> getExpectedCallbackType(const std::string& objName, const std::string& methodName, size_t argIndex) {
+    // http.createServer / https.createServer callback: (req: IncomingMessage, res: ServerResponse) => void
+    if ((objName == "http" || objName == "https") && methodName == "createServer" && argIndex == 0) {
+        auto cbType = std::make_shared<FunctionType>();
+        auto reqType = std::make_shared<ClassType>("IncomingMessage");
+        auto resType = std::make_shared<ClassType>("ServerResponse");
+        cbType->paramTypes.push_back(reqType);
+        cbType->paramTypes.push_back(resType);
+        cbType->returnType = std::make_shared<Type>(TypeKind::Void);
+        return cbType;
+    }
+    // net.createServer callback: (socket: Socket) => void
+    if (objName == "net" && methodName == "createServer" && argIndex == 0) {
+        auto cbType = std::make_shared<FunctionType>();
+        auto socketType = std::make_shared<ClassType>("Socket");
+        cbType->paramTypes.push_back(socketType);
+        cbType->returnType = std::make_shared<Type>(TypeKind::Void);
+        return cbType;
+    }
+    // EventEmitter.on('data', callback) - callback receives chunk
+    if (methodName == "on" && argIndex == 1) {
+        auto cbType = std::make_shared<FunctionType>();
+        cbType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // chunk/event data
+        cbType->returnType = std::make_shared<Type>(TypeKind::Void);
+        return cbType;
+    }
+    // fs.readFile callback: (err, data) => void
+    if (objName == "fs" && (methodName == "readFile" || methodName == "writeFile") && argIndex == 1) {
+        auto cbType = std::make_shared<FunctionType>();
+        cbType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // err
+        cbType->paramTypes.push_back(std::make_shared<ClassType>("Buffer")); // data
+        cbType->returnType = std::make_shared<Type>(TypeKind::Void);
+        return cbType;
+    }
+    return nullptr;
+}
+
 void Analyzer::visitCallExpression(ast::CallExpression* node) {
-    // 1. Evaluate arguments first to get their types for overload resolution
+    // First, get the callee type to determine expected parameter types
+    visit(node->callee.get());
+    auto calleeType = lastType;
+    
+    // Extract object and method names for contextual typing lookup
+    std::string objName;
+    std::string methodName;
+    if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+        methodName = prop->name;
+        if (auto id = dynamic_cast<Identifier*>(prop->expression.get())) {
+            objName = id->name;
+        }
+    } else if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
+        methodName = id->name;
+    }
+    
+    // Get expected parameter types from callee
+    std::vector<std::shared_ptr<Type>> expectedParamTypes;
+    if (calleeType && calleeType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(calleeType);
+        expectedParamTypes = funcType->paramTypes;
+    }
+    
+    // 1. Evaluate arguments with contextual typing for arrow functions
     std::vector<std::shared_ptr<Type>> argTypes;
-    for (auto& arg : node->arguments) {
+    for (size_t i = 0; i < node->arguments.size(); i++) {
+        auto& arg = node->arguments[i];
+        
+        // Check if this is an arrow function that needs contextual typing
+        bool isArrowOrFn = (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression");
+        if (isArrowOrFn) {
+            // Try to get expected callback type
+            std::shared_ptr<FunctionType> expectedCb = nullptr;
+            
+            // First try known API patterns
+            expectedCb = getExpectedCallbackType(objName, methodName, i);
+            
+            // Then try from callee's function type
+            if (!expectedCb && i < expectedParamTypes.size() && expectedParamTypes[i]->kind == TypeKind::Function) {
+                expectedCb = std::static_pointer_cast<FunctionType>(expectedParamTypes[i]);
+            }
+            
+            if (expectedCb) {
+                pushContextualType(expectedCb);
+                visit(arg.get());
+                popContextualType();
+                argTypes.push_back(lastType);
+                continue;
+            }
+        }
+        
         visit(arg.get());
         argTypes.push_back(lastType);
     }
@@ -23,9 +110,8 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     }
     node->resolvedTypeArguments = resolvedTypeArguments;
 
-    // 2. Evaluate callee
-    visit(node->callee.get());
-    auto calleeType = lastType;
+    // Re-visit callee (already done above, but calleeType might need it)
+    // calleeType already set above
 
     if (calleeType->kind == TypeKind::Null || calleeType->kind == TypeKind::Undefined) {
         if (node->isOptional) {

@@ -7,6 +7,9 @@ public:
     TsSocket();
     TsSocket(uv_tcp_t* handle);
     virtual ~TsSocket();
+    
+    // Safe casting helper
+    virtual TsSocket* AsSocket() override { return this; }
 
     void Connect(const char* host, int port, void* callback);
     

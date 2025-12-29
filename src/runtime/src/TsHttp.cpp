@@ -662,6 +662,16 @@ void* ts_incoming_message_headers(void* ctx, void* msg) {
     return m->headers;
 }
 
+void* ts_incoming_message_statusCode(void* ctx, void* msg) {
+    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    return ts_value_make_int(m->statusCode);
+}
+
+void* ts_incoming_message_statusMessage(void* ctx, void* msg) {
+    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    return m->statusMessage;
+}
+
 void* ts_http_request(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     return static_cast<TsEventEmitter*>(req);

@@ -80,6 +80,23 @@ private:
     int functionDepth = 0;
     bool verbose = false;
 
+    // Contextual typing stack - used to propagate expected types to arrow functions
+    std::vector<std::shared_ptr<Type>> contextualTypeStack;
+    
+    void pushContextualType(std::shared_ptr<Type> type) {
+        contextualTypeStack.push_back(type);
+    }
+    
+    void popContextualType() {
+        if (!contextualTypeStack.empty()) {
+            contextualTypeStack.pop_back();
+        }
+    }
+    
+    std::shared_ptr<Type> getContextualType() const {
+        return contextualTypeStack.empty() ? nullptr : contextualTypeStack.back();
+    }
+
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node) override;
     void visitClassDeclaration(ast::ClassDeclaration* node) override;

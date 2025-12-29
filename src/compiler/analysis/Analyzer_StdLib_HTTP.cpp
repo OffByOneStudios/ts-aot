@@ -56,9 +56,15 @@ void Analyzer::registerHTTP() {
     auto readableClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Readable"));
     incomingMessageClass->baseClass = readableClass;
     
+    // Request properties (server-side)
     incomingMessageClass->fields["method"] = std::make_shared<Type>(TypeKind::String);
     incomingMessageClass->fields["url"] = std::make_shared<Type>(TypeKind::String);
     incomingMessageClass->fields["headers"] = std::make_shared<Type>(TypeKind::Any);
+    
+    // Response properties (client-side) - IncomingMessage is used for http.ClientResponse too
+    incomingMessageClass->fields["statusCode"] = std::make_shared<Type>(TypeKind::Int);
+    incomingMessageClass->fields["statusMessage"] = std::make_shared<Type>(TypeKind::String);
+    
     symbols.defineType("IncomingMessage", incomingMessageClass);
 
     auto serverResponseClass = std::make_shared<ClassType>("ServerResponse");

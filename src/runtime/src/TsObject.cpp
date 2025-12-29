@@ -148,6 +148,8 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
+    // Note: ts_value_get_int and ts_value_get_double are defined in Primitives.cpp
+
     int64_t ts_value_length(TsValue* val) {
         if (!val) return 0;
 
