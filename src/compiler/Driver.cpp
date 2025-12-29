@@ -133,6 +133,7 @@ int Driver::run() {
             linkOpts.outputPath = exeOutput;
             linkOpts.objectFiles.push_back(objFile);
             linkOpts.debug = options.debug;
+            linkOpts.debugRuntime = options.debugRuntime;
             
             // Add compiler directory to library paths
             // We need to find where the compiler is running from
