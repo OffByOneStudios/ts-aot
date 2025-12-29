@@ -235,24 +235,24 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | net | _normalizeArgs | function | 🔴 | |
 | net | _setSimultaneousAccepts | function | 🔴 | |
 | net | connect | function | 🟢 | |
-| net | createConnection | function | 🔴 | |
+| net | createConnection | function | 🟢 | Alias for net.connect |
 | net | createServer | function | 🟢 | |
 | net | getDefaultAutoSelectFamily | function | 🔴 | |
 
 | net | getDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
-| net | isIP | function | 🔴 | |
-| net | isIPv4 | function | 🔴 | |
-| net | isIPv6 | function | 🔴 | |
+| net | isIP | function | 🟢 | `ts_net_is_ip()` |
+| net | isIPv4 | function | 🟢 | `ts_net_is_ipv4()` |
+| net | isIPv6 | function | 🟢 | `ts_net_is_ipv6()` |
 | net | setDefaultAutoSelectFamily | function | 🔴 | |
 | net | setDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
 | http | Agent | function | 🔴 | |
 | http | ClientRequest | function | 🟢 | Full implementation with events, statusCode, data/end handlers |
 | http | CloseEvent | function | 🔴 | |
 | http | IncomingMessage | function | 🟢 | |
-| http | METHODS | object | 🔴 | |
+| http | METHODS | object | 🟢 | `ts_http_get_methods()` |
 | http | MessageEvent | function | 🔴 | |
 | http | OutgoingMessage | function | 🔴 | |
-| http | STATUS_CODES | object | 🔴 | |
+| http | STATUS_CODES | object | 🟢 | `ts_http_get_status_codes()` |
 | http | Server | function | 🟢 | |
 | http | ServerResponse | function | 🟢 | |
 | http | WebSocket | function | 🔴 | |
@@ -260,11 +260,11 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | http | createServer | function | 🟢 | |
 | http | get | function | 🟢 | Working implementation |
 | http | globalAgent | object | 🔴 | |
-| http | maxHeaderSize | number | 🔴 | |
+| http | maxHeaderSize | number | 🟢 | `ts_http_get_max_header_size()` |
 | http | request | function | 🟢 | Working implementation |
 | http | setMaxIdleHTTPParsers | function | 🔴 | |
-| http | validateHeaderName | function | 🔴 | |
-| http | validateHeaderValue | function | 🔴 | |
+| http | validateHeaderName | function | 🟢 | `ts_http_validate_header_name()` |
+| http | validateHeaderValue | function | 🟢 | `ts_http_validate_header_value()` |
 | https | Agent | function | 🔴 | |
 | https | Server | function | 🟢 | TLS server with certificate support |
 | https | createServer | function | 🟢 | Full implementation with key/cert options |

@@ -95,6 +95,30 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
             lastValue = createCall(ft, fn.getCallee(), { options, callback });
             return true;
+        } else if (prop->name == "validateHeaderName") {
+            // http.validateHeaderName(name: string) -> void
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_validate_header_name", ft);
+            createCall(ft, fn.getCallee(), { name });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "validateHeaderValue") {
+            // http.validateHeaderValue(name: string, value: string) -> void
+            if (node->arguments.size() < 2) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+            visit(node->arguments[1].get());
+            llvm::Value* value = lastValue;
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_validate_header_value", ft);
+            createCall(ft, fn.getCallee(), { name, value });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
         }
     }
 
@@ -208,6 +232,45 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         }
     }
 
+    return false;
+}
+
+bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* node) {
+    // Check if this is http.METHODS, http.STATUS_CODES, or http.maxHeaderSize
+    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (!id) return false;
+    
+    if (id->name != "http" && id->name != "https") return false;
+    
+    if (node->name == "METHODS") {
+        // http.METHODS - returns array of HTTP method strings
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_get_methods", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    } else if (node->name == "STATUS_CODES") {
+        // http.STATUS_CODES - returns object mapping status codes to descriptions
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_get_status_codes", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    } else if (node->name == "maxHeaderSize") {
+        // http.maxHeaderSize - returns the max header size constant
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_get_max_header_size", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+    
+    return false;
+}
+
+bool IRGenerator::tryGenerateNetPropertyAccess(ast::PropertyAccessExpression* node) {
+    // Check if this is net.* property access
+    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (!id || id->name != "net") return false;
+    
+    // Currently no net module properties to handle (all are functions)
     return false;
 }
 

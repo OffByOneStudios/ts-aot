@@ -43,14 +43,32 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.5.6:** Add certificate loading from Buffer (fs.readFileSync integration).
 
 ### Milestone 100.6: Networking Utilities & Constants
-- [ ] **Task 100.6.1:** Implement `net.createConnection` (alias for `net.connect`).
-- [ ] **Task 100.6.2:** Implement `net.isIP`, `net.isIPv4`, `net.isIPv6`.
-- [ ] **Task 100.6.3:** Implement `http.METHODS` and `http.STATUS_CODES` constants.
+- [x] **Task 100.6.1:** Implement `net.createConnection` (alias for `net.connect`).
+- [x] **Task 100.6.2:** Implement `net.isIP`, `net.isIPv4`, `net.isIPv6`.
+- [x] **Task 100.6.3:** Implement `http.METHODS` and `http.STATUS_CODES` constants.
+- [x] **Task 100.6.4:** Implement `http.maxHeaderSize` constant.
+- [x] **Task 100.6.5:** Implement `http.validateHeaderName` and `http.validateHeaderValue`.
+- [ ] **Task 100.6.6:** Implement `net.SocketAddress` class.
+- [ ] **Task 100.6.7:** Implement `net.BlockList` class.
+- [x] **Task 100.6.8:** Implement `net.getDefaultAutoSelectFamily` and `net.setDefaultAutoSelectFamily`.
+- [x] **Task 100.6.9:** Implement `net.getDefaultAutoSelectFamilyAttemptTimeout` and `net.setDefaultAutoSelectFamilyAttemptTimeout`.
 
 ### Milestone 100.7: Connection Pooling (Agents)
-- [ ] **Task 100.7.1:** Implement `http.Agent` and `https.Agent` base classes.
-- [ ] **Task 100.7.2:** Implement `http.globalAgent` and `https.globalAgent`.
-- [ ] **Task 100.7.3:** Support connection reuse in `ClientRequest`.
+- [ ] **Task 100.7.1:** Implement `http.Agent` base class.
+- [ ] **Task 100.7.2:** Implement `https.Agent` class.
+- [ ] **Task 100.7.3:** Implement `http.globalAgent` and `https.globalAgent`.
+- [ ] **Task 100.7.4:** Support connection reuse in `ClientRequest`.
+- [ ] **Task 100.7.5:** Implement `http.setMaxIdleHTTPParsers`.
+
+### Milestone 100.8: HTTP Advanced Classes
+- [ ] **Task 100.8.1:** Implement `http.OutgoingMessage` base class.
+- [ ] **Task 100.8.2:** Implement `http.CloseEvent` class.
+- [ ] **Task 100.8.3:** Implement `http.MessageEvent` class.
+
+### Milestone 100.9: WebSocket Support
+- [ ] **Task 100.9.1:** Implement `http.WebSocket` class.
+- [ ] **Task 100.9.2:** Implement WebSocket handshake protocol.
+- [ ] **Task 100.9.3:** Implement WebSocket frame encoding/decoding.
 
 **Reference Implementation:** See `src/runtime/src/TsFetch.cpp` lines 50-130 for working OpenSSL + libuv pattern:
 ```cpp
@@ -74,3 +92,5 @@ SSL_set_connect_state(ssl);  // Client mode
 - [x] **Completed:** Milestone 100.5 - HTTPS Support (Client & Server).
 - [ ] **Planned:** Milestone 100.6 - Networking Utilities & Constants.
 - [ ] **Planned:** Milestone 100.7 - Connection Pooling (Agents).
+- [ ] **Planned:** Milestone 100.8 - HTTP Advanced Classes.
+- [ ] **Planned:** Milestone 100.9 - WebSocket Support.

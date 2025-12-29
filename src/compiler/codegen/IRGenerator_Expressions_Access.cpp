@@ -372,6 +372,8 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
 
     if (tryGenerateFSPropertyAccess(node)) return;
     if (tryGeneratePathPropertyAccess(node)) return;
+    if (tryGenerateHTTPPropertyAccess(node)) return;
+    if (tryGenerateNetPropertyAccess(node)) return;
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
         visit(node->expression.get());

@@ -137,6 +137,8 @@ private:
     bool tryGeneratePathPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateEventsPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateBufferPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateNetPropertyAccess(ast::PropertyAccessExpression* node);
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node);
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;

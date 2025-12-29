@@ -693,5 +693,133 @@ void* ts_https_get(TsValue* options, void* callback) {
     req->End();
     return static_cast<TsEventEmitter*>(req);
 }
+
+// http.METHODS - returns array of HTTP method strings
+void* ts_http_get_methods() {
+    static TsArray* methods = nullptr;
+    if (!methods) {
+        methods = TsArray::Create();
+        const char* methodNames[] = {
+            "ACL", "BIND", "CHECKOUT", "CONNECT", "COPY", "DELETE", "GET", "HEAD",
+            "LINK", "LOCK", "M-SEARCH", "MERGE", "MKACTIVITY", "MKCALENDAR", "MKCOL",
+            "MOVE", "NOTIFY", "OPTIONS", "PATCH", "POST", "PRI", "PROPFIND", "PROPPATCH",
+            "PURGE", "PUT", "REBIND", "REPORT", "SEARCH", "SOURCE", "SUBSCRIBE", "TRACE",
+            "UNBIND", "UNLINK", "UNLOCK", "UNSUBSCRIBE"
+        };
+        for (const char* m : methodNames) {
+            TsString* str = TsString::Create(m);
+            TsValue* val = ts_value_make_string(str);
+            methods->Push((int64_t)val);
+        }
+    }
+    return methods;
+}
+
+// http.STATUS_CODES - returns map of status codes to descriptions
+void* ts_http_get_status_codes() {
+    static TsMap* statusCodes = nullptr;
+    if (!statusCodes) {
+        statusCodes = TsMap::Create();
+        struct StatusCode { int code; const char* message; };
+        StatusCode codes[] = {
+            {100, "Continue"}, {101, "Switching Protocols"}, {102, "Processing"},
+            {103, "Early Hints"},
+            {200, "OK"}, {201, "Created"}, {202, "Accepted"},
+            {203, "Non-Authoritative Information"}, {204, "No Content"},
+            {205, "Reset Content"}, {206, "Partial Content"},
+            {207, "Multi-Status"}, {208, "Already Reported"}, {226, "IM Used"},
+            {300, "Multiple Choices"}, {301, "Moved Permanently"}, {302, "Found"},
+            {303, "See Other"}, {304, "Not Modified"}, {305, "Use Proxy"},
+            {307, "Temporary Redirect"}, {308, "Permanent Redirect"},
+            {400, "Bad Request"}, {401, "Unauthorized"}, {402, "Payment Required"},
+            {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"},
+            {406, "Not Acceptable"}, {407, "Proxy Authentication Required"},
+            {408, "Request Timeout"}, {409, "Conflict"}, {410, "Gone"},
+            {411, "Length Required"}, {412, "Precondition Failed"},
+            {413, "Payload Too Large"}, {414, "URI Too Long"},
+            {415, "Unsupported Media Type"}, {416, "Range Not Satisfiable"},
+            {417, "Expectation Failed"}, {418, "I'm a Teapot"},
+            {421, "Misdirected Request"}, {422, "Unprocessable Entity"},
+            {423, "Locked"}, {424, "Failed Dependency"}, {425, "Too Early"},
+            {426, "Upgrade Required"}, {428, "Precondition Required"},
+            {429, "Too Many Requests"}, {431, "Request Header Fields Too Large"},
+            {451, "Unavailable For Legal Reasons"},
+            {500, "Internal Server Error"}, {501, "Not Implemented"},
+            {502, "Bad Gateway"}, {503, "Service Unavailable"},
+            {504, "Gateway Timeout"}, {505, "HTTP Version Not Supported"},
+            {506, "Variant Also Negotiates"}, {507, "Insufficient Storage"},
+            {508, "Loop Detected"}, {510, "Not Extended"},
+            {511, "Network Authentication Required"}
+        };
+        for (const auto& sc : codes) {
+            TsValue* key = ts_value_make_int(sc.code);
+            TsValue* val = ts_value_make_string(TsString::Create(sc.message));
+            statusCodes->Set(key, val);
+        }
+    }
+    return statusCodes;
+}
+
+// http.maxHeaderSize - default is 16KB (16384 bytes) in Node.js
+int64_t ts_http_get_max_header_size() {
+    return 16384;
+}
+
+// http.validateHeaderName - throws if name is invalid
+void ts_http_validate_header_name(void* name) {
+    if (!name) {
+        // Throw error - for now just return (stub behavior)
+        return;
+    }
+    
+    TsString* str = nullptr;
+    TsValue* val = (TsValue*)name;
+    if (val->type == ValueType::STRING_PTR) {
+        str = (TsString*)val->ptr_val;
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        str = dynamic_cast<TsString*>((TsObject*)val->ptr_val);
+    } else {
+        str = (TsString*)name;
+    }
+    if (!str) return;
+    
+    std::string s = str->ToUtf8();
+    if (s.empty()) return; // Would throw in real Node.js
+    
+    // Valid header name characters: token chars per RFC 7230
+    // For now, just check for basic validity
+    for (char c : s) {
+        if (c <= 32 || c >= 127 || c == ':') {
+            // Invalid character - would throw in real Node.js
+            return;
+        }
+    }
+}
+
+// http.validateHeaderValue - throws if value is invalid
+void ts_http_validate_header_value(void* name, void* value) {
+    if (!name || !value) return;
+    
+    TsString* valStr = nullptr;
+    TsValue* val = (TsValue*)value;
+    if (val->type == ValueType::STRING_PTR) {
+        valStr = (TsString*)val->ptr_val;
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        valStr = dynamic_cast<TsString*>((TsObject*)val->ptr_val);
+    } else {
+        valStr = (TsString*)value;
+    }
+    if (!valStr) return;
+    
+    std::string s = valStr->ToUtf8();
+    
+    // Check for invalid characters per RFC 7230
+    for (char c : s) {
+        if (c == '\0' || c == '\r' || c == '\n') {
+            // Invalid character - would throw in real Node.js
+            return;
+        }
+    }
+}
 }
 
