@@ -1,11 +1,23 @@
 #include "IRGenerator.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
 bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     if (prop->name == "write") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        
+        // Unbox if the expression is Any-typed
+        llvm::Value* obj;
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            obj = createCall(unboxFt, unboxFn.getCallee(), { boxedObj });
+        } else {
+            obj = unboxValue(boxedObj, prop->expression->inferredType);
+        }
         
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
@@ -18,7 +30,17 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         return true;
     } else if (prop->name == "end") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        
+        // Unbox if the expression is Any-typed
+        llvm::Value* obj;
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            obj = createCall(unboxFt, unboxFn.getCallee(), { boxedObj });
+        } else {
+            obj = unboxValue(boxedObj, prop->expression->inferredType);
+        }
         
         llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
         if (!node->arguments.empty()) {

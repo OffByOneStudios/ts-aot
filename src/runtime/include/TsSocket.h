@@ -20,9 +20,13 @@ public:
 
     uv_stream_t* GetStream() { return (uv_stream_t*)handle; }
 
-private:
+protected:
     uv_tcp_t* handle;
     bool connected;
+
+    virtual void OnConnected();
+    virtual void HandleRead(ssize_t nread, const uv_buf_t* buf);
+    virtual void HandleWrite(int status, size_t length);
 
     static void OnConnect(uv_connect_t* req, int status);
     static void OnAlloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);

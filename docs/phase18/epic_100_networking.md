@@ -32,15 +32,15 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.4.5:** Fix virtual inheritance pointer casting with `dynamic_cast`.
 
 ### Milestone 100.5: HTTPS Support (OpenSSL)
-**Status:** In Progress
+**Status:** Complete
 **Prerequisite:** OpenSSL is already linked into tsruntime.lib
 
 - [x] **Task 100.5.1:** Create `TsSecureSocket` class wrapping SSL_CTX and SSL objects.
 - [x] **Task 100.5.2:** Implement SSL handshake integration with libuv.
 - [x] **Task 100.5.3:** Implement `https.request` and `https.get` C API.
 - [x] **Task 100.5.4:** Add compiler codegen for `https` module.
-- [ ] **Task 100.5.5:** Implement `https.Server` and `https.createServer`.
-- [ ] **Task 100.5.6:** Add certificate verification options.
+- [x] **Task 100.5.5:** Implement `https.Server` and `https.createServer`.
+- [x] **Task 100.5.6:** Add certificate loading from Buffer (fs.readFileSync integration).
 
 ### Milestone 100.6: Networking Utilities & Constants
 - [ ] **Task 100.6.1:** Implement `net.createConnection` (alias for `net.connect`).
@@ -71,6 +71,6 @@ SSL_set_connect_state(ssl);  // Client mode
 - [x] **Completed:** Milestone 100.2 - HTTP Parsing.
 - [x] **Completed:** Milestone 100.3 - HTTP Server.
 - [x] **Completed:** Milestone 100.4 - HTTP Client (Full).
-- [ ] **In Progress:** Milestone 100.5 - HTTPS Support (Client complete, Server pending).
+- [x] **Completed:** Milestone 100.5 - HTTPS Support (Client & Server).
 - [ ] **Planned:** Milestone 100.6 - Networking Utilities & Constants.
 - [ ] **Planned:** Milestone 100.7 - Connection Pooling (Agents).

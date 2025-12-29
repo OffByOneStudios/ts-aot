@@ -59,10 +59,15 @@ void Analyzer::registerFS() {
     // Define fs module
     auto fsType = std::make_shared<ObjectType>();
     
-    // fs.readFileSync(path: string): string
+    // fs.readFileSync(path: string): Buffer
     auto readFileSync = std::make_shared<FunctionType>();
     readFileSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    readFileSync->returnType = std::make_shared<Type>(TypeKind::String);
+    auto bufferClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Buffer"));
+    if (!bufferClass) {
+        bufferClass = std::make_shared<ClassType>("Buffer");
+        symbols.defineType("Buffer", bufferClass);
+    }
+    readFileSync->returnType = bufferClass;
     fsType->fields["readFileSync"] = readFileSync;
 
     // fs.writeFileSync(path: string, data: string): void

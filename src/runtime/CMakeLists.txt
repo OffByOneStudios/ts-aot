@@ -60,6 +60,7 @@ add_library(tsruntime STATIC
     src/node/WriteStream.cpp
     src/node/Writable.cpp
     src/node/Socket.cpp
+    src/node/SecureSocket.cpp
     src/node/Server.cpp
     src/Primitives.cpp
     src/Math.cpp

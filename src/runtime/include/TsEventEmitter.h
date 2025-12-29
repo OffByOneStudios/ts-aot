@@ -7,7 +7,6 @@
 class TsEventEmitter : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x45564E54; // "EVNT"
-    uint32_t magic = MAGIC;
     TsEventEmitter();
     virtual ~TsEventEmitter();
     

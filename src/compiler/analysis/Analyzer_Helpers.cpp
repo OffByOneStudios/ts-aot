@@ -248,7 +248,7 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         name = name.substr(5);
     }
 
-    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "events" || name == "net" || name == "stream") {
+    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "https" || name == "events" || name == "net" || name == "stream") {
         if (modules.count("builtin:" + name)) {
             return modules["builtin:" + name];
         }

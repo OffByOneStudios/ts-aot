@@ -37,6 +37,9 @@ extern "C" {
             return;
         }
         
+        // Check if writable is actually a TsObject with magic
+        TsObject* obj = (TsObject*)writable;
+        
         // The pointer may be TsEventEmitter* (due to virtual inheritance),
         // so we use dynamic_cast to get TsWritable*
         TsEventEmitter* emitter = (TsEventEmitter*)writable;

@@ -487,19 +487,21 @@ static TsString* unboxString(void* ptr) {
 
 void* ts_fs_readFileSync(void* path) {
     TsString* pathStr = unboxString(path);
-    if (!pathStr) return TsString::Create("");
+    if (!pathStr) return TsBuffer::Create(0);  // Return empty buffer
     const char* pathCStr = pathStr->ToUtf8();
 
-    std::ifstream t(pathCStr, std::ios::binary);
+    std::ifstream t(pathCStr, std::ios::binary | std::ios::ate);
     if (!t.is_open()) {
-        return TsString::Create("");
+        return TsBuffer::Create(0);  // Return empty buffer
     }
 
-    std::stringstream buffer;
-    buffer << t.rdbuf();
-    std::string s = buffer.str();
+    std::streamsize size = t.tellg();
+    t.seekg(0, std::ios::beg);
     
-    return TsString::Create(s.c_str());
+    TsBuffer* buf = TsBuffer::Create((size_t)size);
+    t.read((char*)buf->GetData(), size);
+    
+    return buf;
 }
 
 void ts_fs_unlinkSync(void* path) {

@@ -10,7 +10,7 @@
 using namespace ts;
 
 TsEventEmitter::TsEventEmitter() {
-    magic = MAGIC;
+    this->magic = MAGIC;
     listeners = TsMap::Create();
 }
 
@@ -268,10 +268,11 @@ extern "C" {
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         
         if (!e) {
-            return;
-        }
-        if (e->magic != TsEventEmitter::MAGIC) {
-            return;
+            // Try using the virtual AsEventEmitter method as fallback
+            e = obj->AsEventEmitter();
+            if (!e) {
+                return;
+            }
         }
         TsString* s = (TsString*)event;
         if (!s) {
@@ -281,51 +282,63 @@ extern "C" {
     }
 
     void ts_event_emitter_once(void* emitter, void* event, void* callback) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         TsString* s = (TsString*)event;
         if (!s) return;
         e->Once(s->ToUtf8(), callback);
     }
 
     void ts_event_emitter_prepend_listener(void* emitter, void* event, void* callback) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         TsString* s = (TsString*)event;
-        if (!s) {
-            return;
-        }
+        if (!s) return;
         e->PrependListener(s->ToUtf8(), callback);
     }
 
     void ts_event_emitter_prepend_once_listener(void* emitter, void* event, void* callback) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         TsString* s = (TsString*)event;
-        if (!s) {
-            return;
-        }
+        if (!s) return;
         e->PrependOnceListener(s->ToUtf8(), callback);
     }
 
     void ts_event_emitter_remove_all_listeners(void* emitter, void* event) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         TsString* s = (TsString*)event;
         e->RemoveAllListeners(s ? s->ToUtf8() : nullptr);
     }
 
     void ts_event_emitter_set_max_listeners(void* emitter, int n) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         e->SetMaxListeners(n);
     }
 
     void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {
+        if (!emitter) return;
         TsObject* obj = (TsObject*)emitter;
-        if (!obj) return;
-        TsEventEmitter* e = obj->AsEventEmitter();
-        if (!e || e->magic != TsEventEmitter::MAGIC) return;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
         TsString* s = (TsString*)event;
         if (!s) return;
         e->Emit(s->ToUtf8(), argc, argv);
@@ -346,8 +359,11 @@ extern "C" {
     }
 
     TsValue* ts_event_emitter_static_once(void* emitter, void* event) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
-        if (!e || e->magic != TsEventEmitter::MAGIC) return ts_value_make_undefined();
+        if (!emitter) return ts_value_make_undefined();
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return ts_value_make_undefined();
         TsString* s = (TsString*)event;
         if (!s) return ts_value_make_undefined();
 

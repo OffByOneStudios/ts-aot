@@ -10,10 +10,12 @@ public:
     void Listen(int port, void* callback);
     void Close();
 
-private:
+protected:
     uv_tcp_t* handle;
     bool listening;
     bool closed;
+
+    virtual void HandleConnection(int status);
 
     static void OnConnection(uv_stream_t* server, int status);
     static void OnClose(uv_handle_t* handle);

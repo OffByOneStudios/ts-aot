@@ -51,6 +51,7 @@ public:
     void registerBuffer();
     void registerNet();
     void registerHTTP();
+    void registerHTTPS();
 
     void reportError(const std::string& message);
 
