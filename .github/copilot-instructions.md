@@ -2,7 +2,10 @@
 
 You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler for TypeScript.
 
-**See also:** `.github/DEVELOPMENT.md` for detailed development guidelines.
+**See also:** 
+- `.github/DEVELOPMENT.md` - Detailed development guidelines
+- `.github/instructions/code-snippets.md` - Copy-paste ready code templates
+- `.github/instructions/runtime-extensions.instructions.md` - Runtime extension guide
 
 ## ⛔ STOP AND CHECK - Before ANY Runtime Edit ⛔
 
