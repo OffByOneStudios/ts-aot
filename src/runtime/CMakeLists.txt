@@ -76,6 +76,7 @@ add_library(tsruntime STATIC
     src/TsRegExp.cpp
     src/TsPromise.cpp
     src/TsBuffer.cpp
+    src/TsTextEncoding.cpp
     src/TsURL.cpp
     src/TsFetch.cpp
     src/TsHttp.cpp

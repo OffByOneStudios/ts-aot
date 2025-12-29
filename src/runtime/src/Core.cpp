@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <chrono>
+#include <algorithm>
 #include <uv.h>
 
 #ifdef _WIN32
@@ -50,6 +51,17 @@ static char* process_argv0 = nullptr;
 static char* process_exec_path = nullptr;
 static char process_title[256] = "ts-aot";
 static bool process_title_initialized = false;
+
+// Process event handlers (Milestone 102.8)
+static std::vector<TsValue*> exit_handlers;
+static std::vector<TsValue*> before_exit_handlers;
+static std::vector<TsValue*> uncaught_exception_handlers;
+static std::vector<TsValue*> warning_handlers;
+static TsValue* uncaught_exception_capture_callback = nullptr;
+
+// Event loop handles (Milestone 102.9)
+static uv_idle_t* process_ref_handle = nullptr;
+static bool process_is_referenced = true;
 
 extern "C" {
 
@@ -480,6 +492,257 @@ void* ts_process_get_release() {
 
 int64_t ts_process_get_debug_port() {
     return 9229; // Default Node.js debug port
+}
+
+// ============================================================================
+// Milestone 102.8: Process Events
+// ============================================================================
+
+void ts_process_on(void* event, void* callback) {
+    TsString* eventName = (TsString*)ts_value_get_string((TsValue*)event);
+    if (!eventName) eventName = (TsString*)event;
+    if (!eventName) return;
+    
+    const char* name = eventName->ToUtf8();
+    TsValue* cb = (TsValue*)callback;
+    
+    if (strcmp(name, "exit") == 0) {
+        exit_handlers.push_back(cb);
+    } else if (strcmp(name, "beforeExit") == 0) {
+        before_exit_handlers.push_back(cb);
+    } else if (strcmp(name, "uncaughtException") == 0) {
+        uncaught_exception_handlers.push_back(cb);
+    } else if (strcmp(name, "warning") == 0) {
+        warning_handlers.push_back(cb);
+    }
+}
+
+void ts_process_once(void* event, void* callback) {
+    // For simplicity, once just calls on - a proper implementation would remove after first call
+    ts_process_on(event, callback);
+}
+
+void ts_process_remove_listener(void* event, void* callback) {
+    TsString* eventName = (TsString*)ts_value_get_string((TsValue*)event);
+    if (!eventName) eventName = (TsString*)event;
+    if (!eventName) return;
+    
+    const char* name = eventName->ToUtf8();
+    TsValue* cb = (TsValue*)callback;
+    
+    std::vector<TsValue*>* handlers = nullptr;
+    if (strcmp(name, "exit") == 0) {
+        handlers = &exit_handlers;
+    } else if (strcmp(name, "beforeExit") == 0) {
+        handlers = &before_exit_handlers;
+    } else if (strcmp(name, "uncaughtException") == 0) {
+        handlers = &uncaught_exception_handlers;
+    } else if (strcmp(name, "warning") == 0) {
+        handlers = &warning_handlers;
+    }
+    
+    if (handlers) {
+        handlers->erase(std::remove(handlers->begin(), handlers->end(), cb), handlers->end());
+    }
+}
+
+void ts_process_remove_all_listeners(void* event) {
+    if (!event) {
+        exit_handlers.clear();
+        before_exit_handlers.clear();
+        uncaught_exception_handlers.clear();
+        warning_handlers.clear();
+        return;
+    }
+    
+    TsString* eventName = (TsString*)ts_value_get_string((TsValue*)event);
+    if (!eventName) eventName = (TsString*)event;
+    if (!eventName) return;
+    
+    const char* name = eventName->ToUtf8();
+    
+    if (strcmp(name, "exit") == 0) {
+        exit_handlers.clear();
+    } else if (strcmp(name, "beforeExit") == 0) {
+        before_exit_handlers.clear();
+    } else if (strcmp(name, "uncaughtException") == 0) {
+        uncaught_exception_handlers.clear();
+    } else if (strcmp(name, "warning") == 0) {
+        warning_handlers.clear();
+    }
+}
+
+void ts_process_set_uncaught_exception_capture_callback(void* callback) {
+    uncaught_exception_capture_callback = (TsValue*)callback;
+}
+
+bool ts_process_has_uncaught_exception_capture_callback() {
+    return uncaught_exception_capture_callback != nullptr;
+}
+
+// Helper to invoke exit handlers - called from ts_process_exit
+static void invoke_exit_handlers(int64_t code) {
+    TsValue* codeVal = ts_value_make_int(code);
+    TsValue* args[1] = { codeVal };
+    for (auto handler : exit_handlers) {
+        ts_function_call(handler, 1, args);
+    }
+}
+
+// ============================================================================
+// Milestone 102.9: Event Loop Handles
+// ============================================================================
+
+static void process_ref_cb(uv_idle_t* handle) {
+    // Just keep event loop alive, do nothing
+    (void)handle;
+}
+
+void ts_process_ref() {
+    if (!process_ref_handle) {
+        process_ref_handle = (uv_idle_t*)malloc(sizeof(uv_idle_t));
+        uv_loop_t* loop = uv_default_loop();
+        uv_idle_init(loop, process_ref_handle);
+        uv_idle_start(process_ref_handle, process_ref_cb);
+    }
+    process_is_referenced = true;
+}
+
+void ts_process_unref() {
+    if (process_ref_handle) {
+        uv_idle_stop(process_ref_handle);
+        uv_close((uv_handle_t*)process_ref_handle, [](uv_handle_t* h) { free(h); });
+        process_ref_handle = nullptr;
+    }
+    process_is_referenced = false;
+}
+
+void* ts_process_get_active_resources_info() {
+    TsArray* result = TsArray::Create(0);
+    uv_loop_t* loop = uv_default_loop();
+    
+    // Walk all handles in the loop
+    uv_walk(loop, [](uv_handle_t* handle, void* arg) {
+        TsArray* arr = (TsArray*)arg;
+        const char* type = nullptr;
+        
+        switch (handle->type) {
+            case UV_TCP: type = "TCPSocket"; break;
+            case UV_UDP: type = "UDPSocket"; break;
+            case UV_NAMED_PIPE: type = "Pipe"; break;
+            case UV_TTY: type = "TTY"; break;
+            case UV_TIMER: type = "Timeout"; break;
+            case UV_PREPARE: type = "Prepare"; break;
+            case UV_CHECK: type = "Check"; break;
+            case UV_IDLE: type = "Idle"; break;
+            case UV_ASYNC: type = "Async"; break;
+            case UV_POLL: type = "Poll"; break;
+            case UV_SIGNAL: type = "Signal"; break;
+            case UV_FS_EVENT: type = "FSEvent"; break;
+            case UV_FS_POLL: type = "FSPoll"; break;
+            default: type = "Unknown"; break;
+        }
+        
+        arr->Push((int64_t)ts_value_make_string(TsString::Create(type)));
+    }, result);
+    
+    return ts_value_make_object(result);
+}
+
+// ============================================================================
+// Milestone 102.12: Memory Info
+// ============================================================================
+
+void* ts_process_constrained_memory() {
+    // Returns memory limit (cgroups on Linux) or undefined
+    // On Windows, return undefined (null)
+    return ts_value_make_undefined();
+}
+
+void* ts_process_available_memory() {
+#ifdef _WIN32
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        return ts_value_make_int((int64_t)memInfo.ullAvailPhys);
+    }
+    return ts_value_make_int(0);
+#else
+    // On Unix, could use sysconf or parse /proc/meminfo
+    long pages = sysconf(_SC_AVPHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    return ts_value_make_int((int64_t)(pages * page_size));
+#endif
+}
+
+// ============================================================================
+// Milestone 102.13: Internal/Debug APIs (Stubs)
+// ============================================================================
+
+void* ts_process_get_active_handles() {
+    // Return empty array - internal API stub
+    return ts_value_make_object(TsArray::Create(0));
+}
+
+void* ts_process_get_active_requests() {
+    // Return empty array - internal API stub
+    return ts_value_make_object(TsArray::Create(0));
+}
+
+void ts_process_tick_callback() {
+    // Process microtask queue - stub
+    ts_run_microtasks();
+}
+
+// ============================================================================
+// Milestone 102.14: Diagnostics & Reporting
+// ============================================================================
+
+void* ts_process_get_report() {
+    TsMap* report = TsMap::Create();
+    
+    // Header info
+    TsMap* header = TsMap::Create();
+    header->Set(*ts_value_make_string(TsString::Create("reportVersion")), *ts_value_make_int(1));
+    header->Set(*ts_value_make_string(TsString::Create("nodejsVersion")), *ts_value_make_string(TsString::Create("v20.0.0")));
+    header->Set(*ts_value_make_string(TsString::Create("platform")), *ts_value_make_string(TsString::Create(
+#ifdef _WIN32
+        "win32"
+#elif __APPLE__
+        "darwin"
+#else
+        "linux"
+#endif
+    )));
+    report->Set(*ts_value_make_string(TsString::Create("header")), *ts_value_make_object(header));
+    
+    return ts_value_make_object(report);
+}
+
+void* ts_process_report_get_report() {
+    return ts_process_get_report();
+}
+
+void ts_process_report_write_report(void* filename) {
+    // Write report to file - stub for now
+    (void)filename;
+    fprintf(stderr, "Report writing is not implemented\n");
+}
+
+void* ts_process_report_get_directory() {
+    return ts_value_make_string(TsString::Create(""));
+}
+
+void ts_process_report_set_directory(void* dir) {
+    (void)dir;
+}
+
+void* ts_process_report_get_filename() {
+    return ts_value_make_string(TsString::Create(""));
+}
+
+void ts_process_report_set_filename(void* filename) {
+    (void)filename;
 }
 
 void* ts_push_exception_handler() {

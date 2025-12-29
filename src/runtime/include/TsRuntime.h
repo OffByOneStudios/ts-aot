@@ -119,6 +119,48 @@ void* ts_process_get_features();
 void* ts_process_get_release();
 int64_t ts_process_get_debug_port();
 
+// --- Process Events (Milestone 102.8) ---
+void ts_process_on(void* event, void* callback);
+void ts_process_once(void* event, void* callback);
+void ts_process_remove_listener(void* event, void* callback);
+void ts_process_remove_all_listeners(void* event);
+void ts_process_set_uncaught_exception_capture_callback(void* callback);
+bool ts_process_has_uncaught_exception_capture_callback();
+
+// --- Event Loop Handles (Milestone 102.9) ---
+void ts_process_ref();
+void ts_process_unref();
+void* ts_process_get_active_resources_info();
+
+// --- Memory Info (Milestone 102.12) ---
+void* ts_process_constrained_memory();
+void* ts_process_available_memory();
+
+// --- Internal/Debug APIs (Milestone 102.13) ---
+void* ts_process_get_active_handles();
+void* ts_process_get_active_requests();
+void ts_process_tick_callback();
+
+// --- Diagnostics & Reporting (Milestone 102.14) ---
+void* ts_process_get_report();
+void* ts_process_report_get_report();
+void ts_process_report_write_report(void* filename);
+void* ts_process_report_get_directory();
+void ts_process_report_set_directory(void* dir);
+void* ts_process_report_get_filename();
+void ts_process_report_set_filename(void* filename);
+
+// --- TextEncoder/TextDecoder (Milestone 102.11) ---
+void* ts_text_encoder_create();
+void* ts_text_encoder_encode(void* encoder, void* input);
+void* ts_text_encoder_encode_into(void* encoder, void* source, void* destination);
+void* ts_text_encoder_get_encoding(void* encoder);
+void* ts_text_decoder_create(void* label, bool fatal, bool ignoreBOM);
+void* ts_text_decoder_decode(void* decoder, void* input);
+void* ts_text_decoder_get_encoding(void* decoder);
+bool ts_text_decoder_is_fatal(void* decoder);
+bool ts_text_decoder_ignore_bom(void* decoder);
+
 TsValue* ts_set_timeout(TsValue* callback, int64_t delay);
 TsValue* ts_set_interval(TsValue* callback, int64_t delay);
 TsValue* ts_set_immediate(TsValue* callback);

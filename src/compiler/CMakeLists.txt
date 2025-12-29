@@ -93,6 +93,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_Net.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_HTTP.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Process.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_TextEncoding.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp

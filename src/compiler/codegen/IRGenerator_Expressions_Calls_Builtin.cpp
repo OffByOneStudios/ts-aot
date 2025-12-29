@@ -17,6 +17,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateProcessCall(node, prop)) return true;
     if (tryGenerateHTTPCall(node, prop)) return true;  // HTTP before Net - HTTP Server.listen() uses ts_http_server_listen
     if (tryGenerateNetCall(node, prop)) return true;
+    if (tryGenerateTextEncodingCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Symbol") {
