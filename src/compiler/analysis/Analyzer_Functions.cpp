@@ -395,10 +395,26 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
     auto funcType = std::make_shared<FunctionType>();
     
+    // Check for contextual type (expected callback signature from caller)
+    auto contextualType = getContextualType();
+    std::shared_ptr<FunctionType> contextualFuncType = nullptr;
+    if (contextualType && contextualType->kind == TypeKind::Function) {
+        contextualFuncType = std::static_pointer_cast<FunctionType>(contextualType);
+    }
+    
     symbols.enterScope();
     
-    for (auto& param : node->parameters) {
+    for (size_t i = 0; i < node->parameters.size(); i++) {
+        auto& param = node->parameters[i];
         std::shared_ptr<Type> paramType = parseType(param->type, symbols);
+        
+        // If param type is Any and we have a contextual type, use that instead
+        if (paramType->kind == TypeKind::Any && contextualFuncType && i < contextualFuncType->paramTypes.size()) {
+            paramType = contextualFuncType->paramTypes[i];
+            SPDLOG_INFO("Contextual typing: parameter {} gets type {} from callback signature", 
+                i, paramType->toString());
+        }
+        
         funcType->paramTypes.push_back(paramType);
         
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {

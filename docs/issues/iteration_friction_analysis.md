@@ -1,16 +1,43 @@
-# Deep Dive: Why Features Require Excessive Iteration
+# Deep Dive: Why Features Required Excessive Iteration
 
 **Date:** December 28, 2025  
 **Context:** Analysis of HTTPS implementation (Milestone 100.5) which required ~50+ debug cycles
+**Status:** ✅ All issues addressed (see Solutions Implemented below)
 
 ## Executive Summary
 
-The ts-aot compiler has architectural issues that cause a **multiplicative debugging burden**. Each new feature requires debugging at 4+ layers, and issues at one layer mask issues at other layers. The root causes are:
+The ts-aot compiler had architectural issues that caused a **multiplicative debugging burden**. Each new feature required debugging at 4+ layers, and issues at one layer masked issues at other layers. The root causes were:
 
-1. **No Contextual Typing** - Callback parameters are always `TypeKind::Any`
-2. **Implicit Boxing/Unboxing** - No clear contract between compiler and runtime
-3. **Virtual Inheritance Complexity** - Pointer layouts are unpredictable
-4. **No Type Debugging Tools** - Can't easily see what types flow through
+1. **No Contextual Typing** - Callback parameters were always `TypeKind::Any` ✅ FIXED
+2. **Implicit Boxing/Unboxing** - No clear contract between compiler and runtime ✅ FIXED
+3. **Virtual Inheritance Complexity** - Pointer layouts are unpredictable ✅ FIXED
+4. **No Type Debugging Tools** - Couldn't easily see what types flow through ✅ FIXED
+
+---
+
+## Solutions Implemented
+
+### 1. Contextual Typing (Analyzer_Expressions_Calls.cpp, Analyzer_Functions.cpp)
+- Added `contextualTypeStack` to Analyzer for propagating expected callback types
+- `getExpectedCallbackType()` returns expected callback signatures for http, https, net, fs APIs
+- Arrow functions now use contextual type to infer parameter types when not explicitly annotated
+
+### 2. Consistent Unboxing (TsObject.h, TsObject.cpp, Primitives.cpp)
+- Added `ts_value_get_*` family of helpers: `ts_value_get_object`, `ts_value_get_int`, `ts_value_get_double`, `ts_value_get_bool`, `ts_value_get_string`
+- All C API functions should use these helpers for consistent unboxing
+
+### 3. Safe Casting Helpers (TsObject.h, TsReadable.h, TsWritable.h, TsDuplex.h, TsSocket.h, TsServer.h)
+- Added `AsXxx()` virtual methods to all stream classes
+- `AsEventEmitter()`, `AsReadable()`, `AsWritable()`, `AsDuplex()`, `AsSocket()`, `AsServer()`
+- Eliminates the need for C-style casts with virtual inheritance
+
+### 4. Documentation (`.github/DEVELOPMENT.md`)
+- Comprehensive development guide covering:
+  - Contextual typing mechanism and how to extend it
+  - Boxing/unboxing conventions
+  - Safe casting patterns
+  - Debugging and diagnostics
+  - Common pitfalls and how to avoid them
 
 ---
 

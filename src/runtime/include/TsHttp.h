@@ -24,6 +24,7 @@ public:
     TsString* url;
     TsHeaders* headers;
     int statusCode = 0;  // For HTTP client responses
+    TsString* statusMessage = nullptr;  // For HTTP client responses
 
     // TsReadable implementation
     virtual void Pause() override;

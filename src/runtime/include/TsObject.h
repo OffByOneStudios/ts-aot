@@ -39,10 +39,28 @@ struct TaggedValue {
 
 using TsValue = TaggedValue;
 
+// Forward declarations for AsXxx() methods
+class TsReadable;
+class TsWritable;
+class TsDuplex;
+class TsTransform;
+class TsSocket;
+class TsServer;
+
 class TsObject {
 public:
     virtual ~TsObject() {}
+    
+    // Safe casting helpers - use these instead of C-style casts
+    // These handle virtual inheritance correctly
     virtual class TsEventEmitter* AsEventEmitter() { return nullptr; }
+    virtual TsReadable* AsReadable() { return nullptr; }
+    virtual TsWritable* AsWritable() { return nullptr; }
+    virtual TsDuplex* AsDuplex() { return nullptr; }
+    virtual TsTransform* AsTransform() { return nullptr; }
+    virtual TsSocket* AsSocket() { return nullptr; }
+    virtual TsServer* AsServer() { return nullptr; }
+    
     void* vtable;
     uint32_t magic;
 };
@@ -80,4 +98,11 @@ extern "C" {
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
     TsValue* ts_object_get_property(void* obj, const char* key);
+    
+    // Unboxing helpers - safely extract raw pointers from boxed values
+    void* ts_value_get_object(TsValue* val);
+    int64_t ts_value_get_int(TsValue* val);
+    double ts_value_get_double(TsValue* val);
+    bool ts_value_get_bool(TsValue* val);
+    void* ts_value_get_string(TsValue* val);
 }

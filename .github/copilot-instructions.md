@@ -2,6 +2,8 @@
 
 You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler for TypeScript.
 
+**See also:** `.github/DEVELOPMENT.md` for detailed development guidelines.
+
 ## Technical Constraints & Architecture
 *   **Language Standard:** C++20.
 *   **Build System:** CMake with `vcpkg` for dependency management.
@@ -13,32 +15,38 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
     *   **Strings:** NEVER use `std::string` for runtime values. Use `TsString` (ICU-based).
 *   **Async:** Use `libuv` for the event loop.
 *   **IO:** Use `ts_console_log`.
-*   **Virtual Inheritance & C API Bindings (CRITICAL):**
+*   **Virtual Inheritance & Safe Casting (CRITICAL):**
     *   The runtime uses virtual inheritance for Node.js-like stream classes (e.g., `TsReadable : public virtual TsEventEmitter`).
-    *   **Pointer Layout:** TsObject has: offset 0 = C++ vtable (8 bytes), offset 8 = explicit magic/vtable member.
-    *   **NEVER use pointer arithmetic** for virtual inheritance classes. With virtual inheritance, base class pointers are NOT at predictable offsets.
-    *   **ALWAYS use `dynamic_cast<TargetClass*>`** when casting between base and derived classes with virtual inheritance.
-    *   **Boxed Values:** Many C API functions receive `void*` that may be either:
-        1. A raw object pointer (e.g., `TsEventEmitter*`)
-        2. A boxed `TsValue*` (with `type` field <= 10 and `ptr_val` containing the actual object)
-    *   **Unboxing Pattern:** Before using a `void*` parameter, check if it's a boxed TsValue:
+    *   **NEVER use C-style casts or pointer arithmetic** for virtual inheritance classes.
+    *   **ALWAYS use `AsXxx()` helpers or `dynamic_cast`** when casting between base and derived classes:
         ```cpp
-        TsValue* val = (TsValue*)param;
-        void* rawPtr = param;
-        if ((uint8_t)val->type <= 10 && val->type == ValueType::OBJECT_PTR) {
-            rawPtr = val->ptr_val;  // Unbox
-        }
-        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+        // CORRECT - use AsXxx() helpers
+        TsEventEmitter* e = ((TsObject*)ptr)->AsEventEmitter();
+        TsWritable* w = ((TsObject*)ptr)->AsWritable();
+        
+        // ALSO CORRECT - use dynamic_cast
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)ptr);
         ```
-    *   **TsMap Magic:** TsMap has magic value `0x4D415053` at offset 16 (not 8!) due to TsObject layout.
-    *   **Error Objects:** `ts_error_create` returns an already-boxed `TsValue*` - do NOT double-box.
+*   **Boxing & Unboxing Convention:**
+    *   Many C API functions receive `void*` that may be boxed `TsValue*` or raw pointers.
+    *   **ALWAYS use `ts_value_get_*` helpers** for consistent unboxing:
+        ```cpp
+        void* rawPtr = ts_value_get_object((TsValue*)param);
+        if (!rawPtr) rawPtr = param;  // Fallback if not boxed
+        ```
+    *   **Unboxing helpers:** `ts_value_get_object`, `ts_value_get_int`, `ts_value_get_double`, `ts_value_get_bool`, `ts_value_get_string`
+    *   **Track boxed values:** In codegen, always call `boxedValues.insert(value)` after boxing.
 *   **LLVM 18 (Opaque Pointers):**
     *   **Pointers:** Use `builder->getPtrTy()` for all pointer types. NEVER use `getPointerTo()`.
     *   **GEP:** Always provide the source element type: `builder->CreateGEP(type, ptr, indices)`.
     *   **Load/Store:** Always provide the type to `CreateLoad(type, ptr)`.
     *   **Calls:** Always provide the `FunctionType` to `CreateCall(ft, callee, args)`.
-    *   **Type Safety:** LLVM 18 does NOT check pointer types (they are all `ptr`), but it STRICTLY checks that the types in `args` match the `FunctionType` passed to `CreateCall`. If they don't, it will crash with "Calling a function with a bad signature!".
-    *   **Casting:** Use `CreateBitCast` for pointer-to-pointer (though often redundant), `CreateIntCast` for integers, and `CreateFPToSI`/`CreateSIToFP` for numeric conversions. Always ensure arguments match the `FunctionType` exactly.
+    *   **Type Safety:** LLVM 18 STRICTLY checks that the types in `args` match the `FunctionType` passed to `CreateCall`.
+
+## Contextual Typing (NEW)
+*   Arrow function parameters now infer types from call context.
+*   To add contextual typing for a new API, edit `getExpectedCallbackType()` in `Analyzer_Expressions_Calls.cpp`.
+*   The analyzer uses a `contextualTypeStack` to propagate expected types to nested arrow functions.
 
 ## Development Workflow
 Follow this cycle for all development tasks:
@@ -53,6 +61,7 @@ Follow this cycle for all development tasks:
 5.  **Verify:**
     *   Run `cmake --build build` to ensure the compiler and runtime are up to date.
     *   Run the compiler directly: `build/src/compiler/Release/ts-aot.exe examples/your_test.ts -o examples/your_test.exe`.
+    *   **Debug types:** Use `--dump-types` flag to see inferred types.
     *   **Performance Testing:** Performance regression guards MUST be run against Release builds.
     *   **Regression Guard:** Use `// CHECK:` for IR verification and `// TYPE-CHECK:` for type inference snapshots in the `.ts` file footer.
     *   **Stop** if the build or verification fails and fix it.

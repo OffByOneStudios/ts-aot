@@ -28,3 +28,15 @@
 *   **Library:** `libuv`.
     *   *Reason:* It is the event loop of Node.js, ensuring behavior parity.
 *   **HTTP:** `llhttp` (Node.js parser) + `libuv` TCP handles.
+*   **HTTPS:** OpenSSL for TLS + BIO memory buffers for non-blocking I/O.
+
+## 6. Type System (Dec 2025)
+*   **Contextual Typing:** Arrow function parameters infer types from call context.
+    *   *Mechanism:* `contextualTypeStack` in Analyzer, pushed before visiting callbacks.
+    *   *Coverage:* http, https, net, fs, and EventEmitter patterns.
+*   **Boxing Convention:** 
+    *   Compiler tracks boxed values in `boxedValues` set.
+    *   Runtime uses `ts_value_get_*` helpers for consistent unboxing.
+*   **Virtual Inheritance Casting:**
+    *   Stream classes use `AsXxx()` virtual methods for safe downcasting.
+    *   Never use C-style casts or static_cast with virtual inheritance.
