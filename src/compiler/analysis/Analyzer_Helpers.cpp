@@ -248,7 +248,7 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         name = name.substr(5);
     }
 
-    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "events") {
+    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "events" || name == "net" || name == "stream") {
         if (modules.count("builtin:" + name)) {
             return modules["builtin:" + name];
         }
@@ -256,41 +256,16 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         module->path = "builtin:" + name;
         module->analyzed = true;
         
-        if (name == "fs") {
-            auto fsSym = symbols.lookup("fs");
-            if (fsSym) {
-                auto fsType = std::static_pointer_cast<ObjectType>(fsSym->type);
-                for (auto& [fieldName, type] : fsType->fields) {
-                    module->exports->define(fieldName, type);
-                }
-                // Also handle fs.promises
-                if (fsType->fields.count("promises")) {
-                    module->exports->define("promises", fsType->fields["promises"]);
-                }
+        auto sym = symbols.lookup(name);
+        if (sym && sym->type->kind == TypeKind::Object) {
+            auto objType = std::static_pointer_cast<ObjectType>(sym->type);
+            for (auto& [fieldName, type] : objType->fields) {
+                module->exports->define(fieldName, type);
             }
-        } else if (name == "path") {
-            auto pathSym = symbols.lookup("path");
-            if (pathSym) {
-                auto pathType = std::static_pointer_cast<ObjectType>(pathSym->type);
-                for (auto& [fieldName, type] : pathType->fields) {
-                    module->exports->define(fieldName, type);
-                }
-            }
-        } else if (name == "http") {
-            auto httpSym = symbols.lookup("http");
-            if (httpSym) {
-                auto httpType = std::static_pointer_cast<ObjectType>(httpSym->type);
-                for (auto& [fieldName, type] : httpType->fields) {
-                    module->exports->define(fieldName, type);
-                }
-            }
-        } else if (name == "events") {
-            auto eventsSym = symbols.lookup("events");
-            if (eventsSym) {
-                auto eventsType = std::static_pointer_cast<ObjectType>(eventsSym->type);
-                for (auto& [fieldName, type] : eventsType->fields) {
-                    module->exports->define(fieldName, type);
-                }
+            
+            // Special case for fs.promises
+            if (name == "fs" && objType->fields.count("promises")) {
+                module->exports->define("promises", objType->fields["promises"]);
             }
         }
         

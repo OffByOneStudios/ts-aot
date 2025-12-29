@@ -143,12 +143,21 @@ int Driver::run() {
             linkOpts.libraryPaths.push_back(compilerPath.string());
             linkOpts.libraryPaths.push_back((compilerPath / "lib").string());
             
-            // Development paths
-            linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
-            linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
+            // Development paths - order matters! Put the appropriate one first
+            if (options.debugRuntime) {
+                SPDLOG_INFO("Using DEBUG runtime library");
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
+            } else {
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
+            }
             
-            // vcpkg paths (relative to root)
+            // vcpkg paths (relative to root) - debug vs release
             std::filesystem::path rootPath = compilerPath / ".." / ".." / ".." / "..";
+            if (options.debugRuntime) {
+                linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows-static" / "debug" / "lib").string());
+            }
             linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows-static" / "lib").string());
             linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows" / "lib").string());
 

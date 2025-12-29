@@ -34,3 +34,4 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Completed:** Milestone 100.2 - HTTP Parsing.
 - [x] **Completed:** Milestone 100.3 - HTTP Server.
 - [x] **Completed:** Milestone 100.4 - HTTP Client (Basic).
+- [ ] **Planned:** Implement header iteration in `TsClientRequest::SendHeaders`.

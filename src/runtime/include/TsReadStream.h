@@ -1,17 +1,17 @@
 #pragma once
-#include "TsEventEmitter.h"
+#include "TsReadable.h"
 #include "TsBuffer.h"
 #include <uv.h>
 
-class TsReadStream : public TsEventEmitter {
+class TsReadStream : public TsReadable {
 public:
     TsReadStream(int fd);
     virtual ~TsReadStream();
     
     void Start();
     void Close();
-    void Pause();
-    void Resume();
+    virtual void Pause() override;
+    virtual void Resume() override;
 
     virtual void On(const char* event, void* callback) override;
 
@@ -19,8 +19,6 @@ private:
     int fd;
     TsBuffer* buffer;
     bool closed;
-    bool flowing;
-    bool reading;
     
     static void OnRead(uv_fs_t* req);
 };

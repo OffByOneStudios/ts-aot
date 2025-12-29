@@ -7,15 +7,25 @@
 #include <stdlib.h>
 #include <new>
 
-TsSocket::TsSocket() : connected(false), closed(false), flowing(false), reading(false), 
-                       bufferedAmount(0), highWaterMark(16384), needDrain(false) {
+TsSocket::TsSocket() : connected(false) {
+    flowing = false;
+    reading = false;
+    closed = false;
+    bufferedAmount = 0;
+    highWaterMark = 16384;
+    needDrain = false;
     handle = (uv_tcp_t*)ts_alloc(sizeof(uv_tcp_t));
     uv_tcp_init(uv_default_loop(), handle);
     handle->data = this;
 }
 
-TsSocket::TsSocket(uv_tcp_t* h) : handle(h), connected(true), closed(false), flowing(false), reading(false),
-                                  bufferedAmount(0), highWaterMark(16384), needDrain(false) {
+TsSocket::TsSocket(uv_tcp_t* h) : handle(h), connected(true) {
+    flowing = false;
+    reading = false;
+    closed = false;
+    bufferedAmount = 0;
+    highWaterMark = 16384;
+    needDrain = false;
     handle->data = this;
 }
 
@@ -164,24 +174,5 @@ extern "C" {
         TsValue* p = (TsValue*)port;
         TsString* h = (TsString*)host;
         s->Connect(h->ToUtf8(), (int)p->i_val, callback);
-    }
-
-    bool ts_net_socket_write(void* socket, void* data) {
-        TsSocket* s = (TsSocket*)socket;
-        TsValue* v = (TsValue*)data;
-        if (v->type == ValueType::STRING_PTR) {
-            TsString* str = (TsString*)v->ptr_val;
-            return s->Write((void*)str->ToUtf8(), str->Length());
-        } else if (v->type == ValueType::OBJECT_PTR) {
-            // Assume TsBuffer for now
-            TsBuffer* buf = (TsBuffer*)v->ptr_val;
-            return s->Write(buf->GetData(), buf->GetLength());
-        }
-        return false;
-    }
-
-    void ts_net_socket_end(void* socket) {
-        TsSocket* s = (TsSocket*)socket;
-        s->End();
     }
 }

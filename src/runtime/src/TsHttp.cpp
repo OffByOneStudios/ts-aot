@@ -3,6 +3,7 @@
 #include "TsRuntime.h"
 #include "TsSocket.h"
 #include "TsMap.h"
+#include "TsArray.h"
 #include <uv.h>
 #include <llhttp.h>
 #include <iostream>
@@ -26,7 +27,7 @@ struct HttpContext {
 };
 
 // TsIncomingMessage
-TsIncomingMessage::TsIncomingMessage() : method(nullptr), url(nullptr) {
+TsIncomingMessage::TsIncomingMessage() : TsEventEmitter(), TsReadable(), method(nullptr), url(nullptr) {
     headers = TsHeaders::Create();
 }
 
@@ -44,7 +45,7 @@ void TsIncomingMessage::Resume() {
 }
 
 // TsServerResponse
-TsServerResponse::TsServerResponse(uv_stream_t* client) : client(client) {}
+TsServerResponse::TsServerResponse(uv_stream_t* client) : TsEventEmitter(), TsWritable(), client(client) {}
 
 TsServerResponse* TsServerResponse::Create(uv_stream_t* client) {
     void* mem = ts_alloc(sizeof(TsServerResponse));
@@ -72,7 +73,6 @@ void TsServerResponse::WriteHead(int status, TsObject* headers) {
 }
 
 bool TsServerResponse::Write(void* data, size_t length) {
-    fprintf(stderr, "TsServerResponse::Write length=%zu\n", length); fflush(stderr);
     if (closed) return false;
     if (!headersSent) WriteHead(200, nullptr);
 
@@ -237,9 +237,7 @@ static void client_on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t
     buf->len = (unsigned int)suggested_size;
 }
 
-TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : callback(callback) {
-    fprintf(stderr, "TsClientRequest constructor optionsPtr=%p\n", optionsPtr); fflush(stderr);
-    
+TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : TsEventEmitter(), TsWritable(), callback(callback) {
     TsValue options;
     if (optionsPtr) {
         options = *optionsPtr;
@@ -288,7 +286,9 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : callback
         if (v_method.type == ValueType::STRING_PTR) method = ((TsString*)v_method.ptr_val)->ToUtf8();
         
         TsValue v_headers = obj->Get(TsValue(TsString::Create("headers")));
-        if (v_headers.type == ValueType::OBJECT_PTR) headers = (TsMap*)v_headers.ptr_val;
+        if (v_headers.type == ValueType::OBJECT_PTR && v_headers.ptr_val) {
+            headers = (TsMap*)v_headers.ptr_val;
+        }
     }
 
     if (callback) {
@@ -314,6 +314,7 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : callback
     };
     settings.on_headers_complete = [](llhttp_t* p) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
+        req->response->statusCode = p->status_code;  // Set the status code from the response
         TsValue* resVal = ts_value_make_object(req->response);
         req->Emit("response", 1, (void**)&resVal);
         return 0;
@@ -340,13 +341,10 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback) : callback
 
 TsClientRequest* TsClientRequest::Create(TsValue* options, void* callback) {
     void* mem = ts_alloc(sizeof(TsClientRequest));
-    TsClientRequest* req = new (mem) TsClientRequest(options, callback);
-    fprintf(stderr, "TsClientRequest::Create returning %p\n", req); fflush(stderr);
-    return req;
+    return new (mem) TsClientRequest(options, callback);
 }
 
 void TsClientRequest::Connect() {
-    fprintf(stderr, "TsClientRequest::Connect host=%s port=%d\n", host.c_str(), port); fflush(stderr);
     struct sockaddr_in dest;
     if (host == "localhost") {
         uv_ip4_addr("127.0.0.1", port, &dest);
@@ -356,15 +354,13 @@ void TsClientRequest::Connect() {
 
     uv_connect_t* connect_req = (uv_connect_t*)ts_alloc(sizeof(uv_connect_t));
     connect_req->data = this;
-    uv_tcp_connect(connect_req, socket, (const struct sockaddr*)&dest, [](uv_connect_t* req, int status) {
+    int r = uv_tcp_connect(connect_req, socket, (const struct sockaddr*)&dest, [](uv_connect_t* req, int status) {
         TsClientRequest* self = (TsClientRequest*)req->data;
-        fprintf(stderr, "TsClientRequest::Connect callback status=%d\n", status); fflush(stderr);
         if (status == 0) {
             self->connected = true;
             self->SendHeaders();
             uv_read_start((uv_stream_t*)self->socket, client_on_alloc, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
                 TsClientRequest* req = (TsClientRequest*)stream->data;
-                fprintf(stderr, "TsClientRequest::OnRead nread=%zd\n", nread); fflush(stderr);
                 if (nread > 0) {
                     llhttp_execute(&req->parser, buf->base, nread);
                 } else if (nread < 0) {
@@ -372,28 +368,56 @@ void TsClientRequest::Connect() {
                 }
             });
         } else {
-            fprintf(stderr, "Connect failed: %s\n", uv_strerror(status)); fflush(stderr);
-            self->Emit("error", 0, nullptr);
+            // ts_error_create returns an already-boxed TsValue*
+            TsValue* errVal = (TsValue*)ts_error_create(TsString::Create(uv_strerror(status)));
+            TsValue* args[1] = { errVal };
+            self->Emit("error", 1, (void**)args);
         }
     });
+
+    if (r != 0) {
+        // ts_error_create returns an already-boxed TsValue*
+        TsValue* errVal = (TsValue*)ts_error_create(TsString::Create(uv_strerror(r)));
+        TsValue* args[1] = { errVal };
+        Emit("error", 1, (void**)args);
+    }
 }
 
 void TsClientRequest::SendHeaders() {
     if (headersSent) return;
     headersSent = true;
-    fprintf(stderr, "TsClientRequest::SendHeaders method=%s path=%s host=%s\n", method.c_str(), path.c_str(), host.c_str()); fflush(stderr);
 
     std::string req = method + " " + path + " HTTP/1.1\r\n";
     req += "Host: " + host + "\r\n";
     
     if (headers) {
-        // TODO: Iterate headers and add them
+        TsArray* entries = (TsArray*)headers->GetEntries();
+        if (entries) {
+            for (int64_t i = 0; i < entries->Length(); ++i) {
+                TsArray* entry = (TsArray*)entries->Get(i);
+                if (!entry) continue;
+                
+                TsValue* k = (TsValue*)entry->Get(0);
+                TsValue* v = (TsValue*)entry->Get(1);
+                
+                if (k && v) {
+                    TsString* sKey = (TsString*)ts_string_from_value(k);
+                    TsString* sVal = (TsString*)ts_string_from_value(v);
+                    
+                    if (sKey && sVal) {
+                        req += sKey->ToUtf8();
+                        req += ": ";
+                        req += sVal->ToUtf8();
+                        req += "\r\n";
+                    }
+                }
+            }
+        }
     }
 
     if (endCalled) {
         req += "Connection: close\r\n";
     } else {
-        // If not ended, we might be doing chunked or just keeping it open
         req += "Transfer-Encoding: chunked\r\n";
     }
     
@@ -407,11 +431,8 @@ void TsClientRequest::SendHeaders() {
         uv_buf_t uv_buf = uv_buf_init(persistent_req, (unsigned int)req.length());
 
         uv_write(write_req, (uv_stream_t*)socket, &uv_buf, 1, [](uv_write_t* req, int status) {
-            fprintf(stderr, "TsClientRequest::SendHeaders callback status=%d\n", status); fflush(stderr);
         });
     } else {
-        // If not connected yet, Connect() will call SendHeaders() again when it connects.
-        // But we set headersSent = true, so we need to be careful.
         headersSent = false; 
     }
 }
@@ -472,9 +493,13 @@ void ts_http_server_listen(void* server, int64_t port, void* callback) {
     ((TsHttpServer*)server)->Listen((int)port, callback);
 }
 
-void ts_http_server_response_write_head(void* res, int64_t status, void* headers) {
+void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers) {
     TsServerResponse* r = (TsServerResponse*)res;
-    r->WriteHead((int)status, (TsObject*)headers);
+    TsObject* h = nullptr;
+    if (headers && headers->type == ValueType::OBJECT_PTR) {
+        h = (TsObject*)headers->ptr_val;
+    }
+    r->WriteHead((int)status, h);
 }
 
 void* ts_incoming_message_url(void* ctx, void* msg) {
@@ -493,15 +518,18 @@ void* ts_incoming_message_headers(void* ctx, void* msg) {
 }
 
 void* ts_http_request(TsValue* options, void* callback) {
-    fprintf(stderr, "ts_http_request options=%p callback=%p\n", options, callback); fflush(stderr);
-    return TsClientRequest::Create(options, callback);
+    TsClientRequest* req = TsClientRequest::Create(options, callback);
+    // Return TsEventEmitter* - the compiler knows the full type hierarchy and will
+    // correctly adjust the pointer for virtual inheritance
+    return static_cast<TsEventEmitter*>(req);
 }
 
 void* ts_http_get(TsValue* options, void* callback) {
-    fprintf(stderr, "ts_http_get options=%p callback=%p\n", options, callback); fflush(stderr);
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     req->End();
-    return req;
+    // Return TsEventEmitter* - the compiler knows the full type hierarchy and will
+    // correctly adjust the pointer for virtual inheritance
+    return static_cast<TsEventEmitter*>(req);
 }
 }
 

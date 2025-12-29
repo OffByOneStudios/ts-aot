@@ -9,25 +9,27 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
-        llvm::Value* data = lastValue;
+        llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
         
-        if (node->arguments[0]->inferredType && node->arguments[0]->inferredType->kind == TypeKind::Any) {
-            data = unboxValue(data, std::make_shared<Type>(TypeKind::Object));
-        }
-
         llvm::FunctionType* writeFt = llvm::FunctionType::get(builder->getInt1Ty(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_fs_write_stream_write", writeFt);
+        llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_writable_write", writeFt);
         lastValue = createCall(writeFt, writeFn.getCallee(), { obj, data });
         return true;
     } else if (prop->name == "end") {
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
         
+        llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            data = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+        
         llvm::FunctionType* endFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                { builder->getPtrTy() }, false);
-        llvm::FunctionCallee endFn = module->getOrInsertFunction("ts_fs_write_stream_end", endFt);
-        createCall(endFt, endFn.getCallee(), { obj });
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee endFn = module->getOrInsertFunction("ts_writable_end", endFt);
+        createCall(endFt, endFn.getCallee(), { obj, data });
         lastValue = nullptr;
         return true;
     } else if (prop->name == "pipe") {

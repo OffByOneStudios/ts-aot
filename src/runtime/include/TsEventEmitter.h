@@ -11,6 +11,8 @@ public:
     TsEventEmitter();
     virtual ~TsEventEmitter();
     
+    virtual TsEventEmitter* AsEventEmitter() override { return this; }
+    
     virtual void On(const char* event, void* callback);
     void Once(const char* event, void* callback);
     void PrependListener(const char* event, void* callback);

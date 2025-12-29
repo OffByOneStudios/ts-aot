@@ -22,7 +22,8 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
     if (prop->name == "on" || prop->name == "addListener" || prop->name == "once" || 
         prop->name == "prependListener" || prop->name == "prependOnceListener") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
         
         if (node->arguments.size() < 2) return true;
         visit(node->arguments[0].get());
@@ -37,7 +38,7 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
             callback = boxValue(callback, node->arguments[1]->inferredType);
         }
         
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
         
         const char* fnName = "ts_event_emitter_on";
@@ -51,14 +52,15 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         }
 
         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-        lastValue = createCall(ft, fn.getCallee(), { obj, event, callback });
+        createCall(ft, fn.getCallee(), { obj, event, callback });
         
         // Return 'this' for chaining
-        lastValue = obj;
+        lastValue = boxedObj;
         return true;
     } else if (prop->name == "removeAllListeners") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
         
         llvm::Value* event = nullptr;
         if (!node->arguments.empty()) {
@@ -74,11 +76,12 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         lastValue = createCall(ft, fn.getCallee(), { obj, event });
         
         // Return 'this' for chaining
-        lastValue = obj;
+        lastValue = boxedObj;
         return true;
     } else if (prop->name == "setMaxListeners") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
         
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
@@ -93,11 +96,12 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         lastValue = createCall(ft, fn.getCallee(), { obj, n });
         
         // Return 'this' for chaining
-        lastValue = obj;
+        lastValue = boxedObj;
         return true;
     } else if (prop->name == "emit") {
         visit(prop->expression.get());
-        llvm::Value* obj = lastValue;
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
         
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());

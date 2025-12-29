@@ -75,7 +75,24 @@ extern "C" {
 
     void* ts_buffer_to_string(void* buf, void* encoding) {
         if (!buf) return nullptr;
-        return ((TsBuffer*)buf)->ToString((TsString*)encoding);
+        
+        // Check if buf is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)buf;
+        TsBuffer* buffer = nullptr;
+        
+        // Check for boxed TsValue (type field should be 0-10)
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                buffer = (TsBuffer*)val->ptr_val;
+            } else {
+                return nullptr;
+            }
+        } else {
+            // Assume it's a raw TsBuffer*
+            buffer = (TsBuffer*)buf;
+        }
+        
+        return buffer->ToString((TsString*)encoding);
     }
 
     void* Buffer_toString(void* context, void* buf) {

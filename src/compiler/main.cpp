@@ -38,6 +38,7 @@ int main(int argc, char** argv) {
             ("emit-exe", "Emit executable (legacy)", cxxopts::value<std::string>())
             ("lib-path", "Additional library search path", cxxopts::value<std::vector<std::string>>())
             ("g,debug", "Generate debug information", cxxopts::value<bool>()->default_value("false"))
+            ("debug-runtime", "Link against debug version of runtime (auto-detected if compiler is debug build)", cxxopts::value<bool>()->default_value("false"))
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
@@ -85,6 +86,9 @@ int main(int argc, char** argv) {
         ts::DriverOptions driverOpts;
         driverOpts.inputFile = result["input"].as<std::string>();
         driverOpts.debug = result["debug"].as<bool>();
+        
+        // Auto-detect debug runtime if compiler was built in debug mode, or if explicitly requested
+        driverOpts.debugRuntime = result["debug-runtime"].as<bool>() || ts::isDebugBuild();
         
         if (result.count("output")) {
             driverOpts.outputFile = result["output"].as<std::string>();

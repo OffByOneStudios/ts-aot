@@ -81,7 +81,6 @@ public:
 };
 
 static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
-    printf("add_stats_methods: size=%lld\n", (long long)st->st_size);
     bool isFile = (st->st_mode & S_IFMT) == S_IFREG;
     bool isDirectory = (st->st_mode & S_IFMT) == S_IFDIR;
     bool isSymbolicLink = (st->st_mode & S_IFMT) == S_IFLNK;

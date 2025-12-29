@@ -242,13 +242,35 @@ extern "C" {
     }
 
     void ts_event_emitter_on(void* emitter, void* event, void* callback) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
+        if (!emitter) return;
+        
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+        
+        // Check for boxed TsValue by seeing if type is a valid ValueType (0-10)
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            // Assume it's a raw pointer
+            rawPtr = emitter;
+        }
+        
+        if (!rawPtr) return;
+        
+        // Use dynamic_cast to handle virtual inheritance correctly
+        // First try casting from TsObject base
+        TsObject* obj = (TsObject*)rawPtr;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        
         if (!e) {
-            fprintf(stderr, "ts_event_emitter_on: emitter is null\n");
             return;
         }
         if (e->magic != TsEventEmitter::MAGIC) {
-            fprintf(stderr, "ts_event_emitter_on: magic mismatch! expected %08x, got %08x\n", TsEventEmitter::MAGIC, e->magic);
             return;
         }
         TsString* s = (TsString*)event;
@@ -300,7 +322,9 @@ extern "C" {
     }
 
     void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {
-        TsEventEmitter* e = (TsEventEmitter*)emitter;
+        TsObject* obj = (TsObject*)emitter;
+        if (!obj) return;
+        TsEventEmitter* e = obj->AsEventEmitter();
         if (!e || e->magic != TsEventEmitter::MAGIC) return;
         TsString* s = (TsString*)event;
         if (!s) return;

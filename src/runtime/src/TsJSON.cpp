@@ -88,21 +88,27 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         return d;
     }
 
-    // Check magic numbers
+    // Check magic numbers. Some objects have a vtable (TsObject), some don't.
     uint32_t magic = *(uint32_t*)p;
+    uint32_t magic_offset8 = 0;
+    if ((uintptr_t)p > 0x1000) {
+        magic_offset8 = *(uint32_t*)((char*)p + 8);
+    }
+
     if (magic == TsString::MAGIC) {
         return ((TsString*)p)->ToUtf8();
     }
 
-    if (magic == TsDate::MAGIC) {
-        return ((TsDate*)p)->ToISOString()->ToUtf8();
+    if (magic == TsDate::MAGIC || magic_offset8 == TsDate::MAGIC) {
+        TsDate* d = (magic == TsDate::MAGIC) ? (TsDate*)p : (TsDate*)((char*)p);
+        return d->ToISOString()->ToUtf8();
     }
 
-    if (magic == TsRegExp::MAGIC) {
+    if (magic == TsRegExp::MAGIC || magic_offset8 == TsRegExp::MAGIC) {
         return nlohmann::json::object();
     }
 
-    if (magic == TsArray::MAGIC) {
+    if (magic == TsArray::MAGIC || magic_offset8 == TsArray::MAGIC) {
         if (visited.find(p) != visited.end()) {
             throw std::runtime_error("Circular reference in JSON.stringify");
         }
@@ -110,13 +116,14 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         TsArray* arr = (TsArray*)p;
         nlohmann::json j = nlohmann::json::array();
         for (int64_t i = 0; i < arr->Length(); ++i) {
+            // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value
             j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
         }
         visited.erase(p);
         return j;
     }
 
-    if (magic == TsMap::MAGIC) {
+    if (magic == TsMap::MAGIC || magic_offset8 == TsMap::MAGIC) {
         if (visited.find(p) != visited.end()) {
             throw std::runtime_error("Circular reference in JSON.stringify");
         }
@@ -125,10 +132,18 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         nlohmann::json j = nlohmann::json::object();
         TsArray* keys = (TsArray*)map->GetKeys();
         for (int64_t i = 0; i < keys->Length(); ++i) {
-            TsString* key = (TsString*)keys->Get(i);
-            TsValue val = map->Get(key);
+            TsValue* kPtr = (TsValue*)keys->Get(i);
+            TsValue val = map->Get(*kPtr);
             if (val.type == ValueType::UNDEFINED) continue;
-            j[key->ToUtf8()] = ts_value_to_json(val, visited);
+            
+            std::string keyStr;
+            if (kPtr->type == ValueType::STRING_PTR) {
+                keyStr = ((TsString*)kPtr->ptr_val)->ToUtf8();
+            } else {
+                // JSON only supports string keys
+                continue;
+            }
+            j[keyStr] = ts_value_to_json(val, visited);
         }
         visited.erase(p);
         return j;
@@ -136,7 +151,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
 
     // Fallback: check if it's a boxed TsValue
     uint8_t type_byte = *(uint8_t*)p;
-    if (type_byte <= (uint8_t)ValueType::ARRAY_PTR) {
+    if (type_byte <= (uint8_t)ValueType::SYMBOL_PTR) {
         return ts_value_to_json(*(TsValue*)p, visited);
     }
 

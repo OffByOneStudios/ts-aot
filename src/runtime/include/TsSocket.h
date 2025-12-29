@@ -18,15 +18,11 @@ public:
 
     virtual void On(const char* event, void* callback) override;
 
+    uv_stream_t* GetStream() { return (uv_stream_t*)handle; }
+
 private:
     uv_tcp_t* handle;
     bool connected;
-    bool closed;
-    bool flowing;
-    bool reading;
-    size_t bufferedAmount;
-    size_t highWaterMark;
-    bool needDrain;
 
     static void OnConnect(uv_connect_t* req, int status);
     static void OnAlloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);

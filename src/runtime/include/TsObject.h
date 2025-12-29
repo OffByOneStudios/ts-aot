@@ -41,6 +41,8 @@ using TsValue = TaggedValue;
 
 class TsObject {
 public:
+    virtual ~TsObject() {}
+    virtual class TsEventEmitter* AsEventEmitter() { return nullptr; }
     void* vtable;
 };
 
