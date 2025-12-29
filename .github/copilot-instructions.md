@@ -4,6 +4,18 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 
 **See also:** `.github/DEVELOPMENT.md` for detailed development guidelines.
 
+## ⛔ STOP AND CHECK - Before ANY Runtime Edit ⛔
+
+Before editing ANY file in `src/runtime/`, verify your code uses these patterns:
+
+| Task | ✅ CORRECT | ❌ WRONG |
+|------|-----------|----------|
+| Allocate object | `ts_alloc(sizeof(T))` + placement new | `new T()` or `malloc` |
+| Create string | `TsString::Create("...")` | `std::string` |
+| Cast to base/derived | `obj->AsEventEmitter()` or `dynamic_cast<T*>(obj)` | `(T*)ptr` C-style cast |
+| Unbox void* param | `ts_value_get_object((TsValue*)p)` | Assume it's raw pointer |
+| Create error | `ts_error_create("msg")` (already boxed!) | Double-box with `ts_value_make_object` |
+
 ## Technical Constraints & Architecture
 *   **Language Standard:** C++20.
 *   **Build System:** CMake with `vcpkg` for dependency management.

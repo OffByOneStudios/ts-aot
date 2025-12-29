@@ -4,6 +4,21 @@
 #include "TsMap.h"
 #include "TsArray.h"
 
+/*
+ * ⚠️ VIRTUAL INHERITANCE WARNING ⚠️
+ * 
+ * TsEventEmitter uses VIRTUAL INHERITANCE in derived classes (TsReadable, TsWritable, etc.)
+ * 
+ * NEVER cast pointers using C-style casts or pointer arithmetic!
+ * ALWAYS use AsEventEmitter() or dynamic_cast<TsEventEmitter*>()
+ * 
+ * Example:
+ *   TsEventEmitter* e = ((TsObject*)ptr)->AsEventEmitter();  // ✅ CORRECT
+ *   TsEventEmitter* e = (TsEventEmitter*)ptr;                // ❌ BROKEN!
+ * 
+ * See .github/instructions/runtime-extensions.instructions.md for details.
+ */
+
 class TsEventEmitter : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x45564E54; // "EVNT"
