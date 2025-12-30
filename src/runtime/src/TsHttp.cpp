@@ -12,6 +12,9 @@
 #include <cstring>
 #include <new>
 #include <algorithm>
+#include <random>
+#include <openssl/sha.h>
+#include <openssl/evp.h>
 
 struct HttpContext {
     TsHttpServer* server;
@@ -47,8 +50,156 @@ void TsIncomingMessage::Resume() {
     TsReadable::Resume();
 }
 
+// TsOutgoingMessage - base class for ServerResponse and ClientRequest
+TsOutgoingMessage::TsOutgoingMessage() : TsEventEmitter(), TsWritable() {
+    this->magic = MAGIC;
+    headers = (TsMap*)ts_map_create();
+}
+
+void TsOutgoingMessage::SetHeader(TsString* name, TsValue* value) {
+    if (!name || !headers) return;
+    // Convert name to lowercase for case-insensitive matching
+    std::string s = name->ToUtf8();
+    for (auto& c : s) c = std::tolower(c);
+    TsString* lowerName = TsString::Create(s.c_str());
+    headers->Set(lowerName, value ? *value : TsValue());
+}
+
+TsValue* TsOutgoingMessage::GetHeader(TsString* name) {
+    if (!name || !headers) return nullptr;
+    std::string s = name->ToUtf8();
+    for (auto& c : s) c = std::tolower(c);
+    TsString* lowerName = TsString::Create(s.c_str());
+    TsValue v = headers->Get(TsValue(lowerName));
+    if (v.type == ValueType::UNDEFINED) return nullptr;
+    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
+    *result = v;
+    return result;
+}
+
+void* TsOutgoingMessage::GetHeaders() {
+    return headers;
+}
+
+bool TsOutgoingMessage::HasHeader(TsString* name) {
+    if (!name || !headers) return false;
+    std::string s = name->ToUtf8();
+    for (auto& c : s) c = std::tolower(c);
+    TsString* lowerName = TsString::Create(s.c_str());
+    return headers->Has(TsValue(lowerName));
+}
+
+void TsOutgoingMessage::RemoveHeader(TsString* name) {
+    if (!name || !headers) return;
+    std::string s = name->ToUtf8();
+    for (auto& c : s) c = std::tolower(c);
+    TsString* lowerName = TsString::Create(s.c_str());
+    headers->Delete(TsValue(lowerName));
+}
+
+// Helper to convert TsValue to int64_t for array storage
+static int64_t valueToInt64(const TsValue& v) {
+    switch (v.type) {
+        case ValueType::NUMBER_INT: return v.i_val;
+        case ValueType::NUMBER_DBL: return (int64_t)ts_value_make_double(v.d_val);
+        case ValueType::BOOLEAN: return (int64_t)ts_value_make_bool(v.b_val);
+        case ValueType::STRING_PTR: return (int64_t)v.ptr_val;  // String pointer stored directly
+        case ValueType::OBJECT_PTR: 
+        case ValueType::ARRAY_PTR:
+        case ValueType::PROMISE_PTR:
+            return (int64_t)v.ptr_val;  // Object pointer stored directly
+        default: return 0;
+    }
+}
+
+void TsOutgoingMessage::AppendHeader(TsString* name, TsValue* value) {
+    if (!name || !value || !headers) return;
+    std::string s = name->ToUtf8();
+    for (auto& c : s) c = std::tolower(c);
+    TsString* lowerName = TsString::Create(s.c_str());
+    
+    TsValue existing = headers->Get(TsValue(lowerName));
+    if (existing.type == ValueType::UNDEFINED) {
+        headers->Set(lowerName, *value);
+    } else if (existing.type == ValueType::OBJECT_PTR) {
+        // If it's already an array, append to it
+        TsArray* arr = dynamic_cast<TsArray*>((TsObject*)existing.ptr_val);
+        if (arr) {
+            arr->Push(valueToInt64(*value));
+        } else {
+            // Create array with both values
+            TsArray* newArr = TsArray::Create();
+            newArr->Push(valueToInt64(existing));
+            newArr->Push(valueToInt64(*value));
+            headers->Set(lowerName, TsValue(newArr));
+        }
+    } else {
+        // Create array with both values
+        TsArray* arr = TsArray::Create();
+        arr->Push(valueToInt64(existing));
+        arr->Push(valueToInt64(*value));
+        headers->Set(lowerName, TsValue(arr));
+    }
+}
+
+TsArray* TsOutgoingMessage::GetHeaderNames() {
+    if (!headers) return TsArray::Create();
+    return (TsArray*)headers->GetKeys();
+}
+
+TsArray* TsOutgoingMessage::GetRawHeaderNames() {
+    // For now, same as GetHeaderNames - would preserve original case in full impl
+    return GetHeaderNames();
+}
+
+void TsOutgoingMessage::FlushHeaders() {
+    // Mark headers as sent - actual sending is done by subclass
+    headersSent = true;
+}
+
+// C API for OutgoingMessage
+void ts_outgoing_message_set_header(void* msg, void* name, void* value) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    TsString* n = (TsString*)name;
+    TsValue* v = (TsValue*)value;
+    m->SetHeader(n, v);
+}
+
+void* ts_outgoing_message_get_header(void* msg, void* name) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    TsString* n = (TsString*)name;
+    return m->GetHeader(n);
+}
+
+void* ts_outgoing_message_get_headers(void* msg) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    return m->GetHeaders();
+}
+
+bool ts_outgoing_message_has_header(void* msg, void* name) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    TsString* n = (TsString*)name;
+    return m->HasHeader(n);
+}
+
+void ts_outgoing_message_remove_header(void* msg, void* name) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    TsString* n = (TsString*)name;
+    m->RemoveHeader(n);
+}
+
+void* ts_outgoing_message_get_header_names(void* msg) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    return m->GetHeaderNames();
+}
+
+void ts_outgoing_message_flush_headers(void* msg) {
+    TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
+    m->FlushHeaders();
+}
+
 // TsServerResponse
-TsServerResponse::TsServerResponse(TsSocket* socket) : TsEventEmitter(), TsWritable(), socket(socket) {
+TsServerResponse::TsServerResponse(TsSocket* socket) : TsOutgoingMessage(), socket(socket) {
     this->magic = MAGIC;
 }
 
@@ -58,7 +209,7 @@ TsServerResponse* TsServerResponse::Create(TsSocket* socket) {
 }
 
 void TsServerResponse::WriteHead(int status, TsObject* headers) {
-    this->status = status;
+    this->statusCode = status;
     this->headersSent = true;
     
     std::string head = "HTTP/1.1 " + std::to_string(status) + " OK\r\n";
@@ -226,7 +377,8 @@ static void client_on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t
     buf->len = (unsigned int)suggested_size;
 }
 
-TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_https) : TsEventEmitter(), TsWritable(), callback(callback), is_https(is_https) {
+TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_https) : TsOutgoingMessage(), callback(callback), is_https(is_https) {
+    this->magic = MAGIC;
     if (optionsPtr) {
         options = *optionsPtr;
     } else {
@@ -1046,5 +1198,757 @@ int64_t ts_http_get_max_idle_http_parsers() {
 void ts_http_set_max_idle_http_parsers(int64_t max) {
     maxIdleHttpParsers = max;
 }
+
+// ============================================================================
+// TsCloseEvent implementation
+// ============================================================================
+
+TsCloseEvent* TsCloseEvent::Create(int64_t code, TsString* reason) {
+    TsCloseEvent* event = new (ts_alloc(sizeof(TsCloseEvent))) TsCloseEvent();
+    event->code = code;
+    event->reason = reason ? reason : TsString::Create("");
+    event->wasClean = (code == 1000);  // 1000 = normal closure
+    return event;
+}
+
+TsValue* ts_close_event_create(int64_t code, void* reason) {
+    return ts_value_make_object(TsCloseEvent::Create(code, (TsString*)reason));
+}
+
+void* ts_close_event_get_code(void* event) {
+    if (!event) return ts_value_make_int(0);
+    TsCloseEvent* e = (TsCloseEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsCloseEvent*)event;
+    return ts_value_make_int(e->code);
+}
+
+void* ts_close_event_get_reason(void* event) {
+    if (!event) return TsString::Create("");
+    TsCloseEvent* e = (TsCloseEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsCloseEvent*)event;
+    return e->reason;
+}
+
+void* ts_close_event_get_was_clean(void* event) {
+    if (!event) return ts_value_make_bool(false);
+    TsCloseEvent* e = (TsCloseEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsCloseEvent*)event;
+    return ts_value_make_bool(e->wasClean);
+}
+
+// ============================================================================
+// TsMessageEvent implementation
+// ============================================================================
+
+TsMessageEvent* TsMessageEvent::Create() {
+    TsMessageEvent* event = new (ts_alloc(sizeof(TsMessageEvent))) TsMessageEvent();
+    event->data = nullptr;
+    event->origin = TsString::Create("");
+    event->lastEventId = TsString::Create("");
+    event->source = nullptr;
+    event->ports = TsArray::Create();
+    return event;
+}
+
+TsValue* ts_message_event_create() {
+    return ts_value_make_object(TsMessageEvent::Create());
+}
+
+void* ts_message_event_get_data(void* event) {
+    if (!event) return nullptr;
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    return e->data;
+}
+
+void ts_message_event_set_data(void* event, void* data) {
+    if (!event) return;
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    e->data = data;
+}
+
+void* ts_message_event_get_origin(void* event) {
+    if (!event) return TsString::Create("");
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    return e->origin;
+}
+
+void* ts_message_event_get_last_event_id(void* event) {
+    if (!event) return TsString::Create("");
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    return e->lastEventId;
+}
+
+void* ts_message_event_get_source(void* event) {
+    if (!event) return nullptr;
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    return e->source;
+}
+
+void* ts_message_event_get_ports(void* event) {
+    if (!event) return TsArray::Create();
+    TsMessageEvent* e = (TsMessageEvent*)ts_value_get_object((TsValue*)event);
+    if (!e) e = (TsMessageEvent*)event;
+    return e->ports;
+}
+
+// ============================================================================
+// TsWebSocket implementation (RFC 6455)
+// ============================================================================
+
+// Base64 encoding for WebSocket key generation
+static std::string base64_encode(const uint8_t* data, size_t len) {
+    static const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve((len + 2) / 3 * 4);
+    
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t n = (uint32_t)data[i] << 16;
+        if (i + 1 < len) n |= (uint32_t)data[i + 1] << 8;
+        if (i + 2 < len) n |= data[i + 2];
+        
+        result += chars[(n >> 18) & 0x3F];
+        result += chars[(n >> 12) & 0x3F];
+        result += (i + 1 < len) ? chars[(n >> 6) & 0x3F] : '=';
+        result += (i + 2 < len) ? chars[n & 0x3F] : '=';
+    }
+    return result;
+}
+
+// WebSocket GUID (RFC 6455)
+static const char* WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+// Helper to convert TsString to std::string
+static std::string ts_to_std_string(TsString* str) {
+    return str ? std::string(str->ToUtf8()) : std::string();
+}
+
+TsWebSocket::TsWebSocket(TsString* url, TsValue* protocols) {
+    this->magic = MAGIC;
+    this->url = url;
+    this->binaryType = TsString::Create("blob");
+    this->protocol = TsString::Create("");
+    this->extensions = TsString::Create("");
+    
+    // Store protocols if provided
+    if (protocols) {
+        TsString* protoStr = (TsString*)ts_value_get_object(protocols);
+        if (!protoStr) protoStr = (TsString*)(void*)protocols;
+        if (protoStr && protoStr->magic == TsString::MAGIC) {
+            requestedProtocols = ts_to_std_string(protoStr);
+        }
+    }
+}
+
+TsWebSocket* TsWebSocket::Create(TsString* url, TsValue* protocols) {
+    void* mem = ts_alloc(sizeof(TsWebSocket));
+    TsWebSocket* ws = new (mem) TsWebSocket(url, protocols);
+    
+    // Parse URL and initiate connection
+    // URL format: ws://host:port/path or wss://host:port/path
+    std::string urlStr = ts_to_std_string(url);
+    bool isSecure = urlStr.substr(0, 4) == "wss:";
+    
+    // Parse host, port, path from URL
+    size_t protoEnd = urlStr.find("://");
+    if (protoEnd == std::string::npos) {
+        ws->HandleError(TsString::Create("Invalid WebSocket URL"));
+        return ws;
+    }
+    
+    std::string hostPortPath = urlStr.substr(protoEnd + 3);
+    size_t pathStart = hostPortPath.find('/');
+    std::string hostPort = (pathStart != std::string::npos) 
+        ? hostPortPath.substr(0, pathStart) 
+        : hostPortPath;
+    std::string path = (pathStart != std::string::npos) 
+        ? hostPortPath.substr(pathStart) 
+        : "/";
+    
+    size_t colonPos = hostPort.find(':');
+    std::string host = (colonPos != std::string::npos) 
+        ? hostPort.substr(0, colonPos) 
+        : hostPort;
+    int port = (colonPos != std::string::npos) 
+        ? std::stoi(hostPort.substr(colonPos + 1)) 
+        : (isSecure ? 443 : 80);
+    
+    // Create socket and connect
+    ws->socket = new (ts_alloc(sizeof(TsSocket))) TsSocket();
+    if (!ws->socket) {
+        ws->HandleError(TsString::Create("Failed to create socket"));
+        return ws;
+    }
+    
+    // Generate Sec-WebSocket-Key (16 random bytes base64 encoded)
+    ws->secWebSocketKey = ws->GenerateSecWebSocketKey();
+    
+    // Store connection info for handshake
+    struct WsConnectData {
+        TsWebSocket* ws;
+        std::string host;
+        std::string path;
+        int port;
+        bool isSecure;
+    };
+    
+    WsConnectData* data = new WsConnectData{ws, host, path, port, isSecure};
+    
+    // Connect to server
+    ws->socket->On("connect", (void*)[](void* userData) {
+        WsConnectData* d = (WsConnectData*)userData;
+        d->ws->PerformHandshake();
+        delete d;
+    });
+    
+    ws->socket->On("data", (void*)[](void* wsPtr, void* dataPtr) {
+        TsWebSocket* self = (TsWebSocket*)wsPtr;
+        TsBuffer* buf = (TsBuffer*)dataPtr;
+        if (buf) {
+            self->HandleData((const uint8_t*)buf->GetData(), buf->GetLength());
+        }
+    });
+    
+    ws->socket->On("close", (void*)[](void* wsPtr) {
+        TsWebSocket* self = (TsWebSocket*)wsPtr;
+        self->HandleClose();
+    });
+    
+    ws->socket->On("error", (void*)[](void* wsPtr, void* errPtr) {
+        TsWebSocket* self = (TsWebSocket*)wsPtr;
+        TsString* errStr = (TsString*)errPtr;
+        self->HandleError(errStr ? errStr : TsString::Create("Socket error"));
+    });
+    
+    // TODO: Actually connect the socket
+    // ws->socket->Connect(host, port);
+    
+    return ws;
+}
+
+TsString* TsWebSocket::GenerateSecWebSocketKey() {
+    // Generate 16 random bytes
+    uint8_t bytes[16];
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> distrib(0, 255);
+    
+    for (int i = 0; i < 16; i++) {
+        bytes[i] = (uint8_t)distrib(gen);
+    }
+    
+    // Base64 encode
+    std::string encoded = base64_encode(bytes, 16);
+    return TsString::Create(encoded.c_str());
+}
+
+TsString* TsWebSocket::ComputeSecWebSocketAccept(TsString* key) {
+    // Compute SHA1(key + GUID), then base64 encode
+    std::string input = ts_to_std_string(key) + WS_GUID;
+    
+    uint8_t hash[SHA_DIGEST_LENGTH];
+    SHA1((const uint8_t*)input.c_str(), input.length(), hash);
+    
+    std::string encoded = base64_encode(hash, SHA_DIGEST_LENGTH);
+    return TsString::Create(encoded.c_str());
+}
+
+void TsWebSocket::PerformHandshake() {
+    if (!socket || !url) return;
+    
+    // Parse URL for path and host
+    std::string urlStr = ts_to_std_string(url);
+    size_t protoEnd = urlStr.find("://");
+    std::string hostPortPath = urlStr.substr(protoEnd + 3);
+    size_t pathStart = hostPortPath.find('/');
+    std::string hostPort = (pathStart != std::string::npos) 
+        ? hostPortPath.substr(0, pathStart) 
+        : hostPortPath;
+    std::string path = (pathStart != std::string::npos) 
+        ? hostPortPath.substr(pathStart) 
+        : "/";
+    
+    // Build HTTP upgrade request
+    std::string request = "GET " + path + " HTTP/1.1\r\n";
+    request += "Host: " + hostPort + "\r\n";
+    request += "Upgrade: websocket\r\n";
+    request += "Connection: Upgrade\r\n";
+    request += "Sec-WebSocket-Key: " + ts_to_std_string(secWebSocketKey) + "\r\n";
+    request += "Sec-WebSocket-Version: 13\r\n";
+    
+    if (!requestedProtocols.empty()) {
+        request += "Sec-WebSocket-Protocol: " + requestedProtocols + "\r\n";
+    }
+    
+    request += "\r\n";
+    
+    // Send the request
+    // socket->Write(request.data(), request.length());
+}
+
+void TsWebSocket::HandleData(const uint8_t* data, size_t length) {
+    // Append to receive buffer
+    receiveBuffer.insert(receiveBuffer.end(), data, data + length);
+    
+    if (!handshakeComplete) {
+        // Look for end of HTTP response headers
+        std::string response((char*)receiveBuffer.data(), receiveBuffer.size());
+        size_t headerEnd = response.find("\r\n\r\n");
+        
+        if (headerEnd != std::string::npos) {
+            // Parse response headers
+            std::string headers = response.substr(0, headerEnd);
+            
+            // Check for 101 Switching Protocols
+            if (headers.find("HTTP/1.1 101") != std::string::npos) {
+                // Verify Sec-WebSocket-Accept
+                size_t acceptPos = headers.find("Sec-WebSocket-Accept: ");
+                if (acceptPos != std::string::npos) {
+                    size_t acceptEnd = headers.find("\r\n", acceptPos);
+                    std::string accept = headers.substr(acceptPos + 22, acceptEnd - acceptPos - 22);
+                    
+                    TsString* expectedAccept = ComputeSecWebSocketAccept(secWebSocketKey);
+                    if (accept == ts_to_std_string(expectedAccept)) {
+                        // Handshake successful!
+                        handshakeComplete = true;
+                        readyState = WS_OPEN;
+                        
+                        // Check for protocol
+                        size_t protoPos = headers.find("Sec-WebSocket-Protocol: ");
+                        if (protoPos != std::string::npos) {
+                            size_t protoEnd = headers.find("\r\n", protoPos);
+                            std::string proto = headers.substr(protoPos + 24, protoEnd - protoPos - 24);
+                            protocol = TsString::Create(proto.c_str());
+                        }
+                        
+                        // Remove processed header from buffer
+                        receiveBuffer.erase(receiveBuffer.begin(), receiveBuffer.begin() + headerEnd + 4);
+                        
+                        // Emit open event
+                        Emit("open", 0, nullptr);
+                        if (onopen) {
+                            ts_function_call((TsValue*)onopen, 0, nullptr);
+                        }
+                    } else {
+                        HandleError(TsString::Create("Invalid Sec-WebSocket-Accept"));
+                    }
+                }
+            } else {
+                HandleError(TsString::Create("WebSocket handshake failed"));
+            }
+        }
+        return;
+    }
+    
+    // Process WebSocket frames
+    size_t offset = 0;
+    while (offset < receiveBuffer.size()) {
+        size_t consumed = 0;
+        if (!ParseFrame(receiveBuffer.data() + offset, receiveBuffer.size() - offset, consumed)) {
+            break;  // Need more data
+        }
+        offset += consumed;
+    }
+    
+    // Remove processed frames
+    if (offset > 0) {
+        receiveBuffer.erase(receiveBuffer.begin(), receiveBuffer.begin() + offset);
+    }
+}
+
+bool TsWebSocket::ParseFrame(const uint8_t* data, size_t length, size_t& bytesConsumed) {
+    if (length < 2) return false;
+    
+    bool fin = (data[0] & 0x80) != 0;
+    uint8_t opcode = data[0] & 0x0F;
+    bool masked = (data[1] & 0x80) != 0;
+    uint64_t payloadLen = data[1] & 0x7F;
+    
+    size_t headerLen = 2;
+    
+    if (payloadLen == 126) {
+        if (length < 4) return false;
+        payloadLen = ((uint64_t)data[2] << 8) | data[3];
+        headerLen = 4;
+    } else if (payloadLen == 127) {
+        if (length < 10) return false;
+        payloadLen = 0;
+        for (int i = 0; i < 8; i++) {
+            payloadLen = (payloadLen << 8) | data[2 + i];
+        }
+        headerLen = 10;
+    }
+    
+    if (masked) {
+        headerLen += 4;  // Masking key
+    }
+    
+    if (length < headerLen + payloadLen) return false;
+    
+    // Extract payload
+    std::vector<uint8_t> payload(payloadLen);
+    const uint8_t* payloadData = data + headerLen;
+    
+    if (masked) {
+        const uint8_t* maskKey = data + headerLen - 4;
+        for (size_t i = 0; i < payloadLen; i++) {
+            payload[i] = payloadData[i] ^ maskKey[i % 4];
+        }
+    } else {
+        memcpy(payload.data(), payloadData, payloadLen);
+    }
+    
+    bytesConsumed = headerLen + payloadLen;
+    
+    // Handle frame by opcode
+    switch (opcode) {
+        case WS_OPCODE_TEXT:
+        case WS_OPCODE_BINARY: {
+            // Create MessageEvent
+            TsMessageEvent* event = TsMessageEvent::Create();
+            if (opcode == WS_OPCODE_TEXT) {
+                event->data = TsString::Create(std::string((char*)payload.data(), payload.size()).c_str());
+            } else {
+                TsBuffer* buf = TsBuffer::Create(payload.size());
+                memcpy(buf->GetData(), payload.data(), payload.size());
+                event->data = buf;
+            }
+            event->origin = url;
+            
+            // Emit message event
+            void* argv[1] = { event };
+            Emit("message", 1, argv);
+            if (onmessage) {
+                TsValue* args[1] = { (TsValue*)event };
+                ts_function_call((TsValue*)onmessage, 1, args);
+            }
+            break;
+        }
+        
+        case WS_OPCODE_CLOSE: {
+            int64_t code = 1000;
+            TsString* reason = TsString::Create("");
+            
+            if (payloadLen >= 2) {
+                code = ((uint16_t)payload[0] << 8) | payload[1];
+                if (payloadLen > 2) {
+                    reason = TsString::Create(std::string((char*)payload.data() + 2, payloadLen - 2).c_str());
+                }
+            }
+            
+            // Send close frame back if we haven't already
+            if (readyState != WS_CLOSED && readyState != WS_CLOSING) {
+                Close(code, reason);
+            }
+            
+            readyState = WS_CLOSED;
+            
+            // Create CloseEvent
+            TsCloseEvent* closeEvent = TsCloseEvent::Create(code, reason);
+            
+            void* closeArgv[1] = { closeEvent };
+            Emit("close", 1, closeArgv);
+            if (onclose) {
+                TsValue* closeArgs[1] = { (TsValue*)closeEvent };
+                ts_function_call((TsValue*)onclose, 1, closeArgs);
+            }
+            break;
+        }
+        
+        case WS_OPCODE_PING:
+            Pong(nullptr);  // Auto-respond with pong
+            break;
+            
+        case WS_OPCODE_PONG:
+            // Pong received, can be ignored
+            break;
+    }
+    
+    return true;
+}
+
+void TsWebSocket::SendFrame(WebSocketOpcode opcode, const uint8_t* data, size_t length) {
+    if (!socket || readyState != WS_OPEN) return;
+    
+    std::vector<uint8_t> frame;
+    
+    // First byte: FIN + opcode
+    frame.push_back(0x80 | opcode);
+    
+    // Second byte: mask bit + payload length
+    uint8_t maskBit = isMasking ? 0x80 : 0x00;
+    
+    if (length < 126) {
+        frame.push_back(maskBit | (uint8_t)length);
+    } else if (length < 65536) {
+        frame.push_back(maskBit | 126);
+        frame.push_back((length >> 8) & 0xFF);
+        frame.push_back(length & 0xFF);
+    } else {
+        frame.push_back(maskBit | 127);
+        for (int i = 7; i >= 0; i--) {
+            frame.push_back((length >> (i * 8)) & 0xFF);
+        }
+    }
+    
+    // Masking key (client must mask)
+    if (isMasking) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> distrib(0, 255);
+        
+        uint8_t mask[4];
+        for (int i = 0; i < 4; i++) {
+            mask[i] = (uint8_t)distrib(gen);
+            frame.push_back(mask[i]);
+        }
+        
+        // Masked payload
+        for (size_t i = 0; i < length; i++) {
+            frame.push_back(data[i] ^ mask[i % 4]);
+        }
+    } else {
+        // Unmasked payload
+        frame.insert(frame.end(), data, data + length);
+    }
+    
+    bufferedAmount += frame.size();
+    // socket->Write(frame.data(), frame.size());
+    bufferedAmount -= frame.size();
+}
+
+void TsWebSocket::Send(TsValue* data) {
+    if (readyState != WS_OPEN) return;
+    
+    TsString* str = (TsString*)ts_value_get_object(data);
+    if (!str) str = (TsString*)(void*)data;  // Fallback if not boxed
+    // Check if it's actually a string by magic number
+    if (str && str->magic == TsString::MAGIC) {
+        std::string s = ts_to_std_string(str);
+        SendFrame(WS_OPCODE_TEXT, (const uint8_t*)s.data(), s.length());
+    } else {
+        // Try as Buffer
+        TsBuffer* buf = (TsBuffer*)ts_value_get_object(data);
+        if (!buf) buf = (TsBuffer*)(void*)data;
+        if (buf && buf->magic == TsBuffer::MAGIC) {
+            SendFrame(WS_OPCODE_BINARY, (const uint8_t*)buf->GetData(), buf->GetLength());
+        }
+    }
+}
+
+void TsWebSocket::Close(int64_t code, TsString* reason) {
+    if (readyState == WS_CLOSED || readyState == WS_CLOSING) return;
+    
+    readyState = WS_CLOSING;
+    
+    std::vector<uint8_t> payload;
+    payload.push_back((code >> 8) & 0xFF);
+    payload.push_back(code & 0xFF);
+    
+    if (reason) {
+        std::string r = ts_to_std_string(reason);
+        payload.insert(payload.end(), r.begin(), r.end());
+    }
+    
+    SendFrame(WS_OPCODE_CLOSE, payload.data(), payload.size());
+}
+
+void TsWebSocket::Ping(TsValue* data) {
+    if (readyState != WS_OPEN) return;
+    
+    if (data) {
+        TsString* str = (TsString*)ts_value_get_object(data);
+        if (!str) str = (TsString*)(void*)data;  // Fallback if not boxed
+        if (str) {
+            std::string s = ts_to_std_string(str);
+            SendFrame(WS_OPCODE_PING, (const uint8_t*)s.data(), s.length());
+            return;
+        }
+    }
+    SendFrame(WS_OPCODE_PING, nullptr, 0);
+}
+
+void TsWebSocket::Pong(TsValue* data) {
+    if (readyState != WS_OPEN) return;
+    
+    if (data) {
+        TsString* str = (TsString*)ts_value_get_object(data);
+        if (!str) str = (TsString*)(void*)data;  // Fallback if not boxed
+        if (str) {
+            std::string s = ts_to_std_string(str);
+            SendFrame(WS_OPCODE_PONG, (const uint8_t*)s.data(), s.length());
+            return;
+        }
+    }
+    SendFrame(WS_OPCODE_PONG, nullptr, 0);
+}
+
+void TsWebSocket::HandleClose() {
+    if (readyState == WS_CLOSED) return;
+    
+    readyState = WS_CLOSED;
+    
+    TsCloseEvent* event = TsCloseEvent::Create(1006, TsString::Create("Connection closed abnormally"));
+    event->wasClean = false;
+    
+    void* argv[1] = { event };
+    Emit("close", 1, argv);
+    if (onclose) {
+        TsValue* args[1] = { (TsValue*)event };
+        ts_function_call((TsValue*)onclose, 1, args);
+    }
+}
+
+void TsWebSocket::HandleError(TsString* error) {
+    readyState = WS_CLOSED;
+    
+    void* argv[1] = { error };
+    Emit("error", 1, argv);
+    if (onerror) {
+        TsValue* args[1] = { (TsValue*)error };
+        ts_function_call((TsValue*)onerror, 1, args);
+    }
+}
+
+// ============================================================================
+// WebSocket C API
+// ============================================================================
+
+void* ts_websocket_create(void* url, void* protocols) {
+    TsString* urlStr = (TsString*)ts_value_get_object((TsValue*)url);
+    if (!urlStr) urlStr = (TsString*)url;
+    
+    TsValue* protoVal = (TsValue*)protocols;
+    return TsWebSocket::Create(urlStr, protoVal);
+}
+
+void ts_websocket_send(void* ws, void* data) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->Send((TsValue*)data);
+}
+
+void ts_websocket_close(void* ws, int64_t code, void* reason) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    TsString* reasonStr = reason ? (TsString*)ts_value_get_object((TsValue*)reason) : nullptr;
+    if (!reasonStr && reason) reasonStr = (TsString*)reason;
+    socket->Close(code, reasonStr);
+}
+
+void ts_websocket_ping(void* ws, void* data) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->Ping((TsValue*)data);
+}
+
+void ts_websocket_pong(void* ws, void* data) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->Pong((TsValue*)data);
+}
+
+int64_t ts_websocket_get_ready_state(void* ws) {
+    if (!ws) return WS_CLOSED;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->readyState;
+}
+
+void* ts_websocket_get_url(void* ws) {
+    if (!ws) return TsString::Create("");
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->url;
+}
+
+void* ts_websocket_get_protocol(void* ws) {
+    if (!ws) return TsString::Create("");
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->protocol;
+}
+
+void* ts_websocket_get_extensions(void* ws) {
+    if (!ws) return TsString::Create("");
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->extensions;
+}
+
+int64_t ts_websocket_get_buffered_amount(void* ws) {
+    if (!ws) return 0;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->bufferedAmount;
+}
+
+void* ts_websocket_get_binary_type(void* ws) {
+    if (!ws) return TsString::Create("blob");
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->binaryType;
+}
+
+void ts_websocket_set_binary_type(void* ws, void* type) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    // Try to unbox as a string first
+    TsString* typeStr = (TsString*)ts_value_get_string((TsValue*)type);
+    if (!typeStr) typeStr = (TsString*)type;  // Fallback if not boxed
+    if (typeStr) socket->binaryType = typeStr;
+}
+
+void ts_websocket_set_onopen(void* ws, void* callback) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->onopen = callback;
+}
+
+void ts_websocket_set_onmessage(void* ws, void* callback) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->onmessage = callback;
+}
+
+void ts_websocket_set_onclose(void* ws, void* callback) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->onclose = callback;
+}
+
+void ts_websocket_set_onerror(void* ws, void* callback) {
+    if (!ws) return;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    socket->onerror = callback;
+}
+
+void* ts_websocket_get_onopen(void* ws) {
+    if (!ws) return nullptr;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->onopen;
+}
+
+void* ts_websocket_get_onmessage(void* ws) {
+    if (!ws) return nullptr;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->onmessage;
+}
+
+void* ts_websocket_get_onclose(void* ws) {
+    if (!ws) return nullptr;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->onclose;
+}
+
+void* ts_websocket_get_onerror(void* ws) {
+    if (!ws) return nullptr;
+    TsWebSocket* socket = (TsWebSocket*)ws;
+    return socket->onerror;
+}
+
+int64_t ts_websocket_connecting() { return WS_CONNECTING; }
+int64_t ts_websocket_open() { return WS_OPEN; }
+int64_t ts_websocket_closing() { return WS_CLOSING; }
+int64_t ts_websocket_closed() { return WS_CLOSED; }
+
 }
 

@@ -55,7 +55,38 @@ private:
     TsIncomingMessage();
 };
 
-class TsServerResponse : public TsWritable {
+// Base class for ServerResponse and ClientRequest (matches Node.js http.OutgoingMessage)
+class TsOutgoingMessage : public TsWritable {
+public:
+    static constexpr uint32_t MAGIC = 0x4F55544D; // "OUTM"
+    
+    // Common properties
+    bool headersSent = false;
+    TsMap* headers = nullptr;
+    bool writableEnded = false;
+    bool writableFinished = false;
+    bool destroyed = false;
+    
+    // Common methods
+    void SetHeader(TsString* name, TsValue* value);
+    TsValue* GetHeader(TsString* name);
+    void* GetHeaders();
+    bool HasHeader(TsString* name);
+    void RemoveHeader(TsString* name);
+    void AppendHeader(TsString* name, TsValue* value);
+    TsArray* GetHeaderNames();
+    TsArray* GetRawHeaderNames();
+    void FlushHeaders();
+    
+    // TsWritable implementation (to be overridden by subclasses)
+    virtual bool Write(void* data, size_t length) override { return false; }
+    virtual void End() override {}
+    
+protected:
+    TsOutgoingMessage();
+};
+
+class TsServerResponse : public TsOutgoingMessage {
 public:
     static constexpr uint32_t MAGIC = 0x53524553; // "SRES"
     static TsServerResponse* Create(TsSocket* socket);
@@ -66,12 +97,14 @@ public:
     virtual bool Write(void* data, size_t length) override;
     virtual void End() override;
     void End(TsValue data);
+    
+    // ServerResponse-specific properties
+    int statusCode = 200;
+    TsString* statusMessage = nullptr;
 
 private:
     TsServerResponse(TsSocket* socket);
     TsSocket* socket;
-    bool headersSent = false;
-    int status = 200;
 };
 
 class TsHttpServer : public TsServer {
@@ -95,7 +128,7 @@ private:
     TsValue* options;
 };
 
-class TsClientRequest : public TsWritable {
+class TsClientRequest : public TsOutgoingMessage {
 public:
     static constexpr uint32_t MAGIC = 0x43524551; // "CREQ"
     static TsClientRequest* Create(TsValue* options, void* callback, bool is_https = false);
@@ -116,8 +149,6 @@ public:
     std::string host = "localhost";
     int port = 80;
     std::string path = "/";
-    TsMap* headers = nullptr;
-    bool headersSent = false;
     TsString* currentHeaderField = nullptr;
     bool is_https = false;
     TsValue options;
@@ -207,4 +238,154 @@ extern "C" {
     void ts_http_agent_destroy(void* agent);
     int64_t ts_http_get_max_idle_http_parsers();
     void ts_http_set_max_idle_http_parsers(int64_t max);
+    
+    // OutgoingMessage methods
+    void ts_outgoing_message_set_header(void* msg, void* name, void* value);
+    void* ts_outgoing_message_get_header(void* msg, void* name);
+    void* ts_outgoing_message_get_headers(void* msg);
+    bool ts_outgoing_message_has_header(void* msg, void* name);
+    void ts_outgoing_message_remove_header(void* msg, void* name);
+    void* ts_outgoing_message_get_header_names(void* msg);
+    void ts_outgoing_message_flush_headers(void* msg);
+}
+
+// HTTP CloseEvent class (for WebSocket and other close events)
+class TsCloseEvent : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x434C4F53; // "CLOS"
+    static TsCloseEvent* Create(int64_t code, TsString* reason);
+    
+    int64_t code = 1000;        // Close code (1000 = normal)
+    TsString* reason = nullptr; // Close reason message
+    bool wasClean = true;       // Whether the connection closed cleanly
+};
+
+// HTTP MessageEvent class (for WebSocket and SSE messages)
+class TsMessageEvent : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x4D534745; // "MSGE"
+    static TsMessageEvent* Create();
+    
+    void* data = nullptr;           // The message data (any type)
+    TsString* origin = nullptr;     // Origin of the message
+    TsString* lastEventId = nullptr; // Last event ID (for SSE)
+    TsArray* ports = nullptr;       // Message ports (for postMessage)
+    TsObject* source = nullptr;     // Source window/worker
+};
+
+extern "C" {
+    // CloseEvent functions
+    TsValue* ts_close_event_create(int64_t code, void* reason);
+    void* ts_close_event_get_code(void* event);
+    void* ts_close_event_get_reason(void* event);
+    void* ts_close_event_get_was_clean(void* event);
+    
+    // MessageEvent functions
+    TsValue* ts_message_event_create();
+    void* ts_message_event_get_data(void* event);
+    void ts_message_event_set_data(void* event, void* data);
+    void* ts_message_event_get_origin(void* event);
+    void* ts_message_event_get_last_event_id(void* event);
+    void* ts_message_event_get_source(void* event);
+    void* ts_message_event_get_ports(void* event);
+}
+
+// WebSocket ready states (RFC 6455)
+enum WebSocketReadyState {
+    WS_CONNECTING = 0,
+    WS_OPEN = 1,
+    WS_CLOSING = 2,
+    WS_CLOSED = 3
+};
+
+// WebSocket opcodes (RFC 6455)
+enum WebSocketOpcode {
+    WS_OPCODE_CONTINUATION = 0x0,
+    WS_OPCODE_TEXT = 0x1,
+    WS_OPCODE_BINARY = 0x2,
+    WS_OPCODE_CLOSE = 0x8,
+    WS_OPCODE_PING = 0x9,
+    WS_OPCODE_PONG = 0xA
+};
+
+// WebSocket class (browser-compatible, Node.js http.WebSocket)
+class TsWebSocket : public TsEventEmitter {
+public:
+    static constexpr uint32_t MAGIC = 0x57534F43; // "WSOC"
+    static TsWebSocket* Create(TsString* url, TsValue* protocols = nullptr);
+    
+    // Properties (browser API)
+    TsString* url = nullptr;              // The URL of the WebSocket
+    TsString* protocol = nullptr;         // Selected sub-protocol
+    TsString* extensions = nullptr;       // Selected extensions
+    WebSocketReadyState readyState = WS_CONNECTING;
+    int64_t bufferedAmount = 0;           // Bytes queued but not yet sent
+    TsString* binaryType = nullptr;       // "blob" or "arraybuffer" (default: "blob")
+    
+    // Event handler properties (browser API)
+    void* onopen = nullptr;
+    void* onmessage = nullptr;
+    void* onclose = nullptr;
+    void* onerror = nullptr;
+    
+    // Methods
+    void Send(TsValue* data);
+    void Close(int64_t code = 1000, TsString* reason = nullptr);
+    void Ping(TsValue* data = nullptr);
+    void Pong(TsValue* data = nullptr);
+    
+    // Internal methods
+    void HandleData(const uint8_t* data, size_t length);
+    void HandleClose();
+    void HandleError(TsString* error);
+    
+private:
+    TsWebSocket(TsString* url, TsValue* protocols);
+    
+    void PerformHandshake();
+    void SendFrame(WebSocketOpcode opcode, const uint8_t* data, size_t length);
+    bool ParseFrame(const uint8_t* data, size_t length, size_t& bytesConsumed);
+    TsString* GenerateSecWebSocketKey();
+    TsString* ComputeSecWebSocketAccept(TsString* key);
+    
+    TsSocket* socket = nullptr;
+    TsString* secWebSocketKey = nullptr;
+    std::vector<uint8_t> receiveBuffer;
+    std::string requestedProtocols;
+    bool handshakeComplete = false;
+    bool isMasking = true;  // Client frames must be masked
+};
+
+extern "C" {
+    // WebSocket API
+    void* ts_websocket_create(void* url, void* protocols);
+    void ts_websocket_send(void* ws, void* data);
+    void ts_websocket_close(void* ws, int64_t code, void* reason);
+    void ts_websocket_ping(void* ws, void* data);
+    void ts_websocket_pong(void* ws, void* data);
+    
+    // WebSocket property getters
+    int64_t ts_websocket_get_ready_state(void* ws);
+    void* ts_websocket_get_url(void* ws);
+    void* ts_websocket_get_protocol(void* ws);
+    void* ts_websocket_get_extensions(void* ws);
+    int64_t ts_websocket_get_buffered_amount(void* ws);
+    void* ts_websocket_get_binary_type(void* ws);
+    void ts_websocket_set_binary_type(void* ws, void* type);
+    
+    // WebSocket event handler setters and getters
+    void ts_websocket_set_onopen(void* ws, void* callback);
+    void ts_websocket_set_onmessage(void* ws, void* callback);
+    void ts_websocket_set_onclose(void* ws, void* callback);
+    void ts_websocket_set_onerror(void* ws, void* callback);
+    void* ts_websocket_get_onopen(void* ws);
+    void* ts_websocket_get_onmessage(void* ws);
+    void* ts_websocket_get_onclose(void* ws);
+    void* ts_websocket_get_onerror(void* ws);
+    
+    // WebSocket constants
+    int64_t ts_websocket_connecting();
+    int64_t ts_websocket_open();
+    int64_t ts_websocket_closing();
+    int64_t ts_websocket_closed();
 }

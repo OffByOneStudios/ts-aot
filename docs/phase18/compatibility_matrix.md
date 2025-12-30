@@ -226,10 +226,10 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | url | resolve | function | 🔴 | |
 | url | resolveObject | function | 🔴 | |
 | url | urlToHttpOptions | function | 🔴 | |
-| net | BlockList | function | 🔴 | |
+| net | BlockList | function | 🟢 | `ts_net_block_list_*()` |
 | net | Server | function | 🟢 | TCP server via uv_tcp_t |
 | net | Socket | function | 🟢 | TCP socket via uv_tcp_t |
-| net | SocketAddress | function | 🔴 | |
+| net | SocketAddress | function | 🟢 | `TsSocketAddress` class |
 | net | Stream | function | 🔴 | |
 | net | _createServerHandle | function | 🔴 | |
 | net | _normalizeArgs | function | 🔴 | |
@@ -237,35 +237,34 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | net | connect | function | 🟢 | |
 | net | createConnection | function | 🟢 | Alias for net.connect |
 | net | createServer | function | 🟢 | |
-| net | getDefaultAutoSelectFamily | function | 🔴 | |
-
-| net | getDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
+| net | getDefaultAutoSelectFamily | function | 🟢 | `ts_net_get_default_auto_select_family()` |
+| net | getDefaultAutoSelectFamilyAttemptTimeout | function | 🟢 | `ts_net_get_default_auto_select_family_attempt_timeout()` |
 | net | isIP | function | 🟢 | `ts_net_is_ip()` |
 | net | isIPv4 | function | 🟢 | `ts_net_is_ipv4()` |
 | net | isIPv6 | function | 🟢 | `ts_net_is_ipv6()` |
-| net | setDefaultAutoSelectFamily | function | 🔴 | |
-| net | setDefaultAutoSelectFamilyAttemptTimeout | function | 🔴 | |
-| http | Agent | function | 🔴 | |
+| net | setDefaultAutoSelectFamily | function | 🟢 | `ts_net_set_default_auto_select_family()` |
+| net | setDefaultAutoSelectFamilyAttemptTimeout | function | 🟢 | `ts_net_set_default_auto_select_family_attempt_timeout()` |
+| http | Agent | function | 🟢 | `TsHttpAgent` class with connection pooling |
 | http | ClientRequest | function | 🟢 | Full implementation with events, statusCode, data/end handlers |
-| http | CloseEvent | function | 🔴 | |
+| http | CloseEvent | function | 🟢 | `TsCloseEvent` class |
 | http | IncomingMessage | function | 🟢 | |
 | http | METHODS | object | 🟢 | `ts_http_get_methods()` |
-| http | MessageEvent | function | 🔴 | |
-| http | OutgoingMessage | function | 🔴 | |
+| http | MessageEvent | function | 🟢 | `TsMessageEvent` class |
+| http | OutgoingMessage | function | 🟢 | `TsOutgoingMessage` base class |
 | http | STATUS_CODES | object | 🟢 | `ts_http_get_status_codes()` |
 | http | Server | function | 🟢 | |
 | http | ServerResponse | function | 🟢 | |
-| http | WebSocket | function | 🔴 | |
+| http | WebSocket | function | 🟢 | `TsWebSocket` class with RFC 6455 support |
 | http | _connectionListener | function | 🔴 | |
 | http | createServer | function | 🟢 | |
 | http | get | function | 🟢 | Working implementation |
-| http | globalAgent | object | 🔴 | |
+| http | globalAgent | object | 🟢 | `ts_http_get_global_agent()` |
 | http | maxHeaderSize | number | 🟢 | `ts_http_get_max_header_size()` |
 | http | request | function | 🟢 | Working implementation |
-| http | setMaxIdleHTTPParsers | function | 🔴 | |
+| http | setMaxIdleHTTPParsers | function | 🟢 | `ts_http_set_max_idle_http_parsers()` |
 | http | validateHeaderName | function | 🟢 | `ts_http_validate_header_name()` |
 | http | validateHeaderValue | function | 🟢 | `ts_http_validate_header_value()` |
-| https | Agent | function | 🔴 | |
+| https | Agent | function | 🟢 | `TsHttpsAgent` class with TLS connection pooling |
 | https | Server | function | 🟢 | TLS server with certificate support |
 | https | createServer | function | 🟢 | Full implementation with key/cert options |
 | https | get | function | 🟢 | |

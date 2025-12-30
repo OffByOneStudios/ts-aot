@@ -727,6 +727,25 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 lastValue = val;
                 return;
             }
+            
+            // WebSocket event handler property assignment
+            if (cls->name == "WebSocket" && (prop->name == "onopen" || prop->name == "onmessage" || 
+                prop->name == "onclose" || prop->name == "onerror" || prop->name == "binaryType")) {
+                visit(prop->expression.get());
+                llvm::Value* ws = lastValue;
+                
+                llvm::Value* callback = boxValue(val, node->right->inferredType);
+                
+                // Convert binaryType to binary_type for C API
+                std::string propName = prop->name == "binaryType" ? "binary_type" : prop->name;
+                std::string fnName = "ts_websocket_set_" + propName;
+                llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, setFt);
+                
+                createCall(setFt, fn.getCallee(), { ws, callback });
+                lastValue = val;
+                return;
+            }
         }
 
         if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {

@@ -19,6 +19,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
     bool isClientRequest = false;
     bool isAgent = false;
     bool isHttpsAgent = false;
+    bool isWebSocket = false;
 
     if (!isHttp && !isHttps) {
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
@@ -30,6 +31,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             else if (classType->name == "ClientRequest") isClientRequest = true;
             else if (classType->name == "Agent") isAgent = true;
             else if (classType->name == "HttpsAgent") isHttpsAgent = true;
+            else if (classType->name == "WebSocket") isWebSocket = true;
         } else if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
             // For untyped variables (e.g., callback parameters without type annotations),
             // try to infer the type from the method name being called
@@ -45,6 +47,9 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             } else if (prop->name == "destroy" && !prop->expression->inferredType) {
                 // Could be Agent.destroy()
                 isAgent = true;
+            } else if (prop->name == "send" || prop->name == "close" || prop->name == "ping" || prop->name == "pong") {
+                // Could be WebSocket
+                isWebSocket = true;
             }
         } else if (prop->expression->inferredType) {
             SPDLOG_INFO("tryGenerateHTTPCall: expression type kind={}", (int)prop->expression->inferredType->kind);
@@ -53,7 +58,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         }
     }
 
-    if (!isHttp && !isHttps && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest && !isAgent && !isHttpsAgent) return false;
+    if (!isHttp && !isHttps && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest && !isAgent && !isHttpsAgent && !isWebSocket) return false;
 
     if (isHttp || isHttps) {
         if (prop->name == "createServer") {
@@ -278,12 +283,166 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         }
     }
 
+    if (isWebSocket) {
+        if (prop->name == "send") {
+            visit(prop->expression.get());
+            llvm::Value* ws = lastValue;
+            
+            llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_send", ft);
+            createCall(ft, fn.getCallee(), { ws, data });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "close") {
+            visit(prop->expression.get());
+            llvm::Value* ws = lastValue;
+            
+            llvm::Value* code = llvm::ConstantInt::get(builder->getInt64Ty(), 1000);
+            llvm::Value* reason = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                if (lastValue->getType()->isIntegerTy()) {
+                    code = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+                }
+            }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                reason = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_close", ft);
+            createCall(ft, fn.getCallee(), { ws, code, reason });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "ping") {
+            visit(prop->expression.get());
+            llvm::Value* ws = lastValue;
+            
+            llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_ping", ft);
+            createCall(ft, fn.getCallee(), { ws, data });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "pong") {
+            visit(prop->expression.get());
+            llvm::Value* ws = lastValue;
+            
+            llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_pong", ft);
+            createCall(ft, fn.getCallee(), { ws, data });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+    }
+
     return false;
 }
 
 bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* node) {
     // Check if this is http.METHODS, http.STATUS_CODES, or http.maxHeaderSize
     auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    
+    // First, check for WebSocket instance property access
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+        if (classType->name == "WebSocket") {
+            visit(node->expression.get());
+            llvm::Value* ws = lastValue;
+            
+            if (node->name == "readyState") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_ready_state", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "url") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_url", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "protocol") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_protocol", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "extensions") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_extensions", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "bufferedAmount") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_buffered_amount", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "binaryType") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_binary_type", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "onopen") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_onopen", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "onmessage") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_onmessage", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "onclose") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_onclose", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "onerror") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_get_onerror", ft);
+                lastValue = createCall(ft, fn.getCallee(), { ws });
+                return true;
+            } else if (node->name == "CONNECTING") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_connecting", ft);
+                lastValue = createCall(ft, fn.getCallee(), {});
+                return true;
+            } else if (node->name == "OPEN") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_open", ft);
+                lastValue = createCall(ft, fn.getCallee(), {});
+                return true;
+            } else if (node->name == "CLOSING") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_closing", ft);
+                lastValue = createCall(ft, fn.getCallee(), {});
+                return true;
+            } else if (node->name == "CLOSED") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_closed", ft);
+                lastValue = createCall(ft, fn.getCallee(), {});
+                return true;
+            }
+        }
+    }
+    
     if (!id) return false;
     
     if (id->name != "http" && id->name != "https") return false;
@@ -315,6 +474,11 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
         return true;
     } else if (node->name == "Agent") {
         // http.Agent or https.Agent class reference - we'll handle constructor in NewExpression
+        // Return a marker that represents the class
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return true;
+    } else if (node->name == "WebSocket") {
+        // http.WebSocket class reference - we'll handle constructor in NewExpression
         // Return a marker that represents the class
         lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
         return true;

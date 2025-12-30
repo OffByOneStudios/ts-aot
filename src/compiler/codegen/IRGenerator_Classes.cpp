@@ -17,7 +17,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
             name == "Buffer" || name == "Socket" || name == "Server" || name == "IncomingMessage" || 
             name == "ServerResponse" || name == "ClientRequest" || name == "TextEncoder" ||
-            name == "TextDecoder") continue;
+            name == "TextDecoder" || name == "OutgoingMessage" || name == "CloseEvent" || 
+            name == "MessageEvent" || name == "Agent" || name == "HttpsAgent" || name == "WebSocket") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -754,6 +755,26 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_https_agent_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), { options });
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "WebSocket") {
+            // new WebSocket(url, protocols?)
+            llvm::Value* url = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* protocols = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                url = lastValue;
+            }
+            
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                protocols = boxValue(lastValue, node->arguments[1]->inferredType);
+            }
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_websocket_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { url, protocols });
             nonNullValues.insert(lastValue);
             return;
         }
