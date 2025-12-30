@@ -1,0 +1,107 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./chunk",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "chunk",
+          "propertyName": null
+        }
+      ],
+      "line": 2,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./compact",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "compact",
+          "propertyName": null
+        }
+      ],
+      "line": 3,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./flatten",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "flatten",
+          "propertyName": null
+        }
+      ],
+      "line": 4,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./take",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "take",
+          "propertyName": null
+        },
+        {
+          "name": "takeRight",
+          "propertyName": null
+        }
+      ],
+      "line": 5,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./drop",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "drop",
+          "propertyName": null
+        },
+        {
+          "name": "dropRight",
+          "propertyName": null
+        }
+      ],
+      "line": 6,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./head",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "head",
+          "propertyName": null
+        },
+        {
+          "name": "first",
+          "propertyName": null
+        },
+        {
+          "name": "last",
+          "propertyName": null
+        },
+        {
+          "name": "tail",
+          "propertyName": null
+        },
+        {
+          "name": "initial",
+          "propertyName": null
+        }
+      ],
+      "line": 7,
+      "column": 1
+    }
+  ]
+}

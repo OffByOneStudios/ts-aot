@@ -1,0 +1,13 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./src/index",
+      "isStarExport": true,
+      "namedExports": [],
+      "line": 2,
+      "column": 1
+    }
+  ]
+}

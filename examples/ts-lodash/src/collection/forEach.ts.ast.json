@@ -1,0 +1,408 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "forEach",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "void",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 7,
+            "column": 28
+          },
+          "type": "T[]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 28
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "iteratee",
+            "line": 7,
+            "column": 40
+          },
+          "type": "(value: T) => void",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 40
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 8,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 8,
+            "column": 13
+          },
+          "line": 8,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "len",
+            "line": 9,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "array",
+              "line": 9,
+              "column": 17
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 9,
+            "column": 17
+          },
+          "line": 9,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 11,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "len",
+              "line": 11,
+              "column": 16
+            },
+            "line": 11,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "iteratee",
+                    "line": 12,
+                    "column": 9
+                  },
+                  "arguments": [
+                    {
+                      "kind": "ElementAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "array",
+                        "line": 12,
+                        "column": 18
+                      },
+                      "argumentExpression": {
+                        "kind": "Identifier",
+                        "name": "i",
+                        "line": 12,
+                        "column": 24
+                      },
+                      "isOptional": false,
+                      "line": 12,
+                      "column": 18
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 12,
+                  "column": 9
+                },
+                "line": 12,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 13,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 13,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 13,
+                      "column": 17
+                    },
+                    "line": 13,
+                    "column": 13
+                  },
+                  "line": 13,
+                  "column": 9
+                },
+                "line": 13,
+                "column": 9
+              }
+            ],
+            "line": 11,
+            "column": 21
+          },
+          "line": 11,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "forEachRight",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "void",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 23,
+            "column": 33
+          },
+          "type": "T[]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 23,
+          "column": 33
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "iteratee",
+            "line": 23,
+            "column": 45
+          },
+          "type": "(value: T) => void",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 23,
+          "column": 45
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 24,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "-",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "array",
+                "line": 24,
+                "column": 13
+              },
+              "name": "length",
+              "isOptional": false,
+              "line": 24,
+              "column": 13
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 1,
+              "line": 24,
+              "column": 28
+            },
+            "line": 24,
+            "column": 13
+          },
+          "line": 24,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": ">=",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 26,
+              "column": 12
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 0,
+              "line": 26,
+              "column": 17
+            },
+            "line": 26,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "iteratee",
+                    "line": 27,
+                    "column": 9
+                  },
+                  "arguments": [
+                    {
+                      "kind": "ElementAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "array",
+                        "line": 27,
+                        "column": 18
+                      },
+                      "argumentExpression": {
+                        "kind": "Identifier",
+                        "name": "i",
+                        "line": 27,
+                        "column": 24
+                      },
+                      "isOptional": false,
+                      "line": 27,
+                      "column": 18
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 27,
+                  "column": 9
+                },
+                "line": 27,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 28,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 28,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 28,
+                      "column": 17
+                    },
+                    "line": 28,
+                    "column": 13
+                  },
+                  "line": 28,
+                  "column": 9
+                },
+                "line": 28,
+                "column": 9
+              }
+            ],
+            "line": 26,
+            "column": 20
+          },
+          "line": 26,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 23,
+      "column": 1
+    }
+  ]
+}

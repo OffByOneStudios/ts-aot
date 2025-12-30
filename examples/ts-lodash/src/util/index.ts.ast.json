@@ -1,0 +1,78 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./identity",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "identity",
+          "propertyName": null
+        }
+      ],
+      "line": 2,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./constant",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "constant",
+          "propertyName": null
+        }
+      ],
+      "line": 3,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./noop",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "noop",
+          "propertyName": null
+        }
+      ],
+      "line": 4,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./times",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "times",
+          "propertyName": null
+        }
+      ],
+      "line": 5,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./range",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "range",
+          "propertyName": null
+        },
+        {
+          "name": "rangeFromTo",
+          "propertyName": null
+        },
+        {
+          "name": "rangeWithStep",
+          "propertyName": null
+        }
+      ],
+      "line": 6,
+      "column": 1
+    }
+  ]
+}

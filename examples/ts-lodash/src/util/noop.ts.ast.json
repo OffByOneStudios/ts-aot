@@ -1,0 +1,20 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "noop",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "void",
+      "parameters": [],
+      "body": [],
+      "decorators": [],
+      "line": 7,
+      "column": 1
+    }
+  ]
+}
