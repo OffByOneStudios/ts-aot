@@ -10,14 +10,34 @@ public:
     static constexpr uint32_t MAGIC = 0x42554646; // "BUFF"
     static TsBuffer* Create(size_t length);
     static TsBuffer* FromString(TsString* str, TsString* encoding = nullptr);
+    static TsBuffer* FromHex(TsString* hexStr);
+    static TsBuffer* FromBase64(TsString* b64Str);
 
     uint8_t* GetData() { return data; }
     size_t GetLength() { return length; }
+    
+    // TypedArray-like properties
+    size_t GetByteLength() { return length; }
+    size_t GetByteOffset() { return 0; }  // Buffer always starts at offset 0
+    TsBuffer* GetArrayBuffer() { return this; }  // For Node.js Buffer, buffer.buffer returns the same buffer
 
     uint8_t Get(size_t index);
     void Set(size_t index, uint8_t value);
 
     TsString* ToString(TsString* encoding = nullptr);
+    TsString* ToHex();
+    TsString* ToBase64();
+    TsString* ToBase64Url();
+    
+    // New Buffer API methods
+    TsBuffer* Slice(int64_t start, int64_t end);
+    TsBuffer* Subarray(int64_t start, int64_t end);
+    void Fill(uint8_t value, int64_t start = 0, int64_t end = -1);
+    int64_t Copy(TsBuffer* target, int64_t targetStart = 0, int64_t sourceStart = 0, int64_t sourceEnd = -1);
+    
+    // Static methods
+    static TsBuffer* AllocUnsafe(size_t length);
+    static TsBuffer* Concat(void* list, int64_t totalLength = -1);
 
 private:
     TsBuffer(size_t length);
@@ -50,11 +70,22 @@ private:
 
 extern "C" {
     void* ts_buffer_alloc(int64_t length);
+    void* ts_buffer_alloc_unsafe(int64_t length);
     void* ts_buffer_from(void* data);
+    void* ts_buffer_from_string(void* str, void* encoding);
+    void* ts_buffer_concat(void* list, int64_t totalLength);
     int64_t ts_buffer_length(void* buf);
+    int64_t ts_buffer_byte_length(void* buf);
+    int64_t ts_buffer_byte_offset(void* buf);
+    void* ts_buffer_get_array_buffer(void* buf);
     uint8_t ts_buffer_get(void* buf, int64_t index);
     void ts_buffer_set(void* buf, int64_t index, uint8_t value);
     void* ts_buffer_to_string(void* buf, void* encoding);
+    void* ts_buffer_slice(void* buf, int64_t start, int64_t end);
+    void* ts_buffer_subarray(void* buf, int64_t start, int64_t end);
+    void* ts_buffer_fill(void* buf, int64_t value, int64_t start, int64_t end);
+    int64_t ts_buffer_copy(void* source, void* target, int64_t targetStart, int64_t sourceStart, int64_t sourceEnd);
+    bool ts_buffer_is_buffer(void* obj);
 
     void* ts_typed_array_create_u8(int64_t length);
     void* ts_typed_array_create_u32(int64_t length);

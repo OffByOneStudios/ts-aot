@@ -14,6 +14,18 @@ TsBuffer* TsBuffer::Create(size_t length) {
 
 TsBuffer* TsBuffer::FromString(TsString* str, TsString* encoding) {
     if (!str) return nullptr;
+    
+    // Check encoding type
+    if (encoding) {
+        const char* enc = encoding->ToUtf8();
+        if (strcmp(enc, "hex") == 0) {
+            return FromHex(str);
+        } else if (strcmp(enc, "base64") == 0 || strcmp(enc, "base64url") == 0) {
+            return FromBase64(str);
+        }
+    }
+    
+    // Default: UTF-8
     const char* utf8 = str->ToUtf8();
     size_t len = std::strlen(utf8);
     TsBuffer* buf = Create(len);
@@ -43,11 +55,279 @@ void TsBuffer::Set(size_t index, uint8_t value) {
 }
 
 TsString* TsBuffer::ToString(TsString* encoding) {
-    // For now, assume UTF-8
+    // Check encoding type
+    if (encoding) {
+        const char* enc = encoding->ToUtf8();
+        if (strcmp(enc, "hex") == 0) {
+            return ToHex();
+        } else if (strcmp(enc, "base64") == 0) {
+            return ToBase64();
+        } else if (strcmp(enc, "base64url") == 0) {
+            return ToBase64Url();
+        }
+    }
+    // Default: UTF-8
     char* utf8 = (char*)ts_alloc(length + 1);
     std::memcpy(utf8, data, length);
     utf8[length] = '\0';
     return TsString::Create(utf8);
+}
+
+// Hex encoding lookup table
+static const char HEX_CHARS[] = "0123456789abcdef";
+
+TsString* TsBuffer::ToHex() {
+    char* hex = (char*)ts_alloc(length * 2 + 1);
+    for (size_t i = 0; i < length; i++) {
+        hex[i * 2] = HEX_CHARS[(data[i] >> 4) & 0xF];
+        hex[i * 2 + 1] = HEX_CHARS[data[i] & 0xF];
+    }
+    hex[length * 2] = '\0';
+    return TsString::Create(hex);
+}
+
+// Base64 encoding
+static const char BASE64_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char BASE64URL_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static TsString* toBase64Internal(uint8_t* data, size_t length, const char* chars, bool padding) {
+    size_t outLen = ((length + 2) / 3) * 4;
+    if (!padding) {
+        // Remove padding from output length
+        size_t mod = length % 3;
+        if (mod == 1) outLen -= 2;
+        else if (mod == 2) outLen -= 1;
+    }
+    char* out = (char*)ts_alloc(outLen + 1);
+    
+    size_t j = 0;
+    for (size_t i = 0; i < length; i += 3) {
+        uint32_t a = data[i];
+        uint32_t b = (i + 1 < length) ? data[i + 1] : 0;
+        uint32_t c = (i + 2 < length) ? data[i + 2] : 0;
+        
+        uint32_t triple = (a << 16) | (b << 8) | c;
+        
+        out[j++] = chars[(triple >> 18) & 0x3F];
+        out[j++] = chars[(triple >> 12) & 0x3F];
+        
+        if (i + 1 < length || padding) {
+            out[j++] = (i + 1 < length) ? chars[(triple >> 6) & 0x3F] : '=';
+        }
+        if (i + 2 < length || padding) {
+            out[j++] = (i + 2 < length) ? chars[triple & 0x3F] : '=';
+        }
+    }
+    out[j] = '\0';
+    return TsString::Create(out);
+}
+
+TsString* TsBuffer::ToBase64() {
+    return toBase64Internal(data, length, BASE64_CHARS, true);
+}
+
+TsString* TsBuffer::ToBase64Url() {
+    return toBase64Internal(data, length, BASE64URL_CHARS, false);
+}
+
+// Decode hex string to buffer
+TsBuffer* TsBuffer::FromHex(TsString* hexStr) {
+    if (!hexStr) return Create(0);
+    const char* hex = hexStr->ToUtf8();
+    size_t hexLen = strlen(hex);
+    if (hexLen % 2 != 0) return Create(0); // Invalid hex
+    
+    size_t bufLen = hexLen / 2;
+    TsBuffer* buf = Create(bufLen);
+    
+    for (size_t i = 0; i < bufLen; i++) {
+        char hi = hex[i * 2];
+        char lo = hex[i * 2 + 1];
+        
+        uint8_t hiVal = 0, loVal = 0;
+        if (hi >= '0' && hi <= '9') hiVal = hi - '0';
+        else if (hi >= 'a' && hi <= 'f') hiVal = hi - 'a' + 10;
+        else if (hi >= 'A' && hi <= 'F') hiVal = hi - 'A' + 10;
+        
+        if (lo >= '0' && lo <= '9') loVal = lo - '0';
+        else if (lo >= 'a' && lo <= 'f') loVal = lo - 'a' + 10;
+        else if (lo >= 'A' && lo <= 'F') loVal = lo - 'A' + 10;
+        
+        buf->data[i] = (hiVal << 4) | loVal;
+    }
+    return buf;
+}
+
+// Base64 decode lookup (returns -1 for invalid chars)
+static int base64DecodeChar(char c, bool isUrl) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (isUrl) {
+        if (c == '-') return 62;
+        if (c == '_') return 63;
+    } else {
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+    }
+    return -1;
+}
+
+TsBuffer* TsBuffer::FromBase64(TsString* b64Str) {
+    if (!b64Str) return Create(0);
+    const char* b64 = b64Str->ToUtf8();
+    size_t b64Len = strlen(b64);
+    
+    // Detect if it's base64url (has - or _)
+    bool isUrl = false;
+    for (size_t i = 0; i < b64Len; i++) {
+        if (b64[i] == '-' || b64[i] == '_') {
+            isUrl = true;
+            break;
+        }
+    }
+    
+    // Remove padding and calculate length
+    size_t padCount = 0;
+    while (b64Len > 0 && b64[b64Len - 1] == '=') {
+        padCount++;
+        b64Len--;
+    }
+    
+    size_t outLen = (b64Len * 3) / 4;
+    TsBuffer* buf = Create(outLen);
+    
+    size_t j = 0;
+    for (size_t i = 0; i < b64Len; i += 4) {
+        int a = base64DecodeChar(b64[i], isUrl);
+        int b = (i + 1 < b64Len) ? base64DecodeChar(b64[i + 1], isUrl) : 0;
+        int c = (i + 2 < b64Len) ? base64DecodeChar(b64[i + 2], isUrl) : 0;
+        int d = (i + 3 < b64Len) ? base64DecodeChar(b64[i + 3], isUrl) : 0;
+        
+        if (a < 0 || b < 0 || c < 0 || d < 0) continue; // Skip invalid
+        
+        uint32_t triple = (a << 18) | (b << 12) | (c << 6) | d;
+        
+        if (j < outLen) buf->data[j++] = (triple >> 16) & 0xFF;
+        if (j < outLen && i + 2 < b64Len) buf->data[j++] = (triple >> 8) & 0xFF;
+        if (j < outLen && i + 3 < b64Len) buf->data[j++] = triple & 0xFF;
+    }
+    
+    return buf;
+}
+
+TsBuffer* TsBuffer::AllocUnsafe(size_t length) {
+    // Same as Create but doesn't zero-fill
+    void* mem = ts_alloc(sizeof(TsBuffer));
+    TsBuffer* buf = (TsBuffer*)mem;
+    buf->magic = MAGIC;
+    buf->length = length;
+    buf->data = (uint8_t*)ts_alloc(length);
+    // Note: data is NOT zeroed - this is intentional for allocUnsafe
+    return buf;
+}
+
+TsBuffer* TsBuffer::Slice(int64_t start, int64_t end) {
+    // Normalize negative indices
+    int64_t len = (int64_t)length;
+    if (start < 0) start = len + start;
+    if (end < 0) end = len + end;
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (start > len) start = len;
+    if (end > len) end = len;
+    if (end < start) end = start;
+    
+    size_t newLen = (size_t)(end - start);
+    TsBuffer* result = Create(newLen);
+    if (newLen > 0) {
+        std::memcpy(result->data, data + start, newLen);
+    }
+    return result;
+}
+
+TsBuffer* TsBuffer::Subarray(int64_t start, int64_t end) {
+    // In Node.js, subarray returns a view, but for simplicity we copy like slice
+    return Slice(start, end);
+}
+
+void TsBuffer::Fill(uint8_t value, int64_t start, int64_t end) {
+    int64_t len = (int64_t)length;
+    if (start < 0) start = len + start;
+    if (end < 0) end = len;
+    if (start < 0) start = 0;
+    if (end > len) end = len;
+    if (start >= end) return;
+    
+    std::memset(data + start, value, (size_t)(end - start));
+}
+
+int64_t TsBuffer::Copy(TsBuffer* target, int64_t targetStart, int64_t sourceStart, int64_t sourceEnd) {
+    if (!target) return 0;
+    
+    int64_t srcLen = (int64_t)length;
+    int64_t tgtLen = (int64_t)target->length;
+    
+    if (sourceEnd < 0) sourceEnd = srcLen;
+    if (sourceStart < 0) sourceStart = 0;
+    if (targetStart < 0) targetStart = 0;
+    
+    if (sourceStart >= srcLen) return 0;
+    if (targetStart >= tgtLen) return 0;
+    if (sourceEnd > srcLen) sourceEnd = srcLen;
+    
+    int64_t bytesToCopy = sourceEnd - sourceStart;
+    if (bytesToCopy <= 0) return 0;
+    
+    // Limit by available space in target
+    if (targetStart + bytesToCopy > tgtLen) {
+        bytesToCopy = tgtLen - targetStart;
+    }
+    
+    if (bytesToCopy <= 0) return 0;
+    
+    // Use memmove to handle overlapping buffers
+    std::memmove(target->data + targetStart, data + sourceStart, (size_t)bytesToCopy);
+    return bytesToCopy;
+}
+
+TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
+    if (!list) return Create(0);
+    
+    TsArray* arr = (TsArray*)list;
+    size_t count = (size_t)arr->Length();
+    
+    // Calculate total length if not provided
+    size_t calcLen = 0;
+    if (totalLength < 0) {
+        for (size_t i = 0; i < count; i++) {
+            TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)arr->Get(i));
+            if (!buf) buf = (TsBuffer*)(void*)arr->Get(i);
+            if (buf && buf->magic == MAGIC) {
+                calcLen += buf->length;
+            }
+        }
+    } else {
+        calcLen = (size_t)totalLength;
+    }
+    
+    TsBuffer* result = Create(calcLen);
+    size_t offset = 0;
+    
+    for (size_t i = 0; i < count && offset < calcLen; i++) {
+        TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)arr->Get(i));
+        if (!buf) buf = (TsBuffer*)(void*)arr->Get(i);
+        if (buf && buf->magic == MAGIC) {
+            size_t toCopy = buf->length;
+            if (offset + toCopy > calcLen) {
+                toCopy = calcLen - offset;
+            }
+            std::memcpy(result->data + offset, buf->data, toCopy);
+            offset += toCopy;
+        }
+    }
+    
+    return result;
 }
 
 extern "C" {
@@ -55,14 +335,47 @@ extern "C" {
         return TsBuffer::Create((size_t)length);
     }
 
+    void* ts_buffer_alloc_unsafe(int64_t length) {
+        return TsBuffer::AllocUnsafe((size_t)length);
+    }
+
     void* ts_buffer_from(void* data) {
         // Handle string or array
-        return nullptr; // TODO
+        if (!data) return TsBuffer::Create(0);
+        
+        // Try to detect type - check for TsArray magic
+        TsArray* arr = (TsArray*)data;
+        // If it's an array, create buffer from array
+        // For now, assume it's a string
+        return TsBuffer::FromString((TsString*)data, nullptr);
+    }
+
+    void* ts_buffer_from_string(void* str, void* encoding) {
+        return TsBuffer::FromString((TsString*)str, (TsString*)encoding);
+    }
+
+    void* ts_buffer_concat(void* list, int64_t totalLength) {
+        return TsBuffer::Concat(list, totalLength);
     }
 
     int64_t ts_buffer_length(void* buf) {
         if (!buf) return 0;
         return (int64_t)((TsBuffer*)buf)->GetLength();
+    }
+
+    int64_t ts_buffer_byte_length(void* buf) {
+        if (!buf) return 0;
+        return (int64_t)((TsBuffer*)buf)->GetByteLength();
+    }
+
+    int64_t ts_buffer_byte_offset(void* buf) {
+        if (!buf) return 0;
+        return (int64_t)((TsBuffer*)buf)->GetByteOffset();
+    }
+
+    void* ts_buffer_get_array_buffer(void* buf) {
+        if (!buf) return nullptr;
+        return ((TsBuffer*)buf)->GetArrayBuffer();
     }
 
     uint8_t ts_buffer_get(void* buf, int64_t index) {
@@ -78,23 +391,56 @@ extern "C" {
     void* ts_buffer_to_string(void* buf, void* encoding) {
         if (!buf) return nullptr;
         
-        // Check if buf is a boxed TsValue* and unbox it
-        TsValue* val = (TsValue*)buf;
+        // Try to unbox if it's a TsValue*
+        void* raw = ts_value_get_object((TsValue*)buf);
         TsBuffer* buffer = nullptr;
-        
-        // Check for boxed TsValue (type field should be 0-10)
-        if ((uint8_t)val->type <= 10) {
-            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
-                buffer = (TsBuffer*)val->ptr_val;
-            } else {
-                return nullptr;
-            }
+        if (raw) {
+            buffer = (TsBuffer*)raw;
         } else {
-            // Assume it's a raw TsBuffer*
             buffer = (TsBuffer*)buf;
         }
         
+        // Validate it's actually a buffer
+        if (buffer->magic != TsBuffer::MAGIC) {
+            return TsString::Create("");
+        }
+        
         return buffer->ToString((TsString*)encoding);
+    }
+
+    void* ts_buffer_slice(void* buf, int64_t start, int64_t end) {
+        if (!buf) return TsBuffer::Create(0);
+        return ((TsBuffer*)buf)->Slice(start, end);
+    }
+
+    void* ts_buffer_subarray(void* buf, int64_t start, int64_t end) {
+        if (!buf) return TsBuffer::Create(0);
+        return ((TsBuffer*)buf)->Subarray(start, end);
+    }
+
+    void* ts_buffer_fill(void* buf, int64_t value, int64_t start, int64_t end) {
+        if (!buf) return nullptr;
+        TsBuffer* buffer = (TsBuffer*)buf;
+        buffer->Fill((uint8_t)value, start, end);
+        return buffer;  // Return this for chaining
+    }
+
+    int64_t ts_buffer_copy(void* source, void* target, int64_t targetStart, int64_t sourceStart, int64_t sourceEnd) {
+        if (!source || !target) return 0;
+        return ((TsBuffer*)source)->Copy((TsBuffer*)target, targetStart, sourceStart, sourceEnd);
+    }
+
+    bool ts_buffer_is_buffer(void* obj) {
+        if (!obj) return false;
+        
+        // Try to unbox if it's a TsValue*
+        void* raw = ts_value_get_object((TsValue*)obj);
+        if (raw) {
+            obj = raw;
+        }
+        
+        TsBuffer* buf = (TsBuffer*)obj;
+        return buf->magic == TsBuffer::MAGIC;
     }
 
     void* Buffer_toString(void* context, void* buf) {
