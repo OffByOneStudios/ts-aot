@@ -54,11 +54,11 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.6.9:** Implement `net.getDefaultAutoSelectFamilyAttemptTimeout` and `net.setDefaultAutoSelectFamilyAttemptTimeout`.
 
 ### Milestone 100.7: Connection Pooling (Agents)
-- [ ] **Task 100.7.1:** Implement `http.Agent` base class.
-- [ ] **Task 100.7.2:** Implement `https.Agent` class.
-- [ ] **Task 100.7.3:** Implement `http.globalAgent` and `https.globalAgent`.
+- [x] **Task 100.7.1:** Implement `http.Agent` base class.
+- [x] **Task 100.7.2:** Implement `https.Agent` class.
+- [x] **Task 100.7.3:** Implement `http.globalAgent` and `https.globalAgent`.
 - [ ] **Task 100.7.4:** Support connection reuse in `ClientRequest`.
-- [ ] **Task 100.7.5:** Implement `http.setMaxIdleHTTPParsers`.
+- [x] **Task 100.7.5:** Implement `http.setMaxIdleHTTPParsers`.
 
 ### Milestone 100.8: HTTP Advanced Classes
 - [ ] **Task 100.8.1:** Implement `http.OutgoingMessage` base class.
