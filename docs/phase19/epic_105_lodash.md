@@ -13,11 +13,12 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 
 ### ✅ Working Functions
 - **Util:** `identity`, `constant`, `noop`, `times`, `range`
-- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`
+- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`, `flattenDeep`, `uniq`, `uniqBy`, `difference`
 - **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`
 
 ### 🔧 Implemented but Blocked by Compiler Bugs
 - **compact:** Needs truthiness check improvements
+- **intersection:** Rest parameter array type inference issue
 
 ### ~~Compiler Issues Discovered~~ (FIXED)
 1. ~~**Nested Loop Variable Scoping:**~~ **NOT A BUG** - tested and works correctly
@@ -46,11 +47,11 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.1.1:** `chunk<T>(arr: T[], size: number): T[][]` - Split array into chunks ✅
 - [🔧] **Task 105.1.2:** `compact<T>(arr: T[]): T[]` - Remove falsy values *(blocked: truthiness checks)*
 - [x] **Task 105.1.3:** `flatten<T>(arr: T[][]): T[]` - Flatten one level ✅
-- [ ] **Task 105.1.4:** `flattenDeep<T>(arr: any[]): T[]` - Flatten recursively
-- [ ] **Task 105.1.5:** `uniq<T>(arr: T[]): T[]` - Remove duplicates
-- [ ] **Task 105.1.6:** `uniqBy<T>(arr: T[], fn: (x: T) => any): T[]` - Unique by key
-- [ ] **Task 105.1.7:** `difference<T>(arr: T[], ...values: T[][]): T[]` - Set difference
-- [ ] **Task 105.1.8:** `intersection<T>(...arrays: T[][]): T[]` - Set intersection
+- [x] **Task 105.1.4:** `flattenDeep<T>(arr: T[][]): T[]` - Flatten 2D array (recursive flatten blocked by Array.isArray) ✅
+- [x] **Task 105.1.5:** `uniq<T>(arr: T[]): T[]` - Remove duplicates ✅
+- [x] **Task 105.1.6:** `uniqBy<T>(arr: T[], fn: (x: T) => any): T[]` - Unique by key ✅
+- [x] **Task 105.1.7:** `difference<T>(arr: T[], ...values: T[][]): T[]` - Set difference ✅
+- [🔧] **Task 105.1.8:** `intersection<T>(...arrays: T[][]): T[]` - Set intersection *(blocked: rest param array type inference)*
 - [x] **Task 105.1.9:** `take<T>(arr: T[], n: number): T[]` - Take first n elements ✅
 - [x] **Task 105.1.10:** `drop<T>(arr: T[], n: number): T[]` - Drop first n elements ✅
 
