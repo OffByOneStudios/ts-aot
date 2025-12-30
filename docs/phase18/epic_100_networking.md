@@ -48,8 +48,8 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.6.3:** Implement `http.METHODS` and `http.STATUS_CODES` constants.
 - [x] **Task 100.6.4:** Implement `http.maxHeaderSize` constant.
 - [x] **Task 100.6.5:** Implement `http.validateHeaderName` and `http.validateHeaderValue`.
-- [ ] **Task 100.6.6:** Implement `net.SocketAddress` class.
-- [ ] **Task 100.6.7:** Implement `net.BlockList` class.
+- [x] **Task 100.6.6:** Implement `net.SocketAddress` class.
+- [x] **Task 100.6.7:** Implement `net.BlockList` class.
 - [x] **Task 100.6.8:** Implement `net.getDefaultAutoSelectFamily` and `net.setDefaultAutoSelectFamily`.
 - [x] **Task 100.6.9:** Implement `net.getDefaultAutoSelectFamilyAttemptTimeout` and `net.setDefaultAutoSelectFamilyAttemptTimeout`.
 
@@ -90,7 +90,7 @@ SSL_set_connect_state(ssl);  // Client mode
 - [x] **Completed:** Milestone 100.3 - HTTP Server.
 - [x] **Completed:** Milestone 100.4 - HTTP Client (Full).
 - [x] **Completed:** Milestone 100.5 - HTTPS Support (Client & Server).
-- [ ] **Planned:** Milestone 100.6 - Networking Utilities & Constants.
+- [x] **Completed:** Milestone 100.6 - Networking Utilities & Constants.
 - [ ] **Planned:** Milestone 100.7 - Connection Pooling (Agents).
 - [ ] **Planned:** Milestone 100.8 - HTTP Advanced Classes.
 - [ ] **Planned:** Milestone 100.9 - WebSocket Support.
