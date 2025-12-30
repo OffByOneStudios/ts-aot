@@ -28,6 +28,7 @@ public:
     void setRuntimeBitcode(const std::string& path) { runtimeBitcodePath = path; }
     void setVerbose(bool v) { verbose = v; }
     void setDebug(bool d) { debug = d; }
+    void setDebugRuntime(bool d) { debugRuntime = d; }
 
     llvm::Module* getModule() { return module.get(); }
 
@@ -46,6 +47,7 @@ private:
     std::string runtimeBitcodePath;
     bool verbose = false;
     bool debug = false;
+    bool debugRuntime = false;
 
     void emitLocation(ast::Node* node);
 
