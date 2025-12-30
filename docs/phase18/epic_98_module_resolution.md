@@ -90,7 +90,7 @@ For untyped JavaScript, we can later add V8-style optimizations:
 - [ ] **Task 98.5.5:** Emit warnings for untyped code paths. *(Future work)*
 
 ### Milestone 98.6: Special Imports
-- [ ] **Task 98.6.1:** Support `.json` imports (parse and embed at compile time). *(Future work)*
+- [x] **Task 98.6.1:** Support `.json` imports (parse and embed at compile time).
 - [x] **Task 98.6.2:** Support type-only imports (`import type { Foo }`).
 - [ ] **Task 98.6.3:** Handle `.d.ts` declaration files (types only, no codegen). *(Future work)*
 

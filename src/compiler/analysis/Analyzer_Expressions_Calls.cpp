@@ -342,8 +342,14 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     if (calleeType->kind == TypeKind::Function) {
         auto func = std::static_pointer_cast<FunctionType>(calleeType);
         
+        printf("DEBUG: Checking typeParams for %s, resolvedTypeArguments.size=%zu, func->typeParameters.size=%zu\n", 
+               node->callee ? "func" : "?", resolvedTypeArguments.size(), func->typeParameters.size());
+        
         if (resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
+            printf("DEBUG: Calling inferTypeArguments with %zu params and %zu args\n", func->paramTypes.size(), argTypes.size());
             resolvedTypeArguments = inferTypeArguments(func->typeParameters, func->paramTypes, argTypes);
+            // Update node with inferred type arguments so IRGenerator can use them
+            node->resolvedTypeArguments = resolvedTypeArguments;
         }
 
         if (!resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
@@ -522,6 +528,72 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
     }
     
     lastType = std::make_shared<Type>(TypeKind::Any);
+}
+
+std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
+    const std::vector<std::shared_ptr<TypeParameterType>>& typeParams,
+    const std::vector<std::shared_ptr<Type>>& paramTypes,
+    const std::vector<std::shared_ptr<Type>>& argTypes) {
+    
+    std::map<std::string, std::shared_ptr<Type>> inferred;
+    
+    auto inferFromTypes = [&](auto self, std::shared_ptr<Type> paramType, std::shared_ptr<Type> argType) -> void {
+        if (!paramType || !argType) return;
+
+        if (paramType->kind == TypeKind::TypeParameter) {
+            auto tp = std::static_pointer_cast<TypeParameterType>(paramType);
+            bool target = false;
+            for (auto& p : typeParams) {
+                if (p->name == tp->name) { target = true; break; }
+            }
+            if (target) {
+                if (inferred.find(tp->name) == inferred.end()) {
+                    inferred[tp->name] = argType;
+                }
+            }
+        } else if (paramType->kind == TypeKind::Array && argType->kind == TypeKind::Array) {
+            auto pa = std::static_pointer_cast<ArrayType>(paramType);
+            auto aa = std::static_pointer_cast<ArrayType>(argType);
+            self(self, pa->elementType, aa->elementType);
+        } else if (paramType->kind == TypeKind::Array && argType->kind == TypeKind::Tuple) {
+            // Handle Array vs Tuple: [1,2,3] has type Tuple but should match T[]
+            auto pa = std::static_pointer_cast<ArrayType>(paramType);
+            auto ta = std::static_pointer_cast<TupleType>(argType);
+            if (!ta->elementTypes.empty()) {
+                // Use the first element type to infer T
+                self(self, pa->elementType, ta->elementTypes[0]);
+            }
+        } else if (paramType->kind == TypeKind::Function && argType->kind == TypeKind::Function) {
+            // Handle function types for callbacks like (x: T) => U
+            auto pf = std::static_pointer_cast<FunctionType>(paramType);
+            auto af = std::static_pointer_cast<FunctionType>(argType);
+            // Match parameter types
+            size_t pcount = std::min(pf->paramTypes.size(), af->paramTypes.size());
+            for (size_t i = 0; i < pcount; ++i) {
+                self(self, pf->paramTypes[i], af->paramTypes[i]);
+            }
+            // Match return type
+            if (pf->returnType && af->returnType) {
+                self(self, pf->returnType, af->returnType);
+            }
+        }
+    };
+
+    size_t count = std::min(paramTypes.size(), argTypes.size());
+    for (size_t i = 0; i < count; ++i) {
+        inferFromTypes(inferFromTypes, paramTypes[i], argTypes[i]);
+    }
+
+    std::vector<std::shared_ptr<Type>> result;
+    for (auto& tp : typeParams) {
+        if (inferred.count(tp->name)) {
+            result.push_back(inferred[tp->name]);
+        } else {
+            // Fallback to Any or constraint if not inferred
+            result.push_back(tp->constraint ? tp->constraint : std::make_shared<Type>(TypeKind::Any));
+        }
+    }
+    return result;
 }
 
 } // namespace ts

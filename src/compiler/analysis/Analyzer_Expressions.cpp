@@ -922,12 +922,6 @@ void Analyzer::visitSuperExpression(SuperExpression* node) {
     }
 }
 
-void Analyzer::visitAsExpression(AsExpression* node) {
-    visit(node->expression.get());
-    lastType = parseType(node->type, symbols);
-    node->inferredType = lastType;
-}
-
 std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
     const std::vector<std::shared_ptr<TypeParameterType>>& typeParams,
     const std::vector<std::shared_ptr<Type>>& paramTypes,
@@ -935,10 +929,19 @@ std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
     
     std::map<std::string, std::shared_ptr<Type>> inferred;
     
+    printf("DEBUG inferTypeArguments: typeParams.size=%zu, paramTypes.size=%zu, argTypes.size=%zu\n",
+           typeParams.size(), paramTypes.size(), argTypes.size());
+    for (size_t i = 0; i < paramTypes.size(); i++) {
+        printf("  paramTypes[%zu] = %s (kind=%d)\n", i, paramTypes[i] ? paramTypes[i]->toString().c_str() : "null", paramTypes[i] ? (int)paramTypes[i]->kind : -1);
+    }
+    for (size_t i = 0; i < argTypes.size(); i++) {
+        printf("  argTypes[%zu] = %s (kind=%d)\n", i, argTypes[i] ? argTypes[i]->toString().c_str() : "null", argTypes[i] ? (int)argTypes[i]->kind : -1);
+    }
+    
     auto inferFromTypes = [&](auto self, std::shared_ptr<Type> paramType, std::shared_ptr<Type> argType) -> void {
         if (!paramType || !argType) return;
 
-        // printf("Inferring from param: %s and arg: %s\n", paramType->toString().c_str(), argType->toString().c_str());
+        printf("Inferring from param: %s (kind=%d) and arg: %s (kind=%d)\n", paramType->toString().c_str(), (int)paramType->kind, argType->toString().c_str(), (int)argType->kind);
 
         if (paramType->kind == TypeKind::TypeParameter) {
             auto tp = std::static_pointer_cast<TypeParameterType>(paramType);
