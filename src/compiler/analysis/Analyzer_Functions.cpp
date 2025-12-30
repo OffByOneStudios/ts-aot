@@ -278,7 +278,6 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     // Add to class
     if (classType) {
         std::string name = manglePrivateName(node->name, classType->name);
-        fmt::print("DEBUG: Adding method {} (original {}) to class {}\n", name, node->name, classType->name);
         if (node->isGetter) classType->getters[name] = methodType;
         else if (node->isSetter) classType->setters[name] = methodType;
         else if (node->name == "constructor") {

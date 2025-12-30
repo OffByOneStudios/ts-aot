@@ -6,21 +6,26 @@ class TsObject {
 public:
     virtual ~TsObject() {}
     virtual class TsEventEmitter* AsEventEmitter() { return nullptr; }
-    void* vtable_member;
+    void* vtable;
+    uint32_t magic;
 };
 
-class TsBuffer : public TsObject {
+class TsMap : public TsObject {
 public:
-    uint32_t magic = 0x42554646;
-    uint8_t* data;
-    size_t length;
+    static constexpr uint32_t MAGIC = 0x4D415053;
+private:
+    uint32_t map_magic = MAGIC;
+    void* impl;
 };
 
 int main() {
-    TsBuffer buf;
-    std::cout << "TsBuffer size: " << sizeof(TsBuffer) << std::endl;
-    std::cout << "Offset of magic: " << offsetof(TsBuffer, magic) << std::endl;
-    std::cout << "Offset of data: " << offsetof(TsBuffer, data) << std::endl;
-    std::cout << "Offset of length: " << offsetof(TsBuffer, length) << std::endl;
+    std::cout << "TsObject size: " << sizeof(TsObject) << std::endl;
+    std::cout << "TsMap size: " << sizeof(TsMap) << std::endl;
+    
+    TsMap m;
+    char* p = (char*)&m;
+    std::cout << "Magic at offset 16: 0x" << std::hex << *(uint32_t*)(p + 16) << std::endl;
+    std::cout << "Magic at offset 20: 0x" << std::hex << *(uint32_t*)(p + 20) << std::endl;
+    std::cout << "Magic at offset 24: 0x" << std::hex << *(uint32_t*)(p + 24) << std::endl;
     return 0;
 }
