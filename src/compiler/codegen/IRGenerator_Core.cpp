@@ -1351,10 +1351,17 @@ llvm::Value* IRGenerator::emitToBoolean(llvm::Value* val, std::shared_ptr<Type> 
     } else if (val->getType()->isIntegerTy(64)) {
         return builder->CreateICmpNE(val, llvm::ConstantInt::get(*context, llvm::APInt(64, 0)), "tobool");
     } else if (val->getType()->isPointerTy()) {
+        // For Any type, use ts_value_to_bool for JavaScript truthiness semantics
         if (type && type->kind == TypeKind::Any) {
             llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
             llvm::FunctionCallee toBoolFn = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
             return createCall(toBoolFt, toBoolFn.getCallee(), { val });
+        }
+        // For Boolean type (e.g., callback returning boolean), unbox the TsValue* to i1
+        if (type && type->kind == TypeKind::Boolean) {
+            llvm::FunctionType* getBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getBoolFn = module->getOrInsertFunction("ts_value_get_bool", getBoolFt);
+            return createCall(getBoolFt, getBoolFn.getCallee(), { val });
         }
         return builder->CreateICmpNE(val, llvm::ConstantPointerNull::get(builder->getPtrTy()), "tobool");
     }
