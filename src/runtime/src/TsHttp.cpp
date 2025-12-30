@@ -233,14 +233,7 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
         options.type = ValueType::UNDEFINED;
     }
 
-    if (is_https) {
-        socket = new (ts_alloc(sizeof(TsSecureSocket))) TsSecureSocket();
-        port = 443;
-    } else {
-        socket = new (ts_alloc(sizeof(TsSocket))) TsSocket();
-        port = 80;
-    }
-
+    // Parse options first to get host/port before checking agent
     if (options.type == ValueType::STRING_PTR) {
         std::string url = ((TsString*)options.ptr_val)->ToUtf8();
         std::string protocol = is_https ? "https://" : "http://";
@@ -258,6 +251,8 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
             if (colon != std::string::npos) {
                 port = std::stoi(host.substr(colon + 1));
                 host = host.substr(0, colon);
+            } else {
+                port = is_https ? 443 : 80;
             }
         }
     } else if (options.type == ValueType::OBJECT_PTR) {
@@ -271,6 +266,7 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
         TsValue v_port = obj->Get(TsValue(TsString::Create("port")));
         if (v_port.type == ValueType::NUMBER_INT) port = (int)v_port.i_val;
         else if (v_port.type == ValueType::NUMBER_DBL) port = (int)v_port.d_val;
+        else port = is_https ? 443 : 80;
 
         TsValue v_path = obj->Get(TsValue(TsString::Create("path")));
         if (v_path.type == ValueType::STRING_PTR) path = ((TsString*)v_path.ptr_val)->ToUtf8();
@@ -281,6 +277,44 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
         TsValue v_headers = obj->Get(TsValue(TsString::Create("headers")));
         if (v_headers.type == ValueType::OBJECT_PTR && v_headers.ptr_val) {
             headers = (TsMap*)v_headers.ptr_val;
+        }
+
+        // Check for agent option
+        TsValue v_agent = obj->Get(TsValue(TsString::Create("agent")));
+        if (v_agent.type == ValueType::OBJECT_PTR && v_agent.ptr_val) {
+            agent = (TsHttpAgent*)v_agent.ptr_val;
+        }
+    }
+
+    // Use global agent if no agent specified
+    if (!agent) {
+        agent = is_https ? (TsHttpAgent*)globalHttpsAgent : globalHttpAgent;
+    }
+
+    // Generate agent key for socket pooling
+    agentKey = host + ":" + std::to_string(port);
+
+    // Try to get a socket from the agent's pool first
+    socket = nullptr;
+    if (agent && agent->keepAlive) {
+        socket = agent->GetFreeSocket(agentKey);
+        if (socket) {
+            socketFromAgent = true;
+            connected = true;  // Reused socket is already connected
+        }
+    }
+
+    // Create a new socket if we didn't get one from the agent
+    if (!socket) {
+        if (is_https) {
+            socket = new (ts_alloc(sizeof(TsSecureSocket))) TsSecureSocket();
+        } else {
+            socket = new (ts_alloc(sizeof(TsSocket))) TsSocket();
+        }
+        
+        // Register with agent
+        if (agent) {
+            agent->AddSocket(agentKey, socket);
         }
     }
 
@@ -323,6 +357,8 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
     settings.on_message_complete = [](llhttp_t* p) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
         req->response->Emit("end", 0, nullptr);
+        // Return socket to agent pool if keepAlive is enabled
+        req->ReturnSocketToAgent();
         return 0;
     };
 
@@ -363,6 +399,12 @@ void TsClientRequest::Connect() {
     socket->On("data", ts_value_make_native_function((void*)client_on_data, this));
     socket->On("error", ts_value_make_native_function((void*)client_on_error, this));
     
+    // If socket was reused from agent, it's already connected - just send headers
+    if (socketFromAgent && connected) {
+        SendHeaders();
+        return;
+    }
+    
     socket->Connect(host.c_str(), port, nullptr);
     
     if (is_https) {
@@ -385,6 +427,17 @@ void TsClientRequest::Connect() {
     } else {
         socket->On("connect", ts_value_make_native_function((void*)client_on_connect, this));
     }
+}
+
+void TsClientRequest::ReturnSocketToAgent() {
+    if (!agent || !agent->keepAlive) return;
+    if (!socket) return;
+    
+    // Return the socket to the agent's free pool for reuse
+    agent->ReuseSocket(agentKey, socket);
+    
+    // Prevent double-return
+    socket = nullptr;
 }
 
 void TsClientRequest::SendHeaders() {
@@ -420,9 +473,17 @@ void TsClientRequest::SendHeaders() {
     }
 
     if (endCalled) {
-        req += "Connection: close\r\n";
+        // Use keep-alive if agent has it enabled, otherwise close
+        if (agent && agent->keepAlive) {
+            req += "Connection: keep-alive\r\n";
+        } else {
+            req += "Connection: close\r\n";
+        }
     } else {
         req += "Transfer-Encoding: chunked\r\n";
+        if (agent && agent->keepAlive) {
+            req += "Connection: keep-alive\r\n";
+        }
     }
     
     req += "\r\n";

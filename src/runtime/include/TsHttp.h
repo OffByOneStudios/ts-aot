@@ -121,9 +121,13 @@ public:
     TsString* currentHeaderField = nullptr;
     bool is_https = false;
     TsValue options;
+    class TsHttpAgent* agent = nullptr;  // Agent for connection pooling (forward declare)
+    bool socketFromAgent = false;        // True if socket was reused from agent
+    std::string agentKey;                // Key used for agent socket pool
 
     void SendHeaders();
     virtual void Connect();
+    void ReturnSocketToAgent();          // Return socket to agent pool after request
 
 protected:
     TsClientRequest(TsValue* options, void* callback, bool is_https = false);
