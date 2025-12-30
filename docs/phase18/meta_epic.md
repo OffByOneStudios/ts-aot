@@ -46,14 +46,15 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Platform Specifics:** `sep`, `delimiter`, `win32`, `posix`.
 - [x] **Verification:** Update `compatibility_matrix.md` for `path` module.
 
-### [Epic 100: Networking (net & http)](./epic_100_networking.md) 🟡 In Progress
+### [Epic 100: Networking (net & http)](./epic_100_networking.md) ✅ Complete
 - [x] **TCP Sockets:** `net.Socket` and `net.Server` using `libuv`.
 - [x] **HTTP Parser:** Integration with `llhttp` for `http.IncomingMessage`.
 - [x] **HTTP Client:** `http.request` and `http.get`.
 - [x] **HTTP Server:** `http.createServer` and `ServerResponse`.
 - [x] **HTTPS:** `https.request`, `https.get`, `https.createServer` with OpenSSL.
-- [ ] **Utilities:** `net.isIP`, `http.METHODS`, `http.STATUS_CODES`.
-- [ ] **Agents:** Connection pooling with `http.Agent`.
+- [x] **Utilities:** `net.isIP`, `http.METHODS`, `http.STATUS_CODES`, `SocketAddress`, `BlockList`.
+- [x] **Agents:** Connection pooling with `http.Agent` and `https.Agent`.
+- [x] **WebSocket:** Full RFC 6455 WebSocket implementation.
 
 ### [Epic 101: Buffer & Primitives](./epic_101_buffer.md) 🟡 Partial
 **Existing:** `TsBuffer` class with `alloc()`, `from()`, length, indexing, `toString()`.
