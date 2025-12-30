@@ -149,6 +149,44 @@ void Analyzer::registerHTTP() {
     validateHeaderValueType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     validateHeaderValueType->returnType = std::make_shared<Type>(TypeKind::Void);
     httpType->fields["validateHeaderValue"] = validateHeaderValueType;
+
+    // http.Agent class
+    auto agentClass = std::make_shared<ClassType>("Agent");
+    symbols.defineType("Agent", agentClass);
+    
+    // Agent constructor: new Agent(options?)
+    auto agentConstructor = std::make_shared<FunctionType>();
+    agentConstructor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options
+    agentConstructor->returnType = agentClass;
+    agentClass->fields["constructor"] = agentConstructor;
+    
+    // Agent methods
+    auto agentDestroyType = std::make_shared<FunctionType>();
+    agentDestroyType->returnType = std::make_shared<Type>(TypeKind::Void);
+    agentClass->fields["destroy"] = agentDestroyType;
+    
+    // Agent properties
+    agentClass->fields["keepAlive"] = std::make_shared<Type>(TypeKind::Boolean);
+    agentClass->fields["maxSockets"] = std::make_shared<Type>(TypeKind::Int);
+    agentClass->fields["maxTotalSockets"] = std::make_shared<Type>(TypeKind::Int);
+    agentClass->fields["maxFreeSockets"] = std::make_shared<Type>(TypeKind::Int);
+
+    // http.Agent - the class
+    httpType->fields["Agent"] = agentClass;
+    
+    // http.globalAgent - default agent instance
+    httpType->fields["globalAgent"] = agentClass;
+
+    // http.setMaxIdleHTTPParsers(max: number) -> void
+    auto setMaxIdleType = std::make_shared<FunctionType>();
+    setMaxIdleType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setMaxIdleType->returnType = std::make_shared<Type>(TypeKind::Void);
+    httpType->fields["setMaxIdleHTTPParsers"] = setMaxIdleType;
+
+    // http.getMaxIdleHTTPParsers() -> number
+    auto getMaxIdleType = std::make_shared<FunctionType>();
+    getMaxIdleType->returnType = std::make_shared<Type>(TypeKind::Int);
+    httpType->fields["getMaxIdleHTTPParsers"] = getMaxIdleType;
     
     symbols.define("http", httpType);
 }
@@ -185,6 +223,24 @@ void Analyzer::registerHTTPS() {
     getType->paramTypes.push_back(responseCallback);
     getType->returnType = clientRequestClass;
     httpsType->fields["get"] = getType;
+
+    // https.Agent class (extends http.Agent conceptually)
+    auto httpAgentClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Agent"));
+    auto httpsAgentClass = std::make_shared<ClassType>("HttpsAgent");
+    httpsAgentClass->baseClass = httpAgentClass;
+    symbols.defineType("HttpsAgent", httpsAgentClass);
+    
+    // Agent constructor
+    auto agentConstructor = std::make_shared<FunctionType>();
+    agentConstructor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options
+    agentConstructor->returnType = httpsAgentClass;
+    httpsAgentClass->fields["constructor"] = agentConstructor;
+    
+    // https.Agent - the class
+    httpsType->fields["Agent"] = httpsAgentClass;
+    
+    // https.globalAgent - default agent instance
+    httpsType->fields["globalAgent"] = httpsAgentClass;
 
     symbols.define("https", httpsType);
 }

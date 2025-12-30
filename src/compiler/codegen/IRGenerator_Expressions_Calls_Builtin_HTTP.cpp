@@ -17,6 +17,8 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
     bool isServerResponse = false;
     bool isIncomingMessage = false;
     bool isClientRequest = false;
+    bool isAgent = false;
+    bool isHttpsAgent = false;
 
     if (!isHttp && !isHttps) {
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
@@ -26,6 +28,8 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             else if (classType->name == "ServerResponse") isServerResponse = true;
             else if (classType->name == "IncomingMessage") isIncomingMessage = true;
             else if (classType->name == "ClientRequest") isClientRequest = true;
+            else if (classType->name == "Agent") isAgent = true;
+            else if (classType->name == "HttpsAgent") isHttpsAgent = true;
         } else if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
             // For untyped variables (e.g., callback parameters without type annotations),
             // try to infer the type from the method name being called
@@ -38,6 +42,9 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             } else if (prop->name == "headers" || prop->name == "method" || prop->name == "url") {
                 isIncomingMessage = true;
                 SPDLOG_INFO("tryGenerateHTTPCall: inferred isIncomingMessage=true from method name");
+            } else if (prop->name == "destroy" && !prop->expression->inferredType) {
+                // Could be Agent.destroy()
+                isAgent = true;
             }
         } else if (prop->expression->inferredType) {
             SPDLOG_INFO("tryGenerateHTTPCall: expression type kind={}", (int)prop->expression->inferredType->kind);
@@ -46,7 +53,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         }
     }
 
-    if (!isHttp && !isHttps && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest) return false;
+    if (!isHttp && !isHttps && !isServer && !isServerResponse && !isIncomingMessage && !isClientRequest && !isAgent && !isHttpsAgent) return false;
 
     if (isHttp || isHttps) {
         if (prop->name == "createServer") {
@@ -118,6 +125,32 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_validate_header_value", ft);
             createCall(ft, fn.getCallee(), { name, value });
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "setMaxIdleHTTPParsers") {
+            // http.setMaxIdleHTTPParsers(max: number) -> void
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* maxVal = lastValue;
+            
+            // Convert to i64 if needed
+            if (!maxVal->getType()->isIntegerTy(64)) {
+                if (maxVal->getType()->isIntegerTy()) {
+                    maxVal = builder->CreateSExt(maxVal, builder->getInt64Ty());
+                } else if (maxVal->getType()->isDoubleTy()) {
+                    maxVal = builder->CreateFPToSI(maxVal, builder->getInt64Ty());
+                }
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_set_max_idle_http_parsers", ft);
+            createCall(ft, fn.getCallee(), { maxVal });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "getMaxIdleHTTPParsers") {
+            // http.getMaxIdleHTTPParsers() -> number
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_get_max_idle_http_parsers", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
             return true;
         }
     }
@@ -232,6 +265,19 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         }
     }
 
+    if (isAgent || isHttpsAgent) {
+        if (prop->name == "destroy") {
+            visit(prop->expression.get());
+            llvm::Value* agent = lastValue;
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_agent_destroy", ft);
+            createCall(ft, fn.getCallee(), { agent });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -259,6 +305,18 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_get_max_header_size", ft);
         lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    } else if (node->name == "globalAgent") {
+        // http.globalAgent or https.globalAgent
+        const char* fnName = (id->name == "https") ? "ts_https_get_global_agent" : "ts_http_get_global_agent";
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    } else if (node->name == "Agent") {
+        // http.Agent or https.Agent class reference - we'll handle constructor in NewExpression
+        // Return a marker that represents the class
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
         return true;
     }
     

@@ -433,6 +433,15 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
     // Handle new net.SocketAddress() or new net.BlockList() - property access expression
     if (auto propAccess = dynamic_cast<PropertyAccessExpression*>(node->expression.get())) {
         // The expression should have been visited and we have the constructor type
+        // Check if lastType is already a ClassType (e.g., new http.Agent())
+        if (lastType && lastType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(lastType);
+            if (classType->isAbstract) {
+                reportError(fmt::format("Cannot create an instance of an abstract class '{}'", classType->name));
+            }
+            node->inferredType = lastType;
+            return;
+        }
         // Check if lastType is a constructor function that returns a class
         if (lastType && lastType->kind == TypeKind::Object) {
             auto objType = std::static_pointer_cast<ObjectType>(lastType);

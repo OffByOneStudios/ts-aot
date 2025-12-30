@@ -11,6 +11,7 @@
 #include <string>
 #include <cstring>
 #include <new>
+#include <algorithm>
 
 struct HttpContext {
     TsHttpServer* server;
@@ -820,6 +821,169 @@ void ts_http_validate_header_value(void* name, void* value) {
             return;
         }
     }
+}
+
+// ===== HTTP Agent Implementation =====
+
+// Global agent instances
+TsHttpAgent* globalHttpAgent = nullptr;
+TsHttpsAgent* globalHttpsAgent = nullptr;
+static int64_t maxIdleHttpParsers = 1000;
+
+// TsHttpAgent implementation
+TsHttpAgent::TsHttpAgent(TsValue* options) : TsEventEmitter() {
+    if (options && options->type == ValueType::OBJECT_PTR) {
+        TsMap* opts = (TsMap*)options->ptr_val;
+        
+        TsValue v_keepAlive = opts->Get(TsValue(TsString::Create("keepAlive")));
+        if (v_keepAlive.type == ValueType::BOOLEAN) keepAlive = v_keepAlive.b_val;
+        
+        TsValue v_keepAliveMsecs = opts->Get(TsValue(TsString::Create("keepAliveMsecs")));
+        if (v_keepAliveMsecs.type == ValueType::NUMBER_INT) keepAliveMsecs = (int)v_keepAliveMsecs.i_val;
+        else if (v_keepAliveMsecs.type == ValueType::NUMBER_DBL) keepAliveMsecs = (int)v_keepAliveMsecs.d_val;
+        
+        TsValue v_maxSockets = opts->Get(TsValue(TsString::Create("maxSockets")));
+        if (v_maxSockets.type == ValueType::NUMBER_INT) maxSockets = (int)v_maxSockets.i_val;
+        else if (v_maxSockets.type == ValueType::NUMBER_DBL) maxSockets = (int)v_maxSockets.d_val;
+        
+        TsValue v_maxTotalSockets = opts->Get(TsValue(TsString::Create("maxTotalSockets")));
+        if (v_maxTotalSockets.type == ValueType::NUMBER_INT) maxTotalSockets = (int)v_maxTotalSockets.i_val;
+        else if (v_maxTotalSockets.type == ValueType::NUMBER_DBL) maxTotalSockets = (int)v_maxTotalSockets.d_val;
+        
+        TsValue v_maxFreeSockets = opts->Get(TsValue(TsString::Create("maxFreeSockets")));
+        if (v_maxFreeSockets.type == ValueType::NUMBER_INT) maxFreeSockets = (int)v_maxFreeSockets.i_val;
+        else if (v_maxFreeSockets.type == ValueType::NUMBER_DBL) maxFreeSockets = (int)v_maxFreeSockets.d_val;
+        
+        TsValue v_timeout = opts->Get(TsValue(TsString::Create("timeout")));
+        if (v_timeout.type == ValueType::NUMBER_INT) timeout = (int)v_timeout.i_val;
+        else if (v_timeout.type == ValueType::NUMBER_DBL) timeout = (int)v_timeout.d_val;
+        
+        TsValue v_scheduling = opts->Get(TsValue(TsString::Create("scheduling")));
+        if (v_scheduling.type == ValueType::STRING_PTR) {
+            scheduling = ((TsString*)v_scheduling.ptr_val)->ToUtf8();
+        }
+    }
+}
+
+TsHttpAgent* TsHttpAgent::Create(TsValue* options) {
+    void* mem = ts_alloc(sizeof(TsHttpAgent));
+    return new (mem) TsHttpAgent(options);
+}
+
+std::string TsHttpAgent::GetName(const std::string& host, int port, const std::string& localAddress) {
+    std::string key = host + ":" + std::to_string(port);
+    if (!localAddress.empty()) {
+        key += ":" + localAddress;
+    }
+    return key;
+}
+
+TsSocket* TsHttpAgent::GetFreeSocket(const std::string& key) {
+    auto it = freeSockets.find(key);
+    if (it != freeSockets.end() && !it->second.empty()) {
+        TsSocket* socket = nullptr;
+        if (scheduling == "lifo") {
+            socket = it->second.back();
+            it->second.pop_back();
+        } else { // fifo
+            socket = it->second.front();
+            it->second.erase(it->second.begin());
+        }
+        // Move to active sockets
+        sockets[key].push_back(socket);
+        return socket;
+    }
+    return nullptr;
+}
+
+void TsHttpAgent::AddSocket(const std::string& key, TsSocket* socket) {
+    sockets[key].push_back(socket);
+}
+
+void TsHttpAgent::RemoveSocket(const std::string& key, TsSocket* socket) {
+    auto it = sockets.find(key);
+    if (it != sockets.end()) {
+        auto& vec = it->second;
+        vec.erase(std::remove(vec.begin(), vec.end(), socket), vec.end());
+    }
+    
+    auto it2 = freeSockets.find(key);
+    if (it2 != freeSockets.end()) {
+        auto& vec = it2->second;
+        vec.erase(std::remove(vec.begin(), vec.end(), socket), vec.end());
+    }
+}
+
+void TsHttpAgent::ReuseSocket(const std::string& key, TsSocket* socket) {
+    // Move from active to free
+    RemoveSocket(key, socket);
+    
+    if (keepAlive && (int)freeSockets[key].size() < maxFreeSockets) {
+        freeSockets[key].push_back(socket);
+    } else {
+        // Close the socket if we can't reuse it
+        // socket->Close(); // Would need this method
+    }
+}
+
+void TsHttpAgent::Destroy() {
+    // Close all sockets
+    for (auto& pair : sockets) {
+        pair.second.clear();
+    }
+    for (auto& pair : freeSockets) {
+        pair.second.clear();
+    }
+    sockets.clear();
+    freeSockets.clear();
+    requests.clear();
+}
+
+// TsHttpsAgent implementation
+TsHttpsAgent::TsHttpsAgent(TsValue* options) : TsHttpAgent(options) {
+    // HTTPS agent uses the same base functionality
+}
+
+TsHttpsAgent* TsHttpsAgent::Create(TsValue* options) {
+    void* mem = ts_alloc(sizeof(TsHttpsAgent));
+    return new (mem) TsHttpsAgent(options);
+}
+
+// C API for agents
+void* ts_http_agent_create(TsValue* options) {
+    return TsHttpAgent::Create(options);
+}
+
+void* ts_https_agent_create(TsValue* options) {
+    return TsHttpsAgent::Create(options);
+}
+
+void* ts_http_get_global_agent() {
+    if (!globalHttpAgent) {
+        globalHttpAgent = TsHttpAgent::Create(nullptr);
+    }
+    return globalHttpAgent;
+}
+
+void* ts_https_get_global_agent() {
+    if (!globalHttpsAgent) {
+        globalHttpsAgent = TsHttpsAgent::Create(nullptr);
+    }
+    return globalHttpsAgent;
+}
+
+void ts_http_agent_destroy(void* agent) {
+    if (!agent) return;
+    TsHttpAgent* a = (TsHttpAgent*)agent;
+    a->Destroy();
+}
+
+int64_t ts_http_get_max_idle_http_parsers() {
+    return maxIdleHttpParsers;
+}
+
+void ts_http_set_max_idle_http_parsers(int64_t max) {
+    maxIdleHttpParsers = max;
 }
 }
 

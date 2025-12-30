@@ -730,6 +730,32 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "Agent") {
+            // new http.Agent(options?)
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                options = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_agent_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { options });
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "HttpsAgent") {
+            // new https.Agent(options?)
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                options = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_https_agent_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { options });
+            nonNullValues.insert(lastValue);
+            return;
         }
         
         // 1. Get Struct Type
