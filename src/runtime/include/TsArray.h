@@ -71,6 +71,7 @@ extern "C" {
     void ts_array_set_unchecked(void* arr, int64_t index, void* value);
     int64_t ts_array_length(void* arr);
     void ts_array_sort(void* arr);
+    void ts_array_sort_with_comparator(void* arr, void* comparator);
     void* ts_array_slice(void* arr, int64_t start, int64_t end);
     void* ts_array_flat(void* arr, int64_t depth);
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg);

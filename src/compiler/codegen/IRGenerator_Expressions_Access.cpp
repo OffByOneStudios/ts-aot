@@ -375,6 +375,23 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
 
+    // Check for size property on Map/Set BEFORE treating Map property access as Map.get()
+    if (node->name == "size") {
+        if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
+            visit(node->expression.get());
+            llvm::Value* obj = lastValue;
+            // Unbox if the value is boxed (e.g., came from array element access)
+            obj = unboxValue(obj, node->expression->inferredType);
+            emitNullCheckForExpression(node->expression.get(), obj);
+            
+            std::string fnName = (node->expression->inferredType->kind == TypeKind::Map) ? "ts_map_size" : "ts_set_size";
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return;
+        }
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Map) {
         visit(node->expression.get());
         llvm::Value* mapVal = lastValue;
@@ -392,22 +409,6 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         lastValue = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
         return;
-    }
-
-    if (node->name == "size") {
-        if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
-            visit(node->expression.get());
-            llvm::Value* obj = lastValue;
-            // Unbox if the value is boxed (e.g., came from array element access)
-            obj = unboxValue(obj, node->expression->inferredType);
-            emitNullCheckForExpression(node->expression.get(), obj);
-            
-            std::string fnName = (node->expression->inferredType->kind == TypeKind::Map) ? "ts_map_size" : "ts_set_size";
-            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-            lastValue = createCall(ft, fn.getCallee(), { obj });
-            return;
-        }
     }
 
     if (node->name == "length") {

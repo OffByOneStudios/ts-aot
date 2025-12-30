@@ -434,6 +434,41 @@ extern "C" {
         ((TsArray*)arr)->Sort();
     }
 
+    // Thread-local comparator for use in std::sort
+    static thread_local TsValue* g_current_comparator = nullptr;
+
+    static bool comparator_wrapper(int64_t a, int64_t b) {
+        if (!g_current_comparator) return a < b;
+        
+        // Create boxed values for a and b
+        TsValue* aVal = ts_value_make_int(a);
+        TsValue* bVal = ts_value_make_int(b);
+        
+        // Call the comparator function using ts_call_2
+        TsValue* result = ts_call_2(g_current_comparator, aVal, bVal);
+        if (!result) return a < b;
+        
+        // Get the result as an int (negative = a < b, zero = equal, positive = a > b)
+        int64_t cmp = ts_value_get_int(result);
+        return cmp < 0;
+    }
+
+    void ts_array_sort_with_comparator(void* arr, void* comparator) {
+        if (!comparator) {
+            ((TsArray*)arr)->Sort();
+            return;
+        }
+        
+        TsArray* array = (TsArray*)arr;
+        g_current_comparator = (TsValue*)comparator;
+        
+        int64_t* elements = (int64_t*)array->GetElementsPtr();
+        size_t len = array->Length();
+        std::sort(elements, elements + len, comparator_wrapper);
+        
+        g_current_comparator = nullptr;
+    }
+
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
         std::cout << "ts_array_slice: start=" << start << ", end=" << end << std::endl;
         return ((TsArray*)arr)->Slice(start, end);

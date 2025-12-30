@@ -184,9 +184,19 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     lastValue = nullptr;
                     return;
                 } else if (methodName == "sort") {
-                    llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee sortFn = module->getOrInsertFunction("ts_array_sort", sortFt);
-                    createCall(sortFt, sortFn.getCallee(), { arrObj });
+                    if (node->arguments.empty()) {
+                        llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                        llvm::FunctionCallee sortFn = module->getOrInsertFunction("ts_array_sort", sortFt);
+                        createCall(sortFt, sortFn.getCallee(), { arrObj });
+                    } else {
+                        visit(node->arguments[0].get());
+                        llvm::Value* comparator = boxValue(lastValue, node->arguments[0]->inferredType);
+                        
+                        llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                        llvm::FunctionCallee sortFn = module->getOrInsertFunction("ts_array_sort_with_comparator", sortFt);
+                        createCall(sortFt, sortFn.getCallee(), { arrObj, comparator });
+                    }
+                    lastValue = arrObj;  // sort() returns the array for chaining
                     return;
                 } else if (methodName == "indexOf") {
                     llvm::FunctionType* idxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
