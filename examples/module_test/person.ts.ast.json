@@ -1,0 +1,252 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Person",
+      "isExported": true,
+      "isDefaultExport": false,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "name",
+          "type": "string",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false,
+          "decorators": [],
+          "line": 4,
+          "column": 5
+        },
+        {
+          "kind": "PropertyDefinition",
+          "name": "age",
+          "type": "number",
+          "initializer": null,
+          "access": null,
+          "isStatic": false,
+          "isReadonly": false,
+          "decorators": [],
+          "line": 5,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "name",
+                "line": 7,
+                "column": 17
+              },
+              "type": "string",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 7,
+              "column": 17
+            },
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "age",
+                "line": 7,
+                "column": 31
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 7,
+              "column": 31
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 8,
+                    "column": 9
+                  },
+                  "name": "name",
+                  "isOptional": false,
+                  "line": 8,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "name",
+                  "line": 8,
+                  "column": 21
+                },
+                "line": 8,
+                "column": 9
+              },
+              "line": 8,
+              "column": 9
+            },
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 9,
+                    "column": 9
+                  },
+                  "name": "age",
+                  "isOptional": false,
+                  "line": 9,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "age",
+                  "line": 9,
+                  "column": 20
+                },
+                "line": 9,
+                "column": 9
+              },
+              "line": 9,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": "public",
+          "line": 7,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "greet",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "greet",
+            "line": 12,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "string",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "Hello, I'm ",
+                  "line": 13,
+                  "column": 16
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 13,
+                    "column": 32
+                  },
+                  "name": "name",
+                  "isOptional": false,
+                  "line": 13,
+                  "column": 32
+                },
+                "line": 13,
+                "column": 16
+              },
+              "line": 13,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 12,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getAge",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "getAge",
+            "line": 16,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 17,
+                  "column": 16
+                },
+                "name": "age",
+                "isOptional": false,
+                "line": 17,
+                "column": 16
+              },
+              "line": 17,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 16,
+          "column": 5
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false,
+      "decorators": [],
+      "line": 3,
+      "column": 1
+    }
+  ]
+}
