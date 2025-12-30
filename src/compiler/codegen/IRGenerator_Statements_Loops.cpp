@@ -450,12 +450,28 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
 
     llvm::Value* currIterable = builder->CreateLoad(builder->getPtrTy(), iterableVar, "iter");
     llvm::Value* elementVal = nullptr;
+    std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+        elementType = std::static_pointer_cast<ArrayType>(node->expression->inferredType)->elementType;
+    }
+    
     if (isString) {
         std::vector<llvm::Type*> args = { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) };
         llvm::FunctionType* substrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), args, false);
         llvm::FunctionCallee substrFn = module->getOrInsertFunction("ts_string_substring", substrFt);
         llvm::Value* nextIndex = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
         elementVal = createCall(substrFt, substrFn.getCallee(), { currIterable, currIndex, nextIndex });
+    } else if (elementType->kind == TypeKind::Int || elementType->kind == TypeKind::Double) {
+        // Specialized array access for Int/Double
+        llvm::Type* llvmElemType = (elementType->kind == TypeKind::Double) 
+            ? llvm::Type::getDoubleTy(*context) 
+            : llvm::Type::getInt64Ty(*context);
+        
+        llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
+        llvm::Value* elementsPtrPtr = builder->CreateStructGEP(tsArrayType, currIterable, 1);
+        llvm::Value* elementsPtr = builder->CreateLoad(builder->getPtrTy(), elementsPtrPtr);
+        llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { currIndex });
+        elementVal = builder->CreateLoad(llvmElemType, ptr);
     } else {
         std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), args, false);
@@ -464,10 +480,6 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     }
 
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
-        std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
-        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
-            elementType = std::static_pointer_cast<ArrayType>(node->expression->inferredType)->elementType;
-        }
         llvm::Value* unboxed = unboxValue(elementVal, elementType);
         generateDestructuring(unboxed, elementType, varDecl->name.get());
     }

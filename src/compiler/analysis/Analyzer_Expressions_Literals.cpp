@@ -51,7 +51,31 @@ void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
         visit(el.get());
         elementTypes.push_back(lastType ? lastType : std::make_shared<Type>(TypeKind::Any));
     }
-    lastType = std::make_shared<TupleType>(elementTypes);
+    
+    // Determine if all elements have the same type (homogeneous array)
+    // If so, use ArrayType; otherwise use TupleType for heterogeneous arrays
+    if (elementTypes.empty()) {
+        // Empty array - default to Array<Any>
+        lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    } else {
+        bool homogeneous = true;
+        auto firstType = elementTypes[0];
+        std::string firstTypeStr = firstType->toString();
+        for (size_t i = 1; i < elementTypes.size(); ++i) {
+            if (elementTypes[i]->toString() != firstTypeStr) {
+                homogeneous = false;
+                break;
+            }
+        }
+        
+        if (homogeneous) {
+            // All elements same type -> ArrayType
+            lastType = std::make_shared<ArrayType>(firstType);
+        } else {
+            // Mixed types -> TupleType
+            lastType = std::make_shared<TupleType>(elementTypes);
+        }
+    }
     node->inferredType = lastType;
 }
 

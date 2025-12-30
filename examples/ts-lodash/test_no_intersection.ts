@@ -1,15 +1,14 @@
-// Test the new array functions from Milestone 105.1
+// Test without intersection to verify other functions work
 
 import { uniq, uniqBy } from './src/array/uniq';
 import { difference } from './src/array/difference';
-import { intersection } from './src/array/intersection';
 
 // Test uniq
 const arr1 = [1, 2, 1, 3, 2, 4];
 const unique = uniq(arr1);
 console.log(unique.length); // Expected: 4 (1, 2, 3, 4)
 
-// Test uniqBy - unique by Math.floor result
+// Test uniqBy - unique by modulo 3 result
 const arr2 = [1, 2, 3, 4, 5];
 const uniqueByMod = uniqBy(arr2, (n: number) => n % 3);
 console.log(uniqueByMod.length); // Expected: 3 (0, 1, 2 remainders)
@@ -20,8 +19,4 @@ const arr4 = [2, 4];
 const diff = difference(arr3, arr4);
 console.log(diff.length); // Expected: 3 (1, 3, 5)
 
-// Test intersection
-const intersect = intersection([1, 2, 3], [2, 3, 4], [3, 4, 5]);
-console.log(intersect.length); // Expected: 1 (only 3 is in all arrays)
-
-console.log("All tests passed!");
+console.log("Done!");

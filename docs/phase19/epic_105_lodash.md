@@ -13,17 +13,17 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 
 ### ✅ Working Functions
 - **Util:** `identity`, `constant`, `noop`, `times`, `range`
-- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`, `flattenDeep`, `uniq`, `uniqBy`, `difference`
+- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`, `flattenDeep`, `uniq`, `uniqBy`, `difference`, `intersection`
 - **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`
 
 ### 🔧 Implemented but Blocked by Compiler Bugs
 - **compact:** Needs truthiness check improvements
-- **intersection:** Rest parameter array type inference issue
 
 ### ~~Compiler Issues Discovered~~ (FIXED)
 1. ~~**Nested Loop Variable Scoping:**~~ **NOT A BUG** - tested and works correctly
 2. ~~**Generic Callback Types:**~~ **FIXED** (commit 1439598) - `emitToBoolean()` now calls `ts_value_get_bool` for Boolean-typed pointers
-3. **Optional Parameters:** `undefined` checks need more work
+3. ~~**Rest Parameter Array Type Inference:**~~ **FIXED** - `Set<T>[]` boxing/unboxing and for-of specialized element access
+4. **Optional Parameters:** `undefined` checks need more work
 
 ## Design Rationale
 
@@ -51,7 +51,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.1.5:** `uniq<T>(arr: T[]): T[]` - Remove duplicates ✅
 - [x] **Task 105.1.6:** `uniqBy<T>(arr: T[], fn: (x: T) => any): T[]` - Unique by key ✅
 - [x] **Task 105.1.7:** `difference<T>(arr: T[], ...values: T[][]): T[]` - Set difference ✅
-- [🔧] **Task 105.1.8:** `intersection<T>(...arrays: T[][]): T[]` - Set intersection *(blocked: rest param array type inference)*
+- [x] **Task 105.1.8:** `intersection<T>(...arrays: T[][]): T[]` - Set intersection ✅
 - [x] **Task 105.1.9:** `take<T>(arr: T[], n: number): T[]` - Take first n elements ✅
 - [x] **Task 105.1.10:** `drop<T>(arr: T[], n: number): T[]` - Drop first n elements ✅
 

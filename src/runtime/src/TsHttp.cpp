@@ -1036,6 +1036,8 @@ void ts_http_validate_header_value(void* name, void* value) {
     }
 }
 
+} // extern "C"
+
 // ===== HTTP Agent Implementation =====
 
 // Global agent instances
@@ -1161,6 +1163,8 @@ TsHttpsAgent* TsHttpsAgent::Create(TsValue* options) {
     void* mem = ts_alloc(sizeof(TsHttpsAgent));
     return new (mem) TsHttpsAgent(options);
 }
+
+extern "C" {
 
 // C API for agents
 void* ts_http_agent_create(TsValue* options) {

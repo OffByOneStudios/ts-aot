@@ -427,7 +427,6 @@ extern "C" {
     }
 
     int64_t ts_array_length(void* arr) {
-        std::cout << "ts_array_length: arr=" << arr << std::endl;
         return ((TsArray*)arr)->Length();
     }
 

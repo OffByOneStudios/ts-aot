@@ -1041,7 +1041,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
                 funcName = "ts_value_make_object";
             }
         }
-        else if (type && (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || type->kind == TypeKind::Map)) {
+        else if (type && (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || type->kind == TypeKind::Map || type->kind == TypeKind::SetType)) {
             funcName = "ts_value_make_object";
         }
     }
@@ -1135,8 +1135,8 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         }
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Tuple ||
-               type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
+               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
+               type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
@@ -1217,7 +1217,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         if (!name.empty() && name.find("ts_value_make_") == 0) {
             boxedValues.insert(res);
         } else if (!name.empty() && (name == "ts_value_get_int" || name == "ts_value_get_double" || name == "ts_value_get_bool" || name == "ts_value_get_string" || name == "ts_value_get_object" ||
-                                   name == "ts_map_create" || name == "ts_string_create" || name == "ts_array_create" || 
+                                   name == "ts_map_create" || name == "ts_set_create" || name == "ts_string_create" || name == "ts_array_create" || 
                                    name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
                                    name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for" ||
                                    name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||

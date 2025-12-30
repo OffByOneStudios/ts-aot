@@ -1599,6 +1599,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     } else if (prop->name == "add" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
          llvm::Value* set = lastValue;
+         // Unbox if the value came from array element access
+         set = unboxValue(set, prop->expression->inferredType);
          if (set->getType()->isIntegerTy(64)) {
              set = builder->CreateIntToPtr(set, builder->getPtrTy());
          }
@@ -1616,6 +1618,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
          llvm::Value* set = lastValue;
+         // Unbox if the value came from array element access
+         set = unboxValue(set, prop->expression->inferredType);
          if (set->getType()->isIntegerTy(64)) {
              set = builder->CreateIntToPtr(set, builder->getPtrTy());
          }
@@ -1632,6 +1636,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     } else if (prop->name == "delete" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
          llvm::Value* set = lastValue;
+         // Unbox if the value came from array element access
+         set = unboxValue(set, prop->expression->inferredType);
          if (set->getType()->isIntegerTy(64)) {
              set = builder->CreateIntToPtr(set, builder->getPtrTy());
          }
@@ -1648,6 +1654,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     } else if (prop->name == "clear" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::SetType) {
          visit(prop->expression.get());
          llvm::Value* set = lastValue;
+         // Unbox if the value came from array element access
+         set = unboxValue(set, prop->expression->inferredType);
          if (set->getType()->isIntegerTy(64)) {
              set = builder->CreateIntToPtr(set, builder->getPtrTy());
          }

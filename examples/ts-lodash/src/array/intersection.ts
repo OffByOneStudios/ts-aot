@@ -17,10 +17,18 @@ export function intersection<T>(...arrays: T[][]): T[] {
     }
     
     // Build Sets for all other arrays
+    // Note: Can't use new Set(array) as constructor args aren't fully supported
     const otherSets: Set<T>[] = [];
     let i = 1;
     while (i < arrays.length) {
-        otherSets.push(new Set(arrays[i]));
+        const s = new Set<T>();
+        const arr = arrays[i];
+        let idx = 0;
+        while (idx < arr.length) {
+            s.add(arr[idx]);
+            idx = idx + 1;
+        }
+        otherSets.push(s);
         i = i + 1;
     }
     
