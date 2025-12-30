@@ -710,6 +710,26 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), { label, fatal, ignoreBOM });
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "SocketAddress") {
+            // new net.SocketAddress(options?)
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                options = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+            
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { options });
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "BlockList") {
+            // new net.BlockList()
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
         }
         
         // 1. Get Struct Type

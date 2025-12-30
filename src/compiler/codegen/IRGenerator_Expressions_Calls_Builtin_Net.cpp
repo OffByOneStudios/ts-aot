@@ -7,19 +7,178 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "net") isNet = true;
     }
+    
+    // Check for net.SocketAddress.parse() or net.BlockList.isBlockList()
+    // Pattern: prop->expression is PropertyAccessExpression with expression "net"
+    bool isSocketAddressStatic = false;
+    bool isBlockListStatic = false;
+    if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+        if (auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+            if (id->name == "net") {
+                if (innerProp->name == "SocketAddress") {
+                    isSocketAddressStatic = true;
+                } else if (innerProp->name == "BlockList") {
+                    isBlockListStatic = true;
+                }
+            }
+        }
+    }
+    
+    // Handle net.SocketAddress.parse()
+    if (isSocketAddressStatic && prop->name == "parse") {
+        llvm::Value* input = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            input = lastValue;
+        }
+        
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_parse", ft);
+        lastValue = createCall(ft, fn.getCallee(), { input });
+        return true;
+    }
+    
+    // Handle net.BlockList.isBlockList()
+    if (isBlockListStatic && prop->name == "isBlockList") {
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            value = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+        
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_is_block_list", ft);
+        lastValue = createCall(ft, fn.getCallee(), { value });
+        lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
+        return true;
+    }
 
     bool isSocket = false;
     bool isServer = false;
+    bool isBlockList = false;
 
     if (!isNet) {
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
             if (classType->name == "Socket") isSocket = true;
             else if (classType->name == "Server") isServer = true;
+            else if (classType->name == "BlockList") isBlockList = true;
         }
     }
 
-    if (!isNet && !isSocket && !isServer) return false;
+    if (!isNet && !isSocket && !isServer && !isBlockList) return false;
+    
+    // Handle BlockList instance methods
+    if (isBlockList) {
+        visit(prop->expression.get());
+        llvm::Value* blockList = lastValue;
+        
+        if (prop->name == "addAddress") {
+            // addAddress(address: string, type?: 'ipv4' | 'ipv6')
+            llvm::Value* address = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* family = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                address = lastValue;
+            }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                family = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getVoidTy(), 
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
+                false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_address", ft);
+            createCall(ft, fn.getCallee(), { blockList, address, family });
+            lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "addRange") {
+            // addRange(start: string, end: string, type?: 'ipv4' | 'ipv6')
+            llvm::Value* start = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* end = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* family = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                start = lastValue;
+            }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                end = lastValue;
+            }
+            if (node->arguments.size() >= 3) {
+                visit(node->arguments[2].get());
+                family = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getVoidTy(), 
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
+                false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_range", ft);
+            createCall(ft, fn.getCallee(), { blockList, start, end, family });
+            lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "addSubnet") {
+            // addSubnet(network: string, prefix: number, type?: 'ipv4' | 'ipv6')
+            llvm::Value* network = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* prefix = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            llvm::Value* family = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                network = lastValue;
+            }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                prefix = lastValue;
+                if (!prefix->getType()->isIntegerTy(64)) {
+                    if (prefix->getType()->isIntegerTy()) {
+                        prefix = builder->CreateSExt(prefix, builder->getInt64Ty());
+                    } else if (prefix->getType()->isDoubleTy()) {
+                        prefix = builder->CreateFPToSI(prefix, builder->getInt64Ty());
+                    }
+                }
+            }
+            if (node->arguments.size() >= 3) {
+                visit(node->arguments[2].get());
+                family = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getVoidTy(), 
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, 
+                false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_subnet", ft);
+            createCall(ft, fn.getCallee(), { blockList, network, prefix, family });
+            lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "check") {
+            // check(address: string, type?: 'ipv4' | 'ipv6') -> boolean
+            llvm::Value* address = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* family = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            
+            if (node->arguments.size() >= 1) {
+                visit(node->arguments[0].get());
+                address = lastValue;
+            }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                family = lastValue;
+            }
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getInt1Ty(), 
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
+                false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_check", ft);
+            lastValue = createCall(ft, fn.getCallee(), { blockList, address, family });
+            return true;
+        }
+    }
 
     if (isNet) {
         if (prop->name == "createServer") {
@@ -139,6 +298,18 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
             return true;
         }
+    }
+
+    // Handle net.SocketAddress
+    bool isSocketAddress = false;
+    if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+        if (classType->name == "SocketAddress") isSocketAddress = true;
+    }
+    
+    if (isSocketAddress) {
+        // SocketAddress instance property access is handled elsewhere
+        return false;
     }
 
     if (isSocket) {

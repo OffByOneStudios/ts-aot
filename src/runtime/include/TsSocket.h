@@ -68,4 +68,23 @@ extern "C" {
     void ts_net_set_default_auto_select_family(bool value);
     int64_t ts_net_get_default_auto_select_family_attempt_timeout();
     void ts_net_set_default_auto_select_family_attempt_timeout(int64_t value);
+    
+    // SocketAddress class
+    void* ts_net_socket_address_create(void* options);
+    void* ts_net_socket_address_parse(void* input);
+    void* ts_net_socket_address_get_address(void* addr);
+    void* ts_net_socket_address_get_family(void* addr);
+    int64_t ts_net_socket_address_get_flowlabel(void* addr);
+    int64_t ts_net_socket_address_get_port(void* addr);
+    
+    // BlockList class
+    void* ts_net_block_list_create();
+    bool ts_net_block_list_is_block_list(void* value);
+    void ts_net_block_list_add_address(void* blockList, void* address, void* type);
+    void ts_net_block_list_add_range(void* blockList, void* start, void* end, void* type);
+    void ts_net_block_list_add_subnet(void* blockList, void* net, int64_t prefix, void* type);
+    bool ts_net_block_list_check(void* blockList, void* address, void* type);
+    void* ts_net_block_list_get_rules(void* blockList);
+    void* ts_net_block_list_to_json(void* blockList);
+    void ts_net_block_list_from_json(void* blockList, void* value);
 }

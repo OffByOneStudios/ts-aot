@@ -83,6 +83,81 @@ void Analyzer::registerNet() {
     setDefaultAutoSelectFamilyAttemptTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
     setDefaultAutoSelectFamilyAttemptTimeoutType->returnType = std::make_shared<Type>(TypeKind::Void);
     netModule->fields["setDefaultAutoSelectFamilyAttemptTimeout"] = setDefaultAutoSelectFamilyAttemptTimeoutType;
+
+    // SocketAddress class
+    auto socketAddressClass = std::make_shared<ClassType>("SocketAddress");
+    socketAddressClass->fields["address"] = std::make_shared<Type>(TypeKind::String);
+    socketAddressClass->fields["family"] = std::make_shared<Type>(TypeKind::String);
+    socketAddressClass->fields["flowlabel"] = std::make_shared<Type>(TypeKind::Int);
+    socketAddressClass->fields["port"] = std::make_shared<Type>(TypeKind::Int);
+    symbols.defineType("SocketAddress", socketAddressClass);
+    
+    // SocketAddress constructor takes optional options object
+    auto socketAddressStatic = std::make_shared<ObjectType>();
+    auto socketAddressConstructor = std::make_shared<FunctionType>();
+    socketAddressConstructor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options (optional)
+    socketAddressConstructor->returnType = socketAddressClass;
+    socketAddressStatic->fields["new"] = socketAddressConstructor;
+    
+    // SocketAddress.parse(input: string) -> SocketAddress | undefined
+    auto socketAddressParseType = std::make_shared<FunctionType>();
+    socketAddressParseType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    socketAddressParseType->returnType = socketAddressClass;
+    socketAddressStatic->fields["parse"] = socketAddressParseType;
+    
+    netModule->fields["SocketAddress"] = socketAddressStatic;
+
+    // BlockList class - use ClassType for constructor return type matching
+    auto blockListClass = std::make_shared<ClassType>();
+    blockListClass->name = "BlockList";
+    
+    // BlockList instance methods
+    // addAddress(address: string, type?: 'ipv4' | 'ipv6') -> void
+    auto addAddressType = std::make_shared<FunctionType>();
+    addAddressType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    addAddressType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // optional type
+    addAddressType->returnType = std::make_shared<Type>(TypeKind::Void);
+    blockListClass->methods["addAddress"] = addAddressType;
+    
+    // addRange(start: string, end: string, type?: 'ipv4' | 'ipv6') -> void
+    auto addRangeType = std::make_shared<FunctionType>();
+    addRangeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    addRangeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    addRangeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // optional type
+    addRangeType->returnType = std::make_shared<Type>(TypeKind::Void);
+    blockListClass->methods["addRange"] = addRangeType;
+    
+    // addSubnet(network: string, prefix: number, type?: 'ipv4' | 'ipv6') -> void
+    auto addSubnetType = std::make_shared<FunctionType>();
+    addSubnetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    addSubnetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // prefix is an integer
+    addSubnetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // optional type
+    addSubnetType->returnType = std::make_shared<Type>(TypeKind::Void);
+    blockListClass->methods["addSubnet"] = addSubnetType;
+    
+    // check(address: string, type?: 'ipv4' | 'ipv6') -> boolean
+    auto checkType = std::make_shared<FunctionType>();
+    checkType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    checkType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // optional type
+    checkType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    blockListClass->methods["check"] = checkType;
+    
+    // rules -> string[]
+    blockListClass->fields["rules"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    
+    // BlockList static methods
+    auto blockListStatic = std::make_shared<ObjectType>();
+    auto blockListConstructor = std::make_shared<FunctionType>();
+    blockListConstructor->returnType = blockListClass;
+    blockListStatic->fields["new"] = blockListConstructor;
+    
+    // BlockList.isBlockList(value: any) -> boolean
+    auto isBlockListType = std::make_shared<FunctionType>();
+    isBlockListType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    isBlockListType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    blockListStatic->fields["isBlockList"] = isBlockListType;
+    
+    netModule->fields["BlockList"] = blockListStatic;
     
     symbols.define("net", netModule);
 }
