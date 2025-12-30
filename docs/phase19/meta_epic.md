@@ -40,8 +40,8 @@ Cosmetic issue - the values are correct internally (sum works correctly).
 - [x] `export * from './...'` barrel exports
 - [x] Array push/pop/shift/unshift methods
 - [x] JSON imports (compile-time embedding)
-- [ ] Class exports/imports across modules
-- [ ] Generic function exports/imports
+- [x] Class exports/imports across modules
+- [x] Generic function exports/imports (identity, first, map)
 
 ### Epic 105: Utility Libraries
 - [ ] **Lodash:** Compile the full `lodash` library. Benchmark vs Node.
