@@ -1,0 +1,814 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "groupBy",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        },
+        {
+          "name": "K",
+          "constraint": null
+        }
+      ],
+      "returnType": "Map<K, T[]>",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 16,
+            "column": 31
+          },
+          "type": "T[]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 16,
+          "column": 31
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "iteratee",
+            "line": 16,
+            "column": 43
+          },
+          "type": "(value: T) => K",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 16,
+          "column": 43
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 17,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Map",
+              "line": 17,
+              "column": 24
+            },
+            "arguments": [],
+            "typeArguments": [
+              "K",
+              "T[]"
+            ],
+            "line": 17,
+            "column": 20
+          },
+          "line": 17,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 18,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 18,
+            "column": 13
+          },
+          "line": 18,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "len",
+            "line": 19,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "array",
+              "line": 19,
+              "column": 17
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 19,
+            "column": 17
+          },
+          "line": 19,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 21,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "len",
+              "line": 21,
+              "column": 16
+            },
+            "line": 21,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "value",
+                  "line": 22,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "array",
+                    "line": 22,
+                    "column": 23
+                  },
+                  "argumentExpression": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 22,
+                    "column": 29
+                  },
+                  "isOptional": false,
+                  "line": 22,
+                  "column": 23
+                },
+                "line": 22,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "key",
+                  "line": 23,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "iteratee",
+                    "line": 23,
+                    "column": 21
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "value",
+                      "line": 23,
+                      "column": 30
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 23,
+                  "column": 21
+                },
+                "line": 23,
+                "column": 9
+              },
+              {
+                "kind": "IfStatement",
+                "condition": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "result",
+                      "line": 25,
+                      "column": 13
+                    },
+                    "name": "has",
+                    "isOptional": false,
+                    "line": 25,
+                    "column": 13
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "key",
+                      "line": 25,
+                      "column": 24
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 25,
+                  "column": 13
+                },
+                "thenStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "existingGroup",
+                        "line": 28,
+                        "column": 19
+                      },
+                      "isExported": false,
+                      "type": "T[]",
+                      "initializer": {
+                        "kind": "AsExpression",
+                        "expression": {
+                          "kind": "CallExpression",
+                          "callee": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "result",
+                              "line": 28,
+                              "column": 40
+                            },
+                            "name": "get",
+                            "isOptional": false,
+                            "line": 28,
+                            "column": 40
+                          },
+                          "arguments": [
+                            {
+                              "kind": "Identifier",
+                              "name": "key",
+                              "line": 28,
+                              "column": 51
+                            }
+                          ],
+                          "typeArguments": [],
+                          "isOptional": false,
+                          "line": 28,
+                          "column": 40
+                        },
+                        "type": "T[]",
+                        "line": 28,
+                        "column": 40
+                      },
+                      "line": 28,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "existingGroup",
+                            "line": 29,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 29,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "value",
+                            "line": 29,
+                            "column": 32
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 29,
+                        "column": 13
+                      },
+                      "line": 29,
+                      "column": 13
+                    }
+                  ],
+                  "line": 25,
+                  "column": 30
+                },
+                "elseStatement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "VariableDeclaration",
+                      "name": {
+                        "kind": "Identifier",
+                        "name": "newGroup",
+                        "line": 31,
+                        "column": 19
+                      },
+                      "isExported": false,
+                      "type": "T[]",
+                      "initializer": {
+                        "kind": "ArrayLiteralExpression",
+                        "elements": [],
+                        "line": 31,
+                        "column": 35
+                      },
+                      "line": 31,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "newGroup",
+                            "line": 32,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 32,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "value",
+                            "line": 32,
+                            "column": 27
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 32,
+                        "column": 13
+                      },
+                      "line": 32,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 33,
+                            "column": 13
+                          },
+                          "name": "set",
+                          "isOptional": false,
+                          "line": 33,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "Identifier",
+                            "name": "key",
+                            "line": 33,
+                            "column": 24
+                          },
+                          {
+                            "kind": "Identifier",
+                            "name": "newGroup",
+                            "line": 33,
+                            "column": 29
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 33,
+                        "column": 13
+                      },
+                      "line": 33,
+                      "column": 13
+                    }
+                  ],
+                  "line": 30,
+                  "column": 16
+                },
+                "line": 25,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 36,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 36,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 36,
+                      "column": 17
+                    },
+                    "line": 36,
+                    "column": 13
+                  },
+                  "line": 36,
+                  "column": 9
+                },
+                "line": 36,
+                "column": 9
+              }
+            ],
+            "line": 21,
+            "column": 21
+          },
+          "line": 21,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 39,
+            "column": 12
+          },
+          "line": 39,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 16,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "keyBy",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        },
+        {
+          "name": "K",
+          "constraint": null
+        }
+      ],
+      "returnType": "Map<K, T>",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 54,
+            "column": 29
+          },
+          "type": "T[]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 54,
+          "column": 29
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "iteratee",
+            "line": 54,
+            "column": 41
+          },
+          "type": "(value: T) => K",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 54,
+          "column": 41
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 55,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NewExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "Map",
+              "line": 55,
+              "column": 24
+            },
+            "arguments": [],
+            "typeArguments": [
+              "K",
+              "T"
+            ],
+            "line": 55,
+            "column": 20
+          },
+          "line": 55,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 56,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 56,
+            "column": 13
+          },
+          "line": 56,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "len",
+            "line": 57,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "array",
+              "line": 57,
+              "column": 17
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 57,
+            "column": 17
+          },
+          "line": 57,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 59,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "len",
+              "line": 59,
+              "column": 16
+            },
+            "line": 59,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "value",
+                  "line": 60,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "array",
+                    "line": 60,
+                    "column": 23
+                  },
+                  "argumentExpression": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 60,
+                    "column": 29
+                  },
+                  "isOptional": false,
+                  "line": 60,
+                  "column": 23
+                },
+                "line": 60,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "key",
+                  "line": 61,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "Identifier",
+                    "name": "iteratee",
+                    "line": 61,
+                    "column": 21
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "value",
+                      "line": 61,
+                      "column": 30
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 61,
+                  "column": 21
+                },
+                "line": 61,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "result",
+                      "line": 62,
+                      "column": 9
+                    },
+                    "name": "set",
+                    "isOptional": false,
+                    "line": 62,
+                    "column": 9
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "key",
+                      "line": 62,
+                      "column": 20
+                    },
+                    {
+                      "kind": "Identifier",
+                      "name": "value",
+                      "line": 62,
+                      "column": 25
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 62,
+                  "column": 9
+                },
+                "line": 62,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 63,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 63,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 63,
+                      "column": 17
+                    },
+                    "line": 63,
+                    "column": 13
+                  },
+                  "line": 63,
+                  "column": 9
+                },
+                "line": 63,
+                "column": 9
+              }
+            ],
+            "line": 59,
+            "column": 21
+          },
+          "line": 59,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 66,
+            "column": 12
+          },
+          "line": 66,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 54,
+      "column": 1
+    }
+  ]
+}

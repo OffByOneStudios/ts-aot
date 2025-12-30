@@ -1356,15 +1356,43 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              return true;
          }
          
+         // Get the array's element type to determine if we should use specialized storage
+         auto arrType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType);
+         std::shared_ptr<Type> elemType = arrType->elementType;
+         
          visit(node->arguments[0].get());
          llvm::Value* val = lastValue;
          std::shared_ptr<Type> argType = node->arguments[0]->inferredType;
-         llvm::Value* boxedVal = boxValue(val, argType);
+         
+         // For specialized arrays (int[], double[]), store raw values without boxing
+         // This matches how array literals handle specialized storage
+         llvm::Value* pushVal;
+         if (elemType->kind == TypeKind::Int) {
+             // For int arrays, cast the value to i64 then to ptr (raw storage)
+             if (val->getType()->isPointerTy()) {
+                 // Value is boxed, unbox it first
+                 val = unboxValue(val, elemType);
+             }
+             if (!val->getType()->isIntegerTy(64)) {
+                 val = builder->CreateIntCast(val, builder->getInt64Ty(), true);
+             }
+             pushVal = builder->CreateIntToPtr(val, builder->getPtrTy());
+         } else if (elemType->kind == TypeKind::Double) {
+             // For double arrays, bitcast double to i64 then to ptr
+             if (val->getType()->isPointerTy()) {
+                 val = unboxValue(val, elemType);
+             }
+             llvm::Value* asInt = builder->CreateBitCast(val, builder->getInt64Ty());
+             pushVal = builder->CreateIntToPtr(asInt, builder->getPtrTy());
+         } else {
+             // For all other types (Any, Class, String, etc.), box the value
+             pushVal = boxValue(val, argType);
+         }
          
          llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                  { builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
-         createCall(pushFt, pushFn.getCallee(), { arrObj, boxedVal });
+         createCall(pushFt, pushFn.getCallee(), { arrObj, pushVal });
          lastValue = nullptr;
          return true;
     } else if (prop->name == "pop" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
