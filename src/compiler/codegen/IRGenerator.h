@@ -178,8 +178,18 @@ private:
     };
     void collectVariables(ast::Node* node, std::vector<VariableInfo>& vars);
 
+    struct CapturedVariable {
+        std::string name;
+        llvm::Value* value;               // The LLVM value (pointer to local alloca)
+        std::shared_ptr<Type> type;       // TypeScript type for boxing
+    };
+    void collectFreeVariables(ast::Node* node, 
+                              const std::set<std::string>& localScope,
+                              std::vector<CapturedVariable>& captured);
+
     std::map<std::string, llvm::Value*> namedValues;
     std::map<std::string, llvm::Type*> forcedVariableTypes;
+    std::map<std::string, std::shared_ptr<Type>> variableTypes;  // TS types for local variables
     std::map<ast::Node*, llvm::Value*> valueOverrides;
     llvm::Value* lastValue = nullptr;
     std::shared_ptr<Type> currentClass;

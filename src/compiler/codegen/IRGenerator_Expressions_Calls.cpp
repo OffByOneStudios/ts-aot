@@ -222,7 +222,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
     }
 
-    // User function call
+    // User function call - local function variables may be boxed closures
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (namedValues.count(id->name)) {
             llvm::Value* val = namedValues[id->name];
@@ -234,37 +234,28 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             }
 
             if (varType && varType->isPointerTy()) {
-                llvm::Value* funcPtr = builder->CreateLoad(varType, val, id->name.c_str());
+                llvm::Value* boxedFunc = builder->CreateLoad(varType, val, id->name.c_str());
                 
-                // CFI Check
-                emitCFICheck(funcPtr, "TsFunction");
-
+                // Use ts_call_N for function variables since they may be boxed closures
                 std::vector<llvm::Value*> args;
-                std::vector<llvm::Type*> argTypes;
+                args.push_back(boxedFunc);
                 
-                // Add context first
-                if (currentAsyncContext) {
-                    args.push_back(currentAsyncContext);
-                } else {
-                    args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
-                }
-                argTypes.push_back(builder->getPtrTy());
-
+                std::vector<llvm::Type*> paramTypes;
+                paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+                
                 for (auto& arg : node->arguments) {
                     visit(arg.get());
-                    llvm::Value* v = lastValue;
-                    
-                    // Arrow functions always take TsValue* (ptr)
-                    v = boxValue(v, arg->inferredType);
-                    
+                    llvm::Value* v = boxValue(lastValue, arg->inferredType);
                     args.push_back(v);
-                    argTypes.push_back(v->getType());
+                    paramTypes.push_back(builder->getPtrTy());
                 }
                 
-                llvm::Type* retType = builder->getPtrTy(); // Arrow functions always return TsValue* (ptr)
+                std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
                 
-                llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
-                lastValue = createCall(ft, funcPtr, args);
+                lastValue = createCall(ft, fn.getCallee(), args);
+                lastValue = unboxValue(lastValue, node->inferredType);
                 return;
             }
         }

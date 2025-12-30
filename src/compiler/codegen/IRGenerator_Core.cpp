@@ -512,6 +512,11 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         }
         builder->CreateStore(value, varPtr);
 
+        // Store the TS type for this variable (used for closure capture)
+        if (type) {
+            variableTypes[id->name] = type;
+        }
+
         if (concreteTypes.count(value)) {
             concreteTypes[varPtr] = concreteTypes[value];
         } else if (type && type->kind == TypeKind::Class) {
@@ -975,6 +980,284 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 
         collectVariables(forIn->initializer.get(), vars);
         collectVariables(forIn->body.get(), vars);
+    }
+}
+
+// Helper class to collect free variables (identifiers referenced but not defined locally)
+class FreeVariableCollector : public ast::Visitor {
+public:
+    std::set<std::string> localScope;       // Variables defined in the current scope
+    std::set<std::string> referencedNames;  // All identifiers referenced
+    
+    FreeVariableCollector(const std::set<std::string>& outerLocalScope) 
+        : localScope(outerLocalScope) {}
+    
+    // Required pure virtual methods - empty implementations for unused ones
+    void visitProgram(ast::Program* node) override {}
+    void visitFunctionDeclaration(ast::FunctionDeclaration* node) override {}
+    void visitBreakStatement(ast::BreakStatement* node) override {}
+    void visitContinueStatement(ast::ContinueStatement* node) override {}
+    void visitSwitchStatement(ast::SwitchStatement* node) override {}
+    void visitTryStatement(ast::TryStatement* node) override {}
+    void visitThrowStatement(ast::ThrowStatement* node) override {}
+    void visitImportDeclaration(ast::ImportDeclaration* node) override {}
+    void visitExportDeclaration(ast::ExportDeclaration* node) override {}
+    void visitExportAssignment(ast::ExportAssignment* node) override {}
+    void visitComputedPropertyName(ast::ComputedPropertyName* node) override {}
+    void visitMethodDefinition(ast::MethodDefinition* node) override {}
+    void visitStaticBlock(ast::StaticBlock* node) override {}
+    void visitSuperExpression(ast::SuperExpression* node) override {}
+    void visitStringLiteral(ast::StringLiteral* node) override {}
+    void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) override {}
+    void visitNumericLiteral(ast::NumericLiteral* node) override {}
+    void visitBigIntLiteral(ast::BigIntLiteral* node) override {}
+    void visitBooleanLiteral(ast::BooleanLiteral* node) override {}
+    void visitNullLiteral(ast::NullLiteral* node) override {}
+    void visitUndefinedLiteral(ast::UndefinedLiteral* node) override {}
+    void visitAwaitExpression(ast::AwaitExpression* node) override { if (node->expression) node->expression->accept(this); }
+    void visitYieldExpression(ast::YieldExpression* node) override { if (node->expression) node->expression->accept(this); }
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) override {}
+    void visitAsExpression(ast::AsExpression* node) override { if (node->expression) node->expression->accept(this); }
+    void visitClassDeclaration(ast::ClassDeclaration* node) override {}
+    void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override {}
+    void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override {}
+    void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override {}
+    void visitBindingElement(ast::BindingElement* node) override {}
+    void visitOmittedExpression(ast::OmittedExpression* node) override {}
+    void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) override {}
+    void visitEnumDeclaration(ast::EnumDeclaration* node) override {}
+    
+    void visitIdentifier(ast::Identifier* node) override {
+        // Record this identifier as referenced
+        if (!localScope.count(node->name)) {
+            referencedNames.insert(node->name);
+        }
+    }
+    
+    void visitVariableDeclaration(ast::VariableDeclaration* node) override {
+        // First, process the initializer (before adding to scope)
+        if (node->initializer) {
+            node->initializer->accept(this);
+        }
+        // Then add the variable to local scope
+        if (auto id = dynamic_cast<ast::Identifier*>(node->name.get())) {
+            localScope.insert(id->name);
+        } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
+            for (auto& elem : obp->elements) {
+                if (auto bindingElem = dynamic_cast<ast::BindingElement*>(elem.get())) {
+                    if (auto id = dynamic_cast<ast::Identifier*>(bindingElem->name.get())) {
+                        localScope.insert(id->name);
+                    }
+                }
+            }
+        } else if (auto abp = dynamic_cast<ast::ArrayBindingPattern*>(node->name.get())) {
+            for (auto& elem : abp->elements) {
+                if (!elem) continue;
+                if (auto bindingElem = dynamic_cast<ast::BindingElement*>(elem.get())) {
+                    if (auto id = dynamic_cast<ast::Identifier*>(bindingElem->name.get())) {
+                        localScope.insert(id->name);
+                    }
+                }
+            }
+        }
+    }
+    
+    void visitBlockStatement(ast::BlockStatement* node) override {
+        for (auto& stmt : node->statements) {
+            stmt->accept(this);
+        }
+    }
+    
+    void visitExpressionStatement(ast::ExpressionStatement* node) override {
+        node->expression->accept(this);
+    }
+    
+    void visitReturnStatement(ast::ReturnStatement* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    
+    void visitBinaryExpression(ast::BinaryExpression* node) override {
+        node->left->accept(this);
+        node->right->accept(this);
+    }
+    
+    void visitConditionalExpression(ast::ConditionalExpression* node) override {
+        node->condition->accept(this);
+        node->whenTrue->accept(this);
+        node->whenFalse->accept(this);
+    }
+    
+    void visitAssignmentExpression(ast::AssignmentExpression* node) override {
+        node->left->accept(this);
+        node->right->accept(this);
+    }
+    
+    void visitCallExpression(ast::CallExpression* node) override {
+        node->callee->accept(this);
+        for (auto& arg : node->arguments) {
+            arg->accept(this);
+        }
+    }
+    
+    void visitPropertyAccessExpression(ast::PropertyAccessExpression* node) override {
+        node->expression->accept(this);
+        // Don't visit node->name - it's a property, not a variable
+    }
+    
+    void visitElementAccessExpression(ast::ElementAccessExpression* node) override {
+        node->expression->accept(this);
+        node->argumentExpression->accept(this);
+    }
+    
+    void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) override {
+        for (auto& elem : node->elements) {
+            elem->accept(this);
+        }
+    }
+    
+    void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) override {
+        for (auto& prop : node->properties) {
+            prop->accept(this);
+        }
+    }
+    
+    void visitPropertyAssignment(ast::PropertyAssignment* node) override {
+        node->initializer->accept(this);
+    }
+    
+    void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override {
+        // The name IS a variable reference
+        if (!localScope.count(node->name)) {
+            referencedNames.insert(node->name);
+        }
+    }
+    
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override {
+        node->operand->accept(this);
+    }
+    
+    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override {
+        node->operand->accept(this);
+    }
+    
+    void visitIfStatement(ast::IfStatement* node) override {
+        node->condition->accept(this);
+        node->thenStatement->accept(this);
+        if (node->elseStatement) node->elseStatement->accept(this);
+    }
+    
+    void visitWhileStatement(ast::WhileStatement* node) override {
+        node->condition->accept(this);
+        node->body->accept(this);
+    }
+    
+    void visitForStatement(ast::ForStatement* node) override {
+        if (node->initializer) node->initializer->accept(this);
+        if (node->condition) node->condition->accept(this);
+        if (node->incrementor) node->incrementor->accept(this);
+        node->body->accept(this);
+    }
+    
+    void visitForOfStatement(ast::ForOfStatement* node) override {
+        node->expression->accept(this);
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    
+    void visitForInStatement(ast::ForInStatement* node) override {
+        node->expression->accept(this);
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    
+    void visitSpreadElement(ast::SpreadElement* node) override {
+        node->expression->accept(this);
+    }
+    
+    void visitTemplateExpression(ast::TemplateExpression* node) override {
+        for (auto& span : node->spans) {
+            span.expression->accept(this);
+        }
+    }
+    
+    void visitNewExpression(ast::NewExpression* node) override {
+        node->expression->accept(this);
+        for (auto& arg : node->arguments) {
+            arg->accept(this);
+        }
+    }
+    
+    // Nested arrow functions create a new scope - don't descend
+    void visitArrowFunction(ast::ArrowFunction* node) override {
+        // We should still collect free variables from nested arrow functions
+        // but they're in a new scope, so we don't add their parameters
+        std::set<std::string> nestedScope = localScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                nestedScope.insert(id->name);
+            }
+        }
+        FreeVariableCollector nestedCollector(nestedScope);
+        if (node->body) {
+            node->body->accept(&nestedCollector);
+        }
+        // Merge referenced names (excluding nested locals)
+        for (const auto& name : nestedCollector.referencedNames) {
+            if (!localScope.count(name)) {
+                referencedNames.insert(name);
+            }
+        }
+    }
+    
+    void visitFunctionExpression(ast::FunctionExpression* node) override {
+        // Similar to arrow function
+        std::set<std::string> nestedScope = localScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                nestedScope.insert(id->name);
+            }
+        }
+        FreeVariableCollector nestedCollector(nestedScope);
+        for (auto& stmt : node->body) {
+            stmt->accept(&nestedCollector);
+        }
+        for (const auto& name : nestedCollector.referencedNames) {
+            if (!localScope.count(name)) {
+                referencedNames.insert(name);
+            }
+        }
+    }
+};
+
+void IRGenerator::collectFreeVariables(ast::Node* node, 
+                                       const std::set<std::string>& localScope,
+                                       std::vector<CapturedVariable>& captured) {
+    FreeVariableCollector collector(localScope);
+    node->accept(&collector);
+    
+    // Filter: only include variables that exist in namedValues (outer scope)
+    for (const auto& name : collector.referencedNames) {
+        auto it = namedValues.find(name);
+        if (it != namedValues.end()) {
+            // Found in outer scope - this is a captured variable
+            CapturedVariable cv;
+            cv.name = name;
+            cv.value = it->second;
+            // Look up the TS type from variableTypes (populated by generateDestructuring)
+            auto typeIt = variableTypes.find(name);
+            if (typeIt != variableTypes.end()) {
+                cv.type = typeIt->second;
+            } else {
+                // Fallback: try typeEnvironment (for type parameters)
+                auto envIt = typeEnvironment.find(name);
+                if (envIt != typeEnvironment.end()) {
+                    cv.type = envIt->second;
+                } else {
+                    cv.type = std::make_shared<Type>(TypeKind::Any);
+                }
+            }
+            captured.push_back(cv);
+        }
     }
 }
 
