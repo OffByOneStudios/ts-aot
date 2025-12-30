@@ -1,0 +1,921 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "flattenDepth",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T[]",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 8,
+            "column": 33
+          },
+          "type": "T[][]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 8,
+          "column": 33
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "depth",
+            "line": 8,
+            "column": 47
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 8,
+          "column": 47
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<=",
+            "left": {
+              "kind": "Identifier",
+              "name": "depth",
+              "line": 9,
+              "column": 9
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 0,
+              "line": 9,
+              "column": 18
+            },
+            "line": 9,
+            "column": 9
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "result",
+                  "line": 11,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "T[]",
+                "initializer": {
+                  "kind": "ArrayLiteralExpression",
+                  "elements": [],
+                  "line": 11,
+                  "column": 29
+                },
+                "line": 11,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "i",
+                  "line": 12,
+                  "column": 13
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 12,
+                  "column": 17
+                },
+                "line": 12,
+                "column": 9
+              },
+              {
+                "kind": "WhileStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 13,
+                    "column": 16
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "array",
+                      "line": 13,
+                      "column": 20
+                    },
+                    "name": "length",
+                    "isOptional": false,
+                    "line": 13,
+                    "column": 20
+                  },
+                  "line": 13,
+                  "column": 16
+                },
+                "statement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 14,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 14,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "AsExpression",
+                            "expression": {
+                              "kind": "AsExpression",
+                              "expression": {
+                                "kind": "ElementAccessExpression",
+                                "expression": {
+                                  "kind": "Identifier",
+                                  "name": "array",
+                                  "line": 14,
+                                  "column": 25
+                                },
+                                "argumentExpression": {
+                                  "kind": "Identifier",
+                                  "name": "i",
+                                  "line": 14,
+                                  "column": 31
+                                },
+                                "isOptional": false,
+                                "line": 14,
+                                "column": 25
+                              },
+                              "type": "unknown",
+                              "line": 14,
+                              "column": 25
+                            },
+                            "type": "T",
+                            "line": 14,
+                            "column": 25
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 14,
+                        "column": 13
+                      },
+                      "line": 14,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "i",
+                          "line": 15,
+                          "column": 13
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "i",
+                            "line": 15,
+                            "column": 17
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 1,
+                            "line": 15,
+                            "column": 21
+                          },
+                          "line": 15,
+                          "column": 17
+                        },
+                        "line": 15,
+                        "column": 13
+                      },
+                      "line": 15,
+                      "column": 13
+                    }
+                  ],
+                  "line": 13,
+                  "column": 34
+                },
+                "line": 13,
+                "column": 9
+              },
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "result",
+                  "line": 17,
+                  "column": 16
+                },
+                "line": 17,
+                "column": 9
+              }
+            ],
+            "line": 9,
+            "column": 21
+          },
+          "elseStatement": null,
+          "line": 9,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 21,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "T[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [],
+            "line": 21,
+            "column": 25
+          },
+          "line": 21,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 22,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 22,
+            "column": 13
+          },
+          "line": 22,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 23,
+              "column": 12
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "array",
+                "line": 23,
+                "column": 16
+              },
+              "name": "length",
+              "isOptional": false,
+              "line": 23,
+              "column": 16
+            },
+            "line": 23,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "inner",
+                  "line": 24,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "array",
+                    "line": 24,
+                    "column": 23
+                  },
+                  "argumentExpression": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 24,
+                    "column": 29
+                  },
+                  "isOptional": false,
+                  "line": 24,
+                  "column": 23
+                },
+                "line": 24,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "j",
+                  "line": 25,
+                  "column": 13
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 25,
+                  "column": 17
+                },
+                "line": 25,
+                "column": 9
+              },
+              {
+                "kind": "WhileStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "j",
+                    "line": 26,
+                    "column": 16
+                  },
+                  "right": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "inner",
+                      "line": 26,
+                      "column": 20
+                    },
+                    "name": "length",
+                    "isOptional": false,
+                    "line": 26,
+                    "column": 20
+                  },
+                  "line": 26,
+                  "column": 16
+                },
+                "statement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 27,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 27,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "ElementAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "inner",
+                              "line": 27,
+                              "column": 25
+                            },
+                            "argumentExpression": {
+                              "kind": "Identifier",
+                              "name": "j",
+                              "line": 27,
+                              "column": 31
+                            },
+                            "isOptional": false,
+                            "line": 27,
+                            "column": 25
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 27,
+                        "column": 13
+                      },
+                      "line": 27,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "j",
+                          "line": 28,
+                          "column": 13
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "j",
+                            "line": 28,
+                            "column": 17
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 1,
+                            "line": 28,
+                            "column": 21
+                          },
+                          "line": 28,
+                          "column": 17
+                        },
+                        "line": 28,
+                        "column": 13
+                      },
+                      "line": 28,
+                      "column": 13
+                    }
+                  ],
+                  "line": 26,
+                  "column": 34
+                },
+                "line": 26,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 30,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 30,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 30,
+                      "column": 17
+                    },
+                    "line": 30,
+                    "column": 13
+                  },
+                  "line": 30,
+                  "column": 9
+                },
+                "line": 30,
+                "column": 9
+              }
+            ],
+            "line": 23,
+            "column": 30
+          },
+          "line": 23,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 33,
+            "column": 12
+          },
+          "line": 33,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 8,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "flattenDeep",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T[]",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 46,
+            "column": 32
+          },
+          "type": "T[][]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 46,
+          "column": 32
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 47,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "T[]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [],
+            "line": 47,
+            "column": 25
+          },
+          "line": 47,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 48,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 48,
+            "column": 13
+          },
+          "line": 48,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "len",
+            "line": 49,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "array",
+              "line": 49,
+              "column": 17
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 49,
+            "column": 17
+          },
+          "line": 49,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 51,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "len",
+              "line": 51,
+              "column": 16
+            },
+            "line": 51,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "inner",
+                  "line": 52,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "ElementAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "array",
+                    "line": 52,
+                    "column": 23
+                  },
+                  "argumentExpression": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 52,
+                    "column": 29
+                  },
+                  "isOptional": false,
+                  "line": 52,
+                  "column": 23
+                },
+                "line": 52,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "j",
+                  "line": 53,
+                  "column": 13
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 53,
+                  "column": 17
+                },
+                "line": 53,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "innerLen",
+                  "line": 54,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "inner",
+                    "line": 54,
+                    "column": 26
+                  },
+                  "name": "length",
+                  "isOptional": false,
+                  "line": 54,
+                  "column": 26
+                },
+                "line": 54,
+                "column": 9
+              },
+              {
+                "kind": "WhileStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "<",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "j",
+                    "line": 55,
+                    "column": 16
+                  },
+                  "right": {
+                    "kind": "Identifier",
+                    "name": "innerLen",
+                    "line": 55,
+                    "column": 20
+                  },
+                  "line": 55,
+                  "column": 16
+                },
+                "statement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 56,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 56,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "ElementAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "inner",
+                              "line": 56,
+                              "column": 25
+                            },
+                            "argumentExpression": {
+                              "kind": "Identifier",
+                              "name": "j",
+                              "line": 56,
+                              "column": 31
+                            },
+                            "isOptional": false,
+                            "line": 56,
+                            "column": 25
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 56,
+                        "column": 13
+                      },
+                      "line": 56,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "j",
+                          "line": 57,
+                          "column": 13
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "j",
+                            "line": 57,
+                            "column": 17
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 1,
+                            "line": 57,
+                            "column": 21
+                          },
+                          "line": 57,
+                          "column": 17
+                        },
+                        "line": 57,
+                        "column": 13
+                      },
+                      "line": 57,
+                      "column": 13
+                    }
+                  ],
+                  "line": 55,
+                  "column": 30
+                },
+                "line": 55,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 59,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 59,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 59,
+                      "column": 17
+                    },
+                    "line": 59,
+                    "column": 13
+                  },
+                  "line": 59,
+                  "column": 9
+                },
+                "line": 59,
+                "column": 9
+              }
+            ],
+            "line": 51,
+            "column": 21
+          },
+          "line": 51,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 62,
+            "column": 12
+          },
+          "line": 62,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 46,
+      "column": 1
+    }
+  ]
+}

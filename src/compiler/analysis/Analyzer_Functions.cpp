@@ -320,7 +320,23 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             } else if (restTypes.size() == 1) {
                 restType = std::make_shared<ArrayType>(restTypes[0]);
             } else {
-                restType = std::make_shared<ArrayType>(std::make_shared<UnionType>(restTypes));
+                // Check if all rest types are the same (homogeneous)
+                bool homogeneous = true;
+                std::string firstTypeStr = restTypes[0]->toString();
+                for (size_t k = 1; k < restTypes.size(); ++k) {
+                    if (restTypes[k]->toString() != firstTypeStr) {
+                        homogeneous = false;
+                        break;
+                    }
+                }
+                
+                if (homogeneous) {
+                    // All same type -> ArrayType of that element type
+                    restType = std::make_shared<ArrayType>(restTypes[0]);
+                } else {
+                    // Mixed types -> ArrayType of union
+                    restType = std::make_shared<ArrayType>(std::make_shared<UnionType>(restTypes));
+                }
             }
             SPDLOG_INFO("Inferred rest parameter type: {}", restType->toString());
             declareBindingPattern(param->name.get(), restType);

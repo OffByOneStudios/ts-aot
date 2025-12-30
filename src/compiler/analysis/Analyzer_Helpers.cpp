@@ -124,6 +124,20 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         wrapped->typeArguments = { innerType };
         return wrapped;
     }
+    
+    // Handle Set<T> - Note: element type is not tracked currently
+    if (typeName.starts_with("Set<") && typeName.ends_with(">")) {
+        // For now, just return a basic SetType
+        // TODO: Create a proper SetType struct with elementType
+        return std::make_shared<Type>(TypeKind::SetType);
+    }
+    
+    // Handle Map<K, V> - Note: key/value types are not tracked currently  
+    if (typeName.starts_with("Map<") && typeName.ends_with(">")) {
+        // For now, just return a basic Map type
+        // TODO: Create a proper MapType struct with keyType/valueType
+        return std::make_shared<Type>(TypeKind::Map);
+    }
 
     auto type = symbols.lookupType(typeName);
     if (type) return type;

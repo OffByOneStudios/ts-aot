@@ -232,11 +232,11 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Type* llvmElemType = nullptr;
 
         if (elemType->kind == TypeKind::Double) {
-            // isSpecialized = true;
-            // llvmElemType = llvm::Type::getDoubleTy(*context);
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getDoubleTy(*context);
         } else if (elemType->kind == TypeKind::Int) {
-            // isSpecialized = true;
-            // llvmElemType = llvm::Type::getInt64Ty(*context);
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getInt64Ty(*context);
         } else if (elemType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(elemType);
             if (cls->isStruct) {
@@ -398,6 +398,8 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
             visit(node->expression.get());
             llvm::Value* obj = lastValue;
+            // Unbox if the value is boxed (e.g., came from array element access)
+            obj = unboxValue(obj, node->expression->inferredType);
             emitNullCheckForExpression(node->expression.get(), obj);
             
             std::string fnName = (node->expression->inferredType->kind == TypeKind::Map) ? "ts_map_size" : "ts_set_size";

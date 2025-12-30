@@ -33,7 +33,6 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
-            std::printf("Analyzer: inferred type kind %d for initializer\n", (int)lastType->kind);
             if (node->type.empty()) {
                 type = lastType;
                 // Update the type in the symbol table
@@ -46,6 +45,10 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                     declareBindingPattern(node->name.get(), type);
                 }
             } else {
+                // Type annotation is present - use the declared type for the initializer
+                // This is important for empty arrays like `const arr: Set<T>[] = []`
+                node->initializer->inferredType = type;
+                
                 // Check assignability
                 if (!lastType->isAssignableTo(type)) {
                     reportError(fmt::format("Type {} is not assignable to type {}", lastType->toString(), type->toString()));
