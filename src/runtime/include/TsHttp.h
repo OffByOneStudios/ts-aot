@@ -31,6 +31,8 @@
 #include <uv.h>
 #include <llhttp.h>
 #include <vector>
+#include <map>
+#include <string>
 
 class TsSocket;
 
@@ -127,6 +129,52 @@ protected:
     TsClientRequest(TsValue* options, void* callback, bool is_https = false);
 };
 
+// HTTP Agent for connection pooling
+class TsHttpAgent : public TsEventEmitter {
+public:
+    static constexpr uint32_t MAGIC = 0x41475448; // "AGTH"
+    static TsHttpAgent* Create(TsValue* options);
+
+    // Agent options
+    bool keepAlive = false;         // Keep sockets around for reuse
+    int keepAliveMsecs = 1000;      // Initial delay for TCP keepalive
+    int maxSockets = 256;           // Max concurrent sockets per origin (Infinity in Node.js)
+    int maxTotalSockets = 256;      // Max total sockets
+    int maxFreeSockets = 256;       // Max sockets to leave open in free state
+    int timeout = 0;                // Socket timeout in ms (0 = no timeout)
+    std::string scheduling = "lifo"; // "lifo" or "fifo"
+
+    // Socket pools - keyed by "host:port"
+    std::map<std::string, std::vector<TsSocket*>> freeSockets;
+    std::map<std::string, std::vector<TsSocket*>> sockets;
+    std::map<std::string, std::vector<TsClientRequest*>> requests; // pending requests
+
+    // Methods
+    TsSocket* GetFreeSocket(const std::string& key);
+    void AddSocket(const std::string& key, TsSocket* socket);
+    void RemoveSocket(const std::string& key, TsSocket* socket);
+    void ReuseSocket(const std::string& key, TsSocket* socket);
+    void Destroy();
+    std::string GetName(const std::string& host, int port, const std::string& localAddress = "");
+
+protected:
+    TsHttpAgent(TsValue* options);
+};
+
+// HTTPS Agent (extends HTTP Agent)
+class TsHttpsAgent : public TsHttpAgent {
+public:
+    static constexpr uint32_t MAGIC = 0x41475453; // "AGTS"
+    static TsHttpsAgent* Create(TsValue* options);
+
+protected:
+    TsHttpsAgent(TsValue* options);
+};
+
+// Global agent instances
+extern TsHttpAgent* globalHttpAgent;
+extern TsHttpsAgent* globalHttpsAgent;
+
 extern "C" {
     void* ts_http_create_server(TsValue* options, void* callback);
     void* ts_https_create_server(TsValue* options, void* callback);
@@ -146,4 +194,13 @@ extern "C" {
     int64_t ts_http_get_max_header_size();
     void ts_http_validate_header_name(void* name);
     void ts_http_validate_header_value(void* name, void* value);
+    
+    // Agent API
+    void* ts_http_agent_create(TsValue* options);
+    void* ts_https_agent_create(TsValue* options);
+    void* ts_http_get_global_agent();
+    void* ts_https_get_global_agent();
+    void ts_http_agent_destroy(void* agent);
+    int64_t ts_http_get_max_idle_http_parsers();
+    void ts_http_set_max_idle_http_parsers(int64_t max);
 }
