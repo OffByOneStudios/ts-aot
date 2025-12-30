@@ -1461,11 +1461,23 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
          
-         llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { builder->getPtrTy() }, false);
-         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_sort", sortFt);
-         createCall(sortFt, fn.getCallee(), { obj });
-         lastValue = nullptr;
+         if (node->arguments.empty()) {
+             // No comparator - use default sort
+             llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                     { builder->getPtrTy() }, false);
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_sort", sortFt);
+             createCall(sortFt, fn.getCallee(), { obj });
+         } else {
+             // Has comparator - use sort with comparator
+             visit(node->arguments[0].get());
+             llvm::Value* comparator = boxValue(lastValue, node->arguments[0]->inferredType);
+             
+             llvm::FunctionType* sortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                     { builder->getPtrTy(), builder->getPtrTy() }, false);
+             llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_sort_with_comparator", sortFt);
+             createCall(sortFt, fn.getCallee(), { obj, comparator });
+         }
+         lastValue = obj;  // sort() returns the array for chaining
          return true;
     } else if ((prop->name == "forEach" || prop->name == "map" || prop->name == "filter" || prop->name == "some" || prop->name == "every" || prop->name == "find" || prop->name == "findIndex" || prop->name == "flatMap") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
