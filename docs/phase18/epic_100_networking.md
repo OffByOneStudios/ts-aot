@@ -1,6 +1,6 @@
 # Epic 100: Networking (net & http)
 
-**Status:** In Progress
+**Status:** Complete
 **Parent:** [Phase 18 Meta Epic](./meta_epic.md)
 
 ## Overview
@@ -61,14 +61,17 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.7.5:** Implement `http.setMaxIdleHTTPParsers`.
 
 ### Milestone 100.8: HTTP Advanced Classes
-- [ ] **Task 100.8.1:** Implement `http.OutgoingMessage` base class.
-- [ ] **Task 100.8.2:** Implement `http.CloseEvent` class.
-- [ ] **Task 100.8.3:** Implement `http.MessageEvent` class.
+- [x] **Task 100.8.1:** Implement `http.OutgoingMessage` base class.
+- [x] **Task 100.8.2:** Implement `http.CloseEvent` class.
+- [x] **Task 100.8.3:** Implement `http.MessageEvent` class.
 
 ### Milestone 100.9: WebSocket Support
-- [ ] **Task 100.9.1:** Implement `http.WebSocket` class.
-- [ ] **Task 100.9.2:** Implement WebSocket handshake protocol.
-- [ ] **Task 100.9.3:** Implement WebSocket frame encoding/decoding.
+- [x] **Task 100.9.1:** Implement `http.WebSocket` class.
+- [x] **Task 100.9.2:** Implement WebSocket handshake protocol.
+- [x] **Task 100.9.3:** Implement WebSocket frame encoding/decoding.
+- [x] **Task 100.9.4:** Implement WebSocket event handlers (onopen, onmessage, onclose, onerror).
+- [x] **Task 100.9.5:** Implement WebSocket methods (send, close, ping, pong).
+- [x] **Task 100.9.6:** Implement WebSocket constants (CONNECTING, OPEN, CLOSING, CLOSED).
 
 **Reference Implementation:** See `src/runtime/src/TsFetch.cpp` lines 50-130 for working OpenSSL + libuv pattern:
 ```cpp
@@ -92,5 +95,5 @@ SSL_set_connect_state(ssl);  // Client mode
 - [x] **Completed:** Milestone 100.5 - HTTPS Support (Client & Server).
 - [x] **Completed:** Milestone 100.6 - Networking Utilities & Constants.
 - [x] **Completed:** Milestone 100.7 - Connection Pooling (Agents).
-- [ ] **Planned:** Milestone 100.8 - HTTP Advanced Classes.
-- [ ] **Planned:** Milestone 100.9 - WebSocket Support.
+- [x] **Completed:** Milestone 100.8 - HTTP Advanced Classes.
+- [x] **Completed:** Milestone 100.9 - WebSocket Support.
