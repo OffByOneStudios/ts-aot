@@ -266,11 +266,63 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
 }
 
 bool IRGenerator::tryGenerateNetPropertyAccess(ast::PropertyAccessExpression* node) {
-    // Check if this is net.* property access
-    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
-    if (!id || id->name != "net") return false;
+    SPDLOG_INFO("tryGenerateNetPropertyAccess: node->name={}, exprType kind={}", 
+        node->name, 
+        node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
     
-    // Currently no net module properties to handle (all are functions)
+    // Check if this is net.* property access (for static methods/classes)
+    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (id && id->name == "net") {
+        // net.SocketAddress or net.BlockList static access is handled via call expressions
+        // No static properties to handle here
+        return false;
+    }
+    
+    // Check if this is SocketAddress or BlockList instance property access
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+        SPDLOG_INFO("tryGenerateNetPropertyAccess: classType->name={}", classType->name);
+        
+        if (classType->name == "SocketAddress") {
+            visit(node->expression.get());
+            llvm::Value* addr = lastValue;
+            
+            if (node->name == "address") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_get_address", ft);
+                lastValue = createCall(ft, fn.getCallee(), { addr });
+                return true;
+            } else if (node->name == "family") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_get_family", ft);
+                lastValue = createCall(ft, fn.getCallee(), { addr });
+                return true;
+            } else if (node->name == "flowlabel") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_get_flowlabel", ft);
+                lastValue = createCall(ft, fn.getCallee(), { addr });
+                return true;
+            } else if (node->name == "port") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_get_port", ft);
+                lastValue = createCall(ft, fn.getCallee(), { addr });
+                return true;
+            }
+        }
+        
+        if (classType->name == "BlockList") {
+            if (node->name == "rules") {
+                visit(node->expression.get());
+                llvm::Value* blockList = lastValue;
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_get_rules", ft);
+                lastValue = createCall(ft, fn.getCallee(), { blockList });
+                return true;
+            }
+        }
+    }
+    
     return false;
 }
 

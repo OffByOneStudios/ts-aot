@@ -1403,10 +1403,8 @@ bool IRGenerator::tryGenerateFSPropertyAccess(ast::PropertyAccessExpression* nod
         if (id->name == "fs") isFs = true;
     }
     
-    // Also allow if the expression is 'any' (e.g. from require)
-    if (!isFs && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
-        isFs = true; 
-    }
+    // Only treat as fs if the identifier is "fs", not for any Any type
+    // This was incorrectly claiming all Any types as fs before
 
     if (!isFs) {
         // Check if it's a FileHandle

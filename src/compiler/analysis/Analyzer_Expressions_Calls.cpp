@@ -430,6 +430,26 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
 
     visit(node->expression.get());
     
+    // Handle new net.SocketAddress() or new net.BlockList() - property access expression
+    if (auto propAccess = dynamic_cast<PropertyAccessExpression*>(node->expression.get())) {
+        // The expression should have been visited and we have the constructor type
+        // Check if lastType is a constructor function that returns a class
+        if (lastType && lastType->kind == TypeKind::Object) {
+            auto objType = std::static_pointer_cast<ObjectType>(lastType);
+            if (objType->fields.count("new")) {
+                auto newMethod = objType->fields["new"];
+                if (newMethod->kind == TypeKind::Function) {
+                    auto funcType = std::static_pointer_cast<FunctionType>(newMethod);
+                    if (funcType->returnType) {
+                        lastType = funcType->returnType;
+                        node->inferredType = lastType;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    
     if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
             lastType = std::make_shared<Type>(TypeKind::Map);
