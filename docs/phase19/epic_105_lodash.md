@@ -13,17 +13,15 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 
 ### ✅ Working Functions
 - **Util:** `identity`, `constant`, `noop`, `times`, `range`
-- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`
-- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`
+- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`
+- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`
 
 ### 🔧 Implemented but Blocked by Compiler Bugs
-- **chunk, flatten:** Nested loop variable scoping issue (ptr vs i64 type mismatch)
-- **filter, find, findIndex:** Higher-order generic function callback type issues
 - **compact:** Needs truthiness check improvements
 
-### Compiler Issues Discovered
-1. **Nested Loop Variable Scoping:** Variables declared in nested while loops get incorrect LLVM types
-2. **Generic Callback Types:** Callback parameters in generic functions sometimes get `ptr` type instead of concrete type
+### ~~Compiler Issues Discovered~~ (FIXED)
+1. ~~**Nested Loop Variable Scoping:**~~ **NOT A BUG** - tested and works correctly
+2. ~~**Generic Callback Types:**~~ **FIXED** (commit 1439598) - `emitToBoolean()` now calls `ts_value_get_bool` for Boolean-typed pointers
 3. **Optional Parameters:** `undefined` checks need more work
 
 ## Design Rationale
@@ -45,9 +43,9 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.1: Array Utilities
 
-- [🔧] **Task 105.1.1:** `chunk<T>(arr: T[], size: number): T[][]` - Split array into chunks *(blocked: nested loop bug)*
+- [x] **Task 105.1.1:** `chunk<T>(arr: T[], size: number): T[][]` - Split array into chunks ✅
 - [🔧] **Task 105.1.2:** `compact<T>(arr: T[]): T[]` - Remove falsy values *(blocked: truthiness checks)*
-- [🔧] **Task 105.1.3:** `flatten<T>(arr: T[][]): T[]` - Flatten one level *(blocked: nested loop bug)*
+- [x] **Task 105.1.3:** `flatten<T>(arr: T[][]): T[]` - Flatten one level ✅
 - [ ] **Task 105.1.4:** `flattenDeep<T>(arr: any[]): T[]` - Flatten recursively
 - [ ] **Task 105.1.5:** `uniq<T>(arr: T[]): T[]` - Remove duplicates
 - [ ] **Task 105.1.6:** `uniqBy<T>(arr: T[], fn: (x: T) => any): T[]` - Unique by key
@@ -65,10 +63,10 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 ### Milestone 105.2: Collection Utilities
 
 - [x] **Task 105.2.1:** `map<T, U>(arr: T[], fn: (x: T) => U): U[]` - Transform elements ✅
-- [🔧] **Task 105.2.2:** `filter<T>(arr: T[], fn: (x: T) => boolean): T[]` - Filter elements *(blocked: generic callback bug)*
+- [x] **Task 105.2.2:** `filter<T>(arr: T[], fn: (x: T) => boolean): T[]` - Filter elements ✅
 - [x] **Task 105.2.3:** `reduce<T, U>(arr: T[], fn: (acc: U, x: T) => U, init: U): U` - Reduce ✅
-- [🔧] **Task 105.2.4:** `find<T>(arr: T[], fn: (x: T) => boolean): T | undefined` - Find first match *(blocked: generic callback bug)*
-- [🔧] **Task 105.2.5:** `findIndex<T>(arr: T[], fn: (x: T) => boolean): number` - Find index *(blocked: generic callback bug)*
+- [x] **Task 105.2.4:** `find<T>(arr: T[], fn: (x: T) => boolean): T | undefined` - Find first match ✅
+- [x] **Task 105.2.5:** `findIndex<T>(arr: T[], fn: (x: T) => boolean): number` - Find index ✅
 - [x] **Task 105.2.6:** `every<T>(arr: T[], fn: (x: T) => boolean): boolean` - All match ✅
 - [x] **Task 105.2.7:** `some<T>(arr: T[], fn: (x: T) => boolean): boolean` - Any match ✅
 - [ ] **Task 105.2.8:** `groupBy<T>(arr: T[], fn: (x: T) => string): Record<string, T[]>` - Group by key
