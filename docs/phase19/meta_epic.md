@@ -43,11 +43,23 @@ Cosmetic issue - the values are correct internally (sum works correctly).
 - [x] Class exports/imports across modules
 - [x] Generic function exports/imports (identity, first, map)
 
-### Epic 105: Utility Libraries
-- [ ] **Lodash:** Compile the full `lodash` library. Benchmark vs Node.
+### Epic 105: Lodash Compilation Support
+**See:** [epic_105_lodash.md](./epic_105_lodash.md)
+
+Two-phase approach:
+- **Phase 1:** ts-lodash - TypeScript implementation of core lodash functions
+- **Phase 2:** JavaScript slow path - Compile real lodash.js
+
+Progress:
+- [ ] Phase 1: ts-lodash library (40+ functions)
+- [ ] Phase 2: JavaScript slow path with TsValue operations
+- [ ] Phase 2: JSDoc type extraction for optimization
+- [ ] Benchmark vs Node.js
+
+### Epic 106: Date-fns Support
 - [ ] **Date-fns:** Validate `Date` implementation completeness.
 
-### Epic 106: Server Frameworks
+### Epic 107: Server Frameworks
 - [ ] **Express.js:** The ultimate test of `http`, `stream`, and `events` compatibility.
 - [ ] **Middleware:** Verify that standard middleware (body-parser, cors) works.
 
