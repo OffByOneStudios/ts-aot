@@ -982,6 +982,27 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          
          lastValue = createCall(charCodeAtFt, fn.getCallee(), { obj, index });
          return true;
+    } else if (prop->name == "charAt") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* index = lastValue;
+         
+         if (index->getType()->isDoubleTy()) {
+             index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+         }
+
+         llvm::FunctionType* charAtFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_charAt", charAtFt);
+         
+         lastValue = createCall(charAtFt, fn.getCallee(), { obj, index });
+         return true;
     } else if (prop->name == "split") {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;

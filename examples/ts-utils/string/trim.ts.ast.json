@@ -1,0 +1,492 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "trim",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "str",
+            "line": 2,
+            "column": 22
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 2,
+          "column": 22
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "str",
+                "line": 3,
+                "column": 12
+              },
+              "name": "trim",
+              "isOptional": false,
+              "line": 3,
+              "column": 12
+            },
+            "arguments": [],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 3,
+            "column": 12
+          },
+          "line": 3,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 2,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "trimStart",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "str",
+            "line": 7,
+            "column": 27
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 27
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 8,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 8,
+            "column": 13
+          },
+          "line": 8,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "&&",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "<",
+              "left": {
+                "kind": "Identifier",
+                "name": "i",
+                "line": 9,
+                "column": 12
+              },
+              "right": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "str",
+                  "line": 9,
+                  "column": 16
+                },
+                "name": "length",
+                "isOptional": false,
+                "line": 9,
+                "column": 16
+              },
+              "line": 9,
+              "column": 12
+            },
+            "right": {
+              "kind": "BinaryExpression",
+              "operator": "===",
+              "left": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "str",
+                    "line": 9,
+                    "column": 30
+                  },
+                  "name": "charAt",
+                  "isOptional": false,
+                  "line": 9,
+                  "column": 30
+                },
+                "arguments": [
+                  {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 9,
+                    "column": 41
+                  }
+                ],
+                "typeArguments": [],
+                "isOptional": false,
+                "line": 9,
+                "column": 30
+              },
+              "right": {
+                "kind": "StringLiteral",
+                "value": " ",
+                "line": 9,
+                "column": 48
+              },
+              "line": 9,
+              "column": 30
+            },
+            "line": 9,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 10,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "+",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 10,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 10,
+                      "column": 17
+                    },
+                    "line": 10,
+                    "column": 13
+                  },
+                  "line": 10,
+                  "column": 9
+                },
+                "line": 10,
+                "column": 9
+              }
+            ],
+            "line": 9,
+            "column": 53
+          },
+          "line": 9,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "str",
+                "line": 12,
+                "column": 12
+              },
+              "name": "slice",
+              "isOptional": false,
+              "line": 12,
+              "column": 12
+            },
+            "arguments": [
+              {
+                "kind": "Identifier",
+                "name": "i",
+                "line": 12,
+                "column": 22
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 12,
+            "column": 12
+          },
+          "line": 12,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "trimEnd",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "str",
+            "line": 16,
+            "column": 25
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 16,
+          "column": 25
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 17,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "str",
+              "line": 17,
+              "column": 13
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 17,
+            "column": 13
+          },
+          "line": 17,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "&&",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": ">",
+              "left": {
+                "kind": "Identifier",
+                "name": "i",
+                "line": 18,
+                "column": 12
+              },
+              "right": {
+                "kind": "NumericLiteral",
+                "value": 0,
+                "line": 18,
+                "column": 16
+              },
+              "line": 18,
+              "column": 12
+            },
+            "right": {
+              "kind": "BinaryExpression",
+              "operator": "===",
+              "left": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "str",
+                    "line": 18,
+                    "column": 21
+                  },
+                  "name": "charAt",
+                  "isOptional": false,
+                  "line": 18,
+                  "column": 21
+                },
+                "arguments": [
+                  {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 18,
+                      "column": 32
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 18,
+                      "column": 36
+                    },
+                    "line": 18,
+                    "column": 32
+                  }
+                ],
+                "typeArguments": [],
+                "isOptional": false,
+                "line": 18,
+                "column": 21
+              },
+              "right": {
+                "kind": "StringLiteral",
+                "value": " ",
+                "line": 18,
+                "column": 43
+              },
+              "line": 18,
+              "column": 21
+            },
+            "line": 18,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "AssignmentExpression",
+                  "left": {
+                    "kind": "Identifier",
+                    "name": "i",
+                    "line": 19,
+                    "column": 9
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 19,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 19,
+                      "column": 17
+                    },
+                    "line": 19,
+                    "column": 13
+                  },
+                  "line": 19,
+                  "column": 9
+                },
+                "line": 19,
+                "column": 9
+              }
+            ],
+            "line": 18,
+            "column": 48
+          },
+          "line": 18,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "str",
+                "line": 21,
+                "column": 12
+              },
+              "name": "slice",
+              "isOptional": false,
+              "line": 21,
+              "column": 12
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 0,
+                "line": 21,
+                "column": 22
+              },
+              {
+                "kind": "Identifier",
+                "name": "i",
+                "line": 21,
+                "column": 25
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 21,
+            "column": 12
+          },
+          "line": 21,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 16,
+      "column": 1
+    }
+  ]
+}

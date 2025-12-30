@@ -1,0 +1,394 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "chunk",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [
+        {
+          "name": "T",
+          "constraint": null
+        }
+      ],
+      "returnType": "T[][]",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "array",
+            "line": 2,
+            "column": 26
+          },
+          "type": "T[]",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 2,
+          "column": 26
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "size",
+            "line": 2,
+            "column": 38
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 2,
+          "column": 38
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 3,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "T[][]",
+          "initializer": {
+            "kind": "ArrayLiteralExpression",
+            "elements": [],
+            "line": 3,
+            "column": 27
+          },
+          "line": 3,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "i",
+            "line": 4,
+            "column": 9
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 4,
+            "column": 13
+          },
+          "line": 4,
+          "column": 5
+        },
+        {
+          "kind": "WhileStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "i",
+              "line": 5,
+              "column": 12
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "array",
+                "line": 5,
+                "column": 16
+              },
+              "name": "length",
+              "isOptional": false,
+              "line": 5,
+              "column": 16
+            },
+            "line": 5,
+            "column": 12
+          },
+          "statement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "chunk",
+                  "line": 6,
+                  "column": 15
+                },
+                "isExported": false,
+                "type": "T[]",
+                "initializer": {
+                  "kind": "ArrayLiteralExpression",
+                  "elements": [],
+                  "line": 6,
+                  "column": 28
+                },
+                "line": 6,
+                "column": 9
+              },
+              {
+                "kind": "VariableDeclaration",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "j",
+                  "line": 7,
+                  "column": 13
+                },
+                "isExported": false,
+                "type": "",
+                "initializer": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 7,
+                  "column": 17
+                },
+                "line": 7,
+                "column": 9
+              },
+              {
+                "kind": "WhileStatement",
+                "condition": {
+                  "kind": "BinaryExpression",
+                  "operator": "&&",
+                  "left": {
+                    "kind": "BinaryExpression",
+                    "operator": "<",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "j",
+                      "line": 8,
+                      "column": 16
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "size",
+                      "line": 8,
+                      "column": 20
+                    },
+                    "line": 8,
+                    "column": 16
+                  },
+                  "right": {
+                    "kind": "BinaryExpression",
+                    "operator": "<",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "i",
+                      "line": 8,
+                      "column": 28
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "array",
+                        "line": 8,
+                        "column": 32
+                      },
+                      "name": "length",
+                      "isOptional": false,
+                      "line": 8,
+                      "column": 32
+                    },
+                    "line": 8,
+                    "column": 28
+                  },
+                  "line": 8,
+                  "column": 16
+                },
+                "statement": {
+                  "kind": "BlockStatement",
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "chunk",
+                            "line": 9,
+                            "column": 13
+                          },
+                          "name": "push",
+                          "isOptional": false,
+                          "line": 9,
+                          "column": 13
+                        },
+                        "arguments": [
+                          {
+                            "kind": "ElementAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "array",
+                              "line": 9,
+                              "column": 24
+                            },
+                            "argumentExpression": {
+                              "kind": "Identifier",
+                              "name": "i",
+                              "line": 9,
+                              "column": 30
+                            },
+                            "isOptional": false,
+                            "line": 9,
+                            "column": 24
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 9,
+                        "column": 13
+                      },
+                      "line": 9,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "i",
+                          "line": 10,
+                          "column": 13
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "i",
+                            "line": 10,
+                            "column": 17
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 1,
+                            "line": 10,
+                            "column": 21
+                          },
+                          "line": 10,
+                          "column": 17
+                        },
+                        "line": 10,
+                        "column": 13
+                      },
+                      "line": 10,
+                      "column": 13
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "AssignmentExpression",
+                        "left": {
+                          "kind": "Identifier",
+                          "name": "j",
+                          "line": 11,
+                          "column": 13
+                        },
+                        "right": {
+                          "kind": "BinaryExpression",
+                          "operator": "+",
+                          "left": {
+                            "kind": "Identifier",
+                            "name": "j",
+                            "line": 11,
+                            "column": 17
+                          },
+                          "right": {
+                            "kind": "NumericLiteral",
+                            "value": 1,
+                            "line": 11,
+                            "column": 21
+                          },
+                          "line": 11,
+                          "column": 17
+                        },
+                        "line": 11,
+                        "column": 13
+                      },
+                      "line": 11,
+                      "column": 13
+                    }
+                  ],
+                  "line": 8,
+                  "column": 46
+                },
+                "line": 8,
+                "column": 9
+              },
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "result",
+                      "line": 13,
+                      "column": 9
+                    },
+                    "name": "push",
+                    "isOptional": false,
+                    "line": 13,
+                    "column": 9
+                  },
+                  "arguments": [
+                    {
+                      "kind": "Identifier",
+                      "name": "chunk",
+                      "line": 13,
+                      "column": 21
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 13,
+                  "column": 9
+                },
+                "line": 13,
+                "column": 9
+              }
+            ],
+            "line": 5,
+            "column": 30
+          },
+          "line": 5,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 15,
+            "column": 12
+          },
+          "line": 15,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 2,
+      "column": 1
+    }
+  ]
+}
