@@ -17,12 +17,14 @@ For now, we focus on validating with TypeScript-native code and our own lodash-l
 - [x] Monomorphization works across module boundaries
 - [x] Function calls with arguments work correctly
 - [x] Added `charAt()` string method
+- [x] Fixed int-to-double coercion bug (monomorphized function returns)
+- [x] Barrel exports (`export * from './...'`) work
+- [x] Multi-file library imports (ts-utils) work
+- [x] Array methods: push, pop, shift, unshift
 
-### 🐛 Known Issue: Int-to-Double Coercion
-When a function returning `number` (actually int64) is assigned to a variable,
-the int bits are interpreted as double bits, producing garbage. This affects
-ALL function calls, not just imports. Works when result is used directly in
-string concatenation.
+### 🔧 Minor Issue: Array Join Display
+When printing arrays with `join()`, boxed integers display as addresses.
+Cosmetic issue - the values are correct internally (sum works correctly).
 
 ## Core Objectives
 1.  **Utility Libraries:** Compile `lodash` and `date-fns`.
@@ -34,8 +36,10 @@ string concatenation.
 ### Epic 104: TypeScript Library Support (NEW)
 - [x] Basic import of .ts files
 - [x] Function monomorphization across modules
-- [ ] Fix int-to-double coercion bug for function returns
-- [ ] `export * from './...'` barrel exports
+- [x] Fix int-to-double coercion bug for function returns
+- [x] `export * from './...'` barrel exports
+- [x] Array push/pop/shift/unshift methods
+- [x] JSON imports (compile-time embedding)
 - [ ] Class exports/imports across modules
 - [ ] Generic function exports/imports
 

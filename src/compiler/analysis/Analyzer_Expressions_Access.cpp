@@ -480,9 +480,6 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
         if (objType->kind == TypeKind::Object) {
             auto obj = std::static_pointer_cast<ObjectType>(objType);
-            fmt::print("DEBUG: Accessing property {} on ObjectType. Available fields: ", node->name);
-            for (auto const& [name, type] : obj->fields) fmt::print("{} ", name);
-            fmt::print("\n");
             if (obj->fields.count(node->name)) {
                 lastType = obj->fields[node->name];
                 return;
@@ -491,7 +488,6 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             auto inter = std::static_pointer_cast<InterfaceType>(objType);
             if (inter->fields.count(node->name)) {
                 lastType = inter->fields[node->name];
-                fmt::print("Found property {} on interface {} with type {}\n", node->name, inter->name, lastType->toString());
                 return;
             } else if (inter->methods.count(node->name)) {
                 lastType = inter->methods[node->name];
@@ -554,10 +550,6 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 }
                 lastType = memberType;
                 return;
-            } else {
-                fmt::print("DEBUG: Property {} not found on class {}. Available fields: ", node->name, cls->name);
-                for (auto const& [name, type] : cls->fields) fmt::print("{} ", name);
-                fmt::print("\n");
             }
         } else if (objType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(objType);

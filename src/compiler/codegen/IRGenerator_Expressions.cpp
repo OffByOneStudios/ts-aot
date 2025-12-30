@@ -828,8 +828,105 @@ void IRGenerator::visitNamespaceDeclaration(ast::NamespaceDeclaration* node) {
     }
 }
 
+llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
+    using json = nlohmann::json;
+    
+    if (j.is_null()) {
+        return llvm::ConstantPointerNull::get(builder->getPtrTy());
+    }
+    
+    if (j.is_boolean()) {
+        llvm::Value* val = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), j.get<bool>());
+        return boxValue(val, std::make_shared<Type>(TypeKind::Boolean));
+    }
+    
+    if (j.is_number_integer()) {
+        llvm::Value* val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), j.get<int64_t>());
+        return boxValue(val, std::make_shared<Type>(TypeKind::Int));
+    }
+    
+    if (j.is_number_float()) {
+        llvm::Value* val = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), j.get<double>());
+        return boxValue(val, std::make_shared<Type>(TypeKind::Double));
+    }
+    
+    if (j.is_string()) {
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(j.get<std::string>()) });
+        return boxValue(strVal, std::make_shared<Type>(TypeKind::String));
+    }
+    
+    if (j.is_array()) {
+        // Create array and populate
+        llvm::FunctionType* createArrFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee createArrFn = module->getOrInsertFunction("ts_array_create", createArrFt);
+        llvm::Value* arr = createCall(createArrFt, createArrFn.getCallee(), {});
+        
+        llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+        
+        for (const auto& elem : j) {
+            llvm::Value* elemVal = generateJsonValue(elem);
+            createCall(pushFt, pushFn.getCallee(), { arr, elemVal });
+        }
+        
+        return boxValue(arr, std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any)));
+    }
+    
+    if (j.is_object()) {
+        // Create map and populate
+        llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+        llvm::Value* map = createCall(createMapFt, createMapFn.getCallee(), {});
+        
+        llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set", setMapFt);
+        
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        
+        for (auto& [key, val] : j.items()) {
+            llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(key) });
+            llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+            llvm::Value* boxedVal = generateJsonValue(val);
+            createCall(setMapFt, setFn.getCallee(), { map, boxedKey, boxedVal });
+        }
+        
+        return boxValue(map, std::make_shared<Type>(TypeKind::Object));
+    }
+    
+    return llvm::ConstantPointerNull::get(builder->getPtrTy());
+}
+
 void IRGenerator::visitImportDeclaration(ast::ImportDeclaration* node) {
-    // Imports are handled at the module level, no action needed here
+    // Check if this is a JSON module import
+    if (analyzer) {
+        ResolvedModule resolved = analyzer->resolveModule(node->moduleSpecifier);
+        if (resolved.isValid() && resolved.type == ModuleType::JSON) {
+            // Find the module with JSON content
+            auto it = analyzer->modules.find(resolved.path);
+            if (it != analyzer->modules.end() && it->second->jsonContent.has_value()) {
+                // Generate the JSON value
+                llvm::Value* jsonVal = generateJsonValue(it->second->jsonContent.value());
+                
+                // Bind to the default import name
+                if (!node->defaultImport.empty()) {
+                    // Create alloca and store
+                    llvm::Function* func = builder->GetInsertBlock()->getParent();
+                    llvm::AllocaInst* alloca = createEntryBlockAlloca(func, node->defaultImport, builder->getPtrTy());
+                    builder->CreateStore(jsonVal, alloca);
+                    namedValues[node->defaultImport] = alloca;
+                    boxedVariables.insert(node->defaultImport);
+                    SPDLOG_DEBUG("JSON import: {} -> {}", node->defaultImport, resolved.path);
+                }
+            }
+            return;
+        }
+    }
+    // Regular imports are handled at the module level, no action needed here
 }
 
 void IRGenerator::visitExportDeclaration(ast::ExportDeclaration* node) {

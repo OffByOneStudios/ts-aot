@@ -79,6 +79,9 @@ public:
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
+    // Module resolution for JSON imports (public for codegen access)
+    ResolvedModule resolveModule(const std::string& specifier);
+
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
@@ -188,7 +191,6 @@ private:
 
     void analyzeModule(std::shared_ptr<Module> module);
     std::shared_ptr<Module> loadModule(const std::string& specifier);
-    ResolvedModule resolveModule(const std::string& specifier);
 
     std::shared_ptr<ClassType> currentClass;
     std::string currentMethodName;

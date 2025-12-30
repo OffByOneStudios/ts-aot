@@ -10,6 +10,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DIBuilder.h>
+#include <nlohmann/json.hpp>
 
 #include "../analysis/Analyzer.h"
 #include "../analysis/Monomorphizer.h"
@@ -152,6 +153,9 @@ private:
     void visitEnumDeclaration(ast::EnumDeclaration* node);
 
     void visit(ast::Node* node);
+
+    // JSON module support
+    llvm::Value* generateJsonValue(const nlohmann::json& j);
 
     llvm::Value* boxValue(llvm::Value* val, std::shared_ptr<Type> type);
     llvm::Value* unboxValue(llvm::Value* val, std::shared_ptr<Type> type);

@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
 #include <iostream>
+#include <fstream>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <fmt/core.h>
@@ -242,6 +243,45 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
     return type;
 }
 
+// Helper: Convert JSON value to TypeScript type
+static std::shared_ptr<Type> jsonToType(const nlohmann::json& j) {
+    using json = nlohmann::json;
+    
+    if (j.is_null()) {
+        return std::make_shared<Type>(TypeKind::Null);
+    }
+    if (j.is_boolean()) {
+        return std::make_shared<Type>(TypeKind::Boolean);
+    }
+    if (j.is_number_integer()) {
+        return std::make_shared<Type>(TypeKind::Int);
+    }
+    if (j.is_number_float()) {
+        return std::make_shared<Type>(TypeKind::Double);
+    }
+    if (j.is_string()) {
+        return std::make_shared<Type>(TypeKind::String);
+    }
+    if (j.is_array()) {
+        if (j.empty()) {
+            // Empty array: any[]
+            return std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+        }
+        // Infer element type from first element (could be improved with union)
+        auto elemType = jsonToType(j[0]);
+        return std::make_shared<ArrayType>(elemType);
+    }
+    if (j.is_object()) {
+        auto objType = std::make_shared<ObjectType>();
+        for (auto& [key, val] : j.items()) {
+            objType->fields[key] = jsonToType(val);
+        }
+        return objType;
+    }
+    
+    return std::make_shared<Type>(TypeKind::Any);
+}
+
 std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     // Use the new ModuleResolver
     ResolvedModule resolved = resolveModule(specifier);
@@ -293,10 +333,31 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     
     try {
         if (resolved.type == ModuleType::JSON) {
-            // JSON files don't need AST parsing - we'll handle them at codegen time
+            // Parse JSON file and create typed export
+            std::ifstream jsonFile(resolved.path);
+            if (!jsonFile) {
+                reportError("Could not open JSON file: " + resolved.path);
+                return nullptr;
+            }
+            
+            nlohmann::json j;
+            try {
+                j = nlohmann::json::parse(jsonFile);
+            } catch (const nlohmann::json::parse_error& e) {
+                reportError("JSON parse error in " + resolved.path + ": " + e.what());
+                return nullptr;
+            }
+            
+            // Store the JSON content for codegen
+            module->jsonContent = j;
+            module->isJsonModule = true;
             module->analyzed = true;
-            // TODO: Parse JSON and create type
-            SPDLOG_DEBUG("JSON module: {}", resolved.path);
+            
+            // Create type from JSON and export as default
+            auto jsonType = jsonToType(j);
+            module->exports->define("default", jsonType);
+            
+            SPDLOG_DEBUG("JSON module: {} with type {}", resolved.path, jsonType->toString());
             return module;
         }
         

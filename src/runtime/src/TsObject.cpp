@@ -261,9 +261,11 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic0 = *(uint32_t*)obj;
         uint32_t magic8 = *(uint32_t*)((char*)obj + 8);
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
+        uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
 
-        // Check for TsMap (magic at offset 16 after vtables)
-        if (magic16 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
+        // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsMap* map = (TsMap*)obj;
             TsValue k;
             k.type = ValueType::STRING_PTR;
