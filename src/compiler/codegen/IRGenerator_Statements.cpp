@@ -713,7 +713,22 @@ void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
         return;
     }
 
-    generateDestructuring(initVal, node->initializer->inferredType, node->name.get());
+    // Check if we need to coerce the value to match the variable's resolved type
+    // This handles cases where function returns int64 but variable expects double
+    std::shared_ptr<ts::Type> varType = node->resolvedType;
+    if (!varType) {
+        varType = node->initializer->inferredType;
+    }
+    
+    if (varType && varType->kind == TypeKind::Double && initVal->getType()->isIntegerTy()) {
+        // Convert int to double for TypeScript 'number' type
+        initVal = builder->CreateSIToFP(initVal, llvm::Type::getDoubleTy(*context), "itod");
+    } else if (varType && varType->kind == TypeKind::Int && initVal->getType()->isDoubleTy()) {
+        // Convert double to int
+        initVal = builder->CreateFPToSI(initVal, llvm::Type::getInt64Ty(*context), "dtoi");
+    }
+
+    generateDestructuring(initVal, varType, node->name.get());
 }} // namespace ts
 
 

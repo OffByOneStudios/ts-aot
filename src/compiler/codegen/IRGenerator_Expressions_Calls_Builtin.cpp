@@ -1344,6 +1344,88 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_substring", substringFt);
          lastValue = createCall(substringFt, fn.getCallee(), { obj, start, end });
          return true;
+    } else if (prop->name == "push" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* arrObj = lastValue;
+         if (arrObj->getType()->isIntegerTy(64)) {
+             arrObj = builder->CreateIntToPtr(arrObj, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) {
+             lastValue = nullptr;
+             return true;
+         }
+         
+         visit(node->arguments[0].get());
+         llvm::Value* val = lastValue;
+         std::shared_ptr<Type> argType = node->arguments[0]->inferredType;
+         llvm::Value* boxedVal = boxValue(val, argType);
+         
+         llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+         createCall(pushFt, pushFn.getCallee(), { arrObj, boxedVal });
+         lastValue = nullptr;
+         return true;
+    } else if (prop->name == "pop" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* arrObj = lastValue;
+         if (arrObj->getType()->isIntegerTy(64)) {
+             arrObj = builder->CreateIntToPtr(arrObj, builder->getPtrTy());
+         }
+         
+         llvm::FunctionType* popFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee popFn = module->getOrInsertFunction("ts_array_pop", popFt);
+         llvm::Value* ret = createCall(popFt, popFn.getCallee(), { arrObj });
+         
+         std::shared_ptr<Type> elemType = std::make_shared<Type>(TypeKind::Any);
+         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+             elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;
+         }
+         lastValue = unboxValue(ret, elemType);
+         return true;
+    } else if (prop->name == "shift" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* arrObj = lastValue;
+         if (arrObj->getType()->isIntegerTy(64)) {
+             arrObj = builder->CreateIntToPtr(arrObj, builder->getPtrTy());
+         }
+         
+         llvm::FunctionType* shiftFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee shiftFn = module->getOrInsertFunction("ts_array_shift", shiftFt);
+         llvm::Value* ret = createCall(shiftFt, shiftFn.getCallee(), { arrObj });
+         
+         std::shared_ptr<Type> elemType = std::make_shared<Type>(TypeKind::Any);
+         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+             elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;
+         }
+         lastValue = unboxValue(ret, elemType);
+         return true;
+    } else if (prop->name == "unshift" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* arrObj = lastValue;
+         if (arrObj->getType()->isIntegerTy(64)) {
+             arrObj = builder->CreateIntToPtr(arrObj, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) {
+             lastValue = nullptr;
+             return true;
+         }
+         
+         visit(node->arguments[0].get());
+         llvm::Value* val = lastValue;
+         std::shared_ptr<Type> argType = node->arguments[0]->inferredType;
+         llvm::Value* boxedVal = boxValue(val, argType);
+         
+         llvm::FunctionType* unshiftFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee unshiftFn = module->getOrInsertFunction("ts_array_unshift", unshiftFt);
+         createCall(unshiftFt, unshiftFn.getCallee(), { arrObj, boxedVal });
+         lastValue = nullptr;
+         return true;
     } else if (prop->name == "sort" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
