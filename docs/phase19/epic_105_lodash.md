@@ -14,7 +14,7 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 ### ✅ Working Functions
 - **Util:** `identity`, `constant`, `noop`, `times`, `range`
 - **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`, `flattenDeep`, `uniq`, `uniqBy`, `difference`, `intersection`
-- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`
+- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`, `sortBy`, `sortByDesc`
 
 ### 🔧 Implemented but Blocked by Compiler Bugs
 - **compact:** Needs truthiness check improvements
@@ -23,7 +23,8 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 1. ~~**Nested Loop Variable Scoping:**~~ **NOT A BUG** - tested and works correctly
 2. ~~**Generic Callback Types:**~~ **FIXED** (commit 1439598) - `emitToBoolean()` now calls `ts_value_get_bool` for Boolean-typed pointers
 3. ~~**Rest Parameter Array Type Inference:**~~ **FIXED** - `Set<T>[]` boxing/unboxing and for-of specialized element access
-4. **Optional Parameters:** `undefined` checks need more work
+4. ~~**Generic Array Push Boxing:**~~ **FIXED** (commit e61b0b5) - `array.push()` now stores raw values for primitive types instead of boxing
+5. **Optional Parameters:** `undefined` checks need more work
 
 ## Design Rationale
 
@@ -70,9 +71,9 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.2.5:** `findIndex<T>(arr: T[], fn: (x: T) => boolean): number` - Find index ✅
 - [x] **Task 105.2.6:** `every<T>(arr: T[], fn: (x: T) => boolean): boolean` - All match ✅
 - [x] **Task 105.2.7:** `some<T>(arr: T[], fn: (x: T) => boolean): boolean` - Any match ✅
-- [ ] **Task 105.2.8:** `groupBy<T>(arr: T[], fn: (x: T) => string): Record<string, T[]>` - Group by key
-- [ ] **Task 105.2.9:** `keyBy<T>(arr: T[], fn: (x: T) => string): Record<string, T>` - Index by key
-- [ ] **Task 105.2.10:** `sortBy<T>(arr: T[], fn: (x: T) => number): T[]` - Sort by key
+- [ ] **Task 105.2.8:** `groupBy<T, K>(arr: T[], fn: (x: T) => K): Map<K, T[]>` - Group by key (returns Map instead of Record)
+- [ ] **Task 105.2.9:** `keyBy<T, K>(arr: T[], fn: (x: T) => K): Map<K, T>` - Index by key (returns Map instead of Record)
+- [x] **Task 105.2.10:** `sortBy<T>(arr: T[], fn: (x: T) => number): T[]` - Sort by key ✅
 
 **Runtime Prerequisites:**
 - [x] `Array.sort(compareFn?)` - In-place sorting ✅

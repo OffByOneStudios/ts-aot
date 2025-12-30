@@ -381,9 +381,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         emitNullCheckForExpression(node->expression.get(), mapVal);
         
         llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
-        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create_utf8", createStrFt);
-        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->name.length()) });
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
         
         key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
