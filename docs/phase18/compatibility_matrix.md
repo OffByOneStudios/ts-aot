@@ -173,25 +173,25 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | util | _exceptionWithHostPort | function | 🔴 | |
 | util | _extend | function | 🔴 | |
 | util | aborted | function | 🔴 | |
-| util | callbackify | function | 🔴 | |
+| util | callbackify | function | 🟡 | Stub | |
 | util | debug | function | 🔴 | |
 | util | debuglog | function | 🔴 | |
-| util | deprecate | function | 🔴 | |
+| util | deprecate | function | 🟡 | Stub - prints warning | |
 | util | diff | function | 🔴 | |
-| util | format | function | 🔴 | |
+| util | format | function | 🟢 | `ts_util_format()` | |
 | util | formatWithOptions | function | 🔴 | |
 | util | getCallSite | function | 🔴 | |
 | util | getCallSites | function | 🔴 | |
 | util | getSystemErrorMap | function | 🔴 | |
 | util | getSystemErrorMessage | function | 🔴 | |
 | util | getSystemErrorName | function | 🔴 | |
-| util | inherits | function | 🔴 | |
-| util | inspect | function | 🔴 | |
+| util | inherits | function | 🟢 | No-op for AOT | |
+| util | inspect | function | 🟢 | `ts_util_inspect()` | |
 | util | isArray | function | 🔴 | |
 | util | isBoolean | function | 🔴 | |
 | util | isBuffer | function | 🔴 | |
 | util | isDate | function | 🔴 | |
-| util | isDeepStrictEqual | function | 🔴 | |
+| util | isDeepStrictEqual | function | 🟢 | `ts_util_is_deep_strict_equal()` | |
 | util | isError | function | 🔴 | |
 | util | isFunction | function | 🔴 | |
 | util | isNull | function | 🔴 | |
@@ -206,15 +206,15 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | util | log | function | 🔴 | |
 | util | parseArgs | function | 🔴 | |
 | util | parseEnv | function | 🔴 | |
-| util | promisify | function | 🔴 | |
+| util | promisify | function | 🟡 | Stub - returns function as-is | |
 | util | stripVTControlCharacters | function | 🔴 | |
 | util | styleText | function | 🔴 | |
 | util | toUSVString | function | 🔴 | |
 | util | transferableAbortController | function | 🔴 | |
 | util | transferableAbortSignal | function | 🔴 | |
-| util | types | object | 🔴 | |
-| url | URL | function | 🔴 | |
-| url | URLSearchParams | function | 🔴 | |
+| util | types | object | 🟢 | `isMap`, `isSet`, `isDate`, `isRegExp`, `isTypedArray`, etc. | |
+| url | URL | function | 🟢 | WHATWG-compliant `TsURL` class | |
+| url | URLSearchParams | function | 🟢 | `TsURLSearchParams` class | |
 | url | Url | function | 🔴 | |
 | url | domainToASCII | function | 🔴 | |
 | url | domainToUnicode | function | 🔴 | |
@@ -362,5 +362,5 @@ This document tracks the feature parity between Node.js LTS and ts-aot.
 | globals | clearInterval | function | 🟢 | `ts_clear_timer()` |
 | globals | setImmediate | function | 🟢 | `ts_set_immediate()` (zero-timeout timer) |
 | globals | clearImmediate | function | 🟢 | `ts_clear_timer()` |
-| globals | TextEncoder | function | 🔴 | |
-| globals | TextDecoder | function | 🔴 | |
+| globals | TextEncoder | function | 🟢 | `TsTextEncoder` class | |
+| globals | TextDecoder | function | 🟢 | `TsTextDecoder` class | |

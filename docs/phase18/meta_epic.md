@@ -1,6 +1,6 @@
 # Phase 18: Node.js Runtime Compatibility
 
-**Status:** In Progress
+**Status:** Complete ✅
 **Goal:** Implement the standard library APIs that developers expect from a Node.js-compatible runtime.
 
 ## Verification Strategy
@@ -35,10 +35,13 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Piping:** Efficient `src.pipe(dest)` implementation (using `sendfile` where possible).
 - [x] **Verification:** Update `compatibility_matrix.md` for `events` and `stream`.
 
-### [Epic 98: Module Resolution](./epic_98_module_resolution.md)
-- [ ] **CommonJS Support:** `require()` implementation that searches `node_modules`.
-- [ ] **ESM Support:** `import` implementation.
-- [ ] **JSON Imports:** Support `require('./data.json')`.
+### [Epic 98: Module Resolution](./epic_98_module_resolution.md) ✅ Complete
+- [x] **Multi-File Infrastructure:** `ModuleGraph`, `ModuleResolver`, per-module compilation.
+- [x] **Local Imports:** Relative imports, `import`/`export` statements.
+- [x] **node_modules:** Full Node.js resolution algorithm, `package.json` parsing.
+- [x] **tsconfig.json:** Path aliases, `baseUrl`, `--project` flag.
+- [ ] **JavaScript Slow Path:** Boxed values for untyped JS, JSDoc extraction. *(Future work)*
+- [ ] **Special Imports:** `.json` files, `.d.ts` declarations. *(Future work)*
 
 ### [Epic 99: Path & Utilities](./epic_99_path.md) ✅ Complete
 - [x] **Path Manipulation:** `join`, `resolve`, `relative`, `normalize`.
@@ -71,9 +74,9 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Console:** `console.error`, `console.warn`, `console.time`, `console.trace`.
 - [x] **Verification:** Update `compatibility_matrix.md` for `process` and `globals`.
 
-### [Epic 103: Utilities (util & url)](./epic_103_utils.md) 🟡 Partial
+### [Epic 103: Utilities (util & url)](./epic_103_utils.md) ✅ Complete
 **Existing:** `TsURL` class with basic parsing.
-- [ ] **URL API:** `URL` class (WHATWG) and `URLSearchParams`.
-- [ ] **Util:** `util.promisify`, `util.inspect`, `util.inherits`.
-- [ ] **Text Encoding:** `TextEncoder` and `TextDecoder`.
-- [ ] **Verification:** Update `compatibility_matrix.md` for `util` and `url`.
+- [x] **URL API:** `URL` class (WHATWG) and `URLSearchParams`.
+- [x] **Util:** `util.format`, `util.inspect`, `util.isDeepStrictEqual`, `util.types`, `util.promisify`, `util.deprecate`.
+- [x] **Text Encoding:** `TextEncoder` and `TextDecoder`.
+- [x] **Verification:** Update `compatibility_matrix.md` for `util` and `url`.

@@ -82,8 +82,15 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle instance methods - need to check if expression is a buffer
+    // Check if we're calling a method on a Buffer
+    bool isBuffer = false;
+    if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+        if (classType->name == "Buffer") isBuffer = true;
+    }
+    
     // Handle buf.toString(encoding?)
-    if (prop->name == "toString") {
+    if (prop->name == "toString" && isBuffer) {
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
         
@@ -103,7 +110,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle buf.slice(start, end)
-    if (prop->name == "slice") {
+    if (prop->name == "slice" && isBuffer) {
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
         
@@ -127,7 +134,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle buf.subarray(start, end)
-    if (prop->name == "subarray") {
+    if (prop->name == "subarray" && isBuffer) {
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
         
@@ -151,7 +158,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle buf.fill(value, start?, end?)
-    if (prop->name == "fill") {
+    if (prop->name == "fill" && isBuffer) {
         if (node->arguments.empty()) return true;
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
@@ -179,7 +186,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle buf.copy(target, targetStart?, sourceStart?, sourceEnd?)
-    if (prop->name == "copy") {
+    if (prop->name == "copy" && isBuffer) {
         if (node->arguments.empty()) return true;
         visit(prop->expression.get());
         llvm::Value* source = lastValue;

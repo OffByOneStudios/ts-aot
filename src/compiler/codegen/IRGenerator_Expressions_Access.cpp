@@ -866,6 +866,18 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             return;
         }
 
+        if (className == "URLSearchParams") {
+            visit(node->expression.get());
+            llvm::Value* params = lastValue;
+            emitNullCheckForExpression(node->expression.get(), params);
+            if (fieldName == "size") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_size", ft);
+                lastValue = createCall(ft, fn.getCallee(), { params });
+                return;
+            }
+        }
+
         if (className == "IncomingMessage") {
             visit(node->expression.get());
             llvm::Value* msg = lastValue;

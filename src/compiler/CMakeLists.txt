@@ -48,6 +48,7 @@ add_library(tscompiler_lib STATIC
     ast/AstLoader_Statements.cpp
     ast/AstPrinter.cpp
     analysis/SymbolTable.cpp
+    analysis/ModuleResolver.cpp
     analysis/Analyzer.cpp
     analysis/Analyzer_Core.cpp
     analysis/Analyzer_StdLib.cpp
@@ -59,6 +60,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Net.cpp
     analysis/Analyzer_StdLib_HTTP.cpp
     analysis/Analyzer_StdLib_Process.cpp
+    analysis/Analyzer_StdLib_Util.cpp
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
@@ -94,6 +96,8 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_HTTP.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Process.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_TextEncoding.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_URL.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_Util.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp

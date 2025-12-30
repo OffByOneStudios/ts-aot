@@ -617,6 +617,17 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createUrlFt, fn.getCallee(), { vtable, url, base });
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "URLSearchParams") {
+            llvm::Value* query = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                query = lastValue;
+            }
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { query });
+            nonNullValues.insert(lastValue);
+            return;
         } else if (className == "Uint8Array" || className == "Uint32Array" || className == "Float64Array") {
             llvm::Value* arg = nullptr;
             bool isArrayLiteral = false;

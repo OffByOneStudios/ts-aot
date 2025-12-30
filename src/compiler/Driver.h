@@ -10,6 +10,7 @@ namespace ts {
 struct DriverOptions {
     std::string inputFile;
     std::string outputFile;
+    std::string projectFile;   // Path to tsconfig.json (or auto-detect if empty)
     std::string optLevel = "0";
     bool debugAst = false;
     bool dumpIR = false;

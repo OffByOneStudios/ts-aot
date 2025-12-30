@@ -1,0 +1,476 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ClassDeclaration",
+      "name": "Calculator",
+      "isExported": true,
+      "isDefaultExport": true,
+      "typeParameters": [],
+      "baseClass": "",
+      "implementsInterfaces": [],
+      "members": [
+        {
+          "kind": "PropertyDefinition",
+          "name": "result",
+          "type": "number",
+          "initializer": null,
+          "access": "private",
+          "isStatic": false,
+          "isReadonly": false,
+          "decorators": [],
+          "line": 4,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "constructor",
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "initial",
+                "line": 6,
+                "column": 17
+              },
+              "type": "number",
+              "isOptional": true,
+              "isRest": false,
+              "initializer": {
+                "kind": "NumericLiteral",
+                "value": 0,
+                "line": 6,
+                "column": 35
+              },
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 6,
+              "column": 17
+            }
+          ],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 7,
+                    "column": 9
+                  },
+                  "name": "result",
+                  "isOptional": false,
+                  "line": 7,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "initial",
+                  "line": 7,
+                  "column": 23
+                },
+                "line": 7,
+                "column": 9
+              },
+              "line": 7,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": "public",
+          "line": 6,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "add",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "add",
+            "line": 10,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "value",
+                "line": 10,
+                "column": 9
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 10,
+              "column": 9
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "+=",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 11,
+                    "column": 9
+                  },
+                  "name": "result",
+                  "isOptional": false,
+                  "line": 11,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "value",
+                  "line": 11,
+                  "column": 24
+                },
+                "line": 11,
+                "column": 9
+              },
+              "line": 11,
+              "column": 9
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 12,
+                  "column": 16
+                },
+                "name": "result",
+                "isOptional": false,
+                "line": 12,
+                "column": 16
+              },
+              "line": 12,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 10,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "subtract",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "subtract",
+            "line": 15,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "value",
+                "line": 15,
+                "column": 14
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 15,
+              "column": 14
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "-=",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 16,
+                    "column": 9
+                  },
+                  "name": "result",
+                  "isOptional": false,
+                  "line": 16,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "value",
+                  "line": 16,
+                  "column": 24
+                },
+                "line": 16,
+                "column": 9
+              },
+              "line": 16,
+              "column": 9
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 17,
+                  "column": 16
+                },
+                "name": "result",
+                "isOptional": false,
+                "line": 17,
+                "column": 16
+              },
+              "line": 17,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 15,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "multiply",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "multiply",
+            "line": 20,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [
+            {
+              "kind": "Parameter",
+              "name": {
+                "kind": "Identifier",
+                "name": "value",
+                "line": 20,
+                "column": 14
+              },
+              "type": "number",
+              "isOptional": false,
+              "isRest": false,
+              "initializer": null,
+              "access": null,
+              "isReadonly": false,
+              "isParameterProperty": false,
+              "line": 20,
+              "column": 14
+            }
+          ],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "BinaryExpression",
+                "operator": "*=",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 21,
+                    "column": 9
+                  },
+                  "name": "result",
+                  "isOptional": false,
+                  "line": 21,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "Identifier",
+                  "name": "value",
+                  "line": 21,
+                  "column": 24
+                },
+                "line": 21,
+                "column": 9
+              },
+              "line": 21,
+              "column": 9
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 22,
+                  "column": 16
+                },
+                "name": "result",
+                "isOptional": false,
+                "line": 22,
+                "column": 16
+              },
+              "line": 22,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 20,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "reset",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "reset",
+            "line": 25,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "void",
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "AssignmentExpression",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "this",
+                    "line": 26,
+                    "column": 9
+                  },
+                  "name": "result",
+                  "isOptional": false,
+                  "line": 26,
+                  "column": 9
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 26,
+                  "column": 23
+                },
+                "line": 26,
+                "column": 9
+              },
+              "line": 26,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 25,
+          "column": 5
+        },
+        {
+          "kind": "MethodDefinition",
+          "name": "getResult",
+          "nameNode": {
+            "kind": "Identifier",
+            "name": "getResult",
+            "line": 29,
+            "column": 5
+          },
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "parameters": [],
+          "returnType": "number",
+          "body": [
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "this",
+                  "line": 30,
+                  "column": 16
+                },
+                "name": "result",
+                "isOptional": false,
+                "line": 30,
+                "column": 16
+              },
+              "line": 30,
+              "column": 9
+            }
+          ],
+          "hasBody": true,
+          "access": null,
+          "isStatic": false,
+          "isAbstract": false,
+          "isGetter": false,
+          "isSetter": false,
+          "decorators": [],
+          "line": 29,
+          "column": 5
+        }
+      ],
+      "isAbstract": false,
+      "isStruct": false,
+      "decorators": [],
+      "line": 3,
+      "column": 1
+    }
+  ]
+}
