@@ -9,6 +9,23 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 1. **Phase 1:** Create `ts-lodash` - a TypeScript implementation of core lodash functions
 2. **Phase 2:** Implement JavaScript "slow path" to compile real lodash.js
 
+## Current Progress
+
+### ✅ Working Functions
+- **Util:** `identity`, `constant`, `noop`, `times`, `range`
+- **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`
+- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`
+
+### 🔧 Implemented but Blocked by Compiler Bugs
+- **chunk, flatten:** Nested loop variable scoping issue (ptr vs i64 type mismatch)
+- **filter, find, findIndex:** Higher-order generic function callback type issues
+- **compact:** Needs truthiness check improvements
+
+### Compiler Issues Discovered
+1. **Nested Loop Variable Scoping:** Variables declared in nested while loops get incorrect LLVM types
+2. **Generic Callback Types:** Callback parameters in generic functions sometimes get `ptr` type instead of concrete type
+3. **Optional Parameters:** `undefined` checks need more work
+
 ## Design Rationale
 
 Lodash is written in **JavaScript**, not TypeScript. Since ts-aot is optimized for typed code, we use a two-phase approach:
@@ -28,38 +45,38 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.1: Array Utilities
 
-- [ ] **Task 105.1.1:** `chunk<T>(arr: T[], size: number): T[][]` - Split array into chunks
-- [ ] **Task 105.1.2:** `compact<T>(arr: T[]): T[]` - Remove falsy values
-- [ ] **Task 105.1.3:** `flatten<T>(arr: T[][]): T[]` - Flatten one level
+- [🔧] **Task 105.1.1:** `chunk<T>(arr: T[], size: number): T[][]` - Split array into chunks *(blocked: nested loop bug)*
+- [🔧] **Task 105.1.2:** `compact<T>(arr: T[]): T[]` - Remove falsy values *(blocked: truthiness checks)*
+- [🔧] **Task 105.1.3:** `flatten<T>(arr: T[][]): T[]` - Flatten one level *(blocked: nested loop bug)*
 - [ ] **Task 105.1.4:** `flattenDeep<T>(arr: any[]): T[]` - Flatten recursively
 - [ ] **Task 105.1.5:** `uniq<T>(arr: T[]): T[]` - Remove duplicates
 - [ ] **Task 105.1.6:** `uniqBy<T>(arr: T[], fn: (x: T) => any): T[]` - Unique by key
 - [ ] **Task 105.1.7:** `difference<T>(arr: T[], ...values: T[][]): T[]` - Set difference
 - [ ] **Task 105.1.8:** `intersection<T>(...arrays: T[][]): T[]` - Set intersection
-- [ ] **Task 105.1.9:** `take<T>(arr: T[], n: number): T[]` - Take first n elements
-- [ ] **Task 105.1.10:** `drop<T>(arr: T[], n: number): T[]` - Drop first n elements
+- [x] **Task 105.1.9:** `take<T>(arr: T[], n: number): T[]` - Take first n elements ✅
+- [x] **Task 105.1.10:** `drop<T>(arr: T[], n: number): T[]` - Drop first n elements ✅
 
 **Runtime Prerequisites:**
-- [ ] `Array.slice(start?, end?)` - Extract array portions
-- [ ] `Array.includes(value)` - Check if element exists
-- [ ] `Array.indexOf(value)` - Find element index
-- [ ] `Array.concat(...arrays)` - Concatenate arrays
+- [x] `Array.slice(start?, end?)` - Extract array portions ✅
+- [x] `Array.includes(value)` - Check if element exists ✅
+- [x] `Array.indexOf(value)` - Find element index ✅
+- [x] `Array.concat(...arrays)` - Concatenate arrays ✅
 
 ### Milestone 105.2: Collection Utilities
 
-- [ ] **Task 105.2.1:** `map<T, U>(arr: T[], fn: (x: T) => U): U[]` - Transform elements ✅ (already works!)
-- [ ] **Task 105.2.2:** `filter<T>(arr: T[], fn: (x: T) => boolean): T[]` - Filter elements
-- [ ] **Task 105.2.3:** `reduce<T, U>(arr: T[], fn: (acc: U, x: T) => U, init: U): U` - Reduce
-- [ ] **Task 105.2.4:** `find<T>(arr: T[], fn: (x: T) => boolean): T | undefined` - Find first match
-- [ ] **Task 105.2.5:** `findIndex<T>(arr: T[], fn: (x: T) => boolean): number` - Find index
-- [ ] **Task 105.2.6:** `every<T>(arr: T[], fn: (x: T) => boolean): boolean` - All match
-- [ ] **Task 105.2.7:** `some<T>(arr: T[], fn: (x: T) => boolean): boolean` - Any match
+- [x] **Task 105.2.1:** `map<T, U>(arr: T[], fn: (x: T) => U): U[]` - Transform elements ✅
+- [🔧] **Task 105.2.2:** `filter<T>(arr: T[], fn: (x: T) => boolean): T[]` - Filter elements *(blocked: generic callback bug)*
+- [x] **Task 105.2.3:** `reduce<T, U>(arr: T[], fn: (acc: U, x: T) => U, init: U): U` - Reduce ✅
+- [🔧] **Task 105.2.4:** `find<T>(arr: T[], fn: (x: T) => boolean): T | undefined` - Find first match *(blocked: generic callback bug)*
+- [🔧] **Task 105.2.5:** `findIndex<T>(arr: T[], fn: (x: T) => boolean): number` - Find index *(blocked: generic callback bug)*
+- [x] **Task 105.2.6:** `every<T>(arr: T[], fn: (x: T) => boolean): boolean` - All match ✅
+- [x] **Task 105.2.7:** `some<T>(arr: T[], fn: (x: T) => boolean): boolean` - Any match ✅
 - [ ] **Task 105.2.8:** `groupBy<T>(arr: T[], fn: (x: T) => string): Record<string, T[]>` - Group by key
 - [ ] **Task 105.2.9:** `keyBy<T>(arr: T[], fn: (x: T) => string): Record<string, T>` - Index by key
 - [ ] **Task 105.2.10:** `sortBy<T>(arr: T[], fn: (x: T) => number): T[]` - Sort by key
 
 **Runtime Prerequisites:**
-- [ ] `Array.sort(compareFn?)` - In-place sorting
+- [x] `Array.sort(compareFn?)` - In-place sorting ✅
 - [ ] `Array.findIndex(predicate)` - Native find index
 
 ### Milestone 105.3: Object Utilities
@@ -122,11 +139,11 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.6: Utility Functions
 
-- [ ] **Task 105.6.1:** `range(start, end, step?)` - Generate number range
-- [ ] **Task 105.6.2:** `times<T>(n: number, fn: (i: number) => T): T[]` - Call n times
-- [ ] **Task 105.6.3:** `identity<T>(x: T): T` - Return input ✅ (already works!)
-- [ ] **Task 105.6.4:** `constant<T>(x: T): () => T` - Return constant function
-- [ ] **Task 105.6.5:** `noop(): void` - Do nothing
+- [x] **Task 105.6.1:** `range(start, end, step?)` - Generate number range ✅
+- [x] **Task 105.6.2:** `times<T>(n: number, fn: (i: number) => T): T[]` - Call n times ✅
+- [x] **Task 105.6.3:** `identity<T>(x: T): T` - Return input ✅
+- [x] **Task 105.6.4:** `constant<T>(x: T): () => T` - Return constant function ✅
+- [x] **Task 105.6.5:** `noop(): void` - Do nothing ✅
 - [ ] **Task 105.6.6:** `uniqueId(prefix?: string): string` - Generate unique ID
 
 ---
