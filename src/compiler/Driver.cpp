@@ -125,6 +125,7 @@ int Driver::run() {
             irGen.setRuntimeBitcode(options.runtimeBitcode);
         }
         irGen.setDebug(options.debug);
+        irGen.setDebugRuntime(options.debugRuntime);
         irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer, tsFile);
         
         if (options.dumpIR) {

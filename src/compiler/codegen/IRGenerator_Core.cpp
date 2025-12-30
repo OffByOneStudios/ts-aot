@@ -79,6 +79,41 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         }
     }
 
+    // Add linker metadata for Debug/Release CRT compatibility
+    if (llvm::Triple(module->getTargetTriple()).isOSBinFormatCOFF()) {
+        llvm::NamedMDNode *linkerOpts = module->getOrInsertNamedMetadata("llvm.linker.options");
+        
+        if (debugRuntime) {
+            // Static Debug runtime: _ITERATOR_DEBUG_LEVEL=2, link against libcmtd (static debug CRT)
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/FAILIFMISMATCH:\"_ITERATOR_DEBUG_LEVEL=2\"")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/DEFAULTLIB:libcmtd.lib")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/NODEFAULTLIB:libcmt.lib")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/FAILIFMISMATCH:\"RuntimeLibrary=MTd_StaticDebug\"")
+            }));
+        } else {
+            // Static Release runtime: _ITERATOR_DEBUG_LEVEL=0, link against libcmt (static release CRT)
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/FAILIFMISMATCH:\"_ITERATOR_DEBUG_LEVEL=0\"")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/DEFAULTLIB:libcmt.lib")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/NODEFAULTLIB:libcmtd.lib")
+            }));
+            linkerOpts->addOperand(llvm::MDNode::get(*context, {
+                llvm::MDString::get(*context, "/FAILIFMISMATCH:\"RuntimeLibrary=MT_StaticRelease\"")
+            }));
+        }
+    }
+
     std::string error;
     auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
     if (target) {
