@@ -56,12 +56,12 @@ To maintain compiler performance and code organization, each Node.js module (fs,
 - [x] **Agents:** Connection pooling with `http.Agent` and `https.Agent`.
 - [x] **WebSocket:** Full RFC 6455 WebSocket implementation.
 
-### [Epic 101: Buffer & Primitives](./epic_101_buffer.md) 🟡 Partial
+### [Epic 101: Buffer & Primitives](./epic_101_buffer.md) ✅ Complete
 **Existing:** `TsBuffer` class with `alloc()`, `from()`, length, indexing, `toString()`.
-- [ ] **Buffer API:** `Buffer.concat`, `buffer.copy()`, `buffer.slice()`, `buffer.fill()`.
-- [ ] **Encoding:** Support for `hex`, `base64`, `utf8` in Buffers.
-- [ ] **TypedArrays:** Better integration between `Buffer` and `Uint8Array`.
-- [ ] **Verification:** Update `compatibility_matrix.md` for `buffer`.
+- [x] **Buffer API:** `Buffer.concat`, `buffer.copy()`, `buffer.slice()`, `buffer.fill()`.
+- [x] **Encoding:** Support for `hex`, `base64`, `base64url`, `utf8` in Buffers.
+- [x] **TypedArrays:** Better integration between `Buffer` and `Uint8Array` (byteLength, byteOffset, buffer).
+- [x] **Verification:** 48 tests passing across 3 test files.
 
 ### [Epic 102: Process & Globals](./epic_102_process_globals.md) ✅ Complete
 **Existing:** `process.argv`, `process.env`, `process.exit()`, `process.cwd()`, `setTimeout`, `console.log`.

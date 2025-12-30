@@ -891,6 +891,24 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 lastValue = createCall(ft, fn.getCallee(), { buf });
                 return;
             }
+            if (fieldName == "byteLength") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_byte_length", ft);
+                lastValue = createCall(ft, fn.getCallee(), { buf });
+                return;
+            }
+            if (fieldName == "byteOffset") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_byte_offset", ft);
+                lastValue = createCall(ft, fn.getCallee(), { buf });
+                return;
+            }
+            if (fieldName == "buffer") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_get_array_buffer", ft);
+                lastValue = createCall(ft, fn.getCallee(), { buf });
+                return;
+            }
         }
 
         if (className == "Response") {
