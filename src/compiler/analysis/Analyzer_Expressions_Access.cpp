@@ -224,6 +224,12 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             charAtFn->returnType = std::make_shared<Type>(TypeKind::Int);
             lastType = charAtFn;
             return;
+        } else if (node->name == "charAt") {
+            auto charAtFn = std::make_shared<FunctionType>();
+            charAtFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            charAtFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = charAtFn;
+            return;
         } else if (node->name == "match") {
             auto matchFn = std::make_shared<FunctionType>();
             auto regExpType = symbols.lookupType("RegExp");

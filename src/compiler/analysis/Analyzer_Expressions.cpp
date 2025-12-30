@@ -58,6 +58,9 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         if (prop->name == "charCodeAt") {
              lastType = std::make_shared<Type>(TypeKind::Int);
              return;
+        } else if (prop->name == "charAt") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         } else if (prop->name == "split") {
              lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
              return;

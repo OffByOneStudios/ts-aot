@@ -18,6 +18,7 @@ public:
 
     int64_t Length();
     int64_t CharCodeAt(int64_t index);
+    TsString* CharAt(int64_t index);
     void* Split(TsString* separator);
     TsString* Trim();
     TsString* Substring(int64_t start, int64_t end);
@@ -64,6 +65,7 @@ private:
 extern "C" {
     int64_t ts_string_length(void* str);
     int64_t ts_string_charCodeAt(void* str, int64_t index);
+    void* ts_string_charAt(void* str, int64_t index);
     void* ts_string_split(void* str, void* separator);
     void* ts_string_split_regexp(void* str, void* regexp);
     void* ts_string_trim(void* str);

@@ -131,6 +131,20 @@ int64_t TsString::CharCodeAt(int64_t index) {
     return s->charAt((int32_t)index);
 }
 
+TsString* TsString::CharAt(int64_t index) {
+    if (index < 0 || index >= length) return TsString::Create("");
+    if (isSmall) {
+        char buf[2] = { data.inlineBuffer[index], 0 };
+        return TsString::Create(buf);
+    }
+    
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
+    icu::UnicodeString charStr = s->tempSubString((int32_t)index, 1);
+    std::string utf8;
+    charStr.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
 icu::UnicodeString TsString::ToUnicodeString() const {
     if (isSmall) {
         return icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -618,6 +632,10 @@ extern "C" {
 
     int64_t ts_string_charCodeAt(void* str, int64_t index) {
         return ((TsString*)str)->CharCodeAt(index);
+    }
+
+    void* ts_string_charAt(void* str, int64_t index) {
+        return ((TsString*)str)->CharAt(index);
     }
 
     void* ts_string_concat(void* a, void* b) {
