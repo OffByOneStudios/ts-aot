@@ -243,17 +243,24 @@ std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std
 }
 
 std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
-    std::string name = specifier;
-    if (name.starts_with("node:")) {
-        name = name.substr(5);
+    // Use the new ModuleResolver
+    ResolvedModule resolved = resolveModule(specifier);
+    
+    if (!resolved.isValid()) {
+        reportError("Could not resolve module: " + specifier);
+        return nullptr;
     }
-
-    if (name == "fs" || name == "path" || name == "crypto" || name == "os" || name == "http" || name == "https" || name == "events" || name == "net" || name == "stream") {
-        if (modules.count("builtin:" + name)) {
-            return modules["builtin:" + name];
+    
+    // Handle builtin modules
+    if (resolved.type == ModuleType::Builtin) {
+        std::string name = resolved.packageName;
+        
+        if (modules.count(resolved.path)) {
+            return modules[resolved.path];
         }
+        
         auto module = std::make_shared<Module>();
-        module->path = "builtin:" + name;
+        module->path = resolved.path;
         module->analyzed = true;
         
         auto sym = symbols.lookup(name);
@@ -269,43 +276,66 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             }
         }
         
-        modules["builtin:" + name] = module;
+        modules[resolved.path] = module;
         return module;
     }
-
-    std::string resolvedPath = resolveModulePath(specifier);
-    if (resolvedPath.empty()) {
-        reportError("Could not resolve module: " + specifier);
-        return nullptr;
+    
+    // Check cache
+    if (modules.count(resolved.path)) {
+        return modules[resolved.path];
     }
-
-    if (modules.count(resolvedPath)) {
-        return modules[resolvedPath];
-    }
-
-    fmt::print("Loading module: {} from {}\n", specifier, resolvedPath);
+    
+    SPDLOG_INFO("Loading module: {} -> {}", specifier, resolved.path);
+    
     auto module = std::make_shared<Module>();
-    module->path = resolvedPath;
-    modules[resolvedPath] = module;
-
+    module->path = resolved.path;
+    modules[resolved.path] = module;  // Cache early to handle circular deps
+    
     try {
-        if (resolvedPath.ends_with(".ts")) {
-            std::string jsonPath = resolvedPath + ".json";
-            std::string command = "node scripts/dump_ast.js \"" + resolvedPath + "\" \"" + jsonPath + "\"";
-            if (system(command.c_str()) != 0) {
-                reportError("Failed to run dump_ast.js for " + resolvedPath);
-                return nullptr;
-            }
-            module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
-        } else {
-            module->ast = std::shared_ptr<ast::Program>(ast::loadAst(resolvedPath).release());
+        if (resolved.type == ModuleType::JSON) {
+            // JSON files don't need AST parsing - we'll handle them at codegen time
+            module->analyzed = true;
+            // TODO: Parse JSON and create type
+            SPDLOG_DEBUG("JSON module: {}", resolved.path);
+            return module;
         }
+        
+        if (resolved.type == ModuleType::Declaration) {
+            // .d.ts files - parse for types only
+            // TODO: Implement .d.ts parsing
+            SPDLOG_DEBUG("Declaration file: {}", resolved.path);
+            module->analyzed = true;
+            return module;
+        }
+        
+        // TypeScript or JavaScript - parse the AST
+        std::string jsonPath = resolved.path + ".ast.json";
+        
+        // Use our Node.js parser to dump AST
+        std::string command = "node scripts/dump_ast.js \"" + resolved.path + "\" \"" + jsonPath + "\"";
+        if (system(command.c_str()) != 0) {
+            reportError("Failed to parse " + resolved.path);
+            return nullptr;
+        }
+        
+        module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
+        
+        if (resolved.type == ModuleType::UntypedJavaScript) {
+            SPDLOG_WARN("Importing untyped JavaScript: {} (slow path)", resolved.path);
+            // TODO: Mark module for slow-path codegen
+        }
+        
+        if (resolved.isExternal) {
+            SPDLOG_DEBUG("External package: {}", resolved.packageName);
+        }
+        
         analyzeModule(module);
+        
     } catch (const std::exception& e) {
-        reportError("Failed to load module " + resolvedPath + ": " + e.what());
+        reportError("Failed to load module " + resolved.path + ": " + e.what());
         return nullptr;
     }
-
+    
     return module;
 }
 

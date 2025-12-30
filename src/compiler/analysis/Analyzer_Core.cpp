@@ -51,15 +51,8 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentFilePath = oldPath;
 }
 
-std::string Analyzer::resolveModulePath(const std::string& specifier) {
-    fs::path base = fs::path(currentFilePath).parent_path();
-    fs::path resolved = base / specifier;
-    
-    // Try .ts, then .json (pre-compiled AST)
-    if (fs::exists(resolved.string() + ".ts")) return fs::absolute(resolved.string() + ".ts").string();
-    if (fs::exists(resolved.string() + ".json")) return fs::absolute(resolved.string() + ".json").string();
-    
-    return "";
+ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
+    return moduleResolver.resolve(specifier, fs::path(currentFilePath));
 }
 
 void Analyzer::visit(Node* node) {
@@ -168,5 +161,16 @@ void Analyzer::visitBindingElement(ast::BindingElement* node) {}
 void Analyzer::visitSpreadElement(ast::SpreadElement* node) {
     visit(node->expression.get());
 }
+
+bool Analyzer::loadTsConfig(const std::string& tsconfigPath) {
+    SPDLOG_INFO("Loading tsconfig.json from {}", tsconfigPath);
+    return moduleResolver.loadTsConfig(fs::path(tsconfigPath));
+}
+
+void Analyzer::setProjectRoot(const std::string& rootPath) {
+    SPDLOG_DEBUG("Setting project root to {}", rootPath);
+    moduleResolver.setProjectRoot(fs::path(rootPath));
+}
+
 } // namespace ts
 

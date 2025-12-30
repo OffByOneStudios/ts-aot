@@ -772,5 +772,6 @@ Analyzer::Analyzer() {
     registerNet();
     registerHTTP();
     registerHTTPS();
+    registerUtil();
 }
 } // namespace ts

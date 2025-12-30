@@ -1,0 +1,365 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "add",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a",
+            "line": 3,
+            "column": 21
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 3,
+          "column": 21
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b",
+            "line": 3,
+            "column": 32
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 3,
+          "column": 32
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "a",
+              "line": 4,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b",
+              "line": 4,
+              "column": 16
+            },
+            "line": 4,
+            "column": 12
+          },
+          "line": 4,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 3,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "multiply",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a",
+            "line": 7,
+            "column": 26
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 26
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b",
+            "line": 7,
+            "column": 37
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 37
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "*",
+            "left": {
+              "kind": "Identifier",
+              "name": "a",
+              "line": 8,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b",
+              "line": 8,
+              "column": 16
+            },
+            "line": 8,
+            "column": 12
+          },
+          "line": 8,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "subtract",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a",
+            "line": 11,
+            "column": 26
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 11,
+          "column": 26
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b",
+            "line": 11,
+            "column": 37
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 11,
+          "column": 37
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "-",
+            "left": {
+              "kind": "Identifier",
+              "name": "a",
+              "line": 12,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b",
+              "line": 12,
+              "column": 16
+            },
+            "line": 12,
+            "column": 12
+          },
+          "line": 12,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 11,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "divide",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "a",
+            "line": 15,
+            "column": 24
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 15,
+          "column": 24
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "b",
+            "line": 15,
+            "column": 35
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 15,
+          "column": 35
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "===",
+            "left": {
+              "kind": "Identifier",
+              "name": "b",
+              "line": 16,
+              "column": 9
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 0,
+              "line": 16,
+              "column": 15
+            },
+            "line": 16,
+            "column": 9
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ThrowStatement",
+                "expression": {
+                  "kind": "NewExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "Error",
+                    "line": 17,
+                    "column": 19
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "Division by zero",
+                      "line": 17,
+                      "column": 25
+                    }
+                  ],
+                  "typeArguments": [],
+                  "line": 17,
+                  "column": 15
+                },
+                "line": 17,
+                "column": 9
+              }
+            ],
+            "line": 16,
+            "column": 18
+          },
+          "elseStatement": null,
+          "line": 16,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "/",
+            "left": {
+              "kind": "Identifier",
+              "name": "a",
+              "line": 19,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "b",
+              "line": 19,
+              "column": 16
+            },
+            "line": 19,
+            "column": 12
+          },
+          "line": 19,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 15,
+      "column": 1
+    }
+  ]
+}

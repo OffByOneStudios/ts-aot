@@ -3,9 +3,57 @@
 namespace ts {
 
 void Analyzer::registerHTTP() {
+    // Register URLSearchParams class first (URL.searchParams returns it)
+    auto urlSearchParamsClass = std::make_shared<ClassType>("URLSearchParams");
+    urlSearchParamsClass->fields["size"] = std::make_shared<Type>(TypeKind::Int);
+    
+    // URLSearchParams methods
+    auto appendMethod = std::make_shared<FunctionType>();
+    appendMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    appendMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    appendMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    urlSearchParamsClass->methods["append"] = appendMethod;
+    
+    auto deleteMethod = std::make_shared<FunctionType>();
+    deleteMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    deleteMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    urlSearchParamsClass->methods["delete"] = deleteMethod;
+    
+    auto getMethod = std::make_shared<FunctionType>();
+    getMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    getMethod->returnType = std::make_shared<Type>(TypeKind::String);
+    urlSearchParamsClass->methods["get"] = getMethod;
+    
+    auto getAllMethod = std::make_shared<FunctionType>();
+    getAllMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    getAllMethod->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    urlSearchParamsClass->methods["getAll"] = getAllMethod;
+    
+    auto hasMethod = std::make_shared<FunctionType>();
+    hasMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    hasMethod->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    urlSearchParamsClass->methods["has"] = hasMethod;
+    
+    auto setMethod = std::make_shared<FunctionType>();
+    setMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    setMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    setMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    urlSearchParamsClass->methods["set"] = setMethod;
+    
+    auto sortMethod = std::make_shared<FunctionType>();
+    sortMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    urlSearchParamsClass->methods["sort"] = sortMethod;
+    
+    auto toStringMethod = std::make_shared<FunctionType>();
+    toStringMethod->returnType = std::make_shared<Type>(TypeKind::String);
+    urlSearchParamsClass->methods["toString"] = toStringMethod;
+    
+    symbols.defineType("URLSearchParams", urlSearchParamsClass);
+
     // Register URL class
     auto urlClass = std::make_shared<ClassType>("URL");
     urlClass->fields["href"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["origin"] = std::make_shared<Type>(TypeKind::String);
     urlClass->fields["protocol"] = std::make_shared<Type>(TypeKind::String);
     urlClass->fields["host"] = std::make_shared<Type>(TypeKind::String);
     urlClass->fields["hostname"] = std::make_shared<Type>(TypeKind::String);
@@ -13,6 +61,19 @@ void Analyzer::registerHTTP() {
     urlClass->fields["pathname"] = std::make_shared<Type>(TypeKind::String);
     urlClass->fields["search"] = std::make_shared<Type>(TypeKind::String);
     urlClass->fields["hash"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["username"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["password"] = std::make_shared<Type>(TypeKind::String);
+    urlClass->fields["searchParams"] = urlSearchParamsClass;
+    
+    // URL methods
+    auto urlToStringMethod = std::make_shared<FunctionType>();
+    urlToStringMethod->returnType = std::make_shared<Type>(TypeKind::String);
+    urlClass->methods["toString"] = urlToStringMethod;
+    
+    auto toJSONMethod = std::make_shared<FunctionType>();
+    toJSONMethod->returnType = std::make_shared<Type>(TypeKind::String);
+    urlClass->methods["toJSON"] = toJSONMethod;
+    
     symbols.defineType("URL", urlClass);
 
     // fetch

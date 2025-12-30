@@ -6,6 +6,7 @@
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
 #include "Module.h"
+#include "ModuleResolver.h"
 
 namespace ts {
 
@@ -38,6 +39,12 @@ public:
     int getErrorCount() const { return errorCount; }
     void setVerbose(bool v) { verbose = v; }
 
+    // Load tsconfig.json for path aliases and baseUrl resolution
+    bool loadTsConfig(const std::string& tsconfigPath);
+
+    // Set the project root directory (for module resolution)
+    void setProjectRoot(const std::string& rootPath);
+
     // Analyze a function body with specific argument types to determine return type
     std::shared_ptr<Type> analyzeFunctionBody(ast::FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {});
     std::shared_ptr<ClassType> analyzeClassBody(ast::ClassDeclaration* node, const std::vector<std::shared_ptr<Type>>& typeArguments);
@@ -53,6 +60,7 @@ public:
     void registerNet();
     void registerHTTP();
     void registerHTTPS();
+    void registerUtil();
 
     void reportError(const std::string& message);
 
@@ -176,10 +184,11 @@ private:
 
     std::shared_ptr<Module> currentModule;
     std::string currentFilePath;
+    ModuleResolver moduleResolver;
 
     void analyzeModule(std::shared_ptr<Module> module);
     std::shared_ptr<Module> loadModule(const std::string& specifier);
-    std::string resolveModulePath(const std::string& specifier);
+    ResolvedModule resolveModule(const std::string& specifier);
 
     std::shared_ptr<ClassType> currentClass;
     std::string currentMethodName;

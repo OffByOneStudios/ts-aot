@@ -71,6 +71,33 @@ int Driver::run() {
         }
         ts::Analyzer analyzer;
         analyzer.setVerbose(options.verbose);
+
+        // Set project root and load tsconfig.json if available
+        std::filesystem::path tsFilePath = std::filesystem::absolute(tsFile);
+        std::filesystem::path projectRoot = tsFilePath.parent_path();
+        analyzer.setProjectRoot(projectRoot.string());
+
+        // Load tsconfig.json - either from explicit path or auto-detect
+        if (!options.projectFile.empty()) {
+            // Explicit --project path specified
+            if (!analyzer.loadTsConfig(options.projectFile)) {
+                SPDLOG_WARN("Could not load tsconfig.json from {}", options.projectFile);
+            }
+        } else {
+            // Auto-detect: search upward from input file for tsconfig.json
+            std::filesystem::path searchPath = projectRoot;
+            while (!searchPath.empty()) {
+                std::filesystem::path tsconfigPath = searchPath / "tsconfig.json";
+                if (std::filesystem::exists(tsconfigPath)) {
+                    analyzer.loadTsConfig(tsconfigPath.string());
+                    break;
+                }
+                auto parent = searchPath.parent_path();
+                if (parent == searchPath) break;
+                searchPath = parent;
+            }
+        }
+
         analyzer.analyze(program.get(), tsFile);
 
         if (options.dumpTypes) {
