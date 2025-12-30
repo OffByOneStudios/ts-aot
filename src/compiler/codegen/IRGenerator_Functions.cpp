@@ -440,6 +440,62 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
     auto oldNamedValues = namedValues;
 
+    // === CLOSURE CAPTURE: Collect free variables BEFORE clearing namedValues ===
+    std::set<std::string> paramNames;
+    for (auto& param : node->parameters) {
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramNames.insert(id->name);
+        }
+    }
+    
+    std::vector<CapturedVariable> capturedVars;
+    if (node->body) {
+        collectFreeVariables(node->body.get(), paramNames, capturedVars);
+    }
+    
+    // Create closure context struct type (if we have captures)
+    llvm::StructType* closureContextType = nullptr;
+    llvm::Value* closureContext = nullptr;
+    std::map<std::string, int> capturedVarIndices;
+    
+    if (!capturedVars.empty()) {
+        std::vector<llvm::Type*> contextFields;
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            contextFields.push_back(builder->getPtrTy()); // All captured values are boxed (TsValue*)
+            capturedVarIndices[capturedVars[i].name] = static_cast<int>(i);
+        }
+        closureContextType = llvm::StructType::create(*context, name + "_closure");
+        closureContextType->setBody(contextFields);
+        
+        // Allocate and populate the closure context (in the OUTER function)
+        llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+        uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
+        closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
+        
+        // Store captured values into the context struct
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, closureContext, static_cast<unsigned>(i));
+            
+            // Determine the type to load from the outer scope's alloca
+            llvm::Type* loadType = builder->getPtrTy(); // default
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(capturedVars[i].value)) {
+                loadType = alloca->getAllocatedType();
+            }
+            
+            // Load the current value from the outer scope's alloca
+            llvm::Value* outerValue = builder->CreateLoad(loadType, capturedVars[i].value);
+            
+            // Box it if not already a pointer (i.e., if it's a primitive type)
+            if (!loadType->isPointerTy() || !boxedValues.count(outerValue)) {
+                outerValue = boxValue(outerValue, capturedVars[i].type);
+            }
+            builder->CreateStore(outerValue, fieldPtr);
+        }
+        
+        SPDLOG_INFO("Arrow function {} captures {} variables", name, capturedVars.size());
+    }
+
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
         auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
@@ -469,10 +525,33 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
     
     auto argIt = function->arg_begin();
+    llvm::Value* contextArg = nullptr;
     if (argIt != function->arg_end()) {
         argIt->setName("context");
-        currentContext = &*argIt;
+        contextArg = &*argIt;
+        currentContext = contextArg;
         ++argIt;
+    }
+
+    // === CLOSURE CAPTURE: Extract captured values from context at function entry ===
+    if (!capturedVars.empty() && closureContextType && contextArg) {
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            const auto& cv = capturedVars[i];
+            // Create a local alloca for this captured variable
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(function, cv.name, builder->getPtrTy());
+            // Load the value from the context struct
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, contextArg, static_cast<unsigned>(i));
+            llvm::Value* capturedValue = builder->CreateLoad(builder->getPtrTy(), fieldPtr);
+            // Store into local alloca
+            builder->CreateStore(capturedValue, alloca);
+            // Add to namedValues so the body can use it
+            namedValues[cv.name] = alloca;
+            // Mark as boxed since we stored boxed values
+            boxedValues.insert(capturedValue);
+            boxedVariables.insert(cv.name);
+            
+            SPDLOG_INFO("  Extracted captured var {} at index {}", cv.name, i);
+        }
     }
 
     unsigned idx = 0;
@@ -514,7 +593,16 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     builder->SetInsertPoint(oldBB);
     namedValues = oldNamedValues;
     
-    lastValue = function;
+    // === CLOSURE CAPTURE: Box the function with its closure context ===
+    if (closureContext) {
+        // Use ts_value_make_function_with_context to box function with context
+        llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
+        lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { function, closureContext });
+        boxedValues.insert(lastValue);
+    } else {
+        lastValue = function;
+    }
 }
 
 void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
