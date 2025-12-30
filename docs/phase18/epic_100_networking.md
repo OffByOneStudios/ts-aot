@@ -57,7 +57,7 @@ Implement the core Node.js networking modules. This will allow `ts-aot` to run w
 - [x] **Task 100.7.1:** Implement `http.Agent` base class.
 - [x] **Task 100.7.2:** Implement `https.Agent` class.
 - [x] **Task 100.7.3:** Implement `http.globalAgent` and `https.globalAgent`.
-- [ ] **Task 100.7.4:** Support connection reuse in `ClientRequest`.
+- [x] **Task 100.7.4:** Support connection reuse in `ClientRequest`.
 - [x] **Task 100.7.5:** Implement `http.setMaxIdleHTTPParsers`.
 
 ### Milestone 100.8: HTTP Advanced Classes
@@ -91,6 +91,6 @@ SSL_set_connect_state(ssl);  // Client mode
 - [x] **Completed:** Milestone 100.4 - HTTP Client (Full).
 - [x] **Completed:** Milestone 100.5 - HTTPS Support (Client & Server).
 - [x] **Completed:** Milestone 100.6 - Networking Utilities & Constants.
-- [ ] **Planned:** Milestone 100.7 - Connection Pooling (Agents).
+- [x] **Completed:** Milestone 100.7 - Connection Pooling (Agents).
 - [ ] **Planned:** Milestone 100.8 - HTTP Advanced Classes.
 - [ ] **Planned:** Milestone 100.9 - WebSocket Support.
