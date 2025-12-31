@@ -128,6 +128,8 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
         
         llvm::Value* res = createCall(getFt, getFn.getCallee(), { obj, key });
+        // ts_map_get always returns boxed TsValue*
+        boxedValues.insert(res);
         lastValue = unboxValue(res, std::make_shared<Type>(TypeKind::Any));
         return;
     }
@@ -145,7 +147,10 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         
         // ts_map_get expects the raw TsMap*
         llvm::Value* rawMap = unboxValue(mapVal, node->expression->inferredType);
-        lastValue = createCall(getFt, getFn.getCallee(), { rawMap, key });
+        llvm::Value* res = createCall(getFt, getFn.getCallee(), { rawMap, key });
+        // ts_map_get always returns boxed TsValue*
+        boxedValues.insert(res);
+        lastValue = res;
         return;
     }
 
@@ -407,7 +412,10 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
         
-        lastValue = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
+        llvm::Value* res = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
+        // ts_map_get always returns boxed TsValue*
+        boxedValues.insert(res);
+        lastValue = res;
         return;
     }
 

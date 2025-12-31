@@ -377,13 +377,19 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         for (auto& arg : node->arguments) {
             visit(arg.get());
             if (lastValue) {
-                args.push_back(lastValue);
-                if (arg->inferredType) {
-                    argTypes.push_back(arg->inferredType);
-                } else {
-                    // Fallback if type inference failed
-                    argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                llvm::Value* argVal = lastValue;
+                std::shared_ptr<Type> argType = arg->inferredType;
+                if (!argType) {
+                    argType = std::make_shared<Type>(TypeKind::Any);
                 }
+                
+                // Box function arguments so they can be called via ts_call_N inside the callee
+                if (argType && argType->kind == TypeKind::Function) {
+                    argVal = boxValue(argVal, argType);
+                }
+                
+                args.push_back(argVal);
+                argTypes.push_back(argType);
             }
         }
 

@@ -84,7 +84,8 @@ int64_t TsArray::Shift() {
 
 int64_t TsArray::Get(size_t index) {
     if (index >= length) {
-        ts_panic("Array index out of bounds");
+        // JavaScript behavior: return undefined (0) for out-of-bounds access
+        return 0;
     }
     if (elementSize != 8) return 0;
     return ((int64_t*)elements)[index];

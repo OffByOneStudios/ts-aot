@@ -106,6 +106,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         // Clear function-specific state
         namedValues.clear();
         boxedVariables.clear();
+        boxedValues.clear();  // Must clear between specializations to avoid stale pointer reuse
         catchStack.clear();
         finallyStack.clear();
         valueOverrides.clear();
@@ -487,7 +488,15 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
             llvm::Value* outerValue = builder->CreateLoad(loadType, capturedVars[i].value);
             
             // Box it if not already a pointer (i.e., if it's a primitive type)
-            if (!loadType->isPointerTy() || !boxedValues.count(outerValue)) {
+            // BUT: don't box function pointers that are already boxed TsValue*
+            bool shouldBox = !loadType->isPointerTy() || !boxedValues.count(outerValue);
+            
+            // Function type variables that are already pointers are boxed TsValue* - don't box again
+            if (capturedVars[i].type && capturedVars[i].type->kind == TypeKind::Function && loadType->isPointerTy()) {
+                shouldBox = false;
+            }
+            
+            if (shouldBox) {
                 outerValue = boxValue(outerValue, capturedVars[i].type);
             }
             builder->CreateStore(outerValue, fieldPtr);
