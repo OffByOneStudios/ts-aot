@@ -15,7 +15,10 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         visit(node->expression.get());
         val = lastValue;
         
-        if (currentReturnType && currentReturnType->kind == TypeKind::Any) {
+        // For lambda returns that return ptr, always box if value is not ptr
+        if (retType->isPointerTy() && val && !val->getType()->isPointerTy()) {
+            val = boxValue(val, node->expression->inferredType);
+        } else if (currentReturnType && currentReturnType->kind == TypeKind::Any) {
             val = boxValue(val, node->expression->inferredType);
         } else {
             val = castValue(val, retType);

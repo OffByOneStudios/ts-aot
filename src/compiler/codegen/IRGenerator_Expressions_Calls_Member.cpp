@@ -372,6 +372,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             } else if (methodName == "get") {
                 // TsValue* ts_map_get(void* map, TsValue* key)
+                SPDLOG_INFO("Map.get (Member): node->inferredType = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get", ft);
 

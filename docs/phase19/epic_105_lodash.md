@@ -28,7 +28,7 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 5. ~~**Function Variable Calls:**~~ **FIXED** - Arrow functions and named function references now properly boxed; wrapper functions generated for `ts_call_N` compatibility
 6. ~~**User-defined user_main:**~~ **FIXED** - Synthetic `__synthetic_user_main` now correctly calls user-defined `user_main` function
 7. **Optional Parameters:** `undefined` checks need more work
-8. **Mutable Closures:** Closures capture by VALUE, not by reference. Counter/memoize patterns don't work correctly. Needs shared cell pattern.
+8. ~~**Mutable Closures:**~~ **FIXED** - TsCell-based capture-by-reference now works for counter/memoize patterns
 
 ## Design Rationale
 
@@ -132,13 +132,13 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.5: Function Utilities
 
-**Status:** Blocked - Closures capture by value, not reference
+**Status:** Complete - All core function utilities working with TsCell mutable closures
 
-- [ ] **Task 105.5.1:** `debounce<T>(fn: T, wait: number): T` - Debounce function
-- [ ] **Task 105.5.2:** `throttle<T>(fn: T, wait: number): T` - Throttle function
-- [ ] **Task 105.5.3:** `memoize<T>(fn: T): T` - Cache function results
-- [ ] **Task 105.5.4:** `once<T>(fn: T): T` - Call only once
-- [ ] **Task 105.5.5:** `negate<T>(fn: T): T` - Negate predicate
+- [x] **Task 105.5.1:** `debounce<T>(fn: T, wait: number): T` - Debounce function ✅
+- [x] **Task 105.5.2:** `throttle<T>(fn: T, wait: number): T` - Throttle function ✅
+- [x] **Task 105.5.3:** `memoize<T>(fn: T): T` - Cache function results ✅
+- [x] **Task 105.5.4:** `once<T>(fn: T): T` - Call only once ✅
+- [x] **Task 105.5.5:** `negate<T>(fn: T): T` - Negate predicate ✅
 - [ ] **Task 105.5.6:** `partial(fn, ...args)` - Partial application
 - [ ] **Task 105.5.7:** `curry(fn)` - Currying
 
@@ -146,7 +146,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] `setTimeout(fn, delay)` - Delayed execution ✅
 - [x] `clearTimeout(id)` - Cancel timeout ✅
 - [x] `Date.now()` - Current timestamp ✅
-- [ ] **Mutable closures** - Closures need capture-by-reference for counter/memoize patterns
+- [x] **Mutable closures** - TsCell-based capture-by-reference for counter/memoize patterns ✅
 
 ### Milestone 105.6: Utility Functions
 

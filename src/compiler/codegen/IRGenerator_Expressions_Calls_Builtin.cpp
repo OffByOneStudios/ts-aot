@@ -1874,6 +1874,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
+         // Unbox map if it's a boxed TsValue* (e.g., from a cell)
+         map = unboxValue(map, prop->expression->inferredType);
          
          if (node->arguments.size() < 2) return true;
          visit(node->arguments[0].get());
@@ -1912,12 +1914,15 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          lastValue = map;
          return true;
     } else if (prop->name == "get" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
+         SPDLOG_INFO("Map.get: node->inferredType = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
          visit(prop->expression.get());
          llvm::Value* map = lastValue;
          
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
+         // Unbox map if it's a boxed TsValue* (e.g., from a cell)
+         map = unboxValue(map, prop->expression->inferredType);
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
@@ -1928,11 +1933,37 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get", getFt);
          llvm::Value* boxedResult = createCall(getFt, fn.getCallee(), { map, key });
          
-         // ts_map_get returns a boxed TsValue*, always unbox it to get the raw pointer
-         // This is safe because ts_value_get_object returns the raw pointer for any boxed type
-         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-         llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
-         lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+         // ts_map_get returns a boxed TsValue*, unbox based on the call expression's inferred type
+         SPDLOG_INFO("Map.get: About to unbox, node->inferredType->kind = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
+         if (node->inferredType && node->inferredType->kind == TypeKind::Double) {
+             SPDLOG_INFO("Map.get: Using ts_value_get_double");
+             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getDoubleTy(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", unboxFt);
+             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+             // Do NOT add to boxedValues - this is an unboxed primitive
+         } else if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+             SPDLOG_INFO("Map.get: Using ts_value_get_int");
+             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+             // Do NOT add to boxedValues - this is an unboxed primitive
+         } else if (node->inferredType && node->inferredType->kind == TypeKind::Boolean) {
+             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", unboxFt);
+             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+             // Do NOT add to boxedValues - this is an unboxed primitive
+         } else if (node->inferredType && node->inferredType->kind == TypeKind::String) {
+             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_string", unboxFt);
+             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+             // Strings are raw pointers, not boxed - do NOT add to boxedValues
+         } else {
+             // For objects, use ts_value_get_object - result is also a raw pointer
+             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+             llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+             // Object pointers are raw, not boxed - do NOT add to boxedValues
+         }
          return true;
     } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());
@@ -1940,6 +1971,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
+         // Unbox map if it's a boxed TsValue* (e.g., from a cell)
+         map = unboxValue(map, prop->expression->inferredType);
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
@@ -1956,6 +1989,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
+         // Unbox map if it's a boxed TsValue* (e.g., from a cell)
+         map = unboxValue(map, prop->expression->inferredType);
          
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
@@ -1972,6 +2007,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (map->getType()->isIntegerTy(64)) {
              map = builder->CreateIntToPtr(map, builder->getPtrTy());
          }
+         // Unbox map if it's a boxed TsValue* (e.g., from a cell)
+         map = unboxValue(map, prop->expression->inferredType);
          
          llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                  { builder->getPtrTy() }, false);
