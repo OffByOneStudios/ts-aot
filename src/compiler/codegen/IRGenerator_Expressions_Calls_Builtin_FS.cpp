@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include "../analysis/Monomorphizer.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -6,7 +7,108 @@
 namespace ts {
 using namespace ast;
 
+// Static helper to register FS module's runtime functions once (~73 functions)
+static bool fsFunctionsRegistered = false;
+static void ensureFSFunctionsRegistered(BoxingPolicy& bp) {
+    if (fsFunctionsRegistered) return;
+    fsFunctionsRegistered = true;
+    
+    // ========== FileHandle async methods (all take boxed handle, return promise) ==========
+    bp.registerRuntimeApi("ts_fs_filehandle_close_async", {true}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_stat_async", {true}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_chmod_async", {true, false}, true);  // handle, mode
+    bp.registerRuntimeApi("ts_fs_filehandle_chown_async", {true, false, false}, true);  // handle, uid, gid
+    bp.registerRuntimeApi("ts_fs_filehandle_sync_async", {true}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_datasync_async", {true}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_truncate_async", {true, false}, true);  // handle, len
+    bp.registerRuntimeApi("ts_fs_filehandle_utimes_async", {true, false, false}, true);  // handle, atime, mtime
+    bp.registerRuntimeApi("ts_fs_filehandle_readv_async", {true, true, false}, true);  // handle, buffers, position
+    bp.registerRuntimeApi("ts_fs_filehandle_writev_async", {true, true, false}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_read_async", {true, true, false, false, false}, true);  // handle, buffer, offset, length, position
+    bp.registerRuntimeApi("ts_fs_filehandle_write_async", {true, true, false, false, false}, true);
+    bp.registerRuntimeApi("ts_fs_filehandle_get_fd", {true}, false);  // returns raw int
+    
+    // ========== fs.promises async functions (path-based) ==========
+    bp.registerRuntimeApi("ts_fs_readFile_async", {false}, true);   // path (string)
+    bp.registerRuntimeApi("ts_fs_writeFile_async", {false, true}, true);  // path, data (boxed)
+    bp.registerRuntimeApi("ts_fs_access_async", {false, false}, true);  // path, mode
+    bp.registerRuntimeApi("ts_fs_chmod_async", {false, false}, true);
+    bp.registerRuntimeApi("ts_fs_chown_async", {false, false, false}, true);
+    bp.registerRuntimeApi("ts_fs_utimes_async", {false, false, false}, true);
+    bp.registerRuntimeApi("ts_fs_open_async", {false, false, false}, true);  // path, flags, mode
+    bp.registerRuntimeApi("ts_fs_statfs_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_link_async", {false, false}, true);  // existingPath, newPath
+    bp.registerRuntimeApi("ts_fs_symlink_async", {false, false, false}, true);  // target, path, type
+    bp.registerRuntimeApi("ts_fs_rename_async", {false, false}, true);
+    bp.registerRuntimeApi("ts_fs_copyFile_async", {false, false, false}, true);  // src, dest, mode
+    bp.registerRuntimeApi("ts_fs_truncate_async", {false, false}, true);  // path, len
+    bp.registerRuntimeApi("ts_fs_appendFile_async", {false, true}, true);  // path, data
+    bp.registerRuntimeApi("ts_fs_unlink_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_mkdtemp_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_opendir_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_readdir_async", {false}, true);
+    
+    // ========== Synchronous FS functions ==========
+    bp.registerRuntimeApi("ts_fs_readFileSync", {false}, false);  // returns TsString*
+    bp.registerRuntimeApi("ts_fs_writeFileSync", {false, true}, false);  // path, data (boxed)
+    bp.registerRuntimeApi("ts_fs_existsSync", {false}, false);  // returns bool
+    bp.registerRuntimeApi("ts_fs_unlinkSync", {false}, false);
+    bp.registerRuntimeApi("ts_fs_opendirSync", {false}, true);  // returns boxed Dir
+    bp.registerRuntimeApi("ts_fs_readdirSync", {false}, true);  // returns boxed array
+    bp.registerRuntimeApi("ts_fs_renameSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_copyFileSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_truncateSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_appendFileSync", {false, true}, false);
+    bp.registerRuntimeApi("ts_fs_mkdtempSync", {false}, false);  // returns string
+    bp.registerRuntimeApi("ts_fs_openSync", {false, false, false}, false);  // returns fd (int)
+    bp.registerRuntimeApi("ts_fs_closeSync", {false}, false);  // fd
+    bp.registerRuntimeApi("ts_fs_accessSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_chmodSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_chownSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_utimesSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_statfsSync", {false}, true);  // returns boxed object
+    bp.registerRuntimeApi("ts_fs_linkSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_symlinkSync", {false, false, false}, false);
+    
+    // ========== fd-based sync functions (fchmod, fchown, etc.) ==========
+    bp.registerRuntimeApi("ts_fs_fchmod", {false, false}, false);  // fd, mode
+    bp.registerRuntimeApi("ts_fs_fchmodSync", {false, false}, false);
+    bp.registerRuntimeApi("ts_fs_fchown", {false, false, false}, false);  // fd, uid, gid
+    bp.registerRuntimeApi("ts_fs_fchownSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_futimes", {false, false, false}, false);  // fd, atime, mtime
+    bp.registerRuntimeApi("ts_fs_futimesSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_fstat", {false}, true);  // fd -> boxed Stats
+    bp.registerRuntimeApi("ts_fs_fstatSync", {false}, true);
+    bp.registerRuntimeApi("ts_fs_ftruncate", {false, false}, false);  // fd, len
+    bp.registerRuntimeApi("ts_fs_ftruncateSync", {false, false}, false);
+    
+    // ========== Callback-style async (legacy) ==========
+    bp.registerRuntimeApi("ts_fs_open", {false, false, false, true}, false);  // path, flags, mode, callback
+    bp.registerRuntimeApi("ts_fs_close", {false, true}, false);  // fd, callback
+    
+    // ========== Stream creation ==========
+    bp.registerRuntimeApi("ts_fs_createReadStream", {false, true}, true);  // path, options -> boxed stream
+    bp.registerRuntimeApi("ts_fs_createWriteStream", {false, true}, true);
+    
+    // ========== Watch functions ==========
+    bp.registerRuntimeApi("ts_fs_watch", {false, true, true}, true);  // path, options, callback -> boxed watcher
+    bp.registerRuntimeApi("ts_fs_watchFile", {false, true, true}, true);
+    bp.registerRuntimeApi("ts_fs_unwatchFile", {false, true}, false);  // path, listener
+    
+    // ========== Module-level getters ==========
+    bp.registerRuntimeApi("ts_fs_get_constants", {}, true);  // returns boxed object
+    bp.registerRuntimeApi("ts_fs_get_promises", {}, true);
+    
+    // ========== Helper functions used in FS codegen ==========
+    bp.registerRuntimeApi("ts_object_get_property", {true, false}, true);  // obj (boxed), key (string) -> boxed
+    bp.registerRuntimeApi("ts_value_make_int", {false}, true);  // int -> boxed
+    bp.registerRuntimeApi("ts_value_make_object", {true}, true);  // ptr -> boxed
+}
+
 bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    // Register boxing info for FS functions on first call
+    ensureFSFunctionsRegistered(boxingPolicy);
+    
     // Check if the object is "fs" or "fs.promises"
     bool isFs = false;
     bool isFsPromises = false;
