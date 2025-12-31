@@ -120,6 +120,189 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // =========================================================================
     {"ts_alloc",        {false}},                  // (size_t) -> void*
     {"ts_gc_init",      {}},                       // ()
+    {"ts_new",          {false}},                  // (size_t) -> void*
+    {"ts_panic",        {false}},                  // (const char*) -> void
+    {"ts_cfi_fail",     {}},                       // () -> void
+
+    // =========================================================================
+    // Array operations - additional
+    // =========================================================================
+    {"ts_array_at",       {false, false}},         // (arr*, index) -> raw
+    {"ts_array_concat",   {false, false}},         // (arr*, arr*) -> arr*
+    {"ts_array_includes", {false, true}},          // (arr*, value) -> bool
+
+    // =========================================================================
+    // Map operations - additional
+    // =========================================================================
+    {"ts_map_keys",              {false}},         // (map*) -> iterator
+    {"ts_map_copy_excluding_v2", {false, true}},   // (map*, key) -> map*
+
+    // =========================================================================
+    // Set operations - additional
+    // =========================================================================
+    {"ts_set_size", {false}},                      // (set*) -> int
+
+    // =========================================================================
+    // String operations - additional
+    // =========================================================================
+    {"ts_string_eq",          {false, false}},     // (TsString*, TsString*) -> bool
+    {"ts_string_slice",       {false, false, false}}, // (str*, start, end) -> str*
+    {"ts_string_from_int",    {false}},            // (int64_t) -> TsString*
+    {"ts_string_from_double", {false}},            // (double) -> TsString*
+    {"ts_string_from_bool",   {false}},            // (bool) -> TsString*
+    {"ts_string_from_value",  {true}},             // (TsValue*) -> TsString*
+
+    // =========================================================================
+    // Value operations - additional
+    // =========================================================================
+    {"ts_value_get_element",  {true, false}},      // (arr, index) -> TsValue*
+    {"ts_value_get_property", {true, false}},      // (obj, prop) -> TsValue*
+    {"ts_value_is_nullish",   {true}},             // (TsValue*) -> bool
+    {"ts_value_length",       {true}},             // (TsValue*) -> int
+    {"ts_value_to_bool",      {true}},             // (TsValue*) -> bool
+    {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
+    {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
+
+    // =========================================================================
+    // Date operations
+    // =========================================================================
+    {"ts_date_create",     {}},                    // () -> Date*
+    {"ts_date_create_ms",  {false}},               // (ms) -> Date*
+    {"ts_date_create_str", {false}},               // (str*) -> Date*
+
+    // =========================================================================
+    // Error operations
+    // =========================================================================
+    {"ts_error_create",    {false}},               // (msg) -> Error*
+    {"ts_set_exception",   {false}},               // (exception) -> void
+
+    // =========================================================================
+    // RegExp operations
+    // =========================================================================
+    {"ts_regexp_create",       {false, false}},    // (pattern, flags) -> RegExp*
+    {"ts_regexp_from_literal", {false, false}},    // (pattern, flags) -> RegExp*
+
+    // =========================================================================
+    // Promise operations
+    // =========================================================================
+    {"ts_promise_then",             {false, true}},           // (promise*, callback) -> promise*
+    {"ts_promise_catch",            {false, true}},           // (promise*, callback) -> promise*
+    {"ts_promise_finally",          {false, true}},           // (promise*, callback) -> promise*
+    {"ts_promise_resolve_internal", {false, true}},           // (promise*, value)
+    {"ts_promise_reject_internal",  {false, true}},           // (promise*, reason)
+
+    // =========================================================================
+    // Async/Generator operations
+    // =========================================================================
+    {"ts_async_await",             {false}},                  // (promise*) -> value
+    {"ts_async_context_create",    {}},                       // () -> context*
+    {"ts_async_yield",             {false, true}},            // (gen*, value)
+    {"ts_generator_create",        {false, false}},           // (fn, closure) -> gen*
+    {"ts_async_generator_create",  {false, false}},           // (fn, closure) -> gen*
+    {"ts_async_generator_resolve", {false, true, false}},     // (gen*, value, done)
+    {"ts_async_iterator_get",      {true}},                   // (obj) -> iterator*
+    {"ts_async_iterator_next",     {false}},                  // (iterator*) -> result
+
+    // =========================================================================
+    // Timer operations
+    // =========================================================================
+    {"ts_set_immediate", {true}},                  // (callback) -> timer_id
+    {"ts_clear_timer",   {false}},                 // (timer_id) -> void
+
+    // =========================================================================
+    // BigInt operations
+    // =========================================================================
+    {"ts_bigint_create_str", {false}},             // (str*) -> BigInt*
+    {"ts_bigint_from_value", {true}},              // (TsValue*) -> BigInt*
+
+    // =========================================================================
+    // Symbol operations
+    // =========================================================================
+    {"ts_symbol_create", {false}},                 // (description) -> Symbol*
+
+    // =========================================================================
+    // Buffer operations
+    // =========================================================================
+    {"ts_buffer_get",              {false, false}},      // (buf*, index) -> int
+    {"ts_buffer_set",              {false, false, false}}, // (buf*, index, value)
+    {"ts_buffer_byte_length",      {false}},             // (buf*) -> int
+    {"ts_buffer_byte_offset",      {false}},             // (buf*) -> int
+    {"ts_buffer_get_array_buffer", {false}},             // (buf*) -> ArrayBuffer*
+    {"ts_data_view_create",        {false, false, false}}, // (buf, offset, len) -> DataView*
+
+    // =========================================================================
+    // TextEncoder/TextDecoder
+    // =========================================================================
+    {"ts_text_encoder_create",       {}},                // () -> TextEncoder*
+    {"ts_text_encoder_get_encoding", {false}},           // (enc*) -> str*
+    {"ts_text_decoder_create",       {false, false}},    // (encoding, options) -> TextDecoder*
+    {"ts_text_decoder_get_encoding", {false}},           // (dec*) -> str*
+    {"ts_text_decoder_is_fatal",     {false}},           // (dec*) -> bool
+    {"ts_text_decoder_ignore_bom",   {false}},           // (dec*) -> bool
+
+    // =========================================================================
+    // URL operations
+    // =========================================================================
+    {"ts_url_create",               {false, false}},     // (url, base) -> URL*
+    {"ts_url_search_params_create", {false}},            // (init) -> URLSearchParams*
+    {"ts_url_search_params_size",   {false}},            // (params*) -> int
+
+    // =========================================================================
+    // EventEmitter
+    // =========================================================================
+    {"ts_event_emitter_create", {}},                     // () -> EventEmitter*
+
+    // =========================================================================
+    // HTTP operations
+    // =========================================================================
+    {"ts_http_agent_create",  {false}},                  // (options) -> Agent*
+    {"ts_https_agent_create", {false}},                  // (options) -> Agent*
+    {"ts_fetch",              {false, true}},            // (url, options) -> Promise*
+
+    // =========================================================================
+    // Net operations
+    // =========================================================================
+    {"ts_net_block_list_create",    {}},                 // () -> BlockList*
+    {"ts_net_socket_address_create", {false}},           // (options) -> SocketAddress*
+    {"ts_websocket_create",         {false, false}},     // (url, protocols) -> WebSocket*
+
+    // =========================================================================
+    // Process property getters
+    // =========================================================================
+    {"ts_get_process_argv",               {}},           // () -> array
+    {"ts_get_process_env",                {}},           // () -> object
+    {"ts_process_get_arch",               {}},           // () -> str*
+    {"ts_process_get_argv0",              {}},           // () -> str*
+    {"ts_process_get_config",             {}},           // () -> object
+    {"ts_process_get_debug_port",         {}},           // () -> int
+    {"ts_process_get_exec_argv",          {}},           // () -> array
+    {"ts_process_get_exec_path",          {}},           // () -> str*
+    {"ts_process_get_exit_code",          {}},           // () -> int
+    {"ts_process_get_features",           {}},           // () -> object
+    {"ts_process_get_pid",                {}},           // () -> int
+    {"ts_process_get_ppid",               {}},           // () -> int
+    {"ts_process_get_release",            {}},           // () -> object
+    {"ts_process_get_report",             {}},           // () -> object
+    {"ts_process_get_stderr",             {}},           // () -> Writable*
+    {"ts_process_get_stdin",              {}},           // () -> Readable*
+    {"ts_process_get_stdout",             {}},           // () -> Writable*
+    {"ts_process_get_title",              {}},           // () -> str*
+    {"ts_process_get_version",            {}},           // () -> str*
+    {"ts_process_get_versions",           {}},           // () -> object
+    {"ts_process_set_env",                {false, false}}, // (key, value) -> void
+    {"ts_process_set_exit_code",          {false}},      // (code) -> void
+
+    // =========================================================================
+    // Math constants
+    // =========================================================================
+    {"ts_math_PI",        {}},                     // () -> double
+
+    // =========================================================================
+    // Global functions
+    // =========================================================================
+    {"ts_parseInt",           {false, false}},     // (str*, radix) -> int
+    {"ts_double_to_int32",    {false}},            // (double) -> int32
+    {"ts_double_to_uint32",   {false}},            // (double) -> uint32
 };
 
 const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
@@ -133,12 +316,17 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_value_make_function",
     "ts_value_make_undefined",
     "ts_value_make_null",
+    "ts_value_make_promise",
+    "ts_value_get_element",
+    "ts_value_get_property",
     "ts_call_0",
     "ts_call_1",
     "ts_call_2",
     "ts_call_3",
     "ts_call_4",
     "ts_call_n",
+    "ts_async_await",
+    "ts_async_iterator_next",
 };
 
 // =============================================================================
