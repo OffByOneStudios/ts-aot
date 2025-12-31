@@ -149,7 +149,8 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 - [x] **Task 106.1b.4:** Add unit tests for enforcement (hasRuntimeApiRegistered, assertRuntimeApiRegistered, strictMode) ✅
 - [x] **Task 106.1b.5:** Add `getRuntimeFunction()` helper to IRGenerator that enforces registry ✅
 - [x] **Task 106.1b.6:** Per-file registration for all 12 codegen files (371 functions total) ✅
-- [ ] **Task 106.1b.7:** Enable strict enforcement in `getRuntimeFunction()` (final step)
+- [x] **Task 106.1b.7:** Enable strict enforcement in `getRuntimeFunction()` ✅
+- [ ] **Task 106.1b.8:** Migrate remaining `getOrInsertFunction()` calls to `getRuntimeFunction()` (optional)
 
 ### Milestone 106.2: Unit Tests for BoxingPolicy
 
@@ -170,10 +171,10 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 
 ### Milestone 106.4: Integration Tests
 
-- [ ] **Task 106.4.1:** Verify all existing examples still work
-- [ ] **Task 106.4.2:** Verify groupBy_test.ts passes
+- [x] **Task 106.4.1:** Verify all existing examples still work ✅
+- [x] **Task 106.4.2:** Verify groupBy_test.ts passes ✅
 - [ ] **Task 106.4.3:** Verify sortBy_test.ts passes
-- [ ] **Task 106.4.4:** Verify map_set_test.ts passes
+- [x] **Task 106.4.4:** Verify map_set_test.ts passes ✅
 - [ ] **Task 106.4.5:** Add new edge case tests
 
 ---
