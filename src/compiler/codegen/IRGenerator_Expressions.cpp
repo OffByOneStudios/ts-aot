@@ -57,7 +57,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             if (concreteTypes.count(val)) {
                 concreteTypes[lastValue] = concreteTypes[val];
             }
-            if (boxedAllocas.count(val)) {
+            if (boxedVariables.count(node->name)) {
                 boxedValues.insert(lastValue);
             }
         } else {
@@ -409,6 +409,8 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     visit(node->arguments[0].get());
                     llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
                     llvm::Value* ret = createCall(getFt, getFn.getCallee(), { mapObj, key });
+                    // ts_map_get always returns boxed TsValue*
+                    boxedValues.insert(ret);
                     lastValue = unboxValue(ret, std::make_shared<Type>(TypeKind::Any));
                     return;
                 } else if (methodName == "has") {

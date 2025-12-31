@@ -380,6 +380,10 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
 
                 llvm::Value* boxedVal = createCall(ft, fn.getCallee(), { mapObj, key });
                 
+                // ts_map_get always returns a boxed TsValue*, so mark it as boxed
+                // so that unboxValue will properly unbox it
+                boxedValues.insert(boxedVal);
+                
                 if (node->inferredType) {
                     lastValue = unboxValue(boxedVal, node->inferredType);
                 } else {
