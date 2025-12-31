@@ -21,15 +21,6 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     // Declare first so it's in scope for the initializer
     declareBindingPattern(node->name.get(), type);
 
-    if (functionDepth == 0) {
-        if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
-            auto sym = std::make_shared<Symbol>();
-            sym->name = id->name;
-            sym->type = type;
-            topLevelVariables.push_back(sym);
-        }
-    }
-
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
@@ -57,6 +48,17 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
         }
     }
     node->resolvedType = type;
+    
+    // Add to top-level variables only if at module scope (not inside any function or nested scope)
+    // symbols.getDepth() == 1 means we're in the top-level global scope (enterScope was called once at start)
+    if (functionDepth == 0 && symbols.getDepth() == 1) {
+        if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
+            auto sym = std::make_shared<Symbol>();
+            sym->name = id->name;
+            sym->type = type;  // Now uses the correctly inferred type
+            topLevelVariables.push_back(sym);
+        }
+    }
     
     if (node->isExported && currentModule) {
         if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
