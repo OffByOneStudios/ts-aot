@@ -314,6 +314,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
 
 const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
     // Functions that return TsValue* (boxed values)
+    "ts_array_get",
+    "ts_array_get_unchecked",
     "ts_map_get",
     "ts_value_make_int",
     "ts_value_make_double",

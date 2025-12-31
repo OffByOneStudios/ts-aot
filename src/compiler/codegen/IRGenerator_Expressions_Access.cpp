@@ -436,6 +436,11 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     visit(node->expression.get());
     llvm::Value* arr = lastValue;
     
+    // If the array is boxed, unbox it first
+    if (boxedValues.count(arr) && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+        arr = unboxValue(arr, node->expression->inferredType);
+    }
+    
     visit(node->argumentExpression.get());
     llvm::Value* index = lastValue;
     
