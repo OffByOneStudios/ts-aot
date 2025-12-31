@@ -602,16 +602,14 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     builder->SetInsertPoint(oldBB);
     namedValues = oldNamedValues;
     
-    // === CLOSURE CAPTURE: Box the function with its closure context ===
-    if (closureContext) {
-        // Use ts_value_make_function_with_context to box function with context
-        llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
-        lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { function, closureContext });
-        boxedValues.insert(lastValue);
-    } else {
-        lastValue = function;
-    }
+    // Always box the function so it can be called via ts_call_N
+    // Functions with closure context have a populated context pointer
+    // Functions without closure context have a null context pointer
+    llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
+    llvm::Value* contextPtr = closureContext ? closureContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+    lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { function, contextPtr });
+    boxedValues.insert(lastValue);
 }
 
 void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {

@@ -1,0 +1,270 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "truncate",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "str",
+            "line": 8,
+            "column": 26
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 8,
+          "column": 26
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "length",
+            "line": 8,
+            "column": 39
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 8,
+          "column": 39
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "omission",
+            "line": 8,
+            "column": 55
+          },
+          "type": "string",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 8,
+          "column": 55
+        }
+      ],
+      "body": [
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<=",
+            "left": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "str",
+                "line": 9,
+                "column": 9
+              },
+              "name": "length",
+              "isOptional": false,
+              "line": 9,
+              "column": 9
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "length",
+              "line": 9,
+              "column": 23
+            },
+            "line": 9,
+            "column": 9
+          },
+          "thenStatement": {
+            "kind": "ReturnStatement",
+            "expression": {
+              "kind": "Identifier",
+              "name": "str",
+              "line": 9,
+              "column": 38
+            },
+            "line": 9,
+            "column": 31
+          },
+          "elseStatement": null,
+          "line": 9,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "end",
+            "line": 11,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "-",
+            "left": {
+              "kind": "Identifier",
+              "name": "length",
+              "line": 11,
+              "column": 17
+            },
+            "right": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "omission",
+                "line": 11,
+                "column": 26
+              },
+              "name": "length",
+              "isOptional": false,
+              "line": 11,
+              "column": 26
+            },
+            "line": 11,
+            "column": 17
+          },
+          "line": 11,
+          "column": 5
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "<",
+            "left": {
+              "kind": "Identifier",
+              "name": "end",
+              "line": 12,
+              "column": 9
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 0,
+              "line": 12,
+              "column": 15
+            },
+            "line": 12,
+            "column": 9
+          },
+          "thenStatement": {
+            "kind": "ReturnStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "omission",
+                  "line": 12,
+                  "column": 25
+                },
+                "name": "slice",
+                "isOptional": false,
+                "line": 12,
+                "column": 25
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 12,
+                  "column": 40
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "length",
+                  "line": 12,
+                  "column": 43
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 12,
+              "column": 25
+            },
+            "line": 12,
+            "column": 18
+          },
+          "elseStatement": null,
+          "line": 12,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "str",
+                  "line": 14,
+                  "column": 12
+                },
+                "name": "slice",
+                "isOptional": false,
+                "line": 14,
+                "column": 12
+              },
+              "arguments": [
+                {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 14,
+                  "column": 22
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "end",
+                  "line": 14,
+                  "column": 25
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 14,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "omission",
+              "line": 14,
+              "column": 32
+            },
+            "line": 14,
+            "column": 12
+          },
+          "line": 14,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 8,
+      "column": 1
+    }
+  ]
+}

@@ -224,6 +224,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
 
     // User function call - local function variables may be boxed closures
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        // Check local variables first
         if (namedValues.count(id->name)) {
             llvm::Value* val = namedValues[id->name];
             llvm::Type* varType = nullptr;
@@ -237,6 +238,65 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                 llvm::Value* boxedFunc = builder->CreateLoad(varType, val, id->name.c_str());
                 
                 // Use ts_call_N for function variables since they may be boxed closures
+                std::vector<llvm::Value*> args;
+                args.push_back(boxedFunc);
+                
+                std::vector<llvm::Type*> paramTypes;
+                paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+                
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    llvm::Value* v = boxValue(lastValue, arg->inferredType);
+                    args.push_back(v);
+                    paramTypes.push_back(builder->getPtrTy());
+                }
+                
+                std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+                
+                lastValue = createCall(ft, fn.getCallee(), args);
+                lastValue = unboxValue(lastValue, node->inferredType);
+                return;
+            }
+        }
+        
+        // Check global variables that hold function references
+        llvm::GlobalVariable* gv = module->getGlobalVariable(id->name);
+        if (gv && gv->getValueType()->isPointerTy()) {
+            // This is a global variable holding a function pointer - use ts_call_N
+            llvm::Value* boxedFunc = builder->CreateLoad(gv->getValueType(), gv, id->name.c_str());
+            
+            std::vector<llvm::Value*> args;
+            args.push_back(boxedFunc);
+            
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+            
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                llvm::Value* v = boxValue(lastValue, arg->inferredType);
+                args.push_back(v);
+                paramTypes.push_back(builder->getPtrTy());
+            }
+            
+            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            
+            lastValue = createCall(ft, fn.getCallee(), args);
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return;
+        }
+        
+        // Check if this identifier has Function type and is a variable
+        // This handles cases where the callee is loaded from somewhere and has Function type
+        if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
+            // Visit the identifier to get the function value
+            visit(id);
+            if (lastValue && lastValue->getType()->isPointerTy()) {
+                llvm::Value* boxedFunc = lastValue;
+                
                 std::vector<llvm::Value*> args;
                 args.push_back(boxedFunc);
                 

@@ -249,15 +249,24 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     }
 
     // Also process top-level variables from modules
+    // Note: these are variable declarations (const x = ...), not function declarations
     SPDLOG_INFO("generateGlobals: processing {} top-level variables", analyzer.topLevelVariables.size());
     for (auto& symbol : analyzer.topLevelVariables) {
         if (module->getGlobalVariable(symbol->name)) continue;
-        if (symbol->type->kind == TypeKind::Function) continue;
         if (symbol->name.find("ts_") == 0) continue;
         if (symbol->type->kind == TypeKind::Interface) continue;
-
-        SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
-        llvm::Type* type = getLLVMType(symbol->type);
+        
+        // For function-typed variables (e.g., const myAdd = add;), create a pointer global
+        // to hold the boxed function reference. Don't skip these.
+        llvm::Type* type;
+        if (symbol->type->kind == TypeKind::Function) {
+            // Store as a pointer (TsValue* boxed function)
+            type = builder->getPtrTy();
+            SPDLOG_INFO("  Top-level function variable: {} -> creating pointer global", symbol->name);
+        } else {
+            type = getLLVMType(symbol->type);
+            SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
+        }
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
             llvm::Constant::getNullValue(type), symbol->name);
     }
@@ -1554,9 +1563,10 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
                                    name == "ts_https_request" || name == "ts_https_get" || name == "ts_https_create_server" ||
                                    name == "ts_writable_write" || name == "ts_writable_end" ||
                                    (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
-            // Raw pointers
-        } else if (ft->getReturnType()->isPointerTy()) {
-            // Most other runtime functions return TsValue*
+            // Raw pointers - don't add to boxedValues
+        } else if (!name.empty() && name.find("ts_") == 0 && ft->getReturnType()->isPointerTy()) {
+            // Other runtime functions (ts_*) that return pointers are assumed to return boxed TsValue*
+            // User-defined functions are NOT assumed to return boxed values
             boxedValues.insert(res);
         }
     }
