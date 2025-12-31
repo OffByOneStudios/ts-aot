@@ -148,7 +148,8 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 - [x] **Task 106.1b.3:** Add `strictMode` parameter to `runtimeExpectsBoxed()` ✅
 - [x] **Task 106.1b.4:** Add unit tests for enforcement (hasRuntimeApiRegistered, assertRuntimeApiRegistered, strictMode) ✅
 - [x] **Task 106.1b.5:** Add `getRuntimeFunction()` helper to IRGenerator that enforces registry ✅
-- [ ] **Task 106.1b.6:** Migrate existing `getOrInsertFunction` calls to use `getRuntimeFunction` (incremental)
+- [x] **Task 106.1b.6:** Per-file registration for all 12 codegen files (371 functions total) ✅
+- [ ] **Task 106.1b.7:** Enable strict enforcement in `getRuntimeFunction()` (final step)
 
 ### Milestone 106.2: Unit Tests for BoxingPolicy
 
