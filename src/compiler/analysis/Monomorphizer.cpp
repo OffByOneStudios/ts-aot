@@ -86,9 +86,18 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     // Special case for the program passed to monomorphize if it's not in analyzer.modules
     // (Though it should be now)
     
-    // Create user_main that calls all module inits
+    // Create synthetic user_main that calls all module inits
+    // This will be named __synthetic_user_main to avoid conflicts with user-defined user_main
     auto userMain = std::make_unique<ast::FunctionDeclaration>();
-    userMain->name = "user_main";
+    
+    // Check if user defined their own user_main function
+    ast::FunctionDeclaration* userDefinedMain = findFunction(analyzer, "user_main");
+    if (userDefinedMain) {
+        // Rename our synthetic function to avoid conflict
+        userMain->name = "__synthetic_user_main";
+    } else {
+        userMain->name = "user_main";
+    }
     
     bool anyAsync = false;
     for (const auto& path : analyzer.moduleOrder) {
@@ -135,7 +144,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             finalExpr = std::move(call);
         }
 
-        if (i == moduleInitFunctions.size() - 1) {
+        // If this is the last module init and there's NO user-defined user_main,
+        // make it a return statement. Otherwise, just call the module init.
+        if (i == moduleInitFunctions.size() - 1 && !userDefinedMain) {
             auto stmt = std::make_unique<ast::ReturnStatement>();
             stmt->expression = std::move(finalExpr);
             userMain->body.push_back(std::move(stmt));
@@ -145,10 +156,32 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             userMain->body.push_back(std::move(stmt));
         }
     }
+    
+    // If user defined their own user_main, call it after all module inits
+    if (userDefinedMain) {
+        auto call = std::make_unique<ast::CallExpression>();
+        auto callId = std::make_unique<ast::Identifier>();
+        callId->name = "user_main";
+        call->callee = std::move(callId);
+        call->inferredType = std::make_shared<Type>(TypeKind::Void);
+        
+        auto stmt = std::make_unique<ast::ReturnStatement>();
+        stmt->expression = std::move(call);
+        userMain->body.push_back(std::move(stmt));
+        
+        // Also create a specialization for the user-defined user_main
+        Specialization userMainSpec;
+        userMainSpec.originalName = "user_main";
+        userMainSpec.specializedName = "user_main";
+        userMainSpec.argTypes = {};
+        userMainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+        userMainSpec.node = userDefinedMain;
+        specializations.push_back(userMainSpec);
+    }
 
     Specialization mainSpec;
-    mainSpec.originalName = "user_main";
-    mainSpec.specializedName = "user_main";
+    mainSpec.originalName = userMain->name;
+    mainSpec.specializedName = userMain->name;
     mainSpec.argTypes = {};
     mainSpec.returnType = std::make_shared<Type>(TypeKind::Any);
     mainSpec.node = userMain.get();
