@@ -53,7 +53,7 @@ public:
         std::string unboxingFunction;  // e.g., "ts_value_get_int"
     };
 
-    BoxingPolicy() = default;
+    BoxingPolicy() { initFromCoreRegistry(); }
 
     /**
      * decide - The main entry point for boxing decisions
@@ -122,13 +122,37 @@ public:
      */
     static bool shouldBoxForSpecializedArray(Type* elementType);
 
+    /**
+     * registerRuntimeApi - Register a runtime function's boxing expectations
+     * 
+     * Call this from each IRGenerator_*.cpp file to register the functions
+     * that file uses. This allows incremental migration and self-documentation.
+     * 
+     * @param funcName  The function name (e.g., "ts_fs_read_file_sync")
+     * @param argBoxing Vector of booleans: true = arg expects boxed, false = raw
+     * @param returnsBoxed Whether the function returns a boxed TsValue*
+     * 
+     * Example:
+     *   boxingPolicy.registerRuntimeApi("ts_fs_open", {false, false, false}, false);
+     *   boxingPolicy.registerRuntimeApi("ts_map_get", {false, true}, true);
+     */
+    void registerRuntimeApi(const std::string& funcName, std::vector<bool> argBoxing, bool returnsBoxed = false);
+
 private:
     // Registry of runtime function argument expectations
     // Function name -> [arg0 expects boxed?, arg1 expects boxed?, ...]
-    static const std::unordered_map<std::string, std::vector<bool>> RUNTIME_ARG_BOXING;
+    // Mutable so each codegen file can register its functions
+    std::unordered_map<std::string, std::vector<bool>> runtimeArgBoxing_;
     
     // Set of runtime functions that return boxed values
-    static const std::unordered_set<std::string> RUNTIME_RETURNS_BOXED;
+    std::unordered_set<std::string> runtimeReturnsBoxed_;
+    
+    // Static seed data for core runtime functions (Map, Set, Array, Call, Value, Console)
+    static const std::unordered_map<std::string, std::vector<bool>> CORE_RUNTIME_ARG_BOXING;
+    static const std::unordered_set<std::string> CORE_RUNTIME_RETURNS_BOXED;
+    
+    // Initialize instance maps from static seed data
+    void initFromCoreRegistry();
 };
 
 } // namespace ts

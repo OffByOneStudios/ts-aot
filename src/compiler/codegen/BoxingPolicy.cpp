@@ -15,7 +15,7 @@ namespace ts {
 //   - false = argument is raw (int64_t, double, pointer, etc.)
 //
 
-const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::RUNTIME_ARG_BOXING = {
+const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNTIME_ARG_BOXING = {
     // =========================================================================
     // Map operations - keys and values are ALWAYS boxed for type-aware hashing
     // =========================================================================
@@ -122,7 +122,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::RUNTIME_A
     {"ts_gc_init",      {}},                       // ()
 };
 
-const std::unordered_set<std::string> BoxingPolicy::RUNTIME_RETURNS_BOXED = {
+const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
     // Functions that return TsValue* (boxed values)
     "ts_map_get",
     "ts_value_make_int",
@@ -299,8 +299,8 @@ BoxingPolicy::Decision BoxingPolicy::decide(
 }
 
 bool BoxingPolicy::runtimeExpectsBoxed(const std::string& funcName, int argIndex, bool strictMode) const {
-    auto it = RUNTIME_ARG_BOXING.find(funcName);
-    if (it == RUNTIME_ARG_BOXING.end()) {
+    auto it = runtimeArgBoxing_.find(funcName);
+    if (it == runtimeArgBoxing_.end()) {
         if (strictMode) {
             throw std::runtime_error(
                 "BoxingPolicy: Runtime function '" + funcName + "' is not registered!\n"
@@ -325,7 +325,7 @@ bool BoxingPolicy::runtimeExpectsBoxed(const std::string& funcName, int argIndex
 }
 
 bool BoxingPolicy::hasRuntimeApiRegistered(const std::string& funcName) const {
-    return RUNTIME_ARG_BOXING.find(funcName) != RUNTIME_ARG_BOXING.end();
+    return runtimeArgBoxing_.find(funcName) != runtimeArgBoxing_.end();
 }
 
 void BoxingPolicy::assertRuntimeApiRegistered(const std::string& funcName) const {
@@ -346,7 +346,7 @@ void BoxingPolicy::assertRuntimeApiRegistered(const std::string& funcName) const
 }
 
 bool BoxingPolicy::runtimeReturnsBoxed(const std::string& funcName) const {
-    return RUNTIME_RETURNS_BOXED.count(funcName) > 0;
+    return runtimeReturnsBoxed_.count(funcName) > 0;
 }
 
 std::string BoxingPolicy::getBoxingFunction(Type* type) {
@@ -403,6 +403,19 @@ bool BoxingPolicy::shouldBoxForSpecializedArray(Type* elementType) {
             return false;  // Specialized = raw storage
         default:
             return true;   // Generic = boxed storage
+    }
+}
+
+void BoxingPolicy::initFromCoreRegistry() {
+    // Copy the static seed data into instance maps
+    runtimeArgBoxing_ = CORE_RUNTIME_ARG_BOXING;
+    runtimeReturnsBoxed_ = CORE_RUNTIME_RETURNS_BOXED;
+}
+
+void BoxingPolicy::registerRuntimeApi(const std::string& funcName, std::vector<bool> argBoxing, bool returnsBoxed) {
+    runtimeArgBoxing_[funcName] = std::move(argBoxing);
+    if (returnsBoxed) {
+        runtimeReturnsBoxed_.insert(funcName);
     }
 }
 
