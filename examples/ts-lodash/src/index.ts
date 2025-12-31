@@ -12,3 +12,6 @@ export { filter, reject, map, flatMap, reduce, reduceRight, find, findLast, find
 
 // Utility functions
 export { identity, constant, noop, times, range, rangeFromTo, rangeWithStep } from './util/index';
+
+// Function utilities
+export { once, negate, memoize, debounce, throttle } from './function/index';

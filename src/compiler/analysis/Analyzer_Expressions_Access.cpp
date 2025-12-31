@@ -23,6 +23,32 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     if (sym) {
         lastType = sym->type;
         SPDLOG_DEBUG("  Lookup {}: {}", node->name, lastType->toString());
+        
+        // If this is a function being used as a first-class value,
+        // record it for monomorphization with its declared parameter types.
+        // We need to ensure the function gets a specialization even if it has no params.
+        if (lastType && lastType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(lastType);
+            // Record the function usage - even functions with no params need specialization
+            // Skip only if all params are Any (incomplete type info from hoisting)
+            bool hasValidParams = true;
+            if (!funcType->paramTypes.empty()) {
+                bool allAny = true;
+                for (const auto& pt : funcType->paramTypes) {
+                    if (pt->kind != TypeKind::Any) {
+                        allAny = false;
+                        break;
+                    }
+                }
+                if (allAny) {
+                    hasValidParams = false;  // Skip if all params are Any (hoisting artifact)
+                }
+            }
+            // Record function usage (empty paramTypes is valid for zero-arg functions)
+            if (hasValidParams) {
+                functionUsages[node->name].push_back({funcType->paramTypes, {}});
+            }
+        }
     } else {
         // Check if it's a class name
         auto type = symbols.lookupType(node->name);

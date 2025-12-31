@@ -224,6 +224,52 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
 
     // User function call - local function variables may be boxed closures
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        // Check if this is a cell variable (captured by closure)
+        if (cellVariables.count(id->name) && namedValues.count(id->name)) {
+            // Load the cell pointer from the alloca
+            llvm::Value* cellAlloca = namedValues[id->name];
+            llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+            
+            // Get the actual function value from the cell
+            llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee cellGetFn = module->getOrInsertFunction("ts_cell_get", cellGetFt);
+            llvm::Value* boxedFunc = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
+            
+            // Use ts_call_N for the function call
+            std::vector<llvm::Value*> args;
+            args.push_back(boxedFunc);
+            
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+            
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                llvm::Value* v = boxValue(lastValue, arg->inferredType);
+                args.push_back(v);
+                paramTypes.push_back(builder->getPtrTy());
+            }
+            
+            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+            
+            lastValue = createCall(ft, fn.getCallee(), args);
+            
+            // Determine return type for unboxing
+            std::shared_ptr<Type> returnType = node->inferredType;
+            if (!returnType || returnType->kind == TypeKind::Any) {
+                // Try to get return type from callee's function type
+                if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
+                    auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
+                    returnType = funcType->returnType;
+                    SPDLOG_INFO("Cell call: using callee's return type: {}", returnType ? (int)returnType->kind : -1);
+                }
+            }
+            SPDLOG_INFO("Cell call result unbox: inferredType={}", returnType ? (int)returnType->kind : -1);
+            lastValue = unboxValue(lastValue, returnType);
+            return;
+        }
+        
         // Check local variables first
         if (namedValues.count(id->name)) {
             llvm::Value* val = namedValues[id->name];
@@ -467,6 +513,14 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
 
         std::string mangledName = Monomorphizer::generateMangledName(funcName, argTypes, node->resolvedTypeArguments);
+        
+        // Debug: log the mangled name
+        std::string argTypesStr;
+        for (const auto& t : argTypes) {
+            if (!argTypesStr.empty()) argTypesStr += ", ";
+            argTypesStr += t ? t->toString() : "null";
+        }
+        SPDLOG_INFO("Function call: {} -> mangledName={}, argTypes=[{}]", funcName, mangledName, argTypesStr);
 
         // Update inferred type from specialization if available
         for (const auto& spec : specializations) {

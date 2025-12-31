@@ -185,6 +185,44 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 }
             }
 
+            // Pre-scan: find all variables that will be captured by inner closures
+            // These variables need to use cells for proper mutable capture semantics
+            // IMPORTANT: This must happen BEFORE parameter processing so that captured
+            // parameters are also wrapped in cells
+            cellVariables.clear();
+            cellPointers.clear();
+            {
+                // Collect all variable names that will be defined in this function
+                std::set<std::string> localVarNames;
+                for (auto& param : funcNode->parameters) {
+                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                        localVarNames.insert(id->name);
+                    }
+                }
+                // Also need to scan body for let/const/var declarations
+                for (auto& stmt : funcNode->body) {
+                    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        // VariableDeclaration has a 'name' field, not 'declarations'
+                        if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                            localVarNames.insert(id->name);
+                        }
+                    }
+                }
+                
+                // Now scan for captured variables
+                for (auto& stmt : funcNode->body) {
+                    collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
+                }
+                
+                if (!cellVariables.empty()) {
+                    SPDLOG_INFO("Function {} has {} captured variables that will use cells", 
+                               spec.specializedName, cellVariables.size());
+                    for (const auto& name : cellVariables) {
+                        SPDLOG_INFO("  - {}", name);
+                    }
+                }
+            }
+
             auto argIt = function->arg_begin();
             // Skip context argument
             if (argIt != function->arg_end()) {
@@ -234,6 +272,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (argType && argType->kind == TypeKind::Class) {
                             concreteTypes[argVal] = std::static_pointer_cast<ClassType>(argType).get();
                         }
+                        // Mark function parameters with function types as already boxed
+                        // (they're boxed by the caller before being passed)
+                        if (argType && argType->kind == TypeKind::Function && argVal->getType()->isPointerTy()) {
+                            boxedValues.insert(argVal);
+                        }
                         generateDestructuring(argVal, argType, param->name.get());
                         ++argIt;
                         ++idx;
@@ -278,42 +321,6 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                             }
                         }
                         break;
-                    }
-                }
-            }
-
-            // Pre-scan: find all variables that will be captured by inner closures
-            // These variables need to use cells for proper mutable capture semantics
-            cellVariables.clear();
-            cellPointers.clear();
-            {
-                // Collect all variable names that will be defined in this function
-                std::set<std::string> localVarNames;
-                for (auto& param : funcNode->parameters) {
-                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
-                        localVarNames.insert(id->name);
-                    }
-                }
-                // Also need to scan body for let/const/var declarations
-                for (auto& stmt : funcNode->body) {
-                    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                        // VariableDeclaration has a 'name' field, not 'declarations'
-                        if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                            localVarNames.insert(id->name);
-                        }
-                    }
-                }
-                
-                // Now scan for captured variables
-                for (auto& stmt : funcNode->body) {
-                    collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
-                }
-                
-                if (!cellVariables.empty()) {
-                    SPDLOG_INFO("Function {} has {} captured variables that will use cells", 
-                               spec.specializedName, cellVariables.size());
-                    for (const auto& name : cellVariables) {
-                        SPDLOG_INFO("  - {}", name);
                     }
                 }
             }

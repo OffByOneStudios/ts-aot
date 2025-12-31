@@ -138,6 +138,94 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         // TODO: Create a proper MapType struct with keyType/valueType
         return std::make_shared<Type>(TypeKind::Map);
     }
+    
+    // Handle function types: (paramName: paramType, ...) => returnType
+    // Look for " => " pattern (with spaces around =>)
+    size_t arrowPos = typeName.find(" => ");
+    if (arrowPos == std::string::npos) {
+        // Also try without spaces: "=>"
+        arrowPos = typeName.find("=>");
+    }
+    
+    if (arrowPos != std::string::npos && typeName.starts_with("(")) {
+        // Extract params and return type
+        // Find matching closing paren
+        int depth = 0;
+        size_t closeParenPos = std::string::npos;
+        for (size_t i = 0; i < typeName.size(); ++i) {
+            if (typeName[i] == '(') depth++;
+            else if (typeName[i] == ')') {
+                depth--;
+                if (depth == 0) {
+                    closeParenPos = i;
+                    break;
+                }
+            }
+        }
+        
+        if (closeParenPos != std::string::npos) {
+            std::string paramsStr = typeName.substr(1, closeParenPos - 1);  // Inside parens
+            std::string remainder = typeName.substr(closeParenPos + 1);
+            
+            // Find "=>" in remainder
+            size_t eqPos = remainder.find("=>");
+            if (eqPos != std::string::npos) {
+                std::string returnTypeStr = remainder.substr(eqPos + 2);
+                // Trim whitespace
+                returnTypeStr.erase(0, returnTypeStr.find_first_not_of(" "));
+                returnTypeStr.erase(returnTypeStr.find_last_not_of(" ") + 1);
+                
+                auto funcType = std::make_shared<FunctionType>();
+                funcType->returnType = parseType(returnTypeStr, symbols);
+                
+                // Parse parameters (format: "name: type" or "name?: type")
+                if (!paramsStr.empty()) {
+                    // Simple split by comma (doesn't handle nested commas, but good enough for now)
+                    std::vector<std::string> params;
+                    int parenDepth = 0;
+                    std::string current;
+                    for (char c : paramsStr) {
+                        if (c == '(' || c == '<') parenDepth++;
+                        else if (c == ')' || c == '>') parenDepth--;
+                        
+                        if (c == ',' && parenDepth == 0) {
+                            params.push_back(current);
+                            current.clear();
+                        } else {
+                            current += c;
+                        }
+                    }
+                    if (!current.empty()) params.push_back(current);
+                    
+                    for (const auto& param : params) {
+                        std::string trimmedParam = param;
+                        trimmedParam.erase(0, trimmedParam.find_first_not_of(" "));
+                        trimmedParam.erase(trimmedParam.find_last_not_of(" ") + 1);
+                        
+                        // Format: "name: type" or "name?: type"
+                        size_t colonPos = trimmedParam.find(':');
+                        if (colonPos != std::string::npos) {
+                            std::string paramTypeStr = trimmedParam.substr(colonPos + 1);
+                            paramTypeStr.erase(0, paramTypeStr.find_first_not_of(" "));
+                            paramTypeStr.erase(paramTypeStr.find_last_not_of(" ") + 1);
+                            funcType->paramTypes.push_back(parseType(paramTypeStr, symbols));
+                            
+                            // Check for optional
+                            std::string paramName = trimmedParam.substr(0, colonPos);
+                            bool isOptional = paramName.ends_with("?");
+                            funcType->isOptional.push_back(isOptional);
+                        } else {
+                            // No type specified, default to Any
+                            funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                            funcType->isOptional.push_back(false);
+                        }
+                    }
+                }
+                
+                return funcType;
+            }
+        }
+    }
 
     auto type = symbols.lookupType(typeName);
     if (type) return type;

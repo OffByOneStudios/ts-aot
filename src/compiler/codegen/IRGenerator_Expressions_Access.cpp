@@ -129,6 +129,8 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             llvm::FunctionType* funcFT = func->getFunctionType();
             size_t numParams = funcFT->getNumParams();
             
+            SPDLOG_INFO("visitIdentifier: found function {} with {} params", func->getName().str(), numParams);
+            
             // Check if the function already takes boxed arguments (all ptr types after context)
             bool needsWrapper = false;
             for (size_t i = 1; i < numParams; ++i) {  // Skip context arg
@@ -137,6 +139,8 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                     break;
                 }
             }
+            
+            SPDLOG_INFO("visitIdentifier: needsWrapper={}", needsWrapper);
             
             llvm::Value* funcToBox = func;
             
@@ -170,7 +174,13 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                         ? funcType->paramTypes[i - 1] 
                         : std::make_shared<Type>(TypeKind::Any);
                     
+                    SPDLOG_INFO("Wrapper unboxing arg {}: argType={}, expectedType={}", 
+                               i, argType ? (int)argType->kind : -1, (int)expectedType->getTypeID());
+                    
+                    // Mark wrapper args as boxed so unboxValue will process them
+                    boxedValues.insert(boxedArg);
                     llvm::Value* unboxedArg = unboxValue(boxedArg, argType);
+                    SPDLOG_INFO("Wrapper unboxed arg {}: type={}", i, (int)unboxedArg->getType()->getTypeID());
                     
                     // Convert to expected LLVM type if needed
                     if (unboxedArg->getType() != expectedType) {
