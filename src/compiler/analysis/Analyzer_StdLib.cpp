@@ -563,6 +563,75 @@ Analyzer::Analyzer() {
     setCtor->returnType = std::make_shared<Type>(TypeKind::SetType);
     symbols.define("Set", setCtor);
 
+    // Register Object global
+    auto objectType = std::make_shared<ObjectType>();
+    
+    // Object.keys(obj) => string[]
+    auto stringArrayType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    
+    auto keysType = std::make_shared<FunctionType>();
+    keysType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    keysType->returnType = stringArrayType;
+    objectType->fields["keys"] = keysType;
+    
+    // Object.values(obj) => any[]
+    auto valuesType = std::make_shared<FunctionType>();
+    valuesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    valuesType->returnType = std::make_shared<Type>(TypeKind::Array);
+    objectType->fields["values"] = valuesType;
+    
+    // Object.entries(obj) => [string, any][]
+    auto entriesType = std::make_shared<FunctionType>();
+    entriesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    entriesType->returnType = std::make_shared<Type>(TypeKind::Array);
+    objectType->fields["entries"] = entriesType;
+    
+    // Object.assign(target, ...sources) => target
+    auto assignType = std::make_shared<FunctionType>();
+    assignType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    assignType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    assignType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["assign"] = assignType;
+    
+    // Object.freeze(obj) => obj
+    auto freezeType = std::make_shared<FunctionType>();
+    freezeType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    freezeType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["freeze"] = freezeType;
+    
+    // Object.seal(obj) => obj
+    auto sealType = std::make_shared<FunctionType>();
+    sealType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    sealType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["seal"] = sealType;
+    
+    // Object.isFrozen(obj) => boolean
+    auto isFrozenType = std::make_shared<FunctionType>();
+    isFrozenType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    isFrozenType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    objectType->fields["isFrozen"] = isFrozenType;
+    
+    // Object.isSealed(obj) => boolean
+    auto isSealedType = std::make_shared<FunctionType>();
+    isSealedType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    isSealedType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    objectType->fields["isSealed"] = isSealedType;
+    
+    // Object.hasOwn(obj, prop) => boolean
+    auto hasOwnType = std::make_shared<FunctionType>();
+    hasOwnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    hasOwnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    hasOwnType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    objectType->fields["hasOwn"] = hasOwnType;
+    
+    // Object.fromEntries(iterable) => object
+    auto fromEntriesType = std::make_shared<FunctionType>();
+    fromEntriesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
+    fromEntriesType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["fromEntries"] = fromEntriesType;
+    
+    symbols.define("Object", objectType);
+
     // Register Math global
     auto mathType = std::make_shared<ObjectType>();
     

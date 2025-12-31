@@ -430,4 +430,173 @@ TsValue* ts_value_make_int(int64_t i) {
         // For now, we don't support more than 3 args in this helper
         return ts_value_make_undefined();
     }
+
+    // Object static methods
+    
+    // Object.keys(obj) - returns array of string keys
+    void* ts_object_keys(void* obj) {
+        if (!obj) return TsArray::Create(0);
+        
+        // Unbox if needed
+        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        if (!rawPtr) rawPtr = obj;
+        
+        // Check if it's a TsMap (magic at offset 24 due to TsObject base class + alignment)
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            return ts_map_keys(rawPtr);
+        }
+        
+        // Not a map - return empty array
+        return TsArray::Create(0);
+    }
+    
+    // Object.values(obj) - returns array of values
+    // Object.values(obj) - returns array of values
+    void* ts_object_values(void* obj) {
+        if (!obj) return TsArray::Create(0);
+        
+        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        if (!rawPtr) rawPtr = obj;
+        
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            return ts_map_values(rawPtr);
+        }
+        
+        return TsArray::Create(0);
+    }
+    
+    // Object.entries(obj) - returns array of [key, value] pairs
+    void* ts_object_entries(void* obj) {
+        if (!obj) return TsArray::Create(0);
+        
+        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        if (!rawPtr) rawPtr = obj;
+        
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            return ts_map_entries(rawPtr);
+        }
+        
+        return TsArray::Create(0);
+    }
+    
+    // Object.assign(target, source) - copies properties from source to target
+    void* ts_object_assign(void* target, void* source) {
+        if (!target) return target;
+        if (!source) return target;
+        
+        void* targetRaw = ts_value_get_object((TsValue*)target);
+        if (!targetRaw) targetRaw = target;
+        
+        void* sourceRaw = ts_value_get_object((TsValue*)source);
+        if (!sourceRaw) sourceRaw = source;
+        
+        // Check both are TsMaps (magic at offset 24)
+        uint32_t targetMagic = *(uint32_t*)((char*)targetRaw + 24);
+        uint32_t sourceMagic = *(uint32_t*)((char*)sourceRaw + 24);
+        
+        if (targetMagic != 0x4D415053 || sourceMagic != 0x4D415053) {
+            return target;
+        }
+        
+        TsMap* targetMap = (TsMap*)targetRaw;
+        TsMap* sourceMap = (TsMap*)sourceRaw;
+        
+        // Get entries from source and copy to target
+        TsArray* entries = (TsArray*)sourceMap->GetEntries();
+        int64_t len = entries->Length();
+        for (int64_t i = 0; i < len; i++) {
+            TsArray* entry = (TsArray*)entries->Get(i);
+            TsValue* key = (TsValue*)entry->Get(0);
+            TsValue* val = (TsValue*)entry->Get(1);
+            targetMap->Set(*key, *val);
+        }
+        
+        return target;
+    }
+    
+    // Object.hasOwn(obj, prop) - check if object has own property
+    bool ts_object_has_own(void* obj, void* prop) {
+        if (!obj || !prop) return false;
+        
+        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        if (!rawPtr) rawPtr = obj;
+        
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = prop;
+            return ts_map_has(rawPtr, &keyVal);
+        }
+        
+        return false;
+    }
+    
+    // Object.freeze(obj) - mark object as frozen (no-op for now, returns obj)
+    void* ts_object_freeze(void* obj) {
+        // TODO: Implement actual freezing when we have property descriptors
+        return obj;
+    }
+    
+    // Object.seal(obj) - mark object as sealed (no-op for now, returns obj)
+    void* ts_object_seal(void* obj) {
+        // TODO: Implement actual sealing when we have property descriptors
+        return obj;
+    }
+    
+    // Object.isFrozen(obj) - check if object is frozen
+    bool ts_object_is_frozen(void* obj) {
+        // TODO: Implement when we have property descriptors
+        return false;
+    }
+    
+    // Object.isSealed(obj) - check if object is sealed
+    bool ts_object_is_sealed(void* obj) {
+        // TODO: Implement when we have property descriptors
+        return false;
+    }
+    
+    // Object.fromEntries(iterable) - create object from key-value pairs
+    void* ts_object_from_entries(void* entries) {
+        TsMap* result = TsMap::Create();
+        if (!entries) return result;
+        
+        void* rawPtr = ts_value_get_object((TsValue*)entries);
+        if (!rawPtr) rawPtr = entries;
+        
+        // Check if it's an array
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic != 0x41525259) { // TsArray::MAGIC
+            return result;
+        }
+        
+        TsArray* arr = (TsArray*)rawPtr;
+        int64_t len = arr->Length();
+        
+        for (int64_t i = 0; i < len; i++) {
+            void* entry = (void*)arr->Get(i);
+            if (!entry) continue;
+            
+            // Unbox entry if needed
+            void* entryRaw = ts_value_get_object((TsValue*)entry);
+            if (!entryRaw) entryRaw = entry;
+            
+            uint32_t entryMagic = *(uint32_t*)entryRaw;
+            if (entryMagic != 0x41525259) continue;
+            
+            TsArray* pair = (TsArray*)entryRaw;
+            if (pair->Length() < 2) continue;
+            
+            TsValue* key = (TsValue*)pair->Get(0);
+            TsValue* val = (TsValue*)pair->Get(1);
+            if (key && val) {
+                result->Set(*key, *val);
+            }
+        }
+        
+        return result;
+    }
 }

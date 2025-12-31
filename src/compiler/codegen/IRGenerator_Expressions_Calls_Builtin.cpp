@@ -1106,6 +1106,143 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 lastValue = createCall(anyFt, anyFn.getCallee(), { iterable });
                 return true;
             }
+        } else if (obj->name == "Object") {
+            if (prop->name == "keys") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* keysFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee keysFn = module->getOrInsertFunction("ts_object_keys", keysFt);
+                lastValue = createCall(keysFt, keysFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "values") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* valuesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee valuesFn = module->getOrInsertFunction("ts_object_values", valuesFt);
+                lastValue = createCall(valuesFt, valuesFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "entries") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* entriesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee entriesFn = module->getOrInsertFunction("ts_object_entries", entriesFt);
+                lastValue = createCall(entriesFt, entriesFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "assign") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* target = lastValue;
+                if (!target->getType()->isPointerTy()) {
+                    target = builder->CreateIntToPtr(target, builder->getPtrTy());
+                }
+                visit(node->arguments[1].get());
+                llvm::Value* source = lastValue;
+                if (!source->getType()->isPointerTy()) {
+                    source = builder->CreateIntToPtr(source, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* assignFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee assignFn = module->getOrInsertFunction("ts_object_assign", assignFt);
+                lastValue = createCall(assignFt, assignFn.getCallee(), { target, source });
+                return true;
+            } else if (prop->name == "freeze") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* freezeFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee freezeFn = module->getOrInsertFunction("ts_object_freeze", freezeFt);
+                lastValue = createCall(freezeFt, freezeFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "seal") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* sealFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee sealFn = module->getOrInsertFunction("ts_object_seal", sealFt);
+                lastValue = createCall(sealFt, sealFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "isFrozen") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* isFrozenFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee isFrozenFn = module->getOrInsertFunction("ts_object_is_frozen", isFrozenFt);
+                lastValue = createCall(isFrozenFt, isFrozenFn.getCallee(), { arg });
+                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
+                return true;
+            } else if (prop->name == "isSealed") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* isSealedFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee isSealedFn = module->getOrInsertFunction("ts_object_is_sealed", isSealedFt);
+                lastValue = createCall(isSealedFt, isSealedFn.getCallee(), { arg });
+                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
+                return true;
+            } else if (prop->name == "hasOwn") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* obj = lastValue;
+                if (!obj->getType()->isPointerTy()) {
+                    obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+                }
+                visit(node->arguments[1].get());
+                llvm::Value* prop = lastValue;
+                if (!prop->getType()->isPointerTy()) {
+                    prop = builder->CreateIntToPtr(prop, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* hasOwnFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), 
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee hasOwnFn = module->getOrInsertFunction("ts_object_has_own", hasOwnFt);
+                lastValue = createCall(hasOwnFt, hasOwnFn.getCallee(), { obj, prop });
+                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
+                return true;
+            } else if (prop->name == "fromEntries") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                
+                llvm::FunctionType* fromEntriesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fromEntriesFn = module->getOrInsertFunction("ts_object_from_entries", fromEntriesFt);
+                lastValue = createCall(fromEntriesFt, fromEntriesFn.getCallee(), { arg });
+                return true;
+            }
         }
     }
 

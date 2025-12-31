@@ -454,6 +454,24 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
     // 2. Check LHS type
     if (auto id = dynamic_cast<ast::Identifier*>(node->left.get())) {
+        // Check if this is a cell variable (captured and mutable)
+        if (cellVariables.count(id->name) && namedValues.count(id->name)) {
+            llvm::Value* cellAlloca = namedValues[id->name];
+            llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+            
+            // Box the value
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+            
+            // Call ts_cell_set
+            llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee cellSetFn = module->getOrInsertFunction("ts_cell_set", cellSetFt);
+            createCall(cellSetFt, cellSetFn.getCallee(), { cell, boxedVal });
+            
+            lastValue = val;
+            SPDLOG_DEBUG("visitAssignmentExpression: {} is a cell variable, updated via ts_cell_set", id->name);
+            return;
+        }
+        
         // 3. Look up the variable
         llvm::Value* variable = nullptr;
         llvm::Type* varType = nullptr;
