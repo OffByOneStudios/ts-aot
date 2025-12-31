@@ -1804,34 +1804,22 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
     }
 
     if (ft->getReturnType()->isPointerTy()) {
-        // If it returns a pointer, check if it's a TsValue*
-        // For now, assume any function returning ptr that isn't ts_map_create, etc. returns a boxed value
-        // Actually, let's be more specific: if it returns TsValue* in the runtime, it's boxed.
-        // Our runtime functions that return raw pointers are:
-        // ts_map_create, ts_string_create, ts_array_create, ts_alloc, etc.
         std::string name;
         llvm::Value* actualCallee = callee->stripPointerCasts();
         if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
         
-        if (!name.empty() && name.find("ts_value_make_") == 0) {
-            boxedValues.insert(res);
-        } else if (!name.empty() && (name == "ts_value_get_int" || name == "ts_value_get_double" || name == "ts_value_get_bool" || name == "ts_value_get_string" || name == "ts_value_get_object" ||
-                                   name == "ts_map_create" || name == "ts_set_create" || name == "ts_string_create" || name == "ts_array_create" || name == "ts_array_create_specialized" ||
-                                   name == "ts_array_get_elements_ptr" || name == "ts_alloc" ||
-                                   name == "ts_bigint_create_str" || name == "ts_bigint_create_int" || name == "ts_bigint_from_value" ||
-                                   name == "ts_symbol_create" || name == "ts_symbol_for" || name == "ts_symbol_key_for" ||
-                                   name == "ts_path_format" || name == "ts_path_to_namespaced_path" ||
-                                   name == "ts_path_get_sep" || name == "ts_path_get_delimiter" ||
-                                   name == "ts_http_request" || name == "ts_http_get" || name == "ts_http_create_server" ||
-                                   name == "ts_https_request" || name == "ts_https_get" || name == "ts_https_create_server" ||
-                                   name == "ts_writable_write" || name == "ts_writable_end" ||
-                                   (name.find("ts_fs_") == 0 && name != "ts_fs_watch" && name.find("_async") == std::string::npos))) {
-            // Raw pointers - don't add to boxedValues
-        } else if (!name.empty() && name.find("ts_") == 0 && ft->getReturnType()->isPointerTy()) {
-            // Other runtime functions (ts_*) that return pointers are assumed to return boxed TsValue*
-            // User-defined functions are NOT assumed to return boxed values
-            boxedValues.insert(res);
+        // Use BoxingPolicy to determine if result is boxed
+        // This is the SINGLE SOURCE OF TRUTH for boxing decisions
+        if (!name.empty() && name.find("ts_") == 0) {
+            if (boxingPolicy.runtimeReturnsBoxed(name)) {
+                boxedValues.insert(res);
+                SPDLOG_DEBUG("createCall: {} returns boxed value", name);
+            } else {
+                // Raw pointer - don't add to boxedValues
+                SPDLOG_DEBUG("createCall: {} returns raw pointer", name);
+            }
         }
+        // User-defined functions are NOT assumed to return boxed values
     }
     return res;
 }
