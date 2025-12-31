@@ -76,6 +76,7 @@ add_library(tscompiler_lib STATIC
     analysis/Monomorphizer.cpp
     Driver.cpp
     codegen/CodeGenerator.cpp
+    codegen/BoxingPolicy.cpp
     codegen/LinkerDriver.cpp
     codegen/IRGenerator.cpp
     codegen/IRGenerator_Core.cpp
