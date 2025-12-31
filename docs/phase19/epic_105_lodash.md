@@ -14,7 +14,8 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 ### ✅ Working Functions
 - **Util:** `identity`, `constant`, `noop`, `times`, `range`
 - **Array:** `head`, `first`, `last`, `tail`, `initial`, `take`, `takeRight`, `drop`, `dropRight`, `chunk`, `flatten`, `flattenDeep`, `uniq`, `uniqBy`, `difference`, `intersection`
-- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`, `sortBy`, `sortByDesc`
+- **Collection:** `map`, `reduce`, `reduceRight`, `every`, `some`, `forEach`, `forEachRight`, `filter`, `find`, `findIndex`, `sortBy`, `sortByDesc`, `groupBy`, `keyBy`
+- **String:** `capitalize`, `camelCase`, `kebabCase`, `snakeCase`, `startCase`, `trim`, `trimStart`, `trimEnd`, `pad`, `padStart`, `padEnd`, `repeat`, `split`, `truncate`
 
 ### 🔧 Implemented but Blocked by Compiler Bugs
 - **compact:** Needs truthiness check improvements
@@ -24,7 +25,8 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 2. ~~**Generic Callback Types:**~~ **FIXED** (commit 1439598) - `emitToBoolean()` now calls `ts_value_get_bool` for Boolean-typed pointers
 3. ~~**Rest Parameter Array Type Inference:**~~ **FIXED** - `Set<T>[]` boxing/unboxing and for-of specialized element access
 4. ~~**Generic Array Push Boxing:**~~ **FIXED** (commit e61b0b5) - `array.push()` now stores raw values for primitive types instead of boxing
-5. **Optional Parameters:** `undefined` checks need more work
+5. ~~**Function Variable Calls:**~~ **FIXED** - Arrow functions and named function references now properly boxed; wrapper functions generated for `ts_call_N` compatibility
+6. **Optional Parameters:** `undefined` checks need more work
 
 ## Design Rationale
 
@@ -72,7 +74,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.2.6:** `every<T>(arr: T[], fn: (x: T) => boolean): boolean` - All match ✅
 - [x] **Task 105.2.7:** `some<T>(arr: T[], fn: (x: T) => boolean): boolean` - Any match ✅
 - [x] **Task 105.2.8:** `groupBy<T, K>(arr: T[], fn: (x: T) => K): Map<K, T[]>` - Group by key (returns Map instead of Record) ✅
-- [ ] **Task 105.2.9:** `keyBy<T, K>(arr: T[], fn: (x: T) => K): Map<K, T>` - Index by key (returns Map instead of Record)
+- [x] **Task 105.2.9:** `keyBy<T, K>(arr: T[], fn: (x: T) => K): Map<K, T>` - Index by key (returns Map instead of Record) ✅
 - [x] **Task 105.2.10:** `sortBy<T>(arr: T[], fn: (x: T) => number): T[]` - Sort by key ✅
 
 **Runtime Prerequisites:**
@@ -101,26 +103,26 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.4: String Utilities
 
-- [ ] **Task 105.4.1:** `capitalize(str: string): string` - Uppercase first letter
-- [ ] **Task 105.4.2:** `camelCase(str: string): string` - Convert to camelCase
-- [ ] **Task 105.4.3:** `kebabCase(str: string): string` - Convert to kebab-case
-- [ ] **Task 105.4.4:** `snakeCase(str: string): string` - Convert to snake_case
-- [ ] **Task 105.4.5:** `startCase(str: string): string` - Convert to Start Case
-- [ ] **Task 105.4.6:** `trim(str: string, chars?: string): string` - Trim characters
-- [ ] **Task 105.4.7:** `pad(str: string, length: number, chars?: string): string` - Pad string
-- [ ] **Task 105.4.8:** `repeat(str: string, n: number): string` - Repeat string
-- [ ] **Task 105.4.9:** `split(str: string, sep: string, limit?: number): string[]` - Split string
-- [ ] **Task 105.4.10:** `truncate(str: string, options?: {length: number}): string` - Truncate
+- [x] **Task 105.4.1:** `capitalize(str: string): string` - Uppercase first letter ✅
+- [x] **Task 105.4.2:** `camelCase(str: string): string` - Convert to camelCase ✅
+- [x] **Task 105.4.3:** `kebabCase(str: string): string` - Convert to kebab-case ✅
+- [x] **Task 105.4.4:** `snakeCase(str: string): string` - Convert to snake_case ✅
+- [x] **Task 105.4.5:** `startCase(str: string): string` - Convert to Start Case ✅
+- [x] **Task 105.4.6:** `trim(str: string, chars?: string): string` - Trim characters ✅
+- [x] **Task 105.4.7:** `pad(str: string, length: number, chars?: string): string` - Pad string ✅
+- [x] **Task 105.4.8:** `repeat(str: string, n: number): string` - Repeat string ✅
+- [x] **Task 105.4.9:** `split(str: string, sep: string, limit?: number): string[]` - Split string ✅
+- [x] **Task 105.4.10:** `truncate(str: string, options?: {length: number}): string` - Truncate ✅
 
 **Runtime Prerequisites:**
-- [ ] `String.toLowerCase()` - Convert to lowercase
-- [ ] `String.toUpperCase()` - Convert to uppercase
-- [ ] `String.trim()` - Trim whitespace
-- [ ] `String.split(separator)` - Split string
-- [ ] `String.replace(search, replacement)` - Replace substring
-- [ ] `String.padStart(length, char)` - Pad start
-- [ ] `String.padEnd(length, char)` - Pad end
-- [ ] `String.repeat(count)` - Repeat string
+- [x] `String.toLowerCase()` - Convert to lowercase ✅
+- [x] `String.toUpperCase()` - Convert to uppercase ✅
+- [x] `String.trim()` - Trim whitespace ✅
+- [x] `String.split(separator)` - Split string ✅
+- [x] `String.replace(search, replacement)` - Replace substring ✅
+- [x] `String.padStart(length, char)` - Pad start ✅
+- [x] `String.padEnd(length, char)` - Pad end ✅
+- [x] `String.repeat(count)` - Repeat string ✅
 
 ### Milestone 105.5: Function Utilities
 
@@ -133,9 +135,9 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [ ] **Task 105.5.7:** `curry(fn)` - Currying
 
 **Runtime Prerequisites:**
-- [ ] `setTimeout(fn, delay)` - Delayed execution
-- [ ] `clearTimeout(id)` - Cancel timeout
-- [ ] `Date.now()` - Current timestamp
+- [x] `setTimeout(fn, delay)` - Delayed execution ✅
+- [x] `clearTimeout(id)` - Cancel timeout ✅
+- [x] `Date.now()` - Current timestamp ✅
 
 ### Milestone 105.6: Utility Functions
 

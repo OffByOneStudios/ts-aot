@@ -13,6 +13,14 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
     }
 
     if (node->name == "this") {
+        if (currentAsyncFrame) {
+            auto it = currentAsyncFrameMap.find("this");
+            if (it != currentAsyncFrameMap.end()) {
+                llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+                lastValue = builder->CreateLoad(currentAsyncFrameType->getElementType(it->second), ptr);
+                return;
+            }
+        }
         llvm::Function* func = builder->GetInsertBlock()->getParent();
         if (func->arg_size() > 1) {
             lastValue = func->getArg(1);
@@ -20,6 +28,16 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             lastValue = func->getArg(0);
         }
         return;
+    }
+
+    if (currentAsyncFrame) {
+        auto it = currentAsyncFrameMap.find(node->name);
+        if (it != currentAsyncFrameMap.end()) {
+            SPDLOG_DEBUG("visitIdentifier: found {} in async frame at index {}", node->name, it->second);
+            llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
+            lastValue = builder->CreateLoad(currentAsyncFrameType->getStructElementType(it->second), ptr);
+            return;
+        }
     }
 
     if (namedValues.count(node->name)) {
@@ -59,6 +77,116 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             boxedValues.insert(lastValue);
         }
         return;
+    }
+
+    // Check if this is a reference to a named function (for first-class function usage)
+    // We need to create a boxed function reference that can be called via ts_call_N
+    if (node->inferredType && node->inferredType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
+        
+        // Build the mangled name based on parameter types
+        std::vector<std::shared_ptr<Type>> paramTypes = funcType->paramTypes;
+        std::string mangledName = Monomorphizer::generateMangledName(node->name, paramTypes, {});
+        SPDLOG_DEBUG("visitIdentifier: trying to find function {} with mangledName {}", node->name, mangledName);
+        
+        llvm::Function* func = module->getFunction(mangledName);
+        if (!func) {
+            // Try without mangling for functions that aren't monomorphized
+            func = module->getFunction(node->name);
+        }
+        
+        // If still not found, try to find any function starting with the name_
+        // This handles cases where the function was specialized with different types
+        if (!func) {
+            std::string prefix = node->name + "_";
+            for (auto& fn : module->functions()) {
+                if (fn.getName().starts_with(prefix)) {
+                    func = &fn;
+                    SPDLOG_DEBUG("visitIdentifier: found function {} matching prefix {}", fn.getName().str(), prefix);
+                    break;
+                }
+            }
+        }
+        
+        if (func) {
+            // The specialized function may take native types (i64, double, etc.)
+            // We need to create a wrapper that takes boxed TsValue* arguments
+            llvm::FunctionType* funcFT = func->getFunctionType();
+            size_t numParams = funcFT->getNumParams();
+            
+            // Check if the function already takes boxed arguments (all ptr types after context)
+            bool needsWrapper = false;
+            for (size_t i = 1; i < numParams; ++i) {  // Skip context arg
+                if (!funcFT->getParamType(i)->isPointerTy()) {
+                    needsWrapper = true;
+                    break;
+                }
+            }
+            
+            llvm::Value* funcToBox = func;
+            
+            if (needsWrapper) {
+                // Create a wrapper function that unboxes args, calls the real function, and boxes the result
+                static int wrapperCounter = 0;
+                std::string wrapperName = func->getName().str() + "_boxed_wrapper_" + std::to_string(wrapperCounter++);
+                
+                // Wrapper signature: ptr(ptr context, ptr arg1, ptr arg2, ...)
+                std::vector<llvm::Type*> wrapperArgTypes;
+                wrapperArgTypes.push_back(builder->getPtrTy()); // context
+                for (size_t i = 1; i < numParams; ++i) {
+                    wrapperArgTypes.push_back(builder->getPtrTy()); // TsValue* for each arg
+                }
+                
+                llvm::FunctionType* wrapperFT = llvm::FunctionType::get(builder->getPtrTy(), wrapperArgTypes, false);
+                llvm::Function* wrapper = llvm::Function::Create(wrapperFT, llvm::Function::InternalLinkage, wrapperName, module.get());
+                
+                llvm::BasicBlock* oldBB = builder->GetInsertBlock();
+                llvm::BasicBlock* wrapperBB = llvm::BasicBlock::Create(*context, "entry", wrapper);
+                builder->SetInsertPoint(wrapperBB);
+                
+                // Prepare call args: unbox each boxed argument to the expected native type
+                std::vector<llvm::Value*> callArgs;
+                callArgs.push_back(wrapper->getArg(0)); // context passthrough
+                
+                for (size_t i = 1; i < numParams; ++i) {
+                    llvm::Value* boxedArg = wrapper->getArg(i);
+                    llvm::Type* expectedType = funcFT->getParamType(i);
+                    std::shared_ptr<Type> argType = (i - 1 < funcType->paramTypes.size()) 
+                        ? funcType->paramTypes[i - 1] 
+                        : std::make_shared<Type>(TypeKind::Any);
+                    
+                    llvm::Value* unboxedArg = unboxValue(boxedArg, argType);
+                    
+                    // Convert to expected LLVM type if needed
+                    if (unboxedArg->getType() != expectedType) {
+                        if (expectedType->isIntegerTy(64) && unboxedArg->getType()->isDoubleTy()) {
+                            unboxedArg = builder->CreateFPToSI(unboxedArg, expectedType);
+                        } else if (expectedType->isDoubleTy() && unboxedArg->getType()->isIntegerTy(64)) {
+                            unboxedArg = builder->CreateSIToFP(unboxedArg, expectedType);
+                        }
+                    }
+                    callArgs.push_back(unboxedArg);
+                }
+                
+                // Call the real function
+                llvm::Value* result = createCall(funcFT, func, callArgs);
+                
+                // Box the result
+                llvm::Value* boxedResult = boxValue(result, funcType->returnType);
+                builder->CreateRet(boxedResult);
+                
+                builder->SetInsertPoint(oldBB);
+                funcToBox = wrapper;
+            }
+            
+            // Box the function (or wrapper) as a callable value with null context
+            llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
+            lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { funcToBox, llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+            boxedValues.insert(lastValue);
+            SPDLOG_DEBUG("visitIdentifier: boxed function {} as callable value (wrapper={})", node->name, needsWrapper);
+            return;
+        }
     }
 
     lastValue = nullptr;

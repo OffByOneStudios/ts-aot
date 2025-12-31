@@ -6,76 +6,7 @@
 
 namespace ts {
 
-void IRGenerator::visitIdentifier(ast::Identifier* node) {
-    SPDLOG_INFO("visitIdentifier: {}", node->name);
-    if (node->name == "undefined" || node->name == "null") {
-        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
-        return;
-    }
-
-    if (node->name == "this") {
-        if (currentAsyncFrame) {
-            auto it = currentAsyncFrameMap.find("this");
-            if (it != currentAsyncFrameMap.end()) {
-                llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
-                lastValue = builder->CreateLoad(currentAsyncFrameType->getElementType(it->second), ptr);
-                return;
-            }
-        }
-        llvm::Function* func = builder->GetInsertBlock()->getParent();
-        // In our new calling convention, context is arg(0), this is arg(1)
-        if (func->arg_size() > 1) {
-            lastValue = func->getArg(1);
-        } else {
-            lastValue = func->getArg(0); // Fallback for global functions if they ever use 'this'
-        }
-        return;
-    }
-
-    if (currentAsyncFrame) {
-        auto it = currentAsyncFrameMap.find(node->name);
-        if (it != currentAsyncFrameMap.end()) {
-            SPDLOG_INFO("visitIdentifier: found {} in async frame at index {}", node->name, it->second);
-            llvm::Value* ptr = builder->CreateStructGEP(currentAsyncFrameType, currentAsyncFrame, it->second);
-            lastValue = builder->CreateLoad(currentAsyncFrameType->getStructElementType(it->second), ptr);
-            SPDLOG_INFO("visitIdentifier: loaded {} from async frame, lastValue={}", node->name, (void*)lastValue);
-            return;
-        }
-    }
-
-    if (namedValues.count(node->name)) {
-        llvm::Value* val = namedValues[node->name];
-        llvm::Type* type = nullptr;
-        if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
-            type = alloca->getAllocatedType();
-        } else if (auto gep = llvm::dyn_cast<llvm::GetElementPtrInst>(val)) {
-            type = gep->getResultElementType();
-        }
-        
-        if (type) {
-            lastValue = builder->CreateLoad(type, val, node->name.c_str());
-            if (concreteTypes.count(val)) {
-                concreteTypes[lastValue] = concreteTypes[val];
-            }
-            if (boxedVariables.count(node->name)) {
-                boxedValues.insert(lastValue);
-            }
-        } else {
-            lastValue = val;
-        }
-        return;
-    }
-
-    // Check for global variable
-    llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);
-    if (gv) {
-        lastValue = builder->CreateLoad(gv->getValueType(), gv, node->name.c_str());
-        return;
-    }
-
-    SPDLOG_ERROR("Error: Undefined variable {}", node->name);
-    lastValue = nullptr;
-}
+// NOTE: visitIdentifier is defined in IRGenerator_Expressions_Access.cpp
 
 void IRGenerator::visitNumericLiteral(ast::NumericLiteral* node) {
     if (node->value == (int64_t)node->value) {

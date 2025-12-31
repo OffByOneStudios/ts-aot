@@ -1299,6 +1299,34 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = module->getOrInsertFunction("ts_array_slice", sliceFt);
          lastValue = createCall(sliceFt, fn.getCallee(), { obj, start, end });
          return true;
+    } else if ((prop->name == "slice" || prop->name == "substring") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::String) {
+         // String slice/substring: str.slice(start, end) or str.substring(start, end)
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         
+         llvm::Value* start = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+         llvm::Value* end = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), -1);  // -1 means end of string
+         
+         if (node->arguments.size() >= 1) {
+             visit(node->arguments[0].get());
+             start = lastValue;
+             if (start->getType()->isDoubleTy()) {
+                 start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+             }
+         }
+         if (node->arguments.size() >= 2) {
+             visit(node->arguments[1].get());
+             end = lastValue;
+             if (end->getType()->isDoubleTy()) {
+                 end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+             }
+         }
+         
+         llvm::FunctionType* sliceFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_slice", sliceFt);
+         lastValue = createCall(sliceFt, fn.getCallee(), { obj, start, end });
+         return true;
     } else if (prop->name == "join" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
