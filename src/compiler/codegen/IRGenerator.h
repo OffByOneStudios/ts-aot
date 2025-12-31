@@ -15,6 +15,7 @@
 #include "../analysis/Analyzer.h"
 #include "../analysis/Monomorphizer.h"
 #include "../ast/AstNodes.h"
+#include "BoxingPolicy.h"
 
 namespace ts {
 
@@ -57,6 +58,13 @@ private:
     std::set<std::string> boxedVariables;
     std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName
     std::string lastLengthArray;
+    
+    // Boxing policy for deterministic boxing decisions
+    BoxingPolicy boxingPolicy;
+    
+    // Helper to get runtime functions with enforcement
+    // When enforceRegistration is true (default), throws if function not in BoxingPolicy registry
+    llvm::FunctionCallee getRuntimeFunction(const std::string& name, llvm::FunctionType* ft, bool enforceRegistration = true);
 
     llvm::Type* getLLVMType(const std::shared_ptr<Type>& type);
     void addStackProtection(llvm::Function* func);

@@ -138,7 +138,7 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 - [x] **Task 106.1.2:** Implement runtime API registry (`runtimeExpectsBoxed`) ✅
 - [x] **Task 106.1.3:** Implement `prepareForContext()` core logic ✅
 - [ ] **Task 106.1.4:** Implement `isAlreadyBoxed()` tracking
-- [ ] **Task 106.1.5:** Add BoxingPolicy to IRGenerator as member
+- [x] **Task 106.1.5:** Add BoxingPolicy to IRGenerator as member ✅
 - [x] **Task 106.1.6:** Add to CMakeLists.txt ✅
 
 ### Milestone 106.1b: Compile-Time Enforcement
@@ -147,7 +147,8 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 - [x] **Task 106.1b.2:** Add `assertRuntimeApiRegistered()` to throw helpful error for unregistered functions ✅
 - [x] **Task 106.1b.3:** Add `strictMode` parameter to `runtimeExpectsBoxed()` ✅
 - [x] **Task 106.1b.4:** Add unit tests for enforcement (hasRuntimeApiRegistered, assertRuntimeApiRegistered, strictMode) ✅
-- [ ] **Task 106.1b.5:** Integrate enforcement into codegen - call `assertRuntimeApiRegistered()` when emitting ts_* calls
+- [x] **Task 106.1b.5:** Add `getRuntimeFunction()` helper to IRGenerator that enforces registry ✅
+- [ ] **Task 106.1b.6:** Migrate existing `getOrInsertFunction` calls to use `getRuntimeFunction` (incremental)
 
 ### Milestone 106.2: Unit Tests for BoxingPolicy
 

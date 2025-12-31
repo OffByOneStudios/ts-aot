@@ -1486,6 +1486,15 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {}
 void IRGenerator::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {}
 void IRGenerator::visitEnumDeclaration(ast::EnumDeclaration* node) {}
 
+llvm::FunctionCallee IRGenerator::getRuntimeFunction(const std::string& name, llvm::FunctionType* ft, bool enforceRegistration) {
+    // Enforce registration for ts_* functions (runtime API)
+    if (enforceRegistration && name.find("ts_") == 0) {
+        // Check if this runtime function is in our registry
+        boxingPolicy.assertRuntimeApiRegistered(name);
+    }
+    return module->getOrInsertFunction(name, ft);
+}
+
 void IRGenerator::dumpIR() {
     module->print(llvm::outs(), nullptr);
 }
