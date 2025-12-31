@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include "../analysis/Monomorphizer.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -6,7 +7,154 @@
 namespace ts {
 using namespace ast;
 
+// Static helper to register core Builtin runtime functions once (~115 functions)
+static bool builtinFunctionsRegistered = false;
+static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
+    if (builtinFunctionsRegistered) return;
+    builtinFunctionsRegistered = true;
+    
+    // ========== Array methods ==========
+    bp.registerRuntimeApi("ts_array_length", {true}, false);  // arr -> int
+    bp.registerRuntimeApi("ts_array_push", {true, true}, false);  // arr, value
+    bp.registerRuntimeApi("ts_array_pop", {true}, true);  // arr -> boxed
+    bp.registerRuntimeApi("ts_array_shift", {true}, true);
+    bp.registerRuntimeApi("ts_array_unshift", {true, true}, false);  // arr, value -> length
+    bp.registerRuntimeApi("ts_array_slice", {true, false, false}, true);  // arr, start, end
+    bp.registerRuntimeApi("ts_array_join", {true, false}, false);  // arr, separator -> string
+    bp.registerRuntimeApi("ts_array_indexOf", {true, true, false}, false);  // arr, value, fromIndex -> int
+    bp.registerRuntimeApi("ts_array_flat", {true, false}, true);  // arr, depth
+    bp.registerRuntimeApi("ts_array_sort", {true}, true);  // arr
+    bp.registerRuntimeApi("ts_array_sort_with_comparator", {true, true}, true);  // arr, comparator
+    bp.registerRuntimeApi("ts_array_reduce", {true, true, true}, true);  // arr, callback, initialValue
+    
+    // ========== Map methods ==========
+    bp.registerRuntimeApi("ts_map_set", {true, true, true}, true);  // map, key, value
+    bp.registerRuntimeApi("ts_map_get", {true, true}, true);  // map, key
+    bp.registerRuntimeApi("ts_map_has", {true, true}, false);  // map, key -> bool
+    bp.registerRuntimeApi("ts_map_delete", {true, true}, false);  // map, key -> bool
+    bp.registerRuntimeApi("ts_map_clear", {true}, false);
+    bp.registerRuntimeApi("ts_map_forEach", {true, true}, false);  // map, callback
+    
+    // ========== Set methods ==========
+    bp.registerRuntimeApi("ts_set_add", {true, true}, true);  // set, value
+    bp.registerRuntimeApi("ts_set_has", {true, true}, false);
+    bp.registerRuntimeApi("ts_set_delete", {true, true}, false);
+    bp.registerRuntimeApi("ts_set_clear", {true}, false);
+    bp.registerRuntimeApi("ts_set_forEach", {true, true}, false);
+    
+    // ========== String methods ==========
+    bp.registerRuntimeApi("ts_string_length", {false}, false);  // str -> int
+    bp.registerRuntimeApi("ts_string_charAt", {false, false}, false);  // str, index -> string
+    bp.registerRuntimeApi("ts_string_charCodeAt", {false, false}, false);  // str, index -> int
+    bp.registerRuntimeApi("ts_string_includes", {false, false, false}, false);  // str, search, position -> bool
+    bp.registerRuntimeApi("ts_string_indexOf", {false, false, false}, false);  // str, search, start -> int
+    bp.registerRuntimeApi("ts_string_substring", {false, false, false}, false);  // str, start, end
+    bp.registerRuntimeApi("ts_string_toLowerCase", {false}, false);
+    bp.registerRuntimeApi("ts_string_toUpperCase", {false}, false);
+    bp.registerRuntimeApi("ts_string_trim", {false}, false);
+    bp.registerRuntimeApi("ts_string_split", {false, false}, true);  // str, separator -> array
+    bp.registerRuntimeApi("ts_string_split_regexp", {false, true}, true);  // str, regexp
+    bp.registerRuntimeApi("ts_string_replace", {false, false, false}, false);  // str, search, replacement
+    bp.registerRuntimeApi("ts_string_replace_regexp", {false, true, false}, false);
+    bp.registerRuntimeApi("ts_string_replaceAll", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_string_replaceAll_regexp", {false, true, false}, false);
+    bp.registerRuntimeApi("ts_string_match", {false, false}, true);  // str, pattern -> array or null
+    bp.registerRuntimeApi("ts_string_match_regexp", {false, true}, true);
+    bp.registerRuntimeApi("ts_string_search_regexp", {false, true}, false);  // -> int
+    bp.registerRuntimeApi("ts_string_startsWith", {false, false, false}, false);  // str, search, position -> bool
+    bp.registerRuntimeApi("ts_string_padStart", {false, false, false}, false);  // str, targetLength, padString
+    bp.registerRuntimeApi("ts_string_padEnd", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_string_repeat", {false, false}, false);  // str, count
+    
+    // ========== Number/conversion ==========
+    bp.registerRuntimeApi("ts_int_to_string", {false}, false);  // int -> string
+    bp.registerRuntimeApi("ts_double_to_string", {false}, false);
+    bp.registerRuntimeApi("ts_double_to_fixed", {false, false}, false);  // double, digits -> string
+    
+    // ========== Console ==========
+    bp.registerRuntimeApi("ts_console_log", {false}, false);  // string
+    bp.registerRuntimeApi("ts_console_log_int", {false}, false);
+    bp.registerRuntimeApi("ts_console_log_double", {false}, false);
+    bp.registerRuntimeApi("ts_console_log_bool", {false}, false);
+    bp.registerRuntimeApi("ts_console_log_value", {true}, false);  // boxed value
+    bp.registerRuntimeApi("ts_console_error", {false}, false);
+    bp.registerRuntimeApi("ts_console_error_int", {false}, false);
+    bp.registerRuntimeApi("ts_console_error_double", {false}, false);
+    bp.registerRuntimeApi("ts_console_error_bool", {false}, false);
+    bp.registerRuntimeApi("ts_console_error_value", {true}, false);
+    bp.registerRuntimeApi("ts_console_time", {false}, false);  // label
+    bp.registerRuntimeApi("ts_console_time_end", {false}, false);
+    bp.registerRuntimeApi("ts_console_trace", {false}, false);
+    
+    // ========== Math ==========
+    bp.registerRuntimeApi("ts_math_abs", {false}, false);  // double -> double
+    bp.registerRuntimeApi("ts_math_ceil", {false}, false);
+    bp.registerRuntimeApi("ts_math_floor", {false}, false);
+    bp.registerRuntimeApi("ts_math_round", {false}, false);
+    bp.registerRuntimeApi("ts_math_sqrt", {false}, false);
+    bp.registerRuntimeApi("ts_math_pow", {false, false}, false);
+    bp.registerRuntimeApi("ts_math_min", {false, false}, false);
+    bp.registerRuntimeApi("ts_math_max", {false, false}, false);
+    bp.registerRuntimeApi("ts_math_random", {}, false);
+    bp.registerRuntimeApi("ts_math_clz32", {false}, false);
+    bp.registerRuntimeApi("ts_math_fround", {false}, false);
+    bp.registerRuntimeApi("ts_math_hypot", {true}, false);  // array of numbers
+    
+    // ========== JSON ==========
+    bp.registerRuntimeApi("ts_json_parse", {false}, true);  // string -> boxed
+    bp.registerRuntimeApi("ts_json_stringify", {true}, false);  // boxed -> string
+    
+    // ========== Promise ==========
+    bp.registerRuntimeApi("ts_promise_resolve", {true}, true);  // value -> Promise
+    bp.registerRuntimeApi("ts_promise_reject", {true}, true);
+    bp.registerRuntimeApi("ts_promise_all", {true}, true);  // array -> Promise
+    bp.registerRuntimeApi("ts_promise_race", {true}, true);
+    bp.registerRuntimeApi("ts_promise_any", {true}, true);
+    bp.registerRuntimeApi("ts_promise_allSettled", {true}, true);
+    
+    // ========== Symbol ==========
+    bp.registerRuntimeApi("ts_symbol_for", {false}, true);  // key -> Symbol
+    bp.registerRuntimeApi("ts_symbol_key_for", {true}, false);  // symbol -> string or undefined
+    
+    // ========== Crypto ==========
+    bp.registerRuntimeApi("ts_crypto_md5", {false}, false);  // string -> string
+    
+    // ========== HTTP Server response (used in Builtin) ==========
+    bp.registerRuntimeApi("ts_http_create_server", {true}, true);
+    bp.registerRuntimeApi("ts_http_server_listen", {true, false, false, true}, true);
+    bp.registerRuntimeApi("ts_server_response_write", {true, true}, false);  // res, data
+    bp.registerRuntimeApi("ts_server_response_end", {true, true}, false);  // res, data
+    bp.registerRuntimeApi("ts_server_response_write_head", {true, false, true}, false);  // res, status, headers
+    
+    // ========== FS functions referenced in main Builtin ==========
+    bp.registerRuntimeApi("ts_fs_readFileSync", {false}, false);
+    bp.registerRuntimeApi("ts_fs_writeFileSync", {false, true}, false);
+    bp.registerRuntimeApi("ts_fs_existsSync", {false}, false);
+    bp.registerRuntimeApi("ts_fs_readdirSync", {false}, true);
+    bp.registerRuntimeApi("ts_fs_statSync", {false}, true);
+    bp.registerRuntimeApi("ts_fs_openSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_closeSync", {false}, false);
+    bp.registerRuntimeApi("ts_fs_createReadStream", {false, true}, true);
+    bp.registerRuntimeApi("ts_fs_createWriteStream", {false, true}, true);
+    bp.registerRuntimeApi("ts_fs_readFile_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_writeFile_async", {false, true}, true);
+    bp.registerRuntimeApi("ts_fs_mkdir_async", {false, true}, true);
+    bp.registerRuntimeApi("ts_fs_stat_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_open_async", {false, false, false}, true);
+    bp.registerRuntimeApi("ts_fs_close_async", {false}, true);
+    bp.registerRuntimeApi("ts_fs_readdir_async", {false}, true);
+    
+    // ========== Value boxing helpers ==========
+    bp.registerRuntimeApi("ts_value_make_int", {false}, true);
+    bp.registerRuntimeApi("ts_value_make_double", {false}, true);
+    bp.registerRuntimeApi("ts_value_make_object", {true}, true);
+    bp.registerRuntimeApi("ts_value_get_int", {true}, false);
+    bp.registerRuntimeApi("ts_value_get_object", {true}, true);
+}
+
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureBuiltinFunctionsRegistered(boxingPolicy);
+    
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
 
     if (tryGenerateFSCall(node, prop)) return true;
