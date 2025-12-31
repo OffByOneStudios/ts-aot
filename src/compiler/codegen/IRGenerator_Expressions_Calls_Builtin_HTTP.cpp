@@ -1,9 +1,74 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 
 namespace ts {
 
+// Static helper to register HTTP module's runtime functions once (44 functions)
+static bool httpFunctionsRegistered = false;
+static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
+    if (httpFunctionsRegistered) return;
+    httpFunctionsRegistered = true;
+    
+    // HTTP server/client
+    bp.registerRuntimeApi("ts_http_create_server", {true}, true);  // options -> Server
+    bp.registerRuntimeApi("ts_http_get", {true, true}, true);  // url/options, callback
+    bp.registerRuntimeApi("ts_http_request", {true, true}, true);
+    bp.registerRuntimeApi("ts_http_server_listen", {true, false, false, true}, true);  // server, port, host, callback
+    bp.registerRuntimeApi("ts_http_server_response_write_head", {true, false, false, true}, false);  // res, statusCode, statusMsg, headers
+    bp.registerRuntimeApi("ts_http_get_global_agent", {}, true);
+    bp.registerRuntimeApi("ts_http_agent_destroy", {true}, false);
+    bp.registerRuntimeApi("ts_http_get_max_header_size", {}, false);  // -> number
+    bp.registerRuntimeApi("ts_http_get_max_idle_http_parsers", {}, false);
+    bp.registerRuntimeApi("ts_http_set_max_idle_http_parsers", {false}, false);
+    bp.registerRuntimeApi("ts_http_get_methods", {}, true);  // -> array
+    bp.registerRuntimeApi("ts_http_get_status_codes", {}, true);  // -> object
+    bp.registerRuntimeApi("ts_http_validate_header_name", {false}, false);
+    bp.registerRuntimeApi("ts_http_validate_header_value", {false, false}, false);
+    
+    // HTTPS
+    bp.registerRuntimeApi("ts_https_create_server", {true}, true);
+    bp.registerRuntimeApi("ts_https_get", {true, true}, true);
+    bp.registerRuntimeApi("ts_https_request", {true, true}, true);
+    bp.registerRuntimeApi("ts_https_get_global_agent", {}, true);
+    
+    // WebSocket
+    bp.registerRuntimeApi("ts_websocket_send", {true, true}, false);  // socket, data
+    bp.registerRuntimeApi("ts_websocket_close", {true, false, false}, false);  // socket, code, reason
+    bp.registerRuntimeApi("ts_websocket_ping", {true, true}, false);
+    bp.registerRuntimeApi("ts_websocket_pong", {true, true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_ready_state", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_buffered_amount", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_url", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_protocol", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_extensions", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_binary_type", {true}, false);
+    bp.registerRuntimeApi("ts_websocket_get_onopen", {true}, true);
+    bp.registerRuntimeApi("ts_websocket_get_onclose", {true}, true);
+    bp.registerRuntimeApi("ts_websocket_get_onerror", {true}, true);
+    bp.registerRuntimeApi("ts_websocket_get_onmessage", {true}, true);
+    // WebSocket state constants
+    bp.registerRuntimeApi("ts_websocket_connecting", {}, false);
+    bp.registerRuntimeApi("ts_websocket_open", {}, false);
+    bp.registerRuntimeApi("ts_websocket_closing", {}, false);
+    bp.registerRuntimeApi("ts_websocket_closed", {}, false);
+    
+    // Net helpers used in HTTP
+    bp.registerRuntimeApi("ts_net_socket_address_get_address", {true}, false);
+    bp.registerRuntimeApi("ts_net_socket_address_get_port", {true}, false);
+    bp.registerRuntimeApi("ts_net_socket_address_get_family", {true}, false);
+    bp.registerRuntimeApi("ts_net_socket_address_get_flowlabel", {true}, false);
+    bp.registerRuntimeApi("ts_net_block_list_get_rules", {true}, true);  // -> array
+    
+    // Stream helpers used in HTTP
+    bp.registerRuntimeApi("ts_writable_write", {true, true}, true);
+    bp.registerRuntimeApi("ts_writable_end", {true}, true);
+    bp.registerRuntimeApi("ts_value_get_object", {true}, true);
+}
+
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureHTTPFunctionsRegistered(boxingPolicy);
+    
     SPDLOG_INFO("tryGenerateHTTPCall: prop->name={}", prop->name);
     bool isHttp = false;
     bool isHttps = false;
