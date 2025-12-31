@@ -1,10 +1,27 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
 namespace ts {
 
+// Static helper to register Stream module's runtime functions once (6 functions)
+static bool streamFunctionsRegistered = false;
+static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
+    if (streamFunctionsRegistered) return;
+    streamFunctionsRegistered = true;
+    
+    bp.registerRuntimeApi("ts_writable_write", {true, true}, true);  // stream, data -> promise
+    bp.registerRuntimeApi("ts_writable_end", {true}, true);  // stream -> promise
+    bp.registerRuntimeApi("ts_stream_pipe", {true, true}, true);  // src, dest -> dest
+    bp.registerRuntimeApi("ts_stream_pause", {true}, false);  // stream
+    bp.registerRuntimeApi("ts_stream_resume", {true}, false);  // stream
+    bp.registerRuntimeApi("ts_value_get_object", {true}, true);  // boxed -> raw (helper)
+}
+
 bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureStreamFunctionsRegistered(boxingPolicy);
+    
     if (prop->name == "write") {
         visit(prop->expression.get());
         llvm::Value* boxedObj = lastValue;

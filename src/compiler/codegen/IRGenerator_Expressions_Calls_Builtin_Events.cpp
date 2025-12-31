@@ -1,8 +1,27 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 
 namespace ts {
 
+// Static helper to register Events module's runtime functions once (8 functions)
+static bool eventsFunctionsRegistered = false;
+static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
+    if (eventsFunctionsRegistered) return;
+    eventsFunctionsRegistered = true;
+    
+    bp.registerRuntimeApi("ts_event_emitter_on", {true, false, true}, true);  // emitter, event, listener
+    bp.registerRuntimeApi("ts_event_emitter_once", {true, false, true}, true);
+    bp.registerRuntimeApi("ts_event_emitter_emit", {true, false, true}, false);  // returns bool
+    bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {true, false, true}, true);
+    bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {true, false, true}, true);
+    bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {true, false}, true);
+    bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {true, false}, true);  // emitter, n
+    bp.registerRuntimeApi("ts_event_emitter_static_once", {true, false}, true);  // events.once()
+}
+
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureEventsFunctionsRegistered(boxingPolicy);
+    
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "events" && prop->name == "once") {
             if (node->arguments.size() < 2) return true;

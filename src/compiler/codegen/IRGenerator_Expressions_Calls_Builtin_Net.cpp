@@ -1,8 +1,47 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 
 namespace ts {
 
+// Static helper to register Net module's runtime functions once (19 functions)
+static bool netFunctionsRegistered = false;
+static void ensureNetFunctionsRegistered(BoxingPolicy& bp) {
+    if (netFunctionsRegistered) return;
+    netFunctionsRegistered = true;
+    
+    // net module functions
+    bp.registerRuntimeApi("ts_net_create_server", {true}, true);  // options -> Server
+    bp.registerRuntimeApi("ts_net_create_socket", {true}, true);  // options -> Socket
+    bp.registerRuntimeApi("ts_net_is_ip", {false}, false);  // string -> number (0, 4, or 6)
+    bp.registerRuntimeApi("ts_net_is_ipv4", {false}, false);  // string -> bool
+    bp.registerRuntimeApi("ts_net_is_ipv6", {false}, false);
+    bp.registerRuntimeApi("ts_net_get_default_auto_select_family", {}, false);  // -> bool
+    bp.registerRuntimeApi("ts_net_set_default_auto_select_family", {false}, false);
+    bp.registerRuntimeApi("ts_net_get_default_auto_select_family_attempt_timeout", {}, false);  // -> number
+    bp.registerRuntimeApi("ts_net_set_default_auto_select_family_attempt_timeout", {false}, false);
+    
+    // Server methods
+    bp.registerRuntimeApi("ts_net_server_listen", {true, false, false, false, true}, true);  // server, port, host, backlog, callback
+    
+    // Socket methods
+    bp.registerRuntimeApi("ts_net_socket_connect", {true, true}, true);  // socket, options
+    bp.registerRuntimeApi("ts_writable_write", {true, true}, true);  // socket, data
+    bp.registerRuntimeApi("ts_writable_end", {true}, true);
+    
+    // SocketAddress static
+    bp.registerRuntimeApi("ts_net_socket_address_parse", {false}, true);  // address string -> SocketAddress
+    
+    // BlockList
+    bp.registerRuntimeApi("ts_net_block_list_is_block_list", {true}, false);  // obj -> bool
+    bp.registerRuntimeApi("ts_net_block_list_add_address", {true, false, false}, false);  // list, address, family
+    bp.registerRuntimeApi("ts_net_block_list_add_range", {true, false, false, false}, false);  // list, start, end, family
+    bp.registerRuntimeApi("ts_net_block_list_add_subnet", {true, false, false, false}, false);  // list, address, prefix, family
+    bp.registerRuntimeApi("ts_net_block_list_check", {true, false, false}, false);  // list, address, family -> bool
+}
+
 bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureNetFunctionsRegistered(boxingPolicy);
+    
     bool isNet = false;
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "net") isNet = true;

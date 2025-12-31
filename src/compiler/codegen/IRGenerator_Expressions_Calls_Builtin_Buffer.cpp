@@ -1,8 +1,29 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 
 namespace ts {
 
+// Static helper to register Buffer module's runtime functions once (10 functions)
+static bool bufferFunctionsRegistered = false;
+static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
+    if (bufferFunctionsRegistered) return;
+    bufferFunctionsRegistered = true;
+    
+    bp.registerRuntimeApi("ts_buffer_alloc", {false}, true);  // size -> Buffer
+    bp.registerRuntimeApi("ts_buffer_alloc_unsafe", {false}, true);
+    bp.registerRuntimeApi("ts_buffer_from_string", {false, false}, true);  // string, encoding
+    bp.registerRuntimeApi("ts_buffer_concat", {true, false}, true);  // array, totalLength
+    bp.registerRuntimeApi("ts_buffer_is_buffer", {true}, false);  // obj -> bool
+    bp.registerRuntimeApi("ts_buffer_to_string", {true, false, false, false}, false);  // buf, encoding, start, end
+    bp.registerRuntimeApi("ts_buffer_slice", {true, false, false}, true);  // buf, start, end
+    bp.registerRuntimeApi("ts_buffer_subarray", {true, false, false}, true);
+    bp.registerRuntimeApi("ts_buffer_copy", {true, true, false, false, false}, false);  // src, target, targetStart, srcStart, srcEnd
+    bp.registerRuntimeApi("ts_buffer_fill", {true, true, false, false, false}, true);  // buf, value, offset, end, encoding
+}
+
 bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureBufferFunctionsRegistered(boxingPolicy);
+    
     // Handle Buffer.alloc(size)
     if (prop->name == "alloc") {
         if (node->arguments.empty()) return true;
