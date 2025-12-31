@@ -1,10 +1,66 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
 
+// Static helper to register Process module's runtime functions once (28 functions)
+static bool processFunctionsRegistered = false;
+static void ensureProcessFunctionsRegistered(BoxingPolicy& bp) {
+    if (processFunctionsRegistered) return;
+    processFunctionsRegistered = true;
+    
+    // Process lifecycle
+    bp.registerRuntimeApi("ts_process_exit", {false}, false);  // code
+    bp.registerRuntimeApi("ts_process_abort", {}, false);
+    
+    // Process info
+    bp.registerRuntimeApi("ts_process_cwd", {}, false);  // -> string
+    bp.registerRuntimeApi("ts_process_chdir", {false}, false);  // dir
+    bp.registerRuntimeApi("ts_process_get_platform", {}, false);  // -> string
+    bp.registerRuntimeApi("ts_process_uptime", {}, false);  // -> double
+    bp.registerRuntimeApi("ts_process_umask", {false}, false);  // mask -> old mask
+    
+    // Memory
+    bp.registerRuntimeApi("ts_process_memory_usage", {}, true);  // -> boxed object
+    bp.registerRuntimeApi("ts_process_available_memory", {}, false);  // -> number
+    bp.registerRuntimeApi("ts_process_constrained_memory", {}, false);
+    bp.registerRuntimeApi("ts_process_resource_usage", {}, true);  // -> boxed object
+    
+    // CPU
+    bp.registerRuntimeApi("ts_process_cpu_usage", {true}, true);  // previousValue -> boxed
+    bp.registerRuntimeApi("ts_process_hrtime", {true}, true);  // time -> boxed array
+    
+    // Handles/Requests
+    bp.registerRuntimeApi("ts_process_get_active_handles", {}, true);  // -> array
+    bp.registerRuntimeApi("ts_process_get_active_requests", {}, true);
+    bp.registerRuntimeApi("ts_process_get_active_resources_info", {}, true);
+    
+    // Event handling
+    bp.registerRuntimeApi("ts_process_on", {false, true}, true);  // event, listener
+    bp.registerRuntimeApi("ts_process_once", {false, true}, true);
+    bp.registerRuntimeApi("ts_process_remove_listener", {false, true}, true);
+    bp.registerRuntimeApi("ts_process_remove_all_listeners", {false}, true);
+    bp.registerRuntimeApi("ts_process_emit_warning", {false, false, false, false}, false);  // msg, name, code, ctor
+    
+    // Scheduling
+    bp.registerRuntimeApi("ts_process_next_tick", {true}, false);  // callback
+    bp.registerRuntimeApi("ts_process_tick_callback", {}, false);
+    bp.registerRuntimeApi("ts_process_ref", {}, false);
+    bp.registerRuntimeApi("ts_process_unref", {}, false);
+    
+    // Signals/Kill
+    bp.registerRuntimeApi("ts_process_kill", {false, false}, false);  // pid, signal
+    
+    // Exception handling
+    bp.registerRuntimeApi("ts_process_set_uncaught_exception_capture_callback", {true}, false);
+    bp.registerRuntimeApi("ts_process_has_uncaught_exception_capture_callback", {}, false);  // -> bool
+}
+
 bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureProcessFunctionsRegistered(boxingPolicy);
+    
     auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get());
     if (!obj || obj->name != "process") return false;
 

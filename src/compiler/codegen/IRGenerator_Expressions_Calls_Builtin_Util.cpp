@@ -1,9 +1,47 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 
 namespace ts {
 
+// Static helper to register Util module's runtime functions once (22 functions)
+static bool utilFunctionsRegistered = false;
+static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
+    if (utilFunctionsRegistered) return;
+    utilFunctionsRegistered = true;
+    
+    // Core util functions
+    bp.registerRuntimeApi("ts_util_format", {true}, false);  // args array -> string
+    bp.registerRuntimeApi("ts_util_inspect", {true, true}, false);  // obj, options -> string
+    bp.registerRuntimeApi("ts_util_is_deep_strict_equal", {true, true}, false);  // a, b -> bool
+    bp.registerRuntimeApi("ts_util_promisify", {true}, true);  // func -> promisified func
+    bp.registerRuntimeApi("ts_util_callbackify", {true}, true);  // func -> callbackified func
+    bp.registerRuntimeApi("ts_util_deprecate", {true, false, false}, true);  // func, msg, code
+    bp.registerRuntimeApi("ts_util_inherits", {true, true}, false);  // ctor, superCtor
+    
+    // util.types.isXxx functions (all take boxed value, return bool)
+    bp.registerRuntimeApi("ts_util_types_is_array_buffer", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_array_buffer_view", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_async_function", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_date", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_generator_function", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_generator_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_map", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_native_error", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_promise", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_reg_exp", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_set", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_typed_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_uint8_array", {true}, false);
+    
+    // Array helpers used in util
+    bp.registerRuntimeApi("ts_array_create_sized", {false}, true);
+    bp.registerRuntimeApi("ts_array_push", {true, true}, false);
+}
+
 bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureUtilFunctionsRegistered(boxingPolicy);
+    
     // Check if this is a util.xxx call
     bool isUtil = false;
     bool isUtilTypes = false;
