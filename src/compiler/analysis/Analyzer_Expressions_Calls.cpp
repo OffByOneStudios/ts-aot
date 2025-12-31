@@ -240,9 +240,23 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
              return;
         } else if (prop->name == "set") {
              lastType = std::make_shared<Type>(TypeKind::Void);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "get") {
-             lastType = std::make_shared<Type>(TypeKind::Int);
+             // Check if this is a Map.get() call
+             visit(prop->expression.get());
+             if (lastType && lastType->kind == TypeKind::Map) {
+                 auto mapType = std::dynamic_pointer_cast<MapType>(lastType);
+                 if (mapType && mapType->valueType) {
+                     lastType = mapType->valueType;
+                 } else {
+                     lastType = std::make_shared<Type>(TypeKind::Any);
+                 }
+             } else {
+                 // Default for other get calls
+                 lastType = std::make_shared<Type>(TypeKind::Int);
+             }
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
@@ -470,11 +484,21 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
     
     if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
-            lastType = std::make_shared<Type>(TypeKind::Map);
+            // Create MapType with type arguments if available
+            if (resolvedTypeArguments.size() >= 2) {
+                lastType = std::make_shared<MapType>(resolvedTypeArguments[0], resolvedTypeArguments[1]);
+            } else {
+                lastType = std::make_shared<MapType>(); // Defaults to Map<any, any>
+            }
             node->inferredType = lastType;
             return;
         } else if (id->name == "Set") {
-            lastType = std::make_shared<Type>(TypeKind::SetType);
+            // Create SetTypeStruct with type argument if available
+            if (resolvedTypeArguments.size() >= 1) {
+                lastType = std::make_shared<SetTypeStruct>(resolvedTypeArguments[0]);
+            } else {
+                lastType = std::make_shared<SetTypeStruct>(); // Defaults to Set<any>
+            }
             node->inferredType = lastType;
             return;
         } else if (id->name == "Array") {

@@ -108,6 +108,25 @@ struct ArrayType : public Type {
     std::string toString() const override { return elementType->toString() + "[]"; }
 };
 
+struct MapType : public Type {
+    std::shared_ptr<Type> keyType;
+    std::shared_ptr<Type> valueType;
+    MapType(std::shared_ptr<Type> k, std::shared_ptr<Type> v) : Type(TypeKind::Map), keyType(k), valueType(v) {}
+    MapType() : Type(TypeKind::Map), 
+        keyType(std::make_shared<Type>(TypeKind::Any)), 
+        valueType(std::make_shared<Type>(TypeKind::Any)) {}
+    std::string toString() const override { 
+        return "Map<" + keyType->toString() + ", " + valueType->toString() + ">"; 
+    }
+};
+
+struct SetTypeStruct : public Type {
+    std::shared_ptr<Type> elementType;
+    SetTypeStruct(std::shared_ptr<Type> elem) : Type(TypeKind::SetType), elementType(elem) {}
+    SetTypeStruct() : Type(TypeKind::SetType), elementType(std::make_shared<Type>(TypeKind::Any)) {}
+    std::string toString() const override { return "Set<" + elementType->toString() + ">"; }
+};
+
 struct FunctionType : public Type {
     ast::Node* node = nullptr;
     std::vector<std::shared_ptr<Type>> paramTypes;
