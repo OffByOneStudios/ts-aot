@@ -1,9 +1,33 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 
 namespace ts {
 
+// Static helper to register URL module's runtime functions once (10 functions)
+static bool urlFunctionsRegistered = false;
+static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
+    if (urlFunctionsRegistered) return;
+    urlFunctionsRegistered = true;
+    
+    // URL instance methods
+    bp.registerRuntimeApi("ts_url_to_string", {true}, false);  // url -> string
+    bp.registerRuntimeApi("ts_url_to_json", {true}, false);  // url -> string
+    
+    // URLSearchParams methods
+    bp.registerRuntimeApi("ts_url_search_params_append", {true, false, false}, false);  // params, name, value
+    bp.registerRuntimeApi("ts_url_search_params_delete", {true, false}, false);
+    bp.registerRuntimeApi("ts_url_search_params_get", {true, false}, false);  // returns string or null
+    bp.registerRuntimeApi("ts_url_search_params_get_all", {true, false}, true);  // returns array
+    bp.registerRuntimeApi("ts_url_search_params_has", {true, false}, false);  // returns bool
+    bp.registerRuntimeApi("ts_url_search_params_set", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_url_search_params_sort", {true}, false);
+    bp.registerRuntimeApi("ts_url_search_params_to_string", {true}, false);
+}
+
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureURLFunctionsRegistered(boxingPolicy);
+    
     bool isURL = false;
     bool isURLSearchParams = false;
     

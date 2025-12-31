@@ -1,10 +1,25 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
 
+// Static helper to register TextEncoding module's runtime functions once (4 functions)
+static bool textEncodingFunctionsRegistered = false;
+static void ensureTextEncodingFunctionsRegistered(BoxingPolicy& bp) {
+    if (textEncodingFunctionsRegistered) return;
+    textEncodingFunctionsRegistered = true;
+    
+    bp.registerRuntimeApi("ts_text_encoder_encode", {true, false}, true);  // encoder, string -> Uint8Array
+    bp.registerRuntimeApi("ts_text_encoder_encode_into", {true, false, true}, true);  // encoder, string, dest
+    bp.registerRuntimeApi("ts_text_decoder_decode", {true, true}, false);  // decoder, buffer -> string
+    bp.registerRuntimeApi("ts_typed_array_create_u8", {false}, true);  // length -> Uint8Array
+}
+
 bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureTextEncodingFunctionsRegistered(boxingPolicy);
+    
     // Check if this is a TextEncoder or TextDecoder method call
     if (!prop->expression->inferredType) return false;
     if (prop->expression->inferredType->kind != TypeKind::Class) return false;
