@@ -553,6 +553,30 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             return;
         }
 
+        // Handle 'any' type element assignment as map set (since {} creates a TsMap)
+        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Any) {
+            visit(elem->expression.get());
+            llvm::Value* obj = lastValue;
+            // Unbox if needed
+            if (boxedValues.count(obj)) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = module->getOrInsertFunction("ts_value_get_object", getObjFt);
+                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+            }
+            emitNullCheckForExpression(elem->expression.get(), obj);
+            visit(elem->argumentExpression.get());
+            llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+            
+            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set", setFt);
+            
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            lastValue = val;
+            return;
+        }
+
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(elem->expression->inferredType);
             if (cls->name == "Buffer") {
