@@ -106,9 +106,25 @@ void Analyzer::registerBuiltins() {
 
 namespace ts {
 
+// Static helper to register this module's runtime functions once
+static bool myModuleFunctionsRegistered = false;
+static void ensureMyModuleFunctionsRegistered(BoxingPolicy& bp) {
+    if (myModuleFunctionsRegistered) return;
+    myModuleFunctionsRegistered = true;
+    
+    // Register each runtime function with its boxing requirements:
+    // - argBoxing: which arguments need to be boxed (true = needs TsValue*)
+    // - returnsBoxed: true if function returns TsValue*, false if raw
+    bp.registerRuntimeApi("ts_my_module_do_something", {true}, false);  // 1 boxed arg, returns raw int64
+    bp.registerRuntimeApi("ts_my_module_get_info", {}, true);           // no args, returns boxed
+}
+
 bool IRGenerator::tryGenerateMyModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     auto id = std::dynamic_pointer_cast<ast::Identifier>(prop->expression);
     if (!id || id->name != "myModule") return false;
+    
+    // Register boxing info for this module's functions
+    ensureMyModuleFunctionsRegistered(boxingPolicy);
     
     const std::string& methodName = prop->name;
     
@@ -122,13 +138,19 @@ bool IRGenerator::tryGenerateMyModuleCall(ast::CallExpression* node, ast::Proper
             { builder->getPtrTy() },  // arg types (string is ptr)
             false
         );
+        // Use getRuntimeFunction for enforcement, or getOrInsertFunction if not enforcing yet
         auto fn = module->getOrInsertFunction("ts_my_module_do_something", ft);
         
-        // Create call
-        return builder->CreateCall(ft, fn.getCallee(), { arg });
+        // Create call - use boxingPolicy to determine if args need boxing
+        llvm::Value* boxedArg = boxingPolicy.needsArgBoxed("ts_my_module_do_something", 0) 
+            ? boxValue(arg, node->arguments[0]->inferredType)
+            : arg;
+        
+        lastValue = builder->CreateCall(ft, fn.getCallee(), { boxedArg });
+        return true;
     }
     
-    return nullptr;  // Not handled
+    return false;  // Not handled
 }
 
 } // namespace ts
@@ -145,6 +167,11 @@ bool IRGenerator::tryGenerateBuiltinCall(...) {
     if (auto result = tryGenerateMyModuleCall(node, prop)) return result;
 }
 ```
+
+3. **Register boxing info:** Each runtime function MUST be registered with `BoxingPolicy::registerRuntimeApi()`:
+   - First arg: function name (e.g., `"ts_my_module_do_something"`)
+   - Second arg: vector of bools for which args need boxing (e.g., `{true, false}`)
+   - Third arg: whether the return value is boxed (true = TsValue*, false = raw)
 
 ---
 
@@ -214,6 +241,7 @@ add_library(tsruntime STATIC
 - [ ] Codegen: Handler in `IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
 - [ ] Codegen: Handler declared in `IRGenerator.h`
 - [ ] Codegen: Handler called from `tryGenerateBuiltinCall()`
+- [ ] **Codegen: Boxing info registered via `boxingPolicy.registerRuntimeApi()`**
 - [ ] Runtime: `extern "C"` functions implemented
 - [ ] Runtime: Source file added to `CMakeLists.txt`
 - [ ] Build: `cmake --build build --target ts-aot --config Release` succeeds

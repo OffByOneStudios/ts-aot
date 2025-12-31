@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include <spdlog/spdlog.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -6,7 +7,59 @@
 namespace ts {
 using namespace ast;
 
+// Static helper to register path module's runtime functions once
+static bool pathFunctionsRegistered = false;
+static void ensurePathFunctionsRegistered(BoxingPolicy& bp) {
+    if (pathFunctionsRegistered) return;
+    pathFunctionsRegistered = true;
+    
+    // Path property getters (no args, return string)
+    bp.registerRuntimeApi("ts_path_get_sep", {}, false);
+    bp.registerRuntimeApi("ts_path_get_sep_win32", {}, false);
+    bp.registerRuntimeApi("ts_path_get_sep_posix", {}, false);
+    bp.registerRuntimeApi("ts_path_get_delimiter", {}, false);
+    bp.registerRuntimeApi("ts_path_get_delimiter_win32", {}, false);
+    bp.registerRuntimeApi("ts_path_get_delimiter_posix", {}, false);
+    
+    // Path functions - single string arg, return string (not boxed)
+    bp.registerRuntimeApi("ts_path_basename", {false}, false);
+    bp.registerRuntimeApi("ts_path_basename_ex", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_dirname", {false}, false);
+    bp.registerRuntimeApi("ts_path_dirname_ex", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_extname", {false}, false);
+    bp.registerRuntimeApi("ts_path_extname_ex", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_normalize", {false}, false);
+    bp.registerRuntimeApi("ts_path_normalize_ex", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_is_absolute", {false}, false);
+    bp.registerRuntimeApi("ts_path_is_absolute_ex", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_to_namespaced_path", {false}, false);
+    bp.registerRuntimeApi("ts_path_to_namespaced_path_ex", {false, false}, false);
+    
+    // Path functions - two string args
+    bp.registerRuntimeApi("ts_path_relative", {false, false}, false);
+    bp.registerRuntimeApi("ts_path_relative_ex", {false, false, false}, false);
+    
+    // Variadic path functions (take boxed array)
+    bp.registerRuntimeApi("ts_path_join_variadic", {true}, false);
+    bp.registerRuntimeApi("ts_path_join_variadic_ex", {true, false}, false);
+    bp.registerRuntimeApi("ts_path_resolve", {true}, false);
+    bp.registerRuntimeApi("ts_path_resolve_ex", {true, false}, false);
+    
+    // Parse/format (work with objects)
+    bp.registerRuntimeApi("ts_path_parse", {false}, true);   // returns boxed object
+    bp.registerRuntimeApi("ts_path_parse_ex", {false, false}, true);
+    bp.registerRuntimeApi("ts_path_format", {true}, false);  // takes boxed object
+    bp.registerRuntimeApi("ts_path_format_ex", {true, false}, false);
+    
+    // Array helpers used by path.join
+    bp.registerRuntimeApi("ts_array_create_sized", {false}, true);  // size arg (raw int), returns boxed
+    bp.registerRuntimeApi("ts_array_set", {true, false, true}, false);  // array (boxed), index (raw), value (boxed)
+}
+
 bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    // Register boxing info for path functions on first call
+    ensurePathFunctionsRegistered(boxingPolicy);
+    
     bool isPath = false;
     int platform = 0; // 0: default, 1: win32, 2: posix
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
