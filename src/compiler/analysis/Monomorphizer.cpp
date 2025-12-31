@@ -215,7 +215,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 spec.argTypes = call.argTypes;
                 spec.typeArguments = call.typeArguments;
                 spec.node = funcNode;
-                SPDLOG_INFO("Monomorphizer created spec for {} with node {}", name, fmt::ptr(funcNode));
                 
                 // Infer return type - this might record NEW usages in analyzer.functionUsages
                 spec.returnType = analyzer.analyzeFunctionBody(funcNode, call.argTypes, call.typeArguments);

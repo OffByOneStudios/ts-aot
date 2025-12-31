@@ -342,11 +342,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     if (calleeType->kind == TypeKind::Function) {
         auto func = std::static_pointer_cast<FunctionType>(calleeType);
         
-        printf("DEBUG: Checking typeParams for %s, resolvedTypeArguments.size=%zu, func->typeParameters.size=%zu\n", 
-               node->callee ? "func" : "?", resolvedTypeArguments.size(), func->typeParameters.size());
-        
         if (resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
-            printf("DEBUG: Calling inferTypeArguments with %zu params and %zu args\n", func->paramTypes.size(), argTypes.size());
             resolvedTypeArguments = inferTypeArguments(func->typeParameters, func->paramTypes, argTypes);
             // Update node with inferred type arguments so IRGenerator can use them
             node->resolvedTypeArguments = resolvedTypeArguments;
@@ -375,6 +371,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments});
             }
         }
+        node->inferredType = lastType;  // CRITICAL: Set inferredType for function variable calls
         return;
     }
 
@@ -411,6 +408,12 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     }
 
     if (!calleeName.empty()) {
+        std::string argTypesStr;
+        for (const auto& t : argTypes) {
+            if (!argTypesStr.empty()) argTypesStr += ", ";
+            argTypesStr += t->toString();
+        }
+        SPDLOG_INFO("Recording function usage for {}: argTypes=[{}]", calleeName, argTypesStr);
         functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments});
     }
     

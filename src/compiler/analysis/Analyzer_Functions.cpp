@@ -342,6 +342,10 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             declareBindingPattern(param->name.get(), restType);
             break; // Rest parameter must be last
         } else if (i < argTypes.size()) {
+            SPDLOG_INFO("analyzeFunctionBody: defining param {} with type {}", 
+                dynamic_cast<ast::Identifier*>(param->name.get()) ? 
+                    dynamic_cast<ast::Identifier*>(param->name.get())->name : "?",
+                argTypes[i]->toString());
             declareBindingPattern(param->name.get(), argTypes[i]);
         } else {
             // Handle default parameters or optional parameters
