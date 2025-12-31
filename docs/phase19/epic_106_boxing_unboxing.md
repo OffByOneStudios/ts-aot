@@ -132,51 +132,302 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 
 ## Implementation Plan
 
-### Milestone 106.1: Document Current State
+### Milestone 106.1: BoxingPolicy Class Implementation
 
-- [ ] **Task 106.1.1:** Audit all `ts_*` C functions and document expected types
-- [ ] **Task 106.1.2:** Create `docs/runtime/boxing_contract.md` with full API reference
-- [ ] **Task 106.1.3:** Add comments to runtime headers marking boxed vs raw params
-- [ ] **Task 106.1.4:** Document `boxedValues` and `boxedVariables` set semantics
+- [x] **Task 106.1.1:** Create `BoxingPolicy.h` with `BoxingContext` enum and `Decision` struct ✅
+- [x] **Task 106.1.2:** Implement runtime API registry (`runtimeExpectsBoxed`) ✅
+- [x] **Task 106.1.3:** Implement `prepareForContext()` core logic ✅
+- [ ] **Task 106.1.4:** Implement `isAlreadyBoxed()` tracking
+- [ ] **Task 106.1.5:** Add BoxingPolicy to IRGenerator as member
+- [x] **Task 106.1.6:** Add to CMakeLists.txt ✅
 
-### Milestone 106.2: Unit Test Infrastructure
+### Milestone 106.2: Unit Tests for BoxingPolicy
 
-- [ ] **Task 106.2.1:** Create `tests/codegen/` directory for IR generation tests
-- [ ] **Task 106.2.2:** Implement test harness that compiles TS snippets and checks IR
-- [ ] **Task 106.2.3:** Add boxing contract test cases:
-  - [ ] Map.set with primitive key → key is boxed
-  - [ ] Map.get result → result is unboxed to expected type
-  - [ ] Array.push on int[] → value is raw
-  - [ ] Array.push on any[] → value is boxed
-  - [ ] Callback passed to user function → function is boxed
-  - [ ] Closure captures function → no double-boxing
-  - [ ] ts_call_1 argument → boxed
-  - [ ] Direct typed function call → raw parameters
-- [ ] **Task 106.2.4:** Add runtime unit tests for boxing helpers:
-  - [ ] `ts_value_make_int` / `ts_value_get_int` round-trip
-  - [ ] `ts_value_make_double` / `ts_value_get_double` round-trip
-  - [ ] `ts_value_make_string` / `ts_value_get_string` round-trip
-  - [ ] `ts_value_make_object` / `ts_value_get_object` round-trip
-  - [ ] `ts_value_make_function` / extraction in ts_call_N
+- [x] **Task 106.2.1:** Create `tests/unit/BoxingPolicyTests.cpp` ✅
+- [x] **Task 106.2.2:** Test runtime API expectations (ts_map_set, ts_call_1, etc.) ✅
+- [x] **Task 106.2.3:** Test user function arg decisions (typed vs any vs callback) ✅
+- [x] **Task 106.2.4:** Test array store decisions (specialized vs generic) ✅
+- [x] **Task 106.2.5:** Test closure capture decisions (already boxed vs not) ✅
+- [x] **Task 106.2.6:** Test unboxing decisions (RuntimeApiReturn context) ✅
 
-### Milestone 106.3: Codegen Refactoring
+### Milestone 106.3: Integrate BoxingPolicy into Codegen
 
-- [ ] **Task 106.3.1:** Create `BoxingHelper` class to centralize boxing decisions
-- [ ] **Task 106.3.2:** Replace ad-hoc boxing code with `BoxingHelper` calls
-- [ ] **Task 106.3.3:** Add assertions in debug builds for boxing invariants
-- [ ] **Task 106.3.4:** Rename `boxedValues` → `valuesKnownToBeBoxed` for clarity
-- [ ] **Task 106.3.5:** Add `isBoxed(llvm::Value*)` method that's authoritative
+- [ ] **Task 106.3.1:** Refactor `IRGenerator_Expressions_Calls.cpp` to use BoxingPolicy
+- [ ] **Task 106.3.2:** Refactor `IRGenerator_Expressions_Calls_Builtin.cpp` (Map/Set ops)
+- [ ] **Task 106.3.3:** Refactor `IRGenerator_Functions.cpp` (closure capture)
+- [ ] **Task 106.3.4:** Refactor `IRGenerator_Core.cpp` (boxValue/unboxValue)
+- [ ] **Task 106.3.5:** Remove ad-hoc `boxedValues` tracking, use BoxingPolicy
 
 ### Milestone 106.4: Integration Tests
 
-- [ ] **Task 106.4.1:** Create `examples/boxing_tests/` with targeted test cases
-- [ ] **Task 106.4.2:** Test: Map<number, number> operations
-- [ ] **Task 106.4.3:** Test: Map<string, Array<number>> operations
-- [ ] **Task 106.4.4:** Test: Higher-order functions with callbacks (map, filter, reduce)
-- [ ] **Task 106.4.5:** Test: Closures capturing primitives
-- [ ] **Task 106.4.6:** Test: Closures capturing functions
-- [ ] **Task 106.4.7:** Test: Nested closures
-- [ ] **Task 106.4.8:** Test: Generic functions with type inference
+- [ ] **Task 106.4.1:** Verify all existing examples still work
+- [ ] **Task 106.4.2:** Verify groupBy_test.ts passes
+- [ ] **Task 106.4.3:** Verify sortBy_test.ts passes
+- [ ] **Task 106.4.4:** Verify map_set_test.ts passes
+- [ ] **Task 106.4.5:** Add new edge case tests
+
+---
+
+## BoxingPolicy Design
+
+### Core Architecture
+
+```cpp
+// src/compiler/codegen/BoxingPolicy.h
+
+enum class BoxingContext {
+    // Where is this value being used?
+    RuntimeApiArg,       // Passing to ts_* C function
+    RuntimeApiReturn,    // Receiving from ts_* C function
+    UserFunctionArg,     // Passing to user-defined function
+    UserFunctionReturn,  // Returning from user-defined function
+    ArrayStore,          // Storing into array
+    ArrayLoad,           // Loading from array
+    MapKey,              // Key for Map operation
+    MapValue,            // Value for Map operation
+    ClosureCapture,      // Capturing into closure environment
+    ClosureExtract,      // Extracting from closure environment
+};
+
+class BoxingPolicy {
+public:
+    struct Decision {
+        bool needsBoxing;
+        bool needsUnboxing;
+        std::string boxingFunction;    // e.g., "ts_value_make_int"
+        std::string unboxingFunction;  // e.g., "ts_value_get_int"
+    };
+    
+    // THE SINGLE SOURCE OF TRUTH
+    Decision decide(
+        Type* valueType,
+        BoxingContext context,
+        const std::string& runtimeFunc = "",  // For RuntimeApiArg
+        int argIndex = -1,                     // For RuntimeApiArg
+        Type* targetType = nullptr,            // For UserFunctionArg
+        bool isAlreadyBoxed = false            // Current boxing state
+    );
+    
+    // Query methods
+    bool runtimeExpectsBoxed(const std::string& funcName, int argIndex);
+    bool runtimeReturnsBoxed(const std::string& funcName);
+    
+    // Boxing function selection based on type
+    static std::string getBoxingFunction(Type* type);
+    static std::string getUnboxingFunction(Type* type);
+};
+```
+
+### Runtime API Registry
+
+```cpp
+// EXPLICIT REGISTRY - no guessing
+static const std::unordered_map<std::string, std::vector<bool>> RUNTIME_ARG_BOXING = {
+    // Function name -> [arg0 expects boxed?, arg1 expects boxed?, ...]
+    
+    // Map operations - keys and values are ALWAYS boxed
+    {"ts_map_set",     {false, true, true}},   // (map, key, value)
+    {"ts_map_get",     {false, true}},          // (map, key)
+    {"ts_map_has",     {false, true}},          // (map, key)
+    {"ts_map_delete",  {false, true}},          // (map, key)
+    
+    // Set operations - values are ALWAYS boxed
+    {"ts_set_add",     {false, true}},          // (set, value)
+    {"ts_set_has",     {false, true}},          // (set, value)
+    {"ts_set_delete",  {false, true}},          // (set, value)
+    
+    // Dynamic function calls - ALL args boxed
+    {"ts_call_0",      {true}},                 // (func)
+    {"ts_call_1",      {true, true}},           // (func, arg0)
+    {"ts_call_2",      {true, true, true}},     // (func, arg0, arg1)
+    {"ts_call_3",      {true, true, true, true}},
+    
+    // Array operations - RAW values for specialized arrays
+    {"ts_array_push",           {false, false}}, // (arr, value) - raw
+    {"ts_array_create_specialized", {false, false, false}}, // all raw
+    
+    // Console - optimized paths use raw
+    {"ts_console_log_int",    {false}},
+    {"ts_console_log_double", {false}},
+    {"ts_console_log",        {false}},  // TsString* is raw pointer
+    
+    // Value boxing functions - these CREATE boxed values
+    {"ts_value_make_int",     {false}},  // raw int -> boxed
+    {"ts_value_make_double",  {false}},  // raw double -> boxed
+    {"ts_value_make_bool",    {false}},  // raw bool -> boxed
+    {"ts_value_make_string",  {false}},  // raw TsString* -> boxed
+    {"ts_value_make_object",  {false}},  // raw pointer -> boxed
+    {"ts_value_make_function",{false, false}}, // raw fn ptr, raw closure
+    
+    // Value unboxing functions - these CONSUME boxed values
+    {"ts_value_get_int",      {true}},   // boxed -> raw int
+    {"ts_value_get_double",   {true}},   // boxed -> raw double
+    {"ts_value_get_bool",     {true}},   // boxed -> raw bool
+    {"ts_value_get_string",   {true}},   // boxed -> raw TsString*
+    {"ts_value_get_object",   {true}},   // boxed -> raw pointer
+};
+
+static const std::unordered_set<std::string> RUNTIME_RETURNS_BOXED = {
+    "ts_map_get",
+    "ts_value_make_int",
+    "ts_value_make_double",
+    "ts_value_make_bool",
+    "ts_value_make_string",
+    "ts_value_make_object",
+    "ts_value_make_function",
+    "ts_value_make_undefined",
+    "ts_call_0", "ts_call_1", "ts_call_2", "ts_call_3",
+};
+```
+
+### Decision Logic
+
+```cpp
+Decision BoxingPolicy::decide(
+    Type* valueType,
+    BoxingContext context,
+    const std::string& runtimeFunc,
+    int argIndex,
+    Type* targetType,
+    bool isAlreadyBoxed
+) {
+    Decision d = {false, false, "", ""};
+    
+    switch (context) {
+        case BoxingContext::RuntimeApiArg: {
+            bool expectsBoxed = runtimeExpectsBoxed(runtimeFunc, argIndex);
+            if (expectsBoxed && !isAlreadyBoxed) {
+                d.needsBoxing = true;
+                d.boxingFunction = getBoxingFunction(valueType);
+            }
+            break;
+        }
+        
+        case BoxingContext::RuntimeApiReturn: {
+            bool returnsBoxed = runtimeReturnsBoxed(runtimeFunc);
+            if (returnsBoxed && targetType && targetType->kind != TypeKind::Any) {
+                d.needsUnboxing = true;
+                d.unboxingFunction = getUnboxingFunction(targetType);
+            }
+            break;
+        }
+        
+        case BoxingContext::UserFunctionArg: {
+            // Typed parameters = raw (optimization)
+            // Any parameters = boxed (needs runtime type info)
+            // Function callbacks = boxed (for ts_call_N invocation)
+            if (!targetType || targetType->kind == TypeKind::Any) {
+                if (!isAlreadyBoxed) {
+                    d.needsBoxing = true;
+                    d.boxingFunction = getBoxingFunction(valueType);
+                }
+            } else if (valueType->kind == TypeKind::Function) {
+                // Callbacks MUST be boxed so callee can use ts_call_N
+                if (!isAlreadyBoxed) {
+                    d.needsBoxing = true;
+                    d.boxingFunction = "ts_value_make_function";
+                }
+            }
+            // else: typed param, pass raw
+            break;
+        }
+        
+        case BoxingContext::MapKey:
+        case BoxingContext::MapValue: {
+            // Map always stores boxed values
+            if (!isAlreadyBoxed) {
+                d.needsBoxing = true;
+                d.boxingFunction = getBoxingFunction(valueType);
+            }
+            break;
+        }
+        
+        case BoxingContext::ArrayStore: {
+            // Check if array is specialized (int[], double[], string[])
+            // Specialized = raw, Generic (any[]) = boxed
+            // This requires knowing the array's element type
+            // For now, caller must check and use appropriate context
+            break;
+        }
+        
+        case BoxingContext::ClosureCapture: {
+            // Functions that are already boxed: don't double-box
+            if (valueType->kind == TypeKind::Function && isAlreadyBoxed) {
+                // Already boxed - store directly
+                break;
+            }
+            // Everything else: box for uniform storage
+            if (!isAlreadyBoxed) {
+                d.needsBoxing = true;
+                d.boxingFunction = getBoxingFunction(valueType);
+            }
+            break;
+        }
+        
+        case BoxingContext::ClosureExtract: {
+            // Extract and unbox based on expected type
+            if (targetType && targetType->kind != TypeKind::Function) {
+                d.needsUnboxing = true;
+                d.unboxingFunction = getUnboxingFunction(targetType);
+            }
+            break;
+        }
+    }
+    
+    return d;
+}
+
+std::string BoxingPolicy::getBoxingFunction(Type* type) {
+    switch (type->kind) {
+        case TypeKind::Int:     return "ts_value_make_int";
+        case TypeKind::Double:  return "ts_value_make_double";
+        case TypeKind::Boolean: return "ts_value_make_bool";
+        case TypeKind::String:  return "ts_value_make_string";
+        case TypeKind::Function: return "ts_value_make_function";
+        default:                return "ts_value_make_object";
+    }
+}
+
+std::string BoxingPolicy::getUnboxingFunction(Type* type) {
+    switch (type->kind) {
+        case TypeKind::Int:     return "ts_value_get_int";
+        case TypeKind::Double:  return "ts_value_get_double";
+        case TypeKind::Boolean: return "ts_value_get_bool";
+        case TypeKind::String:  return "ts_value_get_string";
+        default:                return "ts_value_get_object";
+    }
+}
+```
+
+### Usage in Codegen
+
+```cpp
+// BEFORE (scattered, error-prone):
+if (argType->kind == TypeKind::Function) {
+    llvm::Value* boxedFn = boxValue(argValue, argType);
+    boxedValues.insert(boxedFn);
+    args.push_back(boxedFn);
+} else if (isAnyType(paramType)) {
+    // ... more ad-hoc logic
+}
+
+// AFTER (centralized, deterministic):
+auto decision = boxingPolicy.decide(
+    argType,
+    BoxingContext::UserFunctionArg,
+    "",           // not a runtime func
+    -1,           // no arg index
+    paramType,    // declared parameter type
+    boxedValues.count(argValue) > 0  // is already boxed?
+);
+
+llvm::Value* finalArg = argValue;
+if (decision.needsBoxing) {
+    finalArg = createCall(decision.boxingFunction, {argValue});
+    boxedValues.insert(finalArg);
+}
+args.push_back(finalArg);
+```
 
 ---
 
