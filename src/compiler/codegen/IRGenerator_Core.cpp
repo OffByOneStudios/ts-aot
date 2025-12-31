@@ -531,6 +531,42 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
 
         if (isGlobal) return;
 
+        // Check if this variable needs a cell (captured and potentially mutated)
+        if (cellVariables.count(id->name)) {
+            // Box the value first
+            llvm::Value* boxedVal = boxValue(value, type);
+            
+            if (!namedValues.count(id->name)) {
+                // First time: create cell and store pointer in alloca
+                llvm::FunctionType* cellCreateFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellCreateFn = module->getOrInsertFunction("ts_cell_create", cellCreateFt);
+                llvm::Value* cell = createCall(cellCreateFt, cellCreateFn.getCallee(), { boxedVal });
+                
+                llvm::AllocaInst* cellAlloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name + "_cell", builder->getPtrTy());
+                builder->CreateStore(cell, cellAlloca);
+                namedValues[id->name] = cellAlloca;
+                cellPointers[id->name] = cell;  // Track the cell itself
+                SPDLOG_INFO("Created cell for captured variable: {}", id->name);
+            } else {
+                // Subsequent assignment: update cell value via ts_cell_set
+                llvm::Value* cellAlloca = namedValues[id->name];
+                llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+                
+                llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellSetFn = module->getOrInsertFunction("ts_cell_set", cellSetFt);
+                createCall(cellSetFt, cellSetFn.getCallee(), { cell, boxedVal });
+            }
+            
+            // Store the TS type for this variable
+            if (type) {
+                variableTypes[id->name] = type;
+            }
+            
+            // Cell variables are always boxed
+            boxedVariables.insert(id->name);
+            return;
+        }
+
         llvm::Type* varType = value->getType();
         if (forcedVariableTypes.count(id->name)) {
             varType = forcedVariableTypes[id->name];
@@ -1306,6 +1342,229 @@ void IRGenerator::collectFreeVariables(ast::Node* node,
             }
             captured.push_back(cv);
         }
+    }
+}
+
+// Helper visitor to collect all variables captured by inner arrow functions
+// Uses a recursive AST walk to find arrow functions, then uses FreeVariableCollector
+// to determine which outer variables they capture
+class CapturedNameCollector : public ast::Visitor {
+    std::set<std::string> outerScope;  // Variables defined in outer function
+public:
+    std::set<std::string> capturedNames;  // Variables from outer scope used in inner closures
+    
+    CapturedNameCollector(const std::set<std::string>& outer) : outerScope(outer) {}
+    
+    void visitArrowFunction(ast::ArrowFunction* node) override {
+        // This is an inner closure - collect its free variables
+        std::set<std::string> arrowScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                arrowScope.insert(id->name);
+            }
+        }
+        
+        // Use FreeVariableCollector to find what the closure references
+        FreeVariableCollector fvc(arrowScope);
+        if (node->body) {
+            node->body->accept(&fvc);
+        }
+        
+        // Any reference to a variable in outerScope is a captured variable
+        for (const auto& name : fvc.referencedNames) {
+            if (outerScope.count(name)) {
+                capturedNames.insert(name);
+            }
+        }
+        
+        // Also recurse into nested closures (they might capture outer vars too)
+        CapturedNameCollector nestedCollector(outerScope);
+        if (node->body) {
+            node->body->accept(&nestedCollector);
+        }
+        for (const auto& name : nestedCollector.capturedNames) {
+            capturedNames.insert(name);
+        }
+    }
+    
+    void visitFunctionExpression(ast::FunctionExpression* node) override {
+        // Similar to arrow function
+        std::set<std::string> funcScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                funcScope.insert(id->name);
+            }
+        }
+        
+        FreeVariableCollector fvc(funcScope);
+        for (auto& stmt : node->body) {
+            stmt->accept(&fvc);
+        }
+        
+        for (const auto& name : fvc.referencedNames) {
+            if (outerScope.count(name)) {
+                capturedNames.insert(name);
+            }
+        }
+    }
+    
+    // --- Standard traversal: just recurse to find inner arrow functions ---
+    void visitVariableDeclaration(ast::VariableDeclaration* node) override {
+        if (node->initializer) node->initializer->accept(this);
+    }
+    void visitBlockStatement(ast::BlockStatement* node) override {
+        for (auto& stmt : node->statements) stmt->accept(this);
+    }
+    void visitIfStatement(ast::IfStatement* node) override {
+        node->condition->accept(this);
+        node->thenStatement->accept(this);
+        if (node->elseStatement) node->elseStatement->accept(this);
+    }
+    void visitWhileStatement(ast::WhileStatement* node) override {
+        node->condition->accept(this);
+        node->body->accept(this);
+    }
+    void visitForStatement(ast::ForStatement* node) override {
+        if (node->initializer) node->initializer->accept(this);
+        if (node->condition) node->condition->accept(this);
+        if (node->incrementor) node->incrementor->accept(this);
+        node->body->accept(this);
+    }
+    void visitForOfStatement(ast::ForOfStatement* node) override {
+        node->expression->accept(this);
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    void visitForInStatement(ast::ForInStatement* node) override {
+        node->expression->accept(this);
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    void visitReturnStatement(ast::ReturnStatement* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    void visitExpressionStatement(ast::ExpressionStatement* node) override {
+        node->expression->accept(this);
+    }
+    void visitCallExpression(ast::CallExpression* node) override {
+        node->callee->accept(this);
+        for (auto& arg : node->arguments) arg->accept(this);
+    }
+    void visitBinaryExpression(ast::BinaryExpression* node) override {
+        node->left->accept(this);
+        node->right->accept(this);
+    }
+    void visitAssignmentExpression(ast::AssignmentExpression* node) override {
+        node->left->accept(this);
+        node->right->accept(this);
+    }
+    void visitConditionalExpression(ast::ConditionalExpression* node) override {
+        node->condition->accept(this);
+        node->whenTrue->accept(this);
+        node->whenFalse->accept(this);
+    }
+    void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) override {
+        for (auto& elem : node->elements) if (elem) elem->accept(this);
+    }
+    void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) override {
+        for (auto& prop : node->properties) prop->accept(this);
+    }
+    void visitPropertyAssignment(ast::PropertyAssignment* node) override {
+        node->initializer->accept(this);
+    }
+    void visitPropertyAccessExpression(ast::PropertyAccessExpression* node) override {
+        node->expression->accept(this);
+    }
+    void visitElementAccessExpression(ast::ElementAccessExpression* node) override {
+        node->expression->accept(this);
+        node->argumentExpression->accept(this);
+    }
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override {
+        node->operand->accept(this);
+    }
+    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override {
+        node->operand->accept(this);
+    }
+    void visitNewExpression(ast::NewExpression* node) override {
+        node->expression->accept(this);
+        for (auto& arg : node->arguments) arg->accept(this);
+    }
+    void visitAwaitExpression(ast::AwaitExpression* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    void visitYieldExpression(ast::YieldExpression* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    void visitTemplateExpression(ast::TemplateExpression* node) override {
+        for (auto& span : node->spans) span.expression->accept(this);
+    }
+    void visitSpreadElement(ast::SpreadElement* node) override {
+        node->expression->accept(this);
+    }
+    void visitTryStatement(ast::TryStatement* node) override {
+        for (auto& stmt : node->tryBlock) stmt->accept(this);
+        if (node->catchClause) {
+            for (auto& stmt : node->catchClause->block) stmt->accept(this);
+        }
+        for (auto& stmt : node->finallyBlock) stmt->accept(this);
+    }
+    void visitThrowStatement(ast::ThrowStatement* node) override {
+        node->expression->accept(this);
+    }
+    void visitSwitchStatement(ast::SwitchStatement* node) override {
+        node->expression->accept(this);
+        for (auto& clause : node->clauses) {
+            if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                if (cc->expression) cc->expression->accept(this);
+                for (auto& stmt : cc->statements) stmt->accept(this);
+            } else if (auto dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                for (auto& stmt : dc->statements) stmt->accept(this);
+            }
+        }
+    }
+    void visitAsExpression(ast::AsExpression* node) override {
+        node->expression->accept(this);
+    }
+    
+    // --- Leaf nodes / no-ops: don't need recursion ---
+    void visitIdentifier(ast::Identifier*) override {}
+    void visitNumericLiteral(ast::NumericLiteral*) override {}
+    void visitStringLiteral(ast::StringLiteral*) override {}
+    void visitBooleanLiteral(ast::BooleanLiteral*) override {}
+    void visitNullLiteral(ast::NullLiteral*) override {}
+    void visitUndefinedLiteral(ast::UndefinedLiteral*) override {}
+    void visitBigIntLiteral(ast::BigIntLiteral*) override {}
+    void visitRegularExpressionLiteral(ast::RegularExpressionLiteral*) override {}
+    void visitBreakStatement(ast::BreakStatement*) override {}
+    void visitContinueStatement(ast::ContinueStatement*) override {}
+    void visitProgram(ast::Program*) override {}
+    void visitFunctionDeclaration(ast::FunctionDeclaration*) override {}
+    void visitClassDeclaration(ast::ClassDeclaration*) override {}
+    void visitInterfaceDeclaration(ast::InterfaceDeclaration*) override {}
+    void visitTypeAliasDeclaration(ast::TypeAliasDeclaration*) override {}
+    void visitEnumDeclaration(ast::EnumDeclaration*) override {}
+    void visitImportDeclaration(ast::ImportDeclaration*) override {}
+    void visitExportDeclaration(ast::ExportDeclaration*) override {}
+    void visitExportAssignment(ast::ExportAssignment*) override {}
+    void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment*) override {}
+    void visitComputedPropertyName(ast::ComputedPropertyName*) override {}
+    void visitMethodDefinition(ast::MethodDefinition*) override {}
+    void visitStaticBlock(ast::StaticBlock*) override {}
+    void visitSuperExpression(ast::SuperExpression*) override {}
+    void visitObjectBindingPattern(ast::ObjectBindingPattern*) override {}
+    void visitArrayBindingPattern(ast::ArrayBindingPattern*) override {}
+    void visitBindingElement(ast::BindingElement*) override {}
+    void visitOmittedExpression(ast::OmittedExpression*) override {}
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression*) override {}
+};
+
+void IRGenerator::collectCapturedVariableNames(ast::Node* node, 
+                                               const std::set<std::string>& outerScope,
+                                               std::set<std::string>& capturedNames) {
+    CapturedNameCollector collector(outerScope);
+    node->accept(&collector);
+    for (const auto& name : collector.capturedNames) {
+        capturedNames.insert(name);
     }
 }
 

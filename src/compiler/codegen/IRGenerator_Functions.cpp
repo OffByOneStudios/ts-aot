@@ -282,6 +282,42 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 }
             }
 
+            // Pre-scan: find all variables that will be captured by inner closures
+            // These variables need to use cells for proper mutable capture semantics
+            cellVariables.clear();
+            cellPointers.clear();
+            {
+                // Collect all variable names that will be defined in this function
+                std::set<std::string> localVarNames;
+                for (auto& param : funcNode->parameters) {
+                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                        localVarNames.insert(id->name);
+                    }
+                }
+                // Also need to scan body for let/const/var declarations
+                for (auto& stmt : funcNode->body) {
+                    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        // VariableDeclaration has a 'name' field, not 'declarations'
+                        if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                            localVarNames.insert(id->name);
+                        }
+                    }
+                }
+                
+                // Now scan for captured variables
+                for (auto& stmt : funcNode->body) {
+                    collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
+                }
+                
+                if (!cellVariables.empty()) {
+                    SPDLOG_INFO("Function {} has {} captured variables that will use cells", 
+                               spec.specializedName, cellVariables.size());
+                    for (const auto& name : cellVariables) {
+                        SPDLOG_INFO("  - {}", name);
+                    }
+                }
+            }
+
             for (auto& stmt : funcNode->body) {
                 visit(stmt.get());
             }
@@ -462,7 +498,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     if (!capturedVars.empty()) {
         std::vector<llvm::Type*> contextFields;
         for (size_t i = 0; i < capturedVars.size(); ++i) {
-            contextFields.push_back(builder->getPtrTy()); // All captured values are boxed (TsValue*)
+            contextFields.push_back(builder->getPtrTy()); // All captured values are pointers (cells or boxed values)
             capturedVarIndices[capturedVars[i].name] = static_cast<int>(i);
         }
         closureContextType = llvm::StructType::create(*context, name + "_closure");
@@ -477,6 +513,15 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         // Store captured values into the context struct
         for (size_t i = 0; i < capturedVars.size(); ++i) {
             llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, closureContext, static_cast<unsigned>(i));
+            
+            // Check if this is a cell variable
+            if (cellVariables.count(capturedVars[i].name)) {
+                // For cell variables, just copy the cell pointer
+                llvm::Value* cellPtr = builder->CreateLoad(builder->getPtrTy(), capturedVars[i].value);
+                builder->CreateStore(cellPtr, fieldPtr);
+                SPDLOG_INFO("  Captured cell variable {} at index {}", capturedVars[i].name, i);
+                continue;
+            }
             
             // Determine the type to load from the outer scope's alloca
             llvm::Type* loadType = builder->getPtrTy(); // default
@@ -555,11 +600,18 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
             builder->CreateStore(capturedValue, alloca);
             // Add to namedValues so the body can use it
             namedValues[cv.name] = alloca;
-            // Mark as boxed since we stored boxed values
-            boxedValues.insert(capturedValue);
-            boxedVariables.insert(cv.name);
             
-            SPDLOG_INFO("  Extracted captured var {} at index {}", cv.name, i);
+            // Check if this was a cell variable in the outer scope
+            if (cellVariables.count(cv.name)) {
+                // The captured value is a cell pointer - keep it as a cell variable
+                // No need to mark as boxed since access goes through ts_cell_get
+                SPDLOG_INFO("  Extracted cell variable {} at index {}", cv.name, i);
+            } else {
+                // Regular captured value - mark as boxed
+                boxedValues.insert(capturedValue);
+                boxedVariables.insert(cv.name);
+                SPDLOG_INFO("  Extracted captured var {} at index {}", cv.name, i);
+            }
         }
     }
 

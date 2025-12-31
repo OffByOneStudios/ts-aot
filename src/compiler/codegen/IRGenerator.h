@@ -56,6 +56,8 @@ private:
     std::map<llvm::Value*, ClassType*> concreteTypes;
     std::set<llvm::Value*> boxedValues;
     std::set<std::string> boxedVariables;
+    std::set<std::string> cellVariables;  // Variables that need cells (captured and mutable)
+    std::map<std::string, llvm::Value*> cellPointers;  // Maps var name -> cell pointer
     std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName
     std::string lastLengthArray;
     
@@ -196,6 +198,11 @@ private:
     void collectFreeVariables(ast::Node* node, 
                               const std::set<std::string>& localScope,
                               std::vector<CapturedVariable>& captured);
+    
+    // Pre-scan a function body to find all variables that will be captured by inner closures
+    void collectCapturedVariableNames(ast::Node* node, 
+                                      const std::set<std::string>& outerScope,
+                                      std::set<std::string>& capturedNames);
 
     std::map<std::string, llvm::Value*> namedValues;
     std::map<std::string, llvm::Type*> forcedVariableTypes;

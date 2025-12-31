@@ -105,4 +105,16 @@ extern "C" {
     double ts_value_get_double(TsValue* val);
     bool ts_value_get_bool(TsValue* val);
     void* ts_value_get_string(TsValue* val);
+    
+    // Object static methods
+    void* ts_object_keys(void* obj);
+    void* ts_object_values(void* obj);
+    void* ts_object_entries(void* obj);
+    void* ts_object_assign(void* target, void* source);
+    bool ts_object_has_own(void* obj, void* prop);
+    void* ts_object_freeze(void* obj);
+    void* ts_object_seal(void* obj);
+    bool ts_object_is_frozen(void* obj);
+    bool ts_object_is_sealed(void* obj);
+    void* ts_object_from_entries(void* entries);
 }

@@ -303,6 +303,13 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_parseInt",           {false, false}},     // (str*, radix) -> int
     {"ts_double_to_int32",    {false}},            // (double) -> int32
     {"ts_double_to_uint32",   {false}},            // (double) -> uint32
+
+    // =========================================================================
+    // Cell operations - for mutable closure captures
+    // =========================================================================
+    {"ts_cell_create",  {true}},                   // (TsValue* initial) -> TsCell*
+    {"ts_cell_get",     {false}},                  // (TsCell*) -> TsValue*
+    {"ts_cell_set",     {false, true}},            // (TsCell*, TsValue* value)
 };
 
 const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
@@ -327,6 +334,7 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_call_n",
     "ts_async_await",
     "ts_async_iterator_next",
+    "ts_cell_get",
 };
 
 // =============================================================================

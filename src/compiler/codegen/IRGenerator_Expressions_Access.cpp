@@ -41,6 +41,21 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
     }
 
     if (namedValues.count(node->name)) {
+        // Check if this is a cell variable (captured and mutable)
+        if (cellVariables.count(node->name)) {
+            llvm::Value* cellAlloca = namedValues[node->name];
+            llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+            
+            llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee cellGetFn = module->getOrInsertFunction("ts_cell_get", cellGetFt);
+            lastValue = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
+            
+            // The value from ts_cell_get is boxed (TsValue*)
+            boxedValues.insert(lastValue);
+            SPDLOG_DEBUG("visitIdentifier: {} is a cell variable, got boxed value", node->name);
+            return;
+        }
+        
         llvm::Value* val = namedValues[node->name];
         llvm::Type* type = nullptr;
         if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
