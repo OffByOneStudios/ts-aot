@@ -26,7 +26,9 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 3. ~~**Rest Parameter Array Type Inference:**~~ **FIXED** - `Set<T>[]` boxing/unboxing and for-of specialized element access
 4. ~~**Generic Array Push Boxing:**~~ **FIXED** (commit e61b0b5) - `array.push()` now stores raw values for primitive types instead of boxing
 5. ~~**Function Variable Calls:**~~ **FIXED** - Arrow functions and named function references now properly boxed; wrapper functions generated for `ts_call_N` compatibility
-6. **Optional Parameters:** `undefined` checks need more work
+6. ~~**User-defined user_main:**~~ **FIXED** - Synthetic `__synthetic_user_main` now correctly calls user-defined `user_main` function
+7. **Optional Parameters:** `undefined` checks need more work
+8. **Mutable Closures:** Closures capture by VALUE, not by reference. Counter/memoize patterns don't work correctly. Needs shared cell pattern.
 
 ## Design Rationale
 

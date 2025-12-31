@@ -289,34 +289,47 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             return;
         }
         
-        // Check if this identifier has Function type and is a variable
+        // Check if this identifier has Function type and is a variable that holds a function
         // This handles cases where the callee is loaded from somewhere and has Function type
+        // BUT: Skip this if there's a directly callable function with this name - that takes priority
         if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
-            // Visit the identifier to get the function value
-            visit(id);
-            if (lastValue && lastValue->getType()->isPointerTy()) {
-                llvm::Value* boxedFunc = lastValue;
-                
-                std::vector<llvm::Value*> args;
-                args.push_back(boxedFunc);
-                
-                std::vector<llvm::Type*> paramTypes;
-                paramTypes.push_back(builder->getPtrTy()); // boxedFunc
-                
-                for (auto& arg : node->arguments) {
-                    visit(arg.get());
-                    llvm::Value* v = boxValue(lastValue, arg->inferredType);
-                    args.push_back(v);
-                    paramTypes.push_back(builder->getPtrTy());
+            auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
+            std::string mangledName = Monomorphizer::generateMangledName(id->name, funcType->paramTypes, {});
+            
+            // Check if there's a directly callable function - if so, let the normal path handle it
+            llvm::Function* directFunc = module->getFunction(mangledName);
+            if (!directFunc) {
+                directFunc = module->getFunction(id->name);
+            }
+            
+            // Only use ts_call_N if there's NO direct function (i.e., this is truly a variable)
+            if (!directFunc) {
+                // Visit the identifier to get the function value
+                visit(id);
+                if (lastValue && lastValue->getType()->isPointerTy()) {
+                    llvm::Value* boxedFunc = lastValue;
+                    
+                    std::vector<llvm::Value*> args;
+                    args.push_back(boxedFunc);
+                    
+                    std::vector<llvm::Type*> paramTypes;
+                    paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+                    
+                    for (auto& arg : node->arguments) {
+                        visit(arg.get());
+                        llvm::Value* v = boxValue(lastValue, arg->inferredType);
+                        args.push_back(v);
+                        paramTypes.push_back(builder->getPtrTy());
+                    }
+                    
+                    std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+                    
+                    lastValue = createCall(ft, fn.getCallee(), args);
+                    lastValue = unboxValue(lastValue, node->inferredType);
+                    return;
                 }
-                
-                std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
-                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-                
-                lastValue = createCall(ft, fn.getCallee(), args);
-                lastValue = unboxValue(lastValue, node->inferredType);
-                return;
             }
         }
 

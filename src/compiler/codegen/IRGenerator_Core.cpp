@@ -373,7 +373,11 @@ void IRGenerator::emitNullCheckForExpression(ast::Expression* expr, llvm::Value*
 }
 
 void IRGenerator::generateEntryPoint() {
-    llvm::Function* userMain = module->getFunction("user_main");
+    // Look for the synthetic user_main first, fall back to user-defined user_main
+    llvm::Function* userMain = module->getFunction("__synthetic_user_main");
+    if (!userMain) {
+        userMain = module->getFunction("user_main");
+    }
     if (!userMain) return;
 
     // Declare ts_main: int ts_main(int argc, char** argv, TsValue* (*user_main)(void*))
