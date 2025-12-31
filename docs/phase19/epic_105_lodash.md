@@ -85,7 +85,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.3: Object Utilities
 
-**Status:** Blocked - Object global not defined
+**Status:** In Progress - Object global implemented
 
 - [ ] **Task 105.3.1:** `get<T>(obj: any, path: string, defaultValue?: T): T` - Deep property access
 - [ ] **Task 105.3.2:** `set<T>(obj: T, path: string, value: any): T` - Deep property set
@@ -99,11 +99,12 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [ ] **Task 105.3.10:** `has(obj: any, path: string): boolean` - Check property exists
 
 **Runtime Prerequisites:**
-- [ ] `Object` global - needs to be defined in Analyzer_StdLib.cpp (like Math)
-- [ ] `Object.keys(obj)` - Get object keys
-- [ ] `Object.values(obj)` - Get object values
-- [ ] `Object.entries(obj)` - Get key-value pairs
-- [ ] `Object.assign(target, ...sources)` - Shallow merge
+- [x] `Object` global - defined in Analyzer_StdLib.cpp ✅
+- [x] `Object.keys(obj)` - Get object keys ✅
+- [x] `Object.values(obj)` - Get object values ✅
+- [x] `Object.entries(obj)` - Get key-value pairs ✅
+- [x] `Object.assign(target, ...sources)` - Shallow merge ✅
+- [x] `Object.hasOwn(obj, key)` - Check property exists ✅
 - [ ] `typeof` operator - Runtime type checking
 
 ### Milestone 105.4: String Utilities
