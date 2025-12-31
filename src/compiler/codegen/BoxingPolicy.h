@@ -79,8 +79,25 @@ public:
      * runtimeExpectsBoxed - Does this runtime function expect a boxed arg?
      * 
      * This is the authoritative registry of what each ts_* function expects.
+     * Throws if function is not registered and strictMode is true.
      */
-    bool runtimeExpectsBoxed(const std::string& funcName, int argIndex) const;
+    bool runtimeExpectsBoxed(const std::string& funcName, int argIndex, bool strictMode = false) const;
+
+    /**
+     * hasRuntimeApiRegistered - Check if a function is in the registry
+     * 
+     * Use this to verify a function exists before calling runtimeExpectsBoxed.
+     */
+    bool hasRuntimeApiRegistered(const std::string& funcName) const;
+
+    /**
+     * assertRuntimeApiRegistered - Fail compilation if function is not registered
+     * 
+     * Call this when emitting code for a ts_* function. If the function is not
+     * in the registry, this throws a std::runtime_error with a helpful message
+     * about how to add it.
+     */
+    void assertRuntimeApiRegistered(const std::string& funcName) const;
 
     /**
      * runtimeReturnsBoxed - Does this runtime function return a boxed value?

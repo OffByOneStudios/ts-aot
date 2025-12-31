@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "codegen/BoxingPolicy.h"
 #include "analysis/Type.h"
+#include <stdexcept>
 
 using namespace ts;
 
@@ -401,5 +402,74 @@ TEST_CASE("BoxingPolicy: Specialized array detection", "[codegen][boxing]") {
 
     SECTION("Null type = generic (boxed storage)") {
         REQUIRE(BoxingPolicy::shouldBoxForSpecializedArray(nullptr) == true);
+    }
+}
+
+// =============================================================================
+// ENFORCEMENT TESTS - Compiler refuses unregistered functions
+// =============================================================================
+
+TEST_CASE("BoxingPolicy: hasRuntimeApiRegistered", "[codegen][boxing][enforcement]") {
+    BoxingPolicy policy;
+
+    SECTION("Registered functions return true") {
+        REQUIRE(policy.hasRuntimeApiRegistered("ts_map_set") == true);
+        REQUIRE(policy.hasRuntimeApiRegistered("ts_call_1") == true);
+        REQUIRE(policy.hasRuntimeApiRegistered("ts_array_push") == true);
+        REQUIRE(policy.hasRuntimeApiRegistered("ts_value_make_int") == true);
+    }
+
+    SECTION("Unregistered functions return false") {
+        REQUIRE(policy.hasRuntimeApiRegistered("ts_unknown_function") == false);
+        REQUIRE(policy.hasRuntimeApiRegistered("some_other_func") == false);
+        REQUIRE(policy.hasRuntimeApiRegistered("") == false);
+    }
+}
+
+TEST_CASE("BoxingPolicy: assertRuntimeApiRegistered", "[codegen][boxing][enforcement]") {
+    BoxingPolicy policy;
+
+    SECTION("Registered functions do not throw") {
+        REQUIRE_NOTHROW(policy.assertRuntimeApiRegistered("ts_map_set"));
+        REQUIRE_NOTHROW(policy.assertRuntimeApiRegistered("ts_call_1"));
+        REQUIRE_NOTHROW(policy.assertRuntimeApiRegistered("ts_array_push"));
+    }
+
+    SECTION("Unregistered functions throw with helpful message") {
+        REQUIRE_THROWS_AS(policy.assertRuntimeApiRegistered("ts_new_api"), std::runtime_error);
+        
+        try {
+            policy.assertRuntimeApiRegistered("ts_new_api");
+            REQUIRE(false); // Should not reach here
+        } catch (const std::runtime_error& e) {
+            std::string msg = e.what();
+            // Check that error message contains helpful info
+            REQUIRE(msg.find("ts_new_api") != std::string::npos);
+            REQUIRE(msg.find("RUNTIME_ARG_BOXING") != std::string::npos);
+            REQUIRE(msg.find("BoxingPolicy.cpp") != std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("BoxingPolicy: strictMode in runtimeExpectsBoxed", "[codegen][boxing][enforcement]") {
+    BoxingPolicy policy;
+
+    SECTION("Strict mode throws for unregistered function") {
+        REQUIRE_THROWS_AS(policy.runtimeExpectsBoxed("unknown_func", 0, true), std::runtime_error);
+    }
+
+    SECTION("Strict mode throws for out-of-bounds arg") {
+        // ts_map_set has 3 args (0,1,2), so arg 5 is out of bounds
+        REQUIRE_THROWS_AS(policy.runtimeExpectsBoxed("ts_map_set", 5, true), std::runtime_error);
+    }
+
+    SECTION("Non-strict mode returns false for unregistered (backwards compat)") {
+        REQUIRE(policy.runtimeExpectsBoxed("unknown_func", 0, false) == false);
+        REQUIRE(policy.runtimeExpectsBoxed("unknown_func", 0) == false); // default is false
+    }
+
+    SECTION("Strict mode works normally for registered functions") {
+        REQUIRE(policy.runtimeExpectsBoxed("ts_map_set", 1, true) == true);
+        REQUIRE(policy.runtimeExpectsBoxed("ts_array_push", 0, true) == false);
     }
 }

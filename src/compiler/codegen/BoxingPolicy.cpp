@@ -1,4 +1,5 @@
 #include "BoxingPolicy.h"
+#include <stdexcept>
 
 namespace ts {
 
@@ -297,16 +298,51 @@ BoxingPolicy::Decision BoxingPolicy::decide(
     return d;
 }
 
-bool BoxingPolicy::runtimeExpectsBoxed(const std::string& funcName, int argIndex) const {
+bool BoxingPolicy::runtimeExpectsBoxed(const std::string& funcName, int argIndex, bool strictMode) const {
     auto it = RUNTIME_ARG_BOXING.find(funcName);
     if (it == RUNTIME_ARG_BOXING.end()) {
-        // Unknown function - assume raw (conservative for optimization)
+        if (strictMode) {
+            throw std::runtime_error(
+                "BoxingPolicy: Runtime function '" + funcName + "' is not registered!\n"
+                "Add it to RUNTIME_ARG_BOXING in BoxingPolicy.cpp.\n"
+                "Format: {\"" + funcName + "\", {arg0_boxed, arg1_boxed, ...}}"
+            );
+        }
+        // Non-strict mode: assume raw (conservative for optimization)
         return false;
     }
     if (argIndex < 0 || static_cast<size_t>(argIndex) >= it->second.size()) {
+        if (strictMode) {
+            throw std::runtime_error(
+                "BoxingPolicy: Runtime function '" + funcName + "' has " + 
+                std::to_string(it->second.size()) + " registered args, but arg " + 
+                std::to_string(argIndex) + " was requested."
+            );
+        }
         return false;
     }
     return it->second[argIndex];
+}
+
+bool BoxingPolicy::hasRuntimeApiRegistered(const std::string& funcName) const {
+    return RUNTIME_ARG_BOXING.find(funcName) != RUNTIME_ARG_BOXING.end();
+}
+
+void BoxingPolicy::assertRuntimeApiRegistered(const std::string& funcName) const {
+    if (!hasRuntimeApiRegistered(funcName)) {
+        throw std::runtime_error(
+            "\n==========================================================\n"
+            "BOXING POLICY ERROR: Unregistered runtime function!\n"
+            "==========================================================\n"
+            "Function: " + funcName + "\n\n"
+            "When adding new runtime C functions, you MUST register them\n"
+            "in BoxingPolicy.cpp RUNTIME_ARG_BOXING.\n\n"
+            "Add this entry:\n"
+            "    {\"" + funcName + "\", {arg0_boxed, arg1_boxed, ...}},\n\n"
+            "Where true = expects TsValue* (boxed), false = expects raw.\n"
+            "==========================================================\n"
+        );
+    }
 }
 
 bool BoxingPolicy::runtimeReturnsBoxed(const std::string& funcName) const {
