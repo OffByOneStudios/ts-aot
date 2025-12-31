@@ -85,6 +85,8 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.3: Object Utilities
 
+**Status:** Blocked - Object global not defined
+
 - [ ] **Task 105.3.1:** `get<T>(obj: any, path: string, defaultValue?: T): T` - Deep property access
 - [ ] **Task 105.3.2:** `set<T>(obj: T, path: string, value: any): T` - Deep property set
 - [ ] **Task 105.3.3:** `pick<T>(obj: T, keys: string[]): Partial<T>` - Pick properties
@@ -97,6 +99,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [ ] **Task 105.3.10:** `has(obj: any, path: string): boolean` - Check property exists
 
 **Runtime Prerequisites:**
+- [ ] `Object` global - needs to be defined in Analyzer_StdLib.cpp (like Math)
 - [ ] `Object.keys(obj)` - Get object keys
 - [ ] `Object.values(obj)` - Get object values
 - [ ] `Object.entries(obj)` - Get key-value pairs
@@ -128,6 +131,8 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 ### Milestone 105.5: Function Utilities
 
+**Status:** Blocked - Closures capture by value, not reference
+
 - [ ] **Task 105.5.1:** `debounce<T>(fn: T, wait: number): T` - Debounce function
 - [ ] **Task 105.5.2:** `throttle<T>(fn: T, wait: number): T` - Throttle function
 - [ ] **Task 105.5.3:** `memoize<T>(fn: T): T` - Cache function results
@@ -140,6 +145,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] `setTimeout(fn, delay)` - Delayed execution ✅
 - [x] `clearTimeout(id)` - Cancel timeout ✅
 - [x] `Date.now()` - Current timestamp ✅
+- [ ] **Mutable closures** - Closures need capture-by-reference for counter/memoize patterns
 
 ### Milestone 105.6: Utility Functions
 
