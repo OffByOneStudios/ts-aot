@@ -34,7 +34,7 @@ bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::Pr
             if (node->arguments.empty()) {
                 // Return empty Uint8Array
                 llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create_u8", createFt);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_typed_array_create_u8", createFt);
                 lastValue = createCall(createFt, fn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0) });
                 return true;
             }
@@ -47,7 +47,7 @@ bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::Pr
                 { builder->getPtrTy(), builder->getPtrTy() },
                 false
             );
-            llvm::FunctionCallee encodeFn = module->getOrInsertFunction("ts_text_encoder_encode", encodeFt);
+            llvm::FunctionCallee encodeFn = getRuntimeFunction("ts_text_encoder_encode", encodeFt);
             lastValue = createCall(encodeFt, encodeFn.getCallee(), { encoder, input });
             return true;
         }
@@ -66,7 +66,7 @@ bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::Pr
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
                 false
             );
-            llvm::FunctionCallee encodeIntoFn = module->getOrInsertFunction("ts_text_encoder_encode_into", encodeIntoFt);
+            llvm::FunctionCallee encodeIntoFn = getRuntimeFunction("ts_text_encoder_encode_into", encodeIntoFt);
             lastValue = createCall(encodeIntoFt, encodeIntoFn.getCallee(), { encoder, source, dest });
             return true;
         }
@@ -92,7 +92,7 @@ bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::Pr
                 { builder->getPtrTy(), builder->getPtrTy() },
                 false
             );
-            llvm::FunctionCallee decodeFn = module->getOrInsertFunction("ts_text_decoder_decode", decodeFt);
+            llvm::FunctionCallee decodeFn = getRuntimeFunction("ts_text_decoder_decode", decodeFt);
             lastValue = createCall(decodeFt, decodeFn.getCallee(), { decoder, input });
             return true;
         }

@@ -11,7 +11,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         llvm::Value* val = lastValue;
         
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+        llvm::FunctionCallee createFn = getRuntimeFunction("ts_string_create", createFt);
 
         if (val->getType()->isDoubleTy() || val->getType()->isIntegerTy(64)) {
             llvm::Value* strPtr = builder->CreateGlobalStringPtr("number");
@@ -27,7 +27,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
         if (val->getType()->isPointerTy()) {
             llvm::FunctionType* typeofFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee typeofFn = module->getOrInsertFunction("ts_typeof", typeofFt);
+            llvm::FunctionCallee typeofFn = getRuntimeFunction("ts_typeof", typeofFt);
             lastValue = createCall(typeofFt, typeofFn.getCallee(), {val});
             return;
         }

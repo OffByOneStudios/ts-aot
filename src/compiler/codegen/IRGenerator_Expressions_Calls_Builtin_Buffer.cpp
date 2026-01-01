@@ -31,7 +31,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         llvm::Value* size = castValue(lastValue, llvm::Type::getInt64Ty(*context));
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_alloc", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_alloc", ft);
         lastValue = createCall(ft, fn.getCallee(), { size });
         return true;
     }
@@ -43,7 +43,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         llvm::Value* size = castValue(lastValue, llvm::Type::getInt64Ty(*context));
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_alloc_unsafe", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_alloc_unsafe", ft);
         lastValue = createCall(ft, fn.getCallee(), { size });
         return true;
     }
@@ -64,7 +64,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_from_string", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_string", ft);
         lastValue = createCall(ft, fn.getCallee(), { data, encoding });
         return true;
     }
@@ -85,7 +85,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_concat", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_concat", ft);
         lastValue = createCall(ft, fn.getCallee(), { list, totalLength });
         return true;
     }
@@ -97,7 +97,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         llvm::Value* obj = lastValue;
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_is_buffer", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_is_buffer", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj });
         return true;
     }
@@ -125,7 +125,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_to_string", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_to_string", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, encoding });
         return true;
     }
@@ -149,7 +149,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_slice", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_slice", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, start, end });
         return true;
     }
@@ -173,7 +173,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_subarray", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_subarray", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, start, end });
         return true;
     }
@@ -201,7 +201,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_fill", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_fill", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, value, start, end });
         return true;
     }
@@ -235,7 +235,7 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
             { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), 
               llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_copy", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_copy", ft);
         lastValue = createCall(ft, fn.getCallee(), { source, target, targetStart, sourceStart, sourceEnd });
         return true;
     }

@@ -58,19 +58,19 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         llvm::Value* boxedObj = boxValue(objPtr, prop->expression->inferredType);
         
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
         llvm::Value* propNameStr = builder->CreateGlobalStringPtr(prop->name);
         llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
         
         llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+        llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_value_get_property", getPropFt);
         
         llvm::Value* boxedFunc = createCall(getPropFt, getPropFn.getCallee(), { boxedObj, propName });
         
         if (node->arguments.empty()) {
             llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0", callFt);
+            llvm::FunctionCallee callFn = getRuntimeFunction("ts_call_0", callFt);
             lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
             lastValue = unboxValue(lastValue, node->inferredType);
             return true;
@@ -235,7 +235,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             
             if (methodName == "then") {
                 llvm::FunctionType* thenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee thenFn = module->getOrInsertFunction("ts_promise_then", thenFt);
+                llvm::FunctionCallee thenFn = getRuntimeFunction("ts_promise_then", thenFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onFulfilled = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -252,7 +252,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             } else if (methodName == "catch") {
                 llvm::FunctionType* catchFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee catchFn = module->getOrInsertFunction("ts_promise_catch", catchFt);
+                llvm::FunctionCallee catchFn = getRuntimeFunction("ts_promise_catch", catchFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onRejected = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -261,7 +261,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             } else if (methodName == "finally") {
                 llvm::FunctionType* finallyFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee finallyFn = module->getOrInsertFunction("ts_promise_finally", finallyFt);
+                llvm::FunctionCallee finallyFn = getRuntimeFunction("ts_promise_finally", finallyFt);
                 
                 visit(node->arguments[0].get());
                 llvm::Value* onFinally = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -270,7 +270,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             } else if (methodName == "resolve") {
                 llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve", resolveFt);
+                llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve", resolveFt);
                 
                 llvm::Value* val;
                 std::shared_ptr<Type> valType;
@@ -288,7 +288,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             } else if (methodName == "reject") {
                 llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject", rejectFt);
+                llvm::FunctionCallee rejectFn = getRuntimeFunction("ts_promise_reject", rejectFt);
                 
                 llvm::Value* val;
                 std::shared_ptr<Type> valType;
@@ -359,7 +359,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             if (methodName == "set") {
                 // void ts_map_set(void* map, TsValue* key, TsValue* value)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_set", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_set", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -374,7 +374,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 // TsValue* ts_map_get(void* map, TsValue* key)
                 SPDLOG_INFO("Map.get (Member): node->inferredType = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_get", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_get", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -394,7 +394,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "has") {
                 // bool ts_map_has(void* map, TsValue* key)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_has", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_has", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -404,7 +404,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "delete") {
                 // bool ts_map_delete(void* map, TsValue* key)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_delete", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_delete", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -414,7 +414,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "clear") {
                 // void ts_map_clear(void* map)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_clear", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_clear", ft);
 
                 createCall(ft, fn.getCallee(), { mapObj });
                 lastValue = nullptr;
@@ -430,7 +430,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             if (methodName == "add") {
                 // void ts_set_add(void* set, TsValue* value)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_add", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_set_add", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -441,7 +441,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "has") {
                 // bool ts_set_has(void* set, TsValue* value)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_has", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_set_has", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -451,7 +451,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "delete") {
                 // bool ts_set_delete(void* set, TsValue* value)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_delete", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_set_delete", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -461,7 +461,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             } else if (methodName == "clear") {
                 // void ts_set_clear(void* set)
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_clear", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_set_clear", ft);
 
                 createCall(ft, fn.getCallee(), { setObj });
                 lastValue = nullptr;

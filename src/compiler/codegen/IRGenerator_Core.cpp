@@ -296,7 +296,7 @@ void IRGenerator::emitCFICheck(llvm::Value* ptr, const std::string& typeId) {
     
     builder->SetInsertPoint(failBB);
     llvm::FunctionType* failFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
-    llvm::FunctionCallee failFn = module->getOrInsertFunction("ts_cfi_fail", failFt);
+    llvm::FunctionCallee failFn = getRuntimeFunction("ts_cfi_fail", failFt);
     builder->CreateCall(failFt, failFn.getCallee(), {});
     builder->CreateUnreachable();
     
@@ -319,7 +319,7 @@ void IRGenerator::emitBoundsCheck(llvm::Value* index, llvm::Value* length) {
 
     builder->SetInsertPoint(failBB);
     llvm::FunctionType* panicFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-    llvm::FunctionCallee panicFn = module->getOrInsertFunction("ts_panic", panicFt);
+    llvm::FunctionCallee panicFn = getRuntimeFunction("ts_panic", panicFt);
     
     llvm::Value* msg = builder->CreateGlobalStringPtr("Index out of bounds");
     builder->CreateCall(panicFt, panicFn.getCallee(), { msg });
@@ -350,7 +350,7 @@ void IRGenerator::emitNullCheck(llvm::Value* ptr) {
 
     builder->SetInsertPoint(failBB);
     llvm::FunctionType* panicFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-    llvm::FunctionCallee panicFn = module->getOrInsertFunction("ts_panic", panicFt);
+    llvm::FunctionCallee panicFn = getRuntimeFunction("ts_panic", panicFt);
     
     llvm::Value* msg = builder->CreateGlobalStringPtr("Null or undefined dereference");
     builder->CreateCall(panicFt, panicFn.getCallee(), { msg });
@@ -539,7 +539,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             if (!namedValues.count(id->name)) {
                 // First time: create cell and store pointer in alloca
                 llvm::FunctionType* cellCreateFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee cellCreateFn = module->getOrInsertFunction("ts_cell_create", cellCreateFt);
+                llvm::FunctionCallee cellCreateFn = getRuntimeFunction("ts_cell_create", cellCreateFt);
                 llvm::Value* cell = createCall(cellCreateFt, cellCreateFn.getCallee(), { boxedVal });
                 
                 llvm::AllocaInst* cellAlloca = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name + "_cell", builder->getPtrTy());
@@ -553,7 +553,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
                 
                 llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee cellSetFn = module->getOrInsertFunction("ts_cell_set", cellSetFt);
+                llvm::FunctionCallee cellSetFn = getRuntimeFunction("ts_cell_set", cellSetFt);
                 createCall(cellSetFt, cellSetFn.getCallee(), { cell, boxedVal });
             }
             
@@ -651,14 +651,14 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 if (element->isSpread) {
                     // Handle rest pattern
                     llvm::FunctionType* createArrayFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                    llvm::FunctionCallee createArrayFn = module->getOrInsertFunction("ts_array_create", createArrayFt);
+                    llvm::FunctionCallee createArrayFn = getRuntimeFunction("ts_array_create", createArrayFt);
                     llvm::Value* excludedArray = createCall(createArrayFt, createArrayFn.getCallee(), {});
 
                     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+                    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
 
                     llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
 
                     for (const auto& key : excludedKeys) {
                         llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(key) });
@@ -667,7 +667,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                     }
 
                     llvm::FunctionType* copyExcludingFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee copyExcludingFn = module->getOrInsertFunction("ts_map_copy_excluding_v2", copyExcludingFt);
+                    llvm::FunctionCallee copyExcludingFn = getRuntimeFunction("ts_map_copy_excluding_v2", copyExcludingFt);
                     
                     // Ensure value is unboxed if it's boxed (Any or known boxed value)
                     llvm::Value* objPtr = value;
@@ -700,12 +700,12 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 }
 
                 llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
                 llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(fieldName) });
                 // propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
                 
                 llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+                llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_value_get_property", getPropFt);
                 
                 // Ensure we pass the object pointer, not the TsValue* if possible, or let runtime handle it.
                 // But ts_value_get_property expects void* obj.
@@ -840,7 +840,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         llvm::Value* arrayPtr = value;
         if (type && type->kind == TypeKind::Any) {
              llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee getObjFn = module->getOrInsertFunction("ts_value_get_object", getObjFt);
+             llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
              arrayPtr = createCall(getObjFt, getObjFn.getCallee(), { value });
         }
 
@@ -862,12 +862,12 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
 
             if (element->isSpread) {
                 llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_array_length", lenFt);
+                llvm::FunctionCallee lenFn = getRuntimeFunction("ts_array_length", lenFt);
                 llvm::Value* lenVal = createCall(lenFt, lenFn.getCallee(), { arrayPtr });
 
                 llvm::FunctionType* sliceFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
                     { llvm::PointerType::getUnqual(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-                llvm::FunctionCallee sliceFn = module->getOrInsertFunction("ts_array_slice", sliceFt);
+                llvm::FunctionCallee sliceFn = getRuntimeFunction("ts_array_slice", sliceFt);
                 llvm::Value* restArr = createCall(sliceFt, sliceFn.getCallee(), { arrayPtr, idxVal, lenVal });
                 generateDestructuring(restArr, type, element->name.get());
                 break; 
@@ -951,7 +951,7 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 
 llvm::Value* IRGenerator::getUndefinedValue() {
     llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_undefined", ft);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_undefined", ft);
     return createCall(ft, fn.getCallee(), {});
 }
 
@@ -1594,7 +1594,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
     else if (valType->isVoidTy() || valType->isIntegerTy(8)) {
         llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+        llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
         llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
         boxedValues.insert(res);
         return res;
@@ -1602,7 +1602,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
     else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val)) {
         SPDLOG_DEBUG("boxValue: boxing function val={}", (void*)val);
         llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_value_make_function", fnFt);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_function", fnFt);
         
         llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
         llvm::Value* currentContext = nullptr;
@@ -1656,7 +1656,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         if (classType->isStruct) {
             // Allocate on heap
             llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+            llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
             
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
             uint64_t size = module->getDataLayout().getTypeAllocSize(classStruct);
@@ -1665,7 +1665,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             builder->CreateStore(val, heapPtr);
             
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_object", boxFt);
             llvm::Value* res = createCall(boxFt, boxFn.getCallee(), { heapPtr });
             boxedValues.insert(res);
             return res;
@@ -1699,24 +1699,24 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
 
     if (type->kind == TypeKind::Int) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Double) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Boolean) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::String) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_string", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(type);
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
         if (classType->isStruct) {
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             
@@ -1728,7 +1728,7 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
                type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
                type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Void) {
         return nullptr;
@@ -1838,37 +1838,37 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
         if (val->getType()->isVoidTy()) {
             // Void -> undefined
             llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+            llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
             result = builder->CreateCall(undefFt, undefFn.getCallee());
         } else if (val->getType()->isStructTy()) {
             // Box struct
             llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+            llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
             
             uint64_t size = module->getDataLayout().getTypeAllocSize(val->getType());
             llvm::Value* heapPtr = createCall(allocFt, allocFn.getCallee(), { builder->getInt64(size) });
             builder->CreateStore(val, heapPtr);
             
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_object", boxFt);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_object", boxFt);
             result = createCall(boxFt, boxFn.getCallee(), { heapPtr });
         } else if (val->getType()->isIntegerTy(1)) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_bool", boxFt);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_bool", boxFt);
             result = builder->CreateCall(boxFt, boxFn.getCallee(), { val });
         } else if (val->getType()->isIntegerTy(8)) {
             // Void/bool8 -> undefined
             llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+            llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
             result = builder->CreateCall(undefFt, undefFn.getCallee());
         } else if (val->getType()->isIntegerTy()) {
             llvm::Value* i64Val = builder->CreateIntCast(val, builder->getInt64Ty(), true);
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_int", boxFt);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_int", boxFt);
             result = builder->CreateCall(boxFt, boxFn.getCallee(), { i64Val });
         } else if (val->getType()->isDoubleTy()) {
             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getDoubleTy() }, false);
-            llvm::FunctionCallee boxFn = module->getOrInsertFunction("ts_value_make_double", boxFt);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_double", boxFt);
             result = builder->CreateCall(boxFt, boxFn.getCallee(), { val });
         }
     }
@@ -1877,21 +1877,21 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
     if (!result && val->getType()->isPointerTy() && !expectedType->isPointerTy()) {
         if (expectedType->isIntegerTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
             llvm::Value* i64Val = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
             result = builder->CreateIntCast(i64Val, expectedType, true);
         } else if (expectedType->isDoubleTy()) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getDoubleTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_double", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
             result = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
         } else if (expectedType->isIntegerTy(1)) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_bool", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
             result = builder->CreateCall(unboxFt, unboxFn.getCallee(), { val });
         } else if (expectedType->isStructTy()) {
             // Unbox struct from TsValue*
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
             result = builder->CreateLoad(expectedType, objPtr);
         }
@@ -1943,13 +1943,13 @@ llvm::Value* IRGenerator::emitToBoolean(llvm::Value* val, std::shared_ptr<Type> 
         // For Any type, use ts_value_to_bool for JavaScript truthiness semantics
         if (type && type->kind == TypeKind::Any) {
             llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee toBoolFn = module->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            llvm::FunctionCallee toBoolFn = getRuntimeFunction("ts_value_to_bool", toBoolFt);
             return createCall(toBoolFt, toBoolFn.getCallee(), { val });
         }
         // For Boolean type (e.g., callback returning boolean), unbox the TsValue* to i1
         if (type && type->kind == TypeKind::Boolean) {
             llvm::FunctionType* getBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee getBoolFn = module->getOrInsertFunction("ts_value_get_bool", getBoolFt);
+            llvm::FunctionCallee getBoolFn = getRuntimeFunction("ts_value_get_bool", getBoolFt);
             return createCall(getBoolFt, getBoolFn.getCallee(), { val });
         }
         return builder->CreateICmpNE(val, llvm::ConstantPointerNull::get(builder->getPtrTy()), "tobool");
@@ -1963,7 +1963,7 @@ llvm::Value* IRGenerator::toInt32(llvm::Value* val) {
     if (val->getType()->isIntegerTy()) return builder->CreateIntCast(val, llvm::Type::getInt32Ty(*context), true);
     if (val->getType()->isDoubleTy()) {
         llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getDoubleTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_double_to_int32", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_double_to_int32", ft);
         return createCall(ft, fn.getCallee(), { val });
     }
     return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0);
@@ -1974,7 +1974,7 @@ llvm::Value* IRGenerator::toUint32(llvm::Value* val) {
     if (val->getType()->isIntegerTy()) return builder->CreateIntCast(val, llvm::Type::getInt32Ty(*context), false);
     if (val->getType()->isDoubleTy()) {
         llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getDoubleTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_double_to_uint32", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_double_to_uint32", ft);
         return createCall(ft, fn.getCallee(), { val });
     }
     return llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0);

@@ -239,12 +239,12 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 if (param->isRest) {
                     // Create an empty array
                     llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+                    llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
                     llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
                     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                             { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+                    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
 
                     // Collect all remaining arguments into the array
                     while (argIt != function->arg_end()) {
@@ -375,12 +375,12 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 if (param->isRest) {
                     // Create an empty array
                     llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+                    llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
                     llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
                     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                             { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+                    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
 
                     // Collect all remaining arguments into the array
                     while (argIt != function->arg_end()) {
@@ -513,7 +513,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         
         // Allocate and populate the closure context (in the OUTER function)
         llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
         uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
         closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
         
@@ -665,7 +665,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     // Functions with closure context have a populated context pointer
     // Functions without closure context have a null context pointer
     llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
+    llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
     llvm::Value* contextPtr = closureContext ? closureContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
     lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { function, contextPtr });
     boxedValues.insert(lastValue);
@@ -878,7 +878,7 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
     
     if (j.is_string()) {
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
         llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(j.get<std::string>()) });
         return boxValue(strVal, std::make_shared<Type>(TypeKind::String));
     }
@@ -886,12 +886,12 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
     if (j.is_array()) {
         // Create array and populate
         llvm::FunctionType* createArrFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee createArrFn = module->getOrInsertFunction("ts_array_create", createArrFt);
+        llvm::FunctionCallee createArrFn = getRuntimeFunction("ts_array_create", createArrFt);
         llvm::Value* arr = createCall(createArrFt, createArrFn.getCallee(), {});
         
         llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+        llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
         
         for (const auto& elem : j) {
             llvm::Value* elemVal = generateJsonValue(elem);
@@ -904,15 +904,15 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
     if (j.is_object()) {
         // Create map and populate
         llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+        llvm::FunctionCallee createMapFn = getRuntimeFunction("ts_map_create", createMapFt);
         llvm::Value* map = createCall(createMapFt, createMapFn.getCallee(), {});
         
         llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_map_set", setMapFt);
+        llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setMapFt);
         
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
         
         for (auto& [key, val] : j.items()) {
             llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(key) });

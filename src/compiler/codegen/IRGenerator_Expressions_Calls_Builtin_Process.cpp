@@ -74,7 +74,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         }
         
         llvm::FunctionType* exitFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee exitFn = module->getOrInsertFunction("ts_process_exit", exitFt);
+        llvm::FunctionCallee exitFn = getRuntimeFunction("ts_process_exit", exitFt);
         
         createCall(exitFt, exitFn.getCallee(), { code });
         lastValue = nullptr;
@@ -83,7 +83,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "cwd") {
         llvm::FunctionType* cwdFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee cwdFn = module->getOrInsertFunction("ts_process_cwd", cwdFt);
+        llvm::FunctionCallee cwdFn = getRuntimeFunction("ts_process_cwd", cwdFt);
         
         lastValue = unboxValue(createCall(cwdFt, cwdFn.getCallee(), {}), node->inferredType);
         return true;
@@ -95,7 +95,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         llvm::Value* dir = lastValue;
 
         llvm::FunctionType* chdirFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee chdirFn = module->getOrInsertFunction("ts_process_chdir", chdirFt);
+        llvm::FunctionCallee chdirFn = getRuntimeFunction("ts_process_chdir", chdirFt);
 
         createCall(chdirFt, chdirFn.getCallee(), { dir });
         lastValue = nullptr;
@@ -108,7 +108,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
 
         llvm::FunctionType* nextTickFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee nextTickFn = module->getOrInsertFunction("ts_process_next_tick", nextTickFt);
+        llvm::FunctionCallee nextTickFn = getRuntimeFunction("ts_process_next_tick", nextTickFt);
 
         createCall(nextTickFt, nextTickFn.getCallee(), { callback });
         lastValue = nullptr;
@@ -129,7 +129,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         }
         
         llvm::FunctionType* hrtimeFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee hrtimeFn = module->getOrInsertFunction("ts_process_hrtime", hrtimeFt);
+        llvm::FunctionCallee hrtimeFn = getRuntimeFunction("ts_process_hrtime", hrtimeFt);
         
         lastValue = createCall(hrtimeFt, hrtimeFn.getCallee(), { prevTime });
         return true;
@@ -137,7 +137,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "uptime") {
         llvm::FunctionType* uptimeFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false);
-        llvm::FunctionCallee uptimeFn = module->getOrInsertFunction("ts_process_uptime", uptimeFt);
+        llvm::FunctionCallee uptimeFn = getRuntimeFunction("ts_process_uptime", uptimeFt);
         
         lastValue = createCall(uptimeFt, uptimeFn.getCallee(), {});
         return true;
@@ -145,7 +145,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "memoryUsage") {
         llvm::FunctionType* memUsageFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee memUsageFn = module->getOrInsertFunction("ts_process_memory_usage", memUsageFt);
+        llvm::FunctionCallee memUsageFn = getRuntimeFunction("ts_process_memory_usage", memUsageFt);
         
         lastValue = createCall(memUsageFt, memUsageFn.getCallee(), {});
         return true;
@@ -161,7 +161,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         }
         
         llvm::FunctionType* cpuUsageFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee cpuUsageFn = module->getOrInsertFunction("ts_process_cpu_usage", cpuUsageFt);
+        llvm::FunctionCallee cpuUsageFn = getRuntimeFunction("ts_process_cpu_usage", cpuUsageFt);
         
         lastValue = createCall(cpuUsageFt, cpuUsageFn.getCallee(), { prevUsage });
         return true;
@@ -169,7 +169,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "resourceUsage") {
         llvm::FunctionType* resUsageFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee resUsageFn = module->getOrInsertFunction("ts_process_resource_usage", resUsageFt);
+        llvm::FunctionCallee resUsageFn = getRuntimeFunction("ts_process_resource_usage", resUsageFt);
         
         lastValue = createCall(resUsageFt, resUsageFn.getCallee(), {});
         return true;
@@ -201,7 +201,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) },
             false
         );
-        llvm::FunctionCallee killFn = module->getOrInsertFunction("ts_process_kill", killFt);
+        llvm::FunctionCallee killFn = getRuntimeFunction("ts_process_kill", killFt);
         
         llvm::Value* result = createCall(killFt, killFn.getCallee(), { pid, signal });
         // Return true if result == 0
@@ -211,7 +211,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "abort") {
         llvm::FunctionType* abortFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
-        llvm::FunctionCallee abortFn = module->getOrInsertFunction("ts_process_abort", abortFt);
+        llvm::FunctionCallee abortFn = getRuntimeFunction("ts_process_abort", abortFt);
         
         createCall(abortFt, abortFn.getCallee(), {});
         lastValue = nullptr;
@@ -232,7 +232,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { llvm::Type::getInt32Ty(*context) },
             false
         );
-        llvm::FunctionCallee umaskFn = module->getOrInsertFunction("ts_process_umask", umaskFt);
+        llvm::FunctionCallee umaskFn = getRuntimeFunction("ts_process_umask", umaskFt);
         
         llvm::Value* result = createCall(umaskFt, umaskFn.getCallee(), { mask });
         lastValue = builder->CreateSExt(result, llvm::Type::getInt64Ty(*context));
@@ -250,7 +250,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { builder->getPtrTy() },
             false
         );
-        llvm::FunctionCallee emitWarningFn = module->getOrInsertFunction("ts_process_emit_warning", emitWarningFt);
+        llvm::FunctionCallee emitWarningFn = getRuntimeFunction("ts_process_emit_warning", emitWarningFt);
         
         createCall(emitWarningFt, emitWarningFn.getCallee(), { warning });
         lastValue = nullptr;
@@ -282,7 +282,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         
         // Return process for chaining
         llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee getPlatformFn = module->getOrInsertFunction("ts_process_get_platform", getPtrFt);
+        llvm::FunctionCallee getPlatformFn = getRuntimeFunction("ts_process_get_platform", getPtrFt);
         lastValue = createCall(getPtrFt, getPlatformFn.getCallee(), {});
         return true;
     }
@@ -301,7 +301,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { builder->getPtrTy(), builder->getPtrTy() },
             false
         );
-        llvm::FunctionCallee removeFn = module->getOrInsertFunction("ts_process_remove_listener", removeFt);
+        llvm::FunctionCallee removeFn = getRuntimeFunction("ts_process_remove_listener", removeFt);
         
         createCall(removeFt, removeFn.getCallee(), { event, callback });
         lastValue = nullptr;
@@ -322,7 +322,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { builder->getPtrTy() },
             false
         );
-        llvm::FunctionCallee removeFn = module->getOrInsertFunction("ts_process_remove_all_listeners", removeFt);
+        llvm::FunctionCallee removeFn = getRuntimeFunction("ts_process_remove_all_listeners", removeFt);
         
         createCall(removeFt, removeFn.getCallee(), { event });
         lastValue = nullptr;
@@ -340,7 +340,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
             { builder->getPtrTy() },
             false
         );
-        llvm::FunctionCallee setFn = module->getOrInsertFunction("ts_process_set_uncaught_exception_capture_callback", setFt);
+        llvm::FunctionCallee setFn = getRuntimeFunction("ts_process_set_uncaught_exception_capture_callback", setFt);
         
         createCall(setFt, setFn.getCallee(), { callback });
         lastValue = nullptr;
@@ -349,7 +349,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "hasUncaughtExceptionCaptureCallback") {
         llvm::FunctionType* hasFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), {}, false);
-        llvm::FunctionCallee hasFn = module->getOrInsertFunction("ts_process_has_uncaught_exception_capture_callback", hasFt);
+        llvm::FunctionCallee hasFn = getRuntimeFunction("ts_process_has_uncaught_exception_capture_callback", hasFt);
         
         lastValue = createCall(hasFt, hasFn.getCallee(), {});
         return true;
@@ -361,7 +361,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "ref") {
         llvm::FunctionType* refFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
-        llvm::FunctionCallee refFn = module->getOrInsertFunction("ts_process_ref", refFt);
+        llvm::FunctionCallee refFn = getRuntimeFunction("ts_process_ref", refFt);
         
         createCall(refFt, refFn.getCallee(), {});
         lastValue = nullptr;
@@ -370,7 +370,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "unref") {
         llvm::FunctionType* unrefFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
-        llvm::FunctionCallee unrefFn = module->getOrInsertFunction("ts_process_unref", unrefFt);
+        llvm::FunctionCallee unrefFn = getRuntimeFunction("ts_process_unref", unrefFt);
         
         createCall(unrefFt, unrefFn.getCallee(), {});
         lastValue = nullptr;
@@ -379,7 +379,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "getActiveResourcesInfo") {
         llvm::FunctionType* getInfoFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee getInfoFn = module->getOrInsertFunction("ts_process_get_active_resources_info", getInfoFt);
+        llvm::FunctionCallee getInfoFn = getRuntimeFunction("ts_process_get_active_resources_info", getInfoFt);
         
         lastValue = createCall(getInfoFt, getInfoFn.getCallee(), {});
         return true;
@@ -391,7 +391,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "constrainedMemory") {
         llvm::FunctionType* constrainedFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee constrainedFn = module->getOrInsertFunction("ts_process_constrained_memory", constrainedFt);
+        llvm::FunctionCallee constrainedFn = getRuntimeFunction("ts_process_constrained_memory", constrainedFt);
         
         lastValue = createCall(constrainedFt, constrainedFn.getCallee(), {});
         return true;
@@ -399,7 +399,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "availableMemory") {
         llvm::FunctionType* availableFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee availableFn = module->getOrInsertFunction("ts_process_available_memory", availableFt);
+        llvm::FunctionCallee availableFn = getRuntimeFunction("ts_process_available_memory", availableFt);
         
         lastValue = createCall(availableFt, availableFn.getCallee(), {});
         return true;
@@ -411,7 +411,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "_getActiveHandles") {
         llvm::FunctionType* getHandlesFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee getHandlesFn = module->getOrInsertFunction("ts_process_get_active_handles", getHandlesFt);
+        llvm::FunctionCallee getHandlesFn = getRuntimeFunction("ts_process_get_active_handles", getHandlesFt);
         
         lastValue = createCall(getHandlesFt, getHandlesFn.getCallee(), {});
         return true;
@@ -419,7 +419,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "_getActiveRequests") {
         llvm::FunctionType* getRequestsFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee getRequestsFn = module->getOrInsertFunction("ts_process_get_active_requests", getRequestsFt);
+        llvm::FunctionCallee getRequestsFn = getRuntimeFunction("ts_process_get_active_requests", getRequestsFt);
         
         lastValue = createCall(getRequestsFt, getRequestsFn.getCallee(), {});
         return true;
@@ -427,7 +427,7 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
 
     if (prop->name == "_tickCallback") {
         llvm::FunctionType* tickFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
-        llvm::FunctionCallee tickFn = module->getOrInsertFunction("ts_process_tick_callback", tickFt);
+        llvm::FunctionCallee tickFn = getRuntimeFunction("ts_process_tick_callback", tickFt);
         
         createCall(tickFt, tickFn.getCallee(), {});
         lastValue = nullptr;

@@ -30,7 +30,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         llvm::Value* obj;
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
             obj = createCall(unboxFt, unboxFn.getCallee(), { boxedObj });
         } else {
             obj = unboxValue(boxedObj, prop->expression->inferredType);
@@ -42,7 +42,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* writeFt = llvm::FunctionType::get(builder->getInt1Ty(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee writeFn = module->getOrInsertFunction("ts_writable_write", writeFt);
+        llvm::FunctionCallee writeFn = getRuntimeFunction("ts_writable_write", writeFt);
         lastValue = createCall(writeFt, writeFn.getCallee(), { obj, data });
         return true;
     } else if (prop->name == "end") {
@@ -53,7 +53,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         llvm::Value* obj;
         if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_object", unboxFt);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
             obj = createCall(unboxFt, unboxFn.getCallee(), { boxedObj });
         } else {
             obj = unboxValue(boxedObj, prop->expression->inferredType);
@@ -67,7 +67,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* endFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee endFn = module->getOrInsertFunction("ts_writable_end", endFt);
+        llvm::FunctionCallee endFn = getRuntimeFunction("ts_writable_end", endFt);
         createCall(endFt, endFn.getCallee(), { obj, data });
         lastValue = nullptr;
         return true;
@@ -81,7 +81,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* pipeFt = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee pipeFn = module->getOrInsertFunction("ts_stream_pipe", pipeFt);
+        llvm::FunctionCallee pipeFn = getRuntimeFunction("ts_stream_pipe", pipeFt);
         lastValue = createCall(pipeFt, pipeFn.getCallee(), { src, dest });
         return true;
     } else if (prop->name == "pause") {
@@ -90,7 +90,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* pauseFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy() }, false);
-        llvm::FunctionCallee pauseFn = module->getOrInsertFunction("ts_stream_pause", pauseFt);
+        llvm::FunctionCallee pauseFn = getRuntimeFunction("ts_stream_pause", pauseFt);
         createCall(pauseFt, pauseFn.getCallee(), { obj });
         lastValue = obj;
         return true;
@@ -100,7 +100,7 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* resumeFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                 { builder->getPtrTy() }, false);
-        llvm::FunctionCallee resumeFn = module->getOrInsertFunction("ts_stream_resume", resumeFt);
+        llvm::FunctionCallee resumeFn = getRuntimeFunction("ts_stream_resume", resumeFt);
         createCall(resumeFt, resumeFn.getCallee(), { obj });
         lastValue = obj;
         return true;

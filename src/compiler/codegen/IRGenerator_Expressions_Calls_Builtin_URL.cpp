@@ -69,7 +69,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_append", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_append", ft);
             createCall(ft, fn.getCallee(), { params, name, value });
             lastValue = getUndefinedValue();
             return true;
@@ -82,7 +82,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_delete", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_delete", ft);
             createCall(ft, fn.getCallee(), { params, name });
             lastValue = getUndefinedValue();
             return true;
@@ -95,7 +95,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_get", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_get", ft);
             lastValue = createCall(ft, fn.getCallee(), { params, name });
             return true;
         }
@@ -107,7 +107,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_get_all", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_get_all", ft);
             lastValue = createCall(ft, fn.getCallee(), { params, name });
             return true;
         }
@@ -119,7 +119,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), 
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_has", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_has", ft);
             lastValue = createCall(ft, fn.getCallee(), { params, name });
             return true;
         }
@@ -133,7 +133,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_set", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_set", ft);
             createCall(ft, fn.getCallee(), { params, name, value });
             lastValue = getUndefinedValue();
             return true;
@@ -142,7 +142,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
         if (prop->name == "sort") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_sort", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_sort", ft);
             createCall(ft, fn.getCallee(), { params });
             lastValue = getUndefinedValue();
             return true;
@@ -151,7 +151,7 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
         if (prop->name == "toString") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
                 { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_to_string", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_to_string", ft);
             lastValue = createCall(ft, fn.getCallee(), { params });
             return true;
         }

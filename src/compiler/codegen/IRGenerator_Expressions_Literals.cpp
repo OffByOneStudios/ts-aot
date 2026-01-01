@@ -17,7 +17,7 @@ void IRGenerator::visitBigIntLiteral(ast::BigIntLiteral* node) {
     llvm::FunctionType* createFt = llvm::FunctionType::get(
         builder->getPtrTy(),
         { builder->getPtrTy(), builder->getInt32Ty() }, false);
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_bigint_create_str", createFt);
+    llvm::FunctionCallee createFn = getRuntimeFunction("ts_bigint_create_str", createFt);
 
     // Remove 'n' suffix if present
     std::string val = node->value;
@@ -46,7 +46,7 @@ void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
     llvm::FunctionType* createFt = llvm::FunctionType::get(
         llvm::PointerType::getUnqual(*context),
         { llvm::PointerType::getUnqual(*context) }, false);
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+    llvm::FunctionCallee createFn = getRuntimeFunction("ts_string_create", createFt);
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->value);
     lastValue = createCall(createFt, createFn.getCallee(), { strConst });
@@ -58,7 +58,7 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
     llvm::FunctionType* createStrFt = llvm::FunctionType::get(
         llvm::PointerType::getUnqual(*context),
         { llvm::PointerType::getUnqual(*context) }, false);
-    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
 
     llvm::Constant* strConst = builder->CreateGlobalStringPtr(node->text);
     llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { strConst });
@@ -68,7 +68,7 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
     llvm::FunctionType* createRegExpFt = llvm::FunctionType::get(
         llvm::PointerType::getUnqual(*context),
         { llvm::PointerType::getUnqual(*context) }, false);
-    llvm::FunctionCallee createRegExpFn = module->getOrInsertFunction("ts_regexp_from_literal", createRegExpFt);
+    llvm::FunctionCallee createRegExpFn = getRuntimeFunction("ts_regexp_from_literal", createRegExpFt);
 
     lastValue = createCall(createRegExpFt, createRegExpFn.getCallee(), { strVal });
     nonNullValues.insert(lastValue);
@@ -109,7 +109,7 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
     if (isSpecialized) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), 
                 { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
-        llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create_specialized", createFt);
+        llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create_specialized", createFt);
         
         llvm::Value* arr = createCall(createFt, createFn.getCallee(), {
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->elements.size()),
@@ -119,7 +119,7 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
         nonNullValues.insert(arr);
 
         llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee getPtrFn = module->getOrInsertFunction("ts_array_get_elements_ptr", getPtrFt);
+        llvm::FunctionCallee getPtrFn = getRuntimeFunction("ts_array_get_elements_ptr", getPtrFt);
         llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
         
         for (size_t i = 0; i < node->elements.size(); ++i) {
@@ -135,14 +135,14 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
     }
 
     llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+    llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
     
     llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
     nonNullValues.insert(arr);
 
     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
 
     for (auto& el : node->elements) {
         if (auto spread = dynamic_cast<ast::SpreadElement*>(el.get())) {
@@ -151,7 +151,7 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
             
             llvm::FunctionType* concatFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_array_concat", concatFt);
+            llvm::FunctionCallee concatFn = getRuntimeFunction("ts_array_concat", concatFt);
             createCall(concatFt, concatFn.getCallee(), { arr, otherArr });
             continue;
         }
@@ -172,11 +172,11 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
     llvm::FunctionType* createFt = llvm::FunctionType::get(
         llvm::PointerType::getUnqual(*context),
         { llvm::PointerType::getUnqual(*context) }, false);
-    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_string_create", createFt);
+    llvm::FunctionCallee createFn = getRuntimeFunction("ts_string_create", createFt);
     
     llvm::FunctionType* concatFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
         { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
-    llvm::FunctionCallee concatFn = module->getOrInsertFunction("ts_string_concat", concatFt);
+    llvm::FunctionCallee concatFn = getRuntimeFunction("ts_string_concat", concatFt);
 
     llvm::Constant* headStr = builder->CreateGlobalStringPtr(node->head);
     llvm::Value* currentStr = createCall(createFt, createFn.getCallee(), { headStr });
@@ -188,12 +188,12 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
         
         if (exprVal->getType()->isIntegerTy()) {
             llvm::FunctionType* fromIntFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee fromIntFn = module->getOrInsertFunction("ts_string_from_int", fromIntFt);
+            llvm::FunctionCallee fromIntFn = getRuntimeFunction("ts_string_from_int", fromIntFt);
             exprVal = createCall(fromIntFt, fromIntFn.getCallee(), { exprVal });
             nonNullValues.insert(exprVal);
         } else if (exprVal->getType()->isDoubleTy()) {
             llvm::FunctionType* fromDoubleFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::Type::getDoubleTy(*context) }, false);
-            llvm::FunctionCallee fromDoubleFn = module->getOrInsertFunction("ts_string_from_double", fromDoubleFt);
+            llvm::FunctionCallee fromDoubleFn = getRuntimeFunction("ts_string_from_double", fromDoubleFt);
             exprVal = createCall(fromDoubleFt, fromDoubleFn.getCallee(), { exprVal });
             nonNullValues.insert(exprVal);
         } else {
@@ -231,14 +231,14 @@ void IRGenerator::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* n
 
     // 2. Create the TsArray for strings
     llvm::FunctionType* createArrayFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-    llvm::FunctionCallee createArrayFn = module->getOrInsertFunction("ts_array_create", createArrayFt);
+    llvm::FunctionCallee createArrayFn = getRuntimeFunction("ts_array_create", createArrayFt);
     llvm::Value* stringsArray = createCall(createArrayFt, createArrayFn.getCallee(), {});
 
     llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFt);
+    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
 
     llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
 
     for (const auto& s : strings) {
         llvm::Value* strPtr = builder->CreateGlobalStringPtr(s);

@@ -43,7 +43,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
 
     // 3. Call ts_async_await
     llvm::FunctionType* awaitFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee awaitFn = module->getOrInsertFunction("ts_async_await", awaitFt);
+    llvm::FunctionCallee awaitFn = getRuntimeFunction("ts_async_await", awaitFt);
     createCall(awaitFt, awaitFn.getCallee(), { promiseVal, currentAsyncContext });
 
     // 4. Return from SM function
@@ -68,7 +68,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     if (!catchStack.empty()) {
         // Set exception
         llvm::FunctionType* setExcFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee setExcFn = module->getOrInsertFunction("ts_set_exception", setExcFt);
+        llvm::FunctionCallee setExcFn = getRuntimeFunction("ts_set_exception", setExcFt);
         createCall(setExcFt, setExcFn.getCallee(), { currentAsyncResumedValue });
         
         // Branch to catch
@@ -79,7 +79,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         
         llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject_internal", rejectFt);
+        llvm::FunctionCallee rejectFn = getRuntimeFunction("ts_promise_reject_internal", rejectFt);
         createCall(rejectFt, rejectFn.getCallee(), { promise, currentAsyncResumedValue });
         builder->CreateRetVoid();
     }
@@ -121,7 +121,7 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
 
     // 3. Call ts_async_yield
     llvm::FunctionType* yieldFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee yieldFn = module->getOrInsertFunction("ts_async_yield", yieldFt);
+    llvm::FunctionCallee yieldFn = getRuntimeFunction("ts_async_yield", yieldFt);
     createCall(yieldFt, yieldFn.getCallee(), { yieldVal, currentAsyncContext });
 
     // 4. Return from SM function
@@ -267,7 +267,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Create AsyncContext
     llvm::FunctionType* createCtxFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-    llvm::FunctionCallee createCtxFn = module->getOrInsertFunction("ts_async_context_create", createCtxFt);
+    llvm::FunctionCallee createCtxFn = getRuntimeFunction("ts_async_context_create", createCtxFt);
     llvm::Value* ctx = createCall(createCtxFt, createCtxFn.getCallee(), {});
     
     // Set resumeFn
@@ -276,7 +276,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Allocate Frame on heap
     llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-    llvm::FunctionCallee allocFn = module->getOrInsertFunction("ts_alloc", allocFt);
+    llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
     uint64_t frameSize = module->getDataLayout().getTypeAllocSize(frameType);
     llvm::Value* frame = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), frameSize) });
     
@@ -345,19 +345,19 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     if (isGenerator) {
         if (isAsync) {
             llvm::FunctionType* createGenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee createGenFn = module->getOrInsertFunction("ts_async_generator_create", createGenFt);
+            llvm::FunctionCallee createGenFn = getRuntimeFunction("ts_async_generator_create", createGenFt);
             llvm::Value* gen = createCall(createGenFt, createGenFn.getCallee(), { ctx });
 
             llvm::FunctionType* makeObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee makeObjFn = module->getOrInsertFunction("ts_value_make_object", makeObjFt);
+            llvm::FunctionCallee makeObjFn = getRuntimeFunction("ts_value_make_object", makeObjFt);
             lastValue = createCall(makeObjFt, makeObjFn.getCallee(), { gen });
         } else {
             llvm::FunctionType* createGenFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee createGenFn = module->getOrInsertFunction("ts_generator_create", createGenFt);
+            llvm::FunctionCallee createGenFn = getRuntimeFunction("ts_generator_create", createGenFt);
             llvm::Value* gen = createCall(createGenFt, createGenFn.getCallee(), { ctx });
 
             llvm::FunctionType* makeObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee makeObjFn = module->getOrInsertFunction("ts_value_make_object", makeObjFt);
+            llvm::FunctionCallee makeObjFn = getRuntimeFunction("ts_value_make_object", makeObjFt);
             lastValue = createCall(makeObjFt, makeObjFn.getCallee(), { gen });
         }
     } else {
@@ -366,7 +366,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         
         llvm::FunctionType* makePromiseFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee makePromiseFn = module->getOrInsertFunction("ts_value_make_promise", makePromiseFt);
+        llvm::FunctionCallee makePromiseFn = getRuntimeFunction("ts_value_make_promise", makePromiseFt);
         lastValue = createCall(makePromiseFt, makePromiseFn.getCallee(), { promise });
     }
     builder->CreateRet(lastValue);
@@ -505,7 +505,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+            llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
             createCall(resolveFt, resolveFn.getCallee(), { promise, res });
             builder->CreateRetVoid();
         }
@@ -530,7 +530,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+            llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
             createCall(resolveFt, resolveFn.getCallee(), { promise, res });
         }
         builder->CreateRetVoid();
@@ -549,7 +549,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee rejectFn = module->getOrInsertFunction("ts_promise_reject_internal", rejectFt);
+        llvm::FunctionCallee rejectFn = getRuntimeFunction("ts_promise_reject_internal", rejectFt);
         createCall(rejectFt, rejectFn.getCallee(), { promise, exc });
     } else if (isAsync && isGenerator) {
         // Reject generator
@@ -560,7 +560,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->SetInsertPoint(handleNormalBB);
     
     llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-    llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+    llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
     llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
 
     if (isAsync && !isGenerator) {
@@ -577,13 +577,13 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 5);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+        llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
         createCall(resolveFt, resolveFn.getCallee(), { promise, finalVal });
     } else if (isAsync && isGenerator) {
         // Resolve generator with undefined and done=true
         createCall(undefFt, undefFn.getCallee(), {}); // Just to be safe
         llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
-        llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
+        llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_async_generator_resolve", resolveFt);
         createCall(resolveFt, resolveFn.getCallee(), { smCtx, undefinedVal, builder->getInt1(true) });
     }
     builder->CreateRetVoid();

@@ -82,14 +82,14 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         llvm::Value* argsArray;
         if (node->arguments.size() > 1) {
             llvm::FunctionType* createFT = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
-            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create_sized", createFT);
+            llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create_sized", createFT);
             argsArray = createCall(createFT, createFn.getCallee(), { 
                 llvm::ConstantInt::get(builder->getInt64Ty(), node->arguments.size() - 1)
             });
             
             llvm::FunctionType* pushFT = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getInt64Ty() }, false);
-            llvm::FunctionCallee pushFn = module->getOrInsertFunction("ts_array_push", pushFT);
+            llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFT);
             
             for (size_t i = 1; i < node->arguments.size(); i++) {
                 visit(node->arguments[i].get());
@@ -105,7 +105,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_format", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_format", ft);
         lastValue = createCall(ft, fn.getCallee(), { format, argsArray });
         return true;
     }
@@ -130,7 +130,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_inspect", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_inspect", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, options });
         return true;
     }
@@ -149,7 +149,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy() }, false);
-        llvm::FunctionCallee promisify = module->getOrInsertFunction("ts_util_promisify", ft);
+        llvm::FunctionCallee promisify = getRuntimeFunction("ts_util_promisify", ft);
         lastValue = createCall(ft, promisify.getCallee(), { fn });
         return true;
     }
@@ -170,7 +170,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_inherits", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_inherits", ft);
         createCall(ft, fn.getCallee(), { ctor, superCtor });
         lastValue = getUndefinedValue();
         return true;
@@ -192,7 +192,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee deprecate = module->getOrInsertFunction("ts_util_deprecate", ft);
+        llvm::FunctionCallee deprecate = getRuntimeFunction("ts_util_deprecate", ft);
         lastValue = createCall(ft, deprecate.getCallee(), { fn, msg });
         return true;
     }
@@ -211,7 +211,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
             { builder->getPtrTy() }, false);
-        llvm::FunctionCallee callbackify = module->getOrInsertFunction("ts_util_callbackify", ft);
+        llvm::FunctionCallee callbackify = getRuntimeFunction("ts_util_callbackify", ft);
         lastValue = createCall(ft, callbackify.getCallee(), { fn });
         return true;
     }
@@ -232,7 +232,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), 
             { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_is_deep_strict_equal", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_is_deep_strict_equal", ft);
         lastValue = createCall(ft, fn.getCallee(), { val1, val2 });
         return true;
     }
