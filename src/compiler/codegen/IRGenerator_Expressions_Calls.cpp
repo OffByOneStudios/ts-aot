@@ -491,9 +491,73 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
 
         std::string funcName = id->name;
         
+        // Get target function's expected parameter types for spread expansion
+        std::vector<std::shared_ptr<Type>> expectedParamTypes;
+        if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
+            expectedParamTypes = funcType->paramTypes;
+        }
+        
         std::vector<llvm::Value*> args;
         std::vector<std::shared_ptr<Type>> argTypes;
+        size_t paramIndex = 0;  // Track which parameter we're filling
+        
         for (auto& arg : node->arguments) {
+            // Handle spread elements - expand array into individual arguments
+            if (auto spread = dynamic_cast<ast::SpreadElement*>(arg.get())) {
+                visit(spread->expression.get());
+                llvm::Value* arrVal = lastValue;
+                
+                // Get element type from the spread expression's inferred type
+                std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+                if (spread->expression->inferredType && spread->expression->inferredType->kind == TypeKind::Array) {
+                    auto arrType = std::static_pointer_cast<ArrayType>(spread->expression->inferredType);
+                    elementType = arrType->elementType;
+                }
+                
+                // Calculate how many elements to extract (remaining params)
+                size_t remainingParams = expectedParamTypes.size() > paramIndex 
+                    ? expectedParamTypes.size() - paramIndex 
+                    : 0;
+                
+                if (remainingParams > 0) {
+                    // Extract each element from the array
+                    for (size_t j = 0; j < remainingParams; j++) {
+                        llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), j);
+                        
+                        // Get element using ts_array_get or specialized access
+                        llvm::Value* elemVal;
+                        if (elementType->kind == TypeKind::Int || elementType->kind == TypeKind::Double) {
+                            // Use specialized array access
+                            llvm::FunctionType* getElFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee getElFn = getRuntimeFunction("ts_array_get_elements_ptr", getElFt);
+                            llvm::Value* elemPtr = createCall(getElFt, getElFn.getCallee(), { arrVal });
+                            
+                            llvm::Type* elemLLVMType = elementType->kind == TypeKind::Int 
+                                ? llvm::Type::getInt64Ty(*context) 
+                                : llvm::Type::getDoubleTy(*context);
+                            llvm::Value* gepPtr = builder->CreateGEP(elemLLVMType, elemPtr, { idx }, "spread_elem_ptr");
+                            elemVal = builder->CreateLoad(elemLLVMType, gepPtr, "spread_elem");
+                        } else {
+                            // Use ts_array_get for other types
+                            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+                            llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get", getFt);
+                            elemVal = createCall(getFt, getFn.getCallee(), { arrVal, idx });
+                        }
+                        
+                        args.push_back(elemVal);
+                        argTypes.push_back(elementType);
+                        paramIndex++;
+                    }
+                } else {
+                    // No known param count - pass array as-is (for rest params)
+                    args.push_back(arrVal);
+                    argTypes.push_back(spread->expression->inferredType);
+                    paramIndex++;
+                }
+                continue;
+            }
+            
             visit(arg.get());
             if (lastValue) {
                 llvm::Value* argVal = lastValue;

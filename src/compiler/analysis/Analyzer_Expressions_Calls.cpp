@@ -76,6 +76,35 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     for (size_t i = 0; i < node->arguments.size(); i++) {
         auto& arg = node->arguments[i];
         
+        // Handle spread elements - expand array element types into individual args
+        if (auto spread = dynamic_cast<SpreadElement*>(arg.get())) {
+            visit(spread->expression.get());
+            auto spreadType = lastType;
+            
+            // Get the element type from the array
+            std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+            if (spreadType && spreadType->kind == TypeKind::Array) {
+                auto arrType = std::static_pointer_cast<ArrayType>(spreadType);
+                elementType = arrType->elementType;
+            }
+            
+            // Calculate how many remaining parameters the function expects
+            size_t remainingParams = expectedParamTypes.size() > argTypes.size() 
+                ? expectedParamTypes.size() - argTypes.size() 
+                : 0;
+            
+            if (remainingParams > 0) {
+                // Push element type for each remaining parameter
+                for (size_t j = 0; j < remainingParams; j++) {
+                    argTypes.push_back(elementType);
+                }
+            } else {
+                // If no known parameter count, push as array (fallback for varargs/rest)
+                argTypes.push_back(spreadType);
+            }
+            continue;
+        }
+        
         // Check if this is an arrow function that needs contextual typing
         bool isArrowOrFn = (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression");
         if (isArrowOrFn) {
