@@ -150,7 +150,7 @@ call map(arr, boxedFn);                     // so ts_call_1 can invoke it
 - [x] **Task 106.1b.5:** Add `getRuntimeFunction()` helper to IRGenerator that enforces registry ✅
 - [x] **Task 106.1b.6:** Per-file registration for all 12 codegen files (388 functions, 0 missing) ✅
 - [x] **Task 106.1b.7:** Enable strict enforcement in `getRuntimeFunction()` ✅
-- [~] **Task 106.1b.8:** Migrate remaining `getOrInsertFunction()` calls to `getRuntimeFunction()` (DEFERRED - current approach works)
+- [ ] **Task 106.1b.8:** Migrate remaining `getOrInsertFunction()` calls to `getRuntimeFunction()` (UN-DEFERRED - see "Previously Deferred" section)
 
 ### Milestone 106.2: Unit Tests for BoxingPolicy
 
@@ -601,7 +601,28 @@ ts_call_1(fnPtr, arg);  // BUG! ts_call_1 expects TsValue*
 
 ### Deferred Work (Optional Future Improvements)
 
-- **Task 106.1b.8:** Migrate all `getOrInsertFunction()` to `getRuntimeFunction()`
 - **Milestone 106.3:** Refactor codegen to use `BoxingPolicy::decide()` instead of ad-hoc `boxedValues`
 
-These were deferred because the current implementation is stable and all tests pass.
+### Previously Deferred - Now Critical
+
+- **Task 106.1b.8:** Migrate all `getOrInsertFunction()` to `getRuntimeFunction()`
+
+> **⚠️ Update (Dec 2024):** This task can no longer be deferred. Investigation during Epic 105.3 revealed:
+> - **618 calls** to `getOrInsertFunction("ts_*"...)` bypass BoxingPolicy enforcement
+> - Only **11 calls** use `getRuntimeFunction()` with enforcement
+> - The `ts_array_get` bug was caused by missing `CORE_RUNTIME_RETURNS_BOXED` entry **AND** bypass of enforcement
+> - Even when functions are registered, call sites that use raw `getOrInsertFunction` skip validation
+>
+> **Files by priority (call count):**
+> | File | ts_* Calls |
+> |------|-----------|
+> | IRGenerator_Expressions_Calls_Builtin.cpp | 95 |
+> | IRGenerator_Expressions_Calls_Builtin_FS.cpp | 76 |
+> | IRGenerator_Expressions_Access.cpp | 50 |
+> | IRGenerator_Expressions.cpp | 45 |
+> | IRGenerator_Core.cpp | 40 |
+> | IRGenerator_Expressions_Calls_Builtin_HTTP.cpp | 38 |
+> | IRGenerator_Classes.cpp | 37 |
+> | (and 18 more files totaling 618 calls) |
+>
+> **Root cause:** The registry exists and is well-documented, but enforcement is bypassed by direct LLVM calls.
