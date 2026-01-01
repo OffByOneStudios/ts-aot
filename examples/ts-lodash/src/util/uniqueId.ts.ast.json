@@ -1,0 +1,285 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "uniqueId",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "string",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "prefix",
+            "line": 7,
+            "column": 26
+          },
+          "type": "string",
+          "isOptional": true,
+          "isRest": false,
+          "initializer": {
+            "kind": "StringLiteral",
+            "value": "",
+            "line": 7,
+            "column": 43
+          },
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 7,
+          "column": 26
+        }
+      ],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "timestamp",
+            "line": 10,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Date",
+                "line": 10,
+                "column": 23
+              },
+              "name": "now",
+              "isOptional": false,
+              "line": 10,
+              "column": 23
+            },
+            "arguments": [],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 10,
+            "column": 23
+          },
+          "line": 10,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "random",
+            "line": 11,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math",
+                "line": 11,
+                "column": 20
+              },
+              "name": "floor",
+              "isOptional": false,
+              "line": 11,
+              "column": 20
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "*",
+                "left": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "Math",
+                      "line": 11,
+                      "column": 31
+                    },
+                    "name": "random",
+                    "isOptional": false,
+                    "line": 11,
+                    "column": 31
+                  },
+                  "arguments": [],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 11,
+                  "column": 31
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 10000,
+                  "line": 11,
+                  "column": 47
+                },
+                "line": 11,
+                "column": 31
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 11,
+            "column": 20
+          },
+          "line": 11,
+          "column": 5
+        },
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "id",
+            "line": 12,
+            "column": 11
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "+",
+              "left": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "timestamp",
+                    "line": 12,
+                    "column": 16
+                  },
+                  "name": "toString",
+                  "isOptional": false,
+                  "line": 12,
+                  "column": 16
+                },
+                "arguments": [],
+                "typeArguments": [],
+                "isOptional": false,
+                "line": 12,
+                "column": 16
+              },
+              "right": {
+                "kind": "StringLiteral",
+                "value": "_",
+                "line": 12,
+                "column": 39
+              },
+              "line": 12,
+              "column": 16
+            },
+            "right": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "random",
+                  "line": 12,
+                  "column": 45
+                },
+                "name": "toString",
+                "isOptional": false,
+                "line": 12,
+                "column": 45
+              },
+              "arguments": [],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 12,
+              "column": 45
+            },
+            "line": 12,
+            "column": 16
+          },
+          "line": 12,
+          "column": 5
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "===",
+            "left": {
+              "kind": "Identifier",
+              "name": "prefix",
+              "line": 13,
+              "column": 9
+            },
+            "right": {
+              "kind": "StringLiteral",
+              "value": "",
+              "line": 13,
+              "column": 20
+            },
+            "line": 13,
+            "column": 9
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "id",
+                  "line": 14,
+                  "column": 16
+                },
+                "line": 14,
+                "column": 9
+              }
+            ],
+            "line": 13,
+            "column": 24
+          },
+          "elseStatement": null,
+          "line": 13,
+          "column": 5
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "Identifier",
+              "name": "prefix",
+              "line": 16,
+              "column": 12
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "id",
+              "line": 16,
+              "column": 21
+            },
+            "line": 16,
+            "column": 12
+          },
+          "line": 16,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 7,
+      "column": 1
+    }
+  ]
+}

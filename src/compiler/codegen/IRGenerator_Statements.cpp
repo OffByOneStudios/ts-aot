@@ -729,6 +729,9 @@ void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
     } else if (varType && varType->kind == TypeKind::Int && initVal->getType()->isDoubleTy()) {
         // Convert double to int
         initVal = builder->CreateFPToSI(initVal, llvm::Type::getInt64Ty(*context), "dtoi");
+    } else if (varType && varType->kind == TypeKind::Any && !initVal->getType()->isPointerTy()) {
+        // Box primitive values when assigning to 'any' typed variable
+        initVal = boxValue(initVal, node->initializer->inferredType);
     }
 
     generateDestructuring(initVal, varType, node->name.get());
