@@ -382,7 +382,16 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         }
     }
 
-    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+    // Check if this is a boxed element array (e.g., rest parameters)
+    // These arrays have boxed elements even though the type says int[] or double[]
+    bool isBoxedElementArray = false;
+    if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (boxedElementArrayVars.count(id->name)) {
+            isBoxedElementArray = true;
+        }
+    }
+
+    if (!isBoxedElementArray && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
         auto arrayType = std::static_pointer_cast<ArrayType>(node->expression->inferredType);
         auto elemType = arrayType->elementType;
 
@@ -473,6 +482,8 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     llvm::FunctionCallee getFn = module->getOrInsertFunction(funcName, getFt);
             
     llvm::Value* val = createCall(getFt, getFn.getCallee(), { arr, index });
+    // ts_array_get returns boxed TsValue* - mark it so unboxValue works correctly
+    boxedValues.insert(val);
 
     std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {

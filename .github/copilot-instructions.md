@@ -19,6 +19,7 @@ Before editing ANY file in `src/runtime/`, verify your code uses these patterns:
 | Cast to base/derived | `obj->AsEventEmitter()` or `dynamic_cast<T*>(obj)` | `(T*)ptr` C-style cast |
 | Unbox void* param | `ts_value_get_object((TsValue*)p)` | Assume it's raw pointer |
 | Create error | `ts_error_create("msg")` (already boxed!) | Double-box with `ts_value_make_object` |
+| Codegen: use `any` value | Always unbox with `ts_value_get_object()` | Check `boxedValues.count()` for loaded values |
 
 ## Technical Constraints & Architecture
 *   **Language Standard:** C++20.
@@ -52,6 +53,17 @@ Before editing ANY file in `src/runtime/`, verify your code uses these patterns:
         ```
     *   **Unboxing helpers:** `ts_value_get_object`, `ts_value_get_int`, `ts_value_get_double`, `ts_value_get_bool`, `ts_value_get_string`
     *   **Track boxed values:** In codegen, always call `boxedValues.insert(value)` after boxing.
+    *   **⚠️ CRITICAL: `boxedValues` is unreliable for loaded values!** When a boxed value is stored to an alloca and then loaded, the loaded LLVM Value is different from the original. The `boxedValues` set won't contain it.
+    *   **For `TypeKind::Any`, ALWAYS unbox unconditionally:**
+        ```cpp
+        // In codegen when handling 'any' type values:
+        if (type->kind == TypeKind::Any) {
+            // ALWAYS call ts_value_get_object - don't check boxedValues!
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_get_object", ft);
+            obj = createCall(ft, fn.getCallee(), { obj });
+        }
+        ```
 *   **LLVM 18 (Opaque Pointers):**
     *   **Pointers:** Use `builder->getPtrTy()` for all pointer types. NEVER use `getPointerTo()`.
     *   **GEP:** Always provide the source element type: `builder->CreateGEP(type, ptr, indices)`.

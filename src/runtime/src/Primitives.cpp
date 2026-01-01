@@ -2,6 +2,7 @@
 #include "TsString.h"
 #include "TsBigInt.h"
 #include "TsSymbol.h"
+#include "TsArray.h"
 #include <cstdio>
 #include <cmath>
 #include <chrono>
@@ -113,11 +114,40 @@ extern "C" void ts_console_log_value(TsValue* val) {
         return;
     }
 
-    // Check if it's actually a TsString* being passed as a TsValue*
-    // A TsString starts with a magic number 0x53545247
+    // Check if it's actually a raw runtime object being passed as a TsValue*
+    // These objects have magic numbers at specific offsets
     uint32_t magic = *(uint32_t*)val;
+    
+    // TsString::MAGIC = 0x53545247 ("STRG")
     if (magic == 0x53545247) {
         std::printf("%s\n", ((TsString*)val)->ToUtf8());
+        std::fflush(stdout);
+        return;
+    }
+    
+    // TsArray::MAGIC = 0x41525259 ("ARRY") - print array contents
+    if (magic == 0x41525259) {
+        TsArray* arr = (TsArray*)val;
+        int64_t len = arr->Length();
+        for (int64_t i = 0; i < len; i++) {
+            void* elem = (void*)arr->Get(i);
+            // Print the element - it could be a TsValue* with a string inside
+            if (elem) {
+                TsValue* elemVal = (TsValue*)elem;
+                if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
+                    if (i > 0) std::printf(",");
+                    std::printf("%s", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                } else {
+                    // Raw TsString check
+                    uint32_t elemMagic = *(uint32_t*)elem;
+                    if (elemMagic == 0x53545247) {
+                        if (i > 0) std::printf(",");
+                        std::printf("%s", ((TsString*)elem)->ToUtf8());
+                    }
+                }
+            }
+        }
+        std::printf("\n");
         std::fflush(stdout);
         return;
     }
@@ -149,23 +179,61 @@ TsString* ts_typeof(void* val) {
     if (!val) return TsString::Create("undefined");
     
     uintptr_t ptr = (uintptr_t)val;
+    // Check for bitcasted double (high bits set) - this is NOT a valid pointer
     if (ptr > 0x00007FFFFFFFFFFF) {
         return TsString::Create("number");
     }
     
-    // Check for TsString magic number
-    // Safety: in our runtime, pointers are either to TsString or TsObject which are both > 4 bytes.
+    // First check for magic numbers - these are definitive
     uint32_t magic = *(uint32_t*)val;
-    if (magic == 0x53545247) {
+    if (magic == 0x53545247) { // TsString
         return TsString::Create("string");
     }
-    
-    if (magic == 0x42494749) {
+    if (magic == 0x42494749) { // TsBigInt
         return TsString::Create("bigint");
     }
-
-    if (magic == 0x53594D42) {
+    if (magic == 0x53594D42) { // TsSymbol
         return TsString::Create("symbol");
+    }
+    if (magic == 0x41525259) { // TsArray
+        return TsString::Create("object");
+    }
+    if (magic == 0x4D415053) { // TsMap
+        return TsString::Create("object");
+    }
+    if (magic == 0x46554E43) { // TsFunction
+        return TsString::Create("function");
+    }
+    
+    // Now check for boxed TsValue* 
+    // A TsValue has type byte at offset 0, and the valid range is 0-9
+    // Magic numbers have much larger first bytes (0x41, 0x42, 0x46, 0x4D, 0x53)
+    uint8_t firstByte = *(uint8_t*)val;
+    if (firstByte <= 9) {
+        TsValue* tv = (TsValue*)val;
+        switch (tv->type) {
+            case ValueType::UNDEFINED:
+                return TsString::Create("undefined");
+            case ValueType::NUMBER_INT:
+            case ValueType::NUMBER_DBL:
+                return TsString::Create("number");
+            case ValueType::BOOLEAN:
+                return TsString::Create("boolean");
+            case ValueType::STRING_PTR:
+                return TsString::Create("string");
+            case ValueType::OBJECT_PTR:
+                if (!tv->ptr_val) return TsString::Create("object"); // null
+                // Recursively check the inner pointer
+                return ts_typeof(tv->ptr_val);
+            case ValueType::ARRAY_PTR:
+                return TsString::Create("object");
+            case ValueType::PROMISE_PTR:
+                return TsString::Create("object");
+            case ValueType::BIGINT_PTR:
+                return TsString::Create("bigint");
+            case ValueType::SYMBOL_PTR:
+                return TsString::Create("symbol");
+        }
     }
     
     return TsString::Create("object");
@@ -218,12 +286,28 @@ double ts_value_get_double(TsValue* v) {
 
 bool ts_value_to_bool(TsValue* v) {
     if (!v) return false;
+    
+    // Check for raw TsString* (magic at offset 0)
+    uint32_t magic = *(uint32_t*)v;
+    if (magic == 0x53545247) { // TsString::MAGIC
+        TsString* str = (TsString*)v;
+        return str->Length() > 0;  // Empty string is falsy
+    }
+    
     switch (v->type) {
         case ValueType::UNDEFINED: return false;
         case ValueType::NUMBER_INT: return v->i_val != 0;
-        case ValueType::NUMBER_DBL: return v->d_val != 0.0;
+        case ValueType::NUMBER_DBL: {
+            // NaN is falsy, 0.0 is falsy
+            double d = v->d_val;
+            return d != 0.0 && !std::isnan(d);
+        }
         case ValueType::BOOLEAN: return v->b_val;
-        case ValueType::STRING_PTR: return v->ptr_val != nullptr;
+        case ValueType::STRING_PTR: {
+            if (!v->ptr_val) return false;
+            TsString* str = (TsString*)v->ptr_val;
+            return str->Length() > 0;  // Empty string is falsy
+        }
         case ValueType::OBJECT_PTR:
         case ValueType::PROMISE_PTR:
         case ValueType::ARRAY_PTR:

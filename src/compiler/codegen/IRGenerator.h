@@ -56,6 +56,7 @@ private:
     std::map<llvm::Value*, ClassType*> concreteTypes;
     std::set<llvm::Value*> boxedValues;
     std::set<std::string> boxedVariables;
+    std::set<std::string> boxedElementArrayVars;  // Array variables where elements are boxed (e.g., rest parameters)
     std::set<std::string> cellVariables;  // Variables that need cells (captured and mutable)
     std::map<std::string, llvm::Value*> cellPointers;  // Maps var name -> cell pointer
     std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName

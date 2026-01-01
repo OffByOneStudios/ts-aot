@@ -557,8 +557,10 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Any) {
             visit(elem->expression.get());
             llvm::Value* obj = lastValue;
-            // Unbox if needed
-            if (boxedValues.count(obj)) {
+            // ⚠️ CRITICAL: Always unbox for 'any' type - see runtime-extensions.instructions.md
+            // The object literal {} produces a boxed TsValue*, but when loaded from an alloca,
+            // the boxedValues set won't track the loaded value. ts_value_get_object is idempotent.
+            {
                 llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
                 obj = createCall(getObjFt, getObjFn.getCallee(), { obj });

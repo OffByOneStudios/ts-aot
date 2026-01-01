@@ -153,6 +153,70 @@ TsValue* err = ts_error_create("message");
 emitter->Emit("error", 1, (void**)&err);
 ```
 
+---
+
+## Codegen Boxing Policy for `TypeKind::Any`
+
+**⚠️ CRITICAL: This policy applies to ALL codegen that handles `any` typed values ⚠️**
+
+### The Problem
+
+When generating LLVM IR for `any` typed expressions, the compiler tracks boxed values in a `boxedValues` set. However, this tracking is **UNRELIABLE** for values that have been stored to an alloca and then loaded:
+
+```typescript
+let obj: any = {};  // {} creates boxed TsValue* via ts_value_make_object
+obj["key"] = 123;   // When loading 'obj', the LLVM Value is DIFFERENT
+                    // boxedValues won't contain the loaded value!
+```
+
+### The Rule
+
+**For `TypeKind::Any`, ALWAYS call `ts_value_get_object()` unconditionally.**
+
+Do NOT check `boxedValues.count(value)` for `any` typed values - it will return false after the value has been stored and reloaded.
+
+### Correct Pattern (in IRGenerator)
+```cpp
+// When emitting code that uses an 'any' typed value as an object:
+if (type->kind == TypeKind::Any) {
+    // ALWAYS unbox - don't check boxedValues!
+    llvm::FunctionType* ft = llvm::FunctionType::get(
+        builder->getPtrTy(), 
+        { builder->getPtrTy() }, 
+        false
+    );
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_value_get_object", ft);
+    obj = createCall(ft, fn.getCallee(), { obj });
+}
+```
+
+### Why This Works
+
+`ts_value_get_object()` is idempotent for unboxed pointers:
+- If the value is a boxed `TsValue*` → returns the inner `ptr_val`
+- If the value is already a raw pointer → returns the pointer unchanged (fallback in runtime)
+
+This means calling it unconditionally is safe and correct.
+
+### Places This Pattern Applies
+
+1. **Element assignment** (`obj[key] = value`) - see `IRGenerator_Expressions_Binary.cpp`
+2. **Method calls** on `any` typed objects
+3. **Property access** on `any` typed objects
+4. **Spread operator** with `any` typed objects
+5. **Any runtime call** that expects a raw object pointer
+
+### Test Case
+
+If you see `Object.keys({})` returning an empty array, or property access on `any` returning undefined, suspect a boxing issue. Add debug output:
+
+```cpp
+// Temporary debug in runtime
+SPDLOG_DEBUG("ts_my_function: param={}, type check...", param);
+```
+
+---
+
 ## Memory Allocation
 
 - **NEVER** use `new`/`malloc` directly for GC-managed objects

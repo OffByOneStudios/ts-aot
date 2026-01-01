@@ -257,6 +257,12 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         ++idx;
                     }
 
+                    // Mark the rest parameter array as containing boxed elements
+                    // so that array access won't use specialized (direct) access
+                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                        boxedElementArrayVars.insert(id->name);
+                    }
+
                     generateDestructuring(arr, nullptr, param->name.get());
                     break; // Rest parameter must be the last one
                 } else {

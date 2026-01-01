@@ -441,7 +441,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object((TsValue*)obj);
         if (!rawPtr) rawPtr = obj;
         
-        // Check if it's a TsMap (magic at offset 24 due to TsObject base class + alignment)
+        // Check TsMap::magic at offset 24
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_map_keys(rawPtr);
