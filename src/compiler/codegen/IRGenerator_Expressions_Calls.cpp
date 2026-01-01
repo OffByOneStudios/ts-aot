@@ -12,7 +12,7 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
 
         llvm::Value* boxedCallee = boxValue(callee, node->callee->inferredType);
         llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::FunctionCallee isNullishFn = getRuntimeFunction("ts_value_is_nullish", isNullishFt);
         llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedCallee });
         llvm::Value* undef = getUndefinedValue();
 
@@ -97,7 +97,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             }
 
             llvm::FunctionType* fetchFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fetchFn = module->getOrInsertFunction("ts_fetch", fetchFt);
+            llvm::FunctionCallee fetchFn = getRuntimeFunction("ts_fetch", fetchFt);
             
             lastValue = createCall(fetchFt, fetchFn.getCallee(), { vtable, url, options });
             return;
@@ -109,7 +109,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
 
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_immediate", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_set_immediate", ft);
             lastValue = createCall(ft, fn.getCallee(), { callback });
             return;
         }
@@ -120,7 +120,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
 
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_next_tick", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_next_tick", ft);
             createCall(ft, fn.getCallee(), { callback });
             lastValue = nullptr;
             return;
@@ -132,7 +132,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* arg = boxValue(lastValue, node->arguments[0]->inferredType);
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_bigint_from_value", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_bigint_from_value", ft);
             lastValue = createCall(ft, fn.getCallee(), { arg });
             return;
         }
@@ -145,7 +145,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_symbol_create", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_symbol_create", ft);
             lastValue = createCall(ft, fn.getCallee(), { desc });
             return;
         }
@@ -187,7 +187,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         
         if (node->arguments.empty()) {
             llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee callFn = module->getOrInsertFunction("ts_call_0", callFt);
+            llvm::FunctionCallee callFn = getRuntimeFunction("ts_call_0", callFt);
             lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
             
             lastValue = unboxValue(lastValue, node->inferredType);
@@ -232,7 +232,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             
             // Get the actual function value from the cell
             llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee cellGetFn = module->getOrInsertFunction("ts_cell_get", cellGetFt);
+            llvm::FunctionCallee cellGetFn = getRuntimeFunction("ts_cell_get", cellGetFt);
             llvm::Value* boxedFunc = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
             
             // Use ts_call_N for the function call
@@ -411,7 +411,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
             
             llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee clearFn = module->getOrInsertFunction("ts_clear_timer", clearFt);
+            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
             
             createCall(clearFt, clearFn.getCallee(), { boxedId });
             lastValue = nullptr;
@@ -426,7 +426,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
             
             llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee timerFn = module->getOrInsertFunction("ts_set_immediate", timerFt);
+            llvm::FunctionCallee timerFn = getRuntimeFunction("ts_set_immediate", timerFt);
             
             llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback });
             lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
@@ -440,7 +440,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
             
             llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee clearFn = module->getOrInsertFunction("ts_clear_timer", clearFt);
+            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
             
             createCall(clearFt, clearFn.getCallee(), { boxedId });
             lastValue = nullptr;
@@ -453,7 +453,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
              llvm::Value* arg = lastValue;
 
              llvm::FunctionType* parseFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { llvm::PointerType::getUnqual(*context) }, false);
-             llvm::FunctionCallee parseFn = module->getOrInsertFunction("ts_parseInt", parseFt);
+             llvm::FunctionCallee parseFn = getRuntimeFunction("ts_parseInt", parseFt);
              
              lastValue = createCall(parseFt, parseFn.getCallee(), { arg });
              return;

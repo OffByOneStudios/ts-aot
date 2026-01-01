@@ -32,7 +32,7 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
 
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_static_once", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_static_once", ft);
             lastValue = createCall(ft, fn.getCallee(), { emitter, event });
             return true;
         }
@@ -91,7 +91,7 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_remove_all_listeners", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_remove_all_listeners", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, event });
         
         // Return 'this' for chaining
@@ -111,7 +111,7 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_event_emitter_set_max_listeners", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_set_max_listeners", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, n });
         
         // Return 'this' for chaining
@@ -143,7 +143,7 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         
         llvm::FunctionType* emitFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                 { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context), builder->getPtrTy() }, false);
-        llvm::FunctionCallee emitFn = module->getOrInsertFunction("ts_event_emitter_emit", emitFt);
+        llvm::FunctionCallee emitFn = getRuntimeFunction("ts_event_emitter_emit", emitFt);
         lastValue = createCall(emitFt, emitFn.getCallee(), { obj, event, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), args.size()), argv });
         
         // Box the result (boolean)

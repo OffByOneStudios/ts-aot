@@ -72,7 +72,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
         }
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_socket_address_parse", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_address_parse", ft);
         lastValue = createCall(ft, fn.getCallee(), { input });
         return true;
     }
@@ -86,7 +86,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
         }
         
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_is_block_list", ft);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_is_block_list", ft);
         lastValue = createCall(ft, fn.getCallee(), { value });
         lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
         return true;
@@ -130,7 +130,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
                 builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
                 false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_address", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_add_address", ft);
             createCall(ft, fn.getCallee(), { blockList, address, family });
             lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
             return true;
@@ -157,7 +157,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
                 builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
                 false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_range", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_add_range", ft);
             createCall(ft, fn.getCallee(), { blockList, start, end, family });
             lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
             return true;
@@ -191,7 +191,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
                 builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, 
                 false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_add_subnet", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_add_subnet", ft);
             createCall(ft, fn.getCallee(), { blockList, network, prefix, family });
             lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
             return true;
@@ -213,7 +213,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
                 builder->getInt1Ty(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, 
                 false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_block_list_check", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_check", ft);
             lastValue = createCall(ft, fn.getCallee(), { blockList, address, family });
             return true;
         }
@@ -228,7 +228,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_create_server", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_create_server", ft);
             lastValue = createCall(ft, fn.getCallee(), { callback });
             return true;
         } else if (prop->name == "connect" || prop->name == "createConnection") {
@@ -237,7 +237,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             
             // Create socket first
             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_net_create_socket", createFt);
+            llvm::FunctionCallee createFn = getRuntimeFunction("ts_net_create_socket", createFt);
             llvm::Value* socket = createCall(createFt, createFn.getCallee(), {});
             
             visit(node->arguments[0].get());
@@ -257,7 +257,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             
             llvm::FunctionType* connectFt = llvm::FunctionType::get(builder->getVoidTy(), 
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee connectFn = module->getOrInsertFunction("ts_net_socket_connect", connectFt);
+            llvm::FunctionCallee connectFn = getRuntimeFunction("ts_net_socket_connect", connectFt);
             createCall(connectFt, connectFn.getCallee(), { socket, port, host, callback });
             
             lastValue = socket;
@@ -272,7 +272,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* input = lastValue;
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_is_ip", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_is_ip", ft);
             lastValue = createCall(ft, fn.getCallee(), { input });
             return true;
         } else if (prop->name == "isIPv4") {
@@ -286,7 +286,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* input = lastValue;
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_is_ipv4", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_is_ipv4", ft);
             lastValue = createCall(ft, fn.getCallee(), { input });
             lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
             return true;
@@ -301,13 +301,13 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* input = lastValue;
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_is_ipv6", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_is_ipv6", ft);
             lastValue = createCall(ft, fn.getCallee(), { input });
             lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
             return true;
         } else if (prop->name == "getDefaultAutoSelectFamily") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_get_default_auto_select_family", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_get_default_auto_select_family", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
             return true;
@@ -317,13 +317,13 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* value = unboxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getInt1Ty() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_set_default_auto_select_family", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_set_default_auto_select_family", ft);
             createCall(ft, fn.getCallee(), { value });
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
             return true;
         } else if (prop->name == "getDefaultAutoSelectFamilyAttemptTimeout") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_get_default_auto_select_family_attempt_timeout", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_get_default_auto_select_family_attempt_timeout", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return true;
         } else if (prop->name == "setDefaultAutoSelectFamilyAttemptTimeout") {
@@ -332,7 +332,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* value = unboxValue(lastValue, std::make_shared<Type>(TypeKind::Int));
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getInt64Ty() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_set_default_auto_select_family_attempt_timeout", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_set_default_auto_select_family_attempt_timeout", ft);
             createCall(ft, fn.getCallee(), { value });
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
             return true;
@@ -360,7 +360,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_writable_write", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_write", ft);
             lastValue = createCall(ft, fn.getCallee(), { socket, data });
             lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
             return true;
@@ -375,7 +375,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             }
 
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_writable_end", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_end", ft);
             createCall(ft, fn.getCallee(), { socket, data });
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy()); // returns undefined
             return true;
@@ -398,7 +398,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             }
             
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_server_listen", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_listen", ft);
             createCall(ft, fn.getCallee(), { server, port, callback });
             lastValue = server; // listen() returns the server
             return true;

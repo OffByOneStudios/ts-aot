@@ -38,7 +38,7 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         llvm::Value* boxedVal = val;
         if (!boxedVal) {
             llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+            llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
             boxedVal = createCall(undefFt, undefFn.getCallee(), {});
         } else {
             boxedVal = boxValue(boxedVal, node->expression ? node->expression->inferredType : nullptr);
@@ -49,14 +49,14 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_promise_resolve_internal", resolveFt);
+            llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
             createCall(resolveFt, resolveFn.getCallee(), { promise, boxedVal });
         }
 
         if (currentIsGenerator) {
             if (currentIsAsync) {
                 llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getInt1Ty() }, false);
-                llvm::FunctionCallee resolveFn = module->getOrInsertFunction("ts_async_generator_resolve", resolveFt);
+                llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_async_generator_resolve", resolveFt);
                 createCall(resolveFt, resolveFn.getCallee(), { currentAsyncContext, boxedVal, builder->getInt1(true) });
             } else {
                 // Set ctx->yieldedValue = boxedVal
@@ -79,7 +79,7 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
             } else if (!retType->isVoidTy()) {
                 // If we have a return without value in a function that returns a pointer, return undefined
                 llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+                llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
                 llvm::Value* undef = createCall(undefFt, undefFn.getCallee(), {});
                 builder->CreateStore(undef, currentReturnValueAlloca);
             }
@@ -97,7 +97,7 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
             } else {
                 // Return undefined/null for non-void functions with no return value
                 llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                llvm::FunctionCallee undefFn = module->getOrInsertFunction("ts_value_make_undefined", undefFt);
+                llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
                 llvm::Value* undef = createCall(undefFt, undefFn.getCallee(), {});
                 builder->CreateRet(undef);
             }
@@ -223,7 +223,7 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
                 } else {
                     // String comparison
                     llvm::FunctionType* eqFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { llvm::PointerType::getUnqual(*context), llvm::PointerType::getUnqual(*context) }, false);
-                    llvm::FunctionCallee eqFn = module->getOrInsertFunction("ts_string_eq", eqFt);
+                    llvm::FunctionCallee eqFn = getRuntimeFunction("ts_string_eq", eqFt);
                     cmp = createCall(eqFt, eqFn.getCallee(), { switchVal, caseVal });
                 }
                 

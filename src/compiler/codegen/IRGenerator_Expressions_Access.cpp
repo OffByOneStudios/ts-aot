@@ -47,7 +47,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
             
             llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee cellGetFn = module->getOrInsertFunction("ts_cell_get", cellGetFt);
+            llvm::FunctionCallee cellGetFn = getRuntimeFunction("ts_cell_get", cellGetFt);
             lastValue = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
             
             // The value from ts_cell_get is boxed (TsValue*)
@@ -206,7 +206,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
             
             // Box the function (or wrapper) as a callable value with null context
             llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee makeFnFn = module->getOrInsertFunction("ts_value_make_function", makeFnFt);
+            llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
             lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { funcToBox, llvm::ConstantPointerNull::get(builder->getPtrTy()) });
             boxedValues.insert(lastValue);
             SPDLOG_DEBUG("visitIdentifier: boxed function {} as callable value (wrapper={})", node->name, needsWrapper);
@@ -225,7 +225,7 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
 
         llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
         llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::FunctionCallee isNullishFn = getRuntimeFunction("ts_value_is_nullish", isNullishFt);
         llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedObj });
         llvm::Value* undef = getUndefinedValue();
 
@@ -278,7 +278,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
         
         llvm::Value* res = createCall(getFt, getFn.getCallee(), { obj, key });
         // ts_map_get always returns boxed TsValue*
@@ -296,7 +296,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
         
         // ts_map_get expects the raw TsMap*
         llvm::Value* rawMap = unboxValue(mapVal, node->expression->inferredType);
@@ -317,7 +317,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             llvm::Value* index = lastValue;
             if (index->getType()->isPointerTy()) {
                 llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee unboxFn = module->getOrInsertFunction("ts_value_get_int", unboxFt);
+                llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
                 index = createCall(unboxFt, unboxFn.getCallee(), { index });
             }
             
@@ -330,7 +330,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             }
 
             llvm::FunctionType* getFt = llvm::FunctionType::get(llvm::Type::getInt8Ty(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_buffer_get", getFt);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_buffer_get", getFt);
             llvm::Value* byte = createCall(getFt, getFn.getCallee(), { buf, index });
             lastValue = builder->CreateUIToFP(byte, llvm::Type::getDoubleTy(*context));
             return;
@@ -449,12 +449,12 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             // String index on any
             llvm::Value* boxedIndex = boxValue(index, node->argumentExpression->inferredType);
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_property", ft);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_value_get_property", ft);
             lastValue = createCall(ft, getFn.getCallee(), { arr, boxedIndex });
         } else {
             // Numeric index on any
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_value_get_element", ft);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_value_get_element", ft);
             index = castValue(index, llvm::Type::getInt64Ty(*context));
             lastValue = createCall(ft, getFn.getCallee(), { arr, index });
         }
@@ -495,7 +495,7 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
         llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
         llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee isNullishFn = module->getOrInsertFunction("ts_value_is_nullish", isNullishFt);
+        llvm::FunctionCallee isNullishFn = getRuntimeFunction("ts_value_is_nullish", isNullishFt);
         llvm::Value* isNullish = createCall(isNullishFt, isNullishFn.getCallee(), { boxedObj });
         llvm::Value* undef = getUndefinedValue();
 
@@ -562,13 +562,13 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
         llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
         
         key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_map_get", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
         
         llvm::Value* res = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
         // ts_map_get always returns boxed TsValue*
@@ -590,7 +590,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
              llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee lenFn = module->getOrInsertFunction("ts_value_length", lenFt);
+             llvm::FunctionCallee lenFn = getRuntimeFunction("ts_value_length", lenFt);
              lastValue = createCall(lenFt, lenFn.getCallee(), { boxValue(obj, node->expression->inferredType) });
              return;
         }
@@ -668,49 +668,49 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "process" && node->name == "argv") {
             llvm::FunctionType* getArgvFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee getArgvFn = module->getOrInsertFunction("ts_get_process_argv", getArgvFt);
+            llvm::FunctionCallee getArgvFn = getRuntimeFunction("ts_get_process_argv", getArgvFt);
             lastValue = createCall(getArgvFt, getArgvFn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "env") {
             llvm::FunctionType* envFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee envFn = module->getOrInsertFunction("ts_get_process_env", envFt);
+            llvm::FunctionCallee envFn = getRuntimeFunction("ts_get_process_env", envFt);
             lastValue = unboxValue(createCall(envFt, envFn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "exitCode") {
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exit_code", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_exit_code", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "platform") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_platform", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_platform", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "arch") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_arch", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_arch", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "stdout") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stdout", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_stdout", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "stderr") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stderr", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_stderr", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "stdin") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_stdin", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_stdin", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
@@ -721,49 +721,49 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         if (id->name == "process" && node->name == "pid") {
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_pid", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_pid", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "ppid") {
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_ppid", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_ppid", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "version") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_version", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_version", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "versions") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_versions", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_versions", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "argv0") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_argv0", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_argv0", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "execPath") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exec_path", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_exec_path", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "execArgv") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_exec_argv", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_exec_argv", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "title") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_title", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_title", ft);
             lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
             return;
         }
@@ -774,32 +774,32 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         
         if (id->name == "process" && node->name == "config") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_config", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_config", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "features") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_features", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_features", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "release") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_release", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_release", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "debugPort") {
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_debug_port", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_debug_port", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "process" && node->name == "report") {
             // Return an object with getReport, writeReport, directory, filename
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_process_get_report", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_report", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
@@ -861,11 +861,11 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             if (node->name == "size") {
                 if (cls->name == "Map") {
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_map_size", ft);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_map_size", ft);
                     lastValue = createCall(ft, fn.getCallee(), { obj });
                 } else {
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
-                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_set_size", ft);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_set_size", ft);
                     lastValue = createCall(ft, fn.getCallee(), { obj });
                 }
                 return;
@@ -878,7 +878,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             
             if (node->name == "encoding") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_encoder_get_encoding", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_text_encoder_get_encoding", ft);
                 lastValue = unboxValue(createCall(ft, fn.getCallee(), { encoder }), node->inferredType);
                 return;
             }
@@ -890,17 +890,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             
             if (node->name == "encoding") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_get_encoding", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_text_decoder_get_encoding", ft);
                 lastValue = unboxValue(createCall(ft, fn.getCallee(), { decoder }), node->inferredType);
                 return;
             } else if (node->name == "fatal") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_is_fatal", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_text_decoder_is_fatal", ft);
                 lastValue = createCall(ft, fn.getCallee(), { decoder });
                 return;
             } else if (node->name == "ignoreBOM") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_text_decoder_ignore_bom", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_text_decoder_ignore_bom", ft);
                 lastValue = createCall(ft, fn.getCallee(), { decoder });
                 return;
             }
@@ -925,20 +925,20 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Math" && node->name == "PI") {
             llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), {}, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_math_PI", ft);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_math_PI", ft);
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
         if (id->name == "Symbol") {
             if (node->name == "asyncIterator") {
                 llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
                 llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.asyncIterator]") });
                 lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
                 return;
             } else if (node->name == "iterator") {
                 llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
                 llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.iterator]") });
                 lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
                 return;
@@ -1041,7 +1041,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             emitNullCheckForExpression(node->expression.get(), params);
             if (fieldName == "size") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_url_search_params_size", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_size", ft);
                 lastValue = createCall(ft, fn.getCallee(), { params });
                 return;
             }
@@ -1074,19 +1074,19 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             }
             if (fieldName == "byteLength") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_byte_length", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_byte_length", ft);
                 lastValue = createCall(ft, fn.getCallee(), { buf });
                 return;
             }
             if (fieldName == "byteOffset") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_byte_offset", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_byte_offset", ft);
                 lastValue = createCall(ft, fn.getCallee(), { buf });
                 return;
             }
             if (fieldName == "buffer") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_buffer_get_array_buffer", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_get_array_buffer", ft);
                 lastValue = createCall(ft, fn.getCallee(), { buf });
                 return;
             }
@@ -1203,7 +1203,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
             
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_object_get_property", getFt);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_property", getFt);
             
             lastValue = createCall(getFt, getFn.getCallee(), { objPtr, keyStr });
             boxedValues.insert(lastValue);
@@ -1227,13 +1227,13 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
             llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
             llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
             
             llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getPropFn = module->getOrInsertFunction("ts_value_get_property", getPropFt);
+            llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_value_get_property", getPropFt);
             
             lastValue = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
             boxedValues.insert(lastValue);
