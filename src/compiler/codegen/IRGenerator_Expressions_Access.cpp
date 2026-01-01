@@ -385,14 +385,20 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     // Check if this is a boxed element array (e.g., rest parameters)
     // These arrays have boxed elements even though the type says int[] or double[]
     bool isBoxedElementArray = false;
+    std::shared_ptr<Type> effectiveArrayType = node->expression->inferredType;
+    
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (boxedElementArrayVars.count(id->name)) {
             isBoxedElementArray = true;
         }
+        // Check if we have a more specific type from codegen (e.g., monomorphization)
+        if (variableTypes.count(id->name)) {
+            effectiveArrayType = variableTypes[id->name];
+        }
     }
 
-    if (!isBoxedElementArray && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
-        auto arrayType = std::static_pointer_cast<ArrayType>(node->expression->inferredType);
+    if (!isBoxedElementArray && effectiveArrayType && effectiveArrayType->kind == TypeKind::Array) {
+        auto arrayType = std::static_pointer_cast<ArrayType>(effectiveArrayType);
         auto elemType = arrayType->elementType;
 
         bool isSpecialized = false;

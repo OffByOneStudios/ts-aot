@@ -71,6 +71,13 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         expectedParamTypes = funcType->paramTypes;
     }
     
+    // Check if callee has a rest parameter
+    bool calleeHasRest = false;
+    if (calleeType && calleeType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(calleeType);
+        calleeHasRest = funcType->hasRest;
+    }
+    
     // 1. Evaluate arguments with contextual typing for arrow functions
     std::vector<std::shared_ptr<Type>> argTypes;
     for (size_t i = 0; i < node->arguments.size(); i++) {
@@ -93,8 +100,12 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 ? expectedParamTypes.size() - argTypes.size() 
                 : 0;
             
-            if (remainingParams > 0) {
-                // Push element type for each remaining parameter
+            // If spreading into a rest parameter at the end, pass array directly
+            if (calleeHasRest && argTypes.size() >= expectedParamTypes.size() - 1) {
+                // We're at or past the rest param position - pass array directly
+                argTypes.push_back(spreadType);
+            } else if (remainingParams > 0) {
+                // Push element type for each remaining fixed parameter
                 for (size_t j = 0; j < remainingParams; j++) {
                     argTypes.push_back(elementType);
                 }
