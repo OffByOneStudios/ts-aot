@@ -493,9 +493,11 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         
         // Get target function's expected parameter types for spread expansion
         std::vector<std::shared_ptr<Type>> expectedParamTypes;
+        bool calleeHasRest = false;
         if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
             expectedParamTypes = funcType->paramTypes;
+            calleeHasRest = funcType->hasRest;
         }
         
         std::vector<llvm::Value*> args;
@@ -515,14 +517,27 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                     elementType = arrType->elementType;
                 }
                 
-                // Calculate how many elements to extract (remaining params)
-                size_t remainingParams = expectedParamTypes.size() > paramIndex 
-                    ? expectedParamTypes.size() - paramIndex 
-                    : 0;
+                // Calculate how many elements to extract (remaining fixed params before rest)
+                size_t remainingFixedParams = 0;
+                if (calleeHasRest && expectedParamTypes.size() > 0) {
+                    // Last param is the rest array - don't expand into it
+                    size_t fixedParamCount = expectedParamTypes.size() - 1;
+                    remainingFixedParams = fixedParamCount > paramIndex ? fixedParamCount - paramIndex : 0;
+                } else {
+                    remainingFixedParams = expectedParamTypes.size() > paramIndex 
+                        ? expectedParamTypes.size() - paramIndex 
+                        : 0;
+                }
                 
-                if (remainingParams > 0) {
-                    // Extract each element from the array
-                    for (size_t j = 0; j < remainingParams; j++) {
+                // If spreading into rest param position, pass array directly
+                if (calleeHasRest && paramIndex >= expectedParamTypes.size() - 1) {
+                    // We're at the rest param position - pass array directly
+                    args.push_back(arrVal);
+                    argTypes.push_back(spread->expression->inferredType);
+                    paramIndex++;
+                } else if (remainingFixedParams > 0) {
+                    // Extract each element from the array for fixed params
+                    for (size_t j = 0; j < remainingFixedParams; j++) {
                         llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), j);
                         
                         // Get element using ts_array_get or specialized access

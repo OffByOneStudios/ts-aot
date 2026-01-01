@@ -92,6 +92,8 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         hoisted->returnType = funcType->returnType;
         hoisted->paramTypes = funcType->paramTypes;
         hoisted->typeParameters = funcType->typeParameters;
+        hoisted->hasRest = funcType->hasRest;
+        hoisted->isOptional = funcType->isOptional;
         funcType = hoisted;
     }
 
@@ -318,7 +320,13 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             if (restTypes.empty()) {
                 restType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
             } else if (restTypes.size() == 1) {
-                restType = std::make_shared<ArrayType>(restTypes[0]);
+                // If the single arg is already an array (e.g., from spread: sumAll(...arr)),
+                // use it directly instead of wrapping in another array
+                if (restTypes[0]->kind == TypeKind::Array) {
+                    restType = restTypes[0];  // Use array directly
+                } else {
+                    restType = std::make_shared<ArrayType>(restTypes[0]);
+                }
             } else {
                 // Check if all rest types are the same (homogeneous)
                 bool homogeneous = true;

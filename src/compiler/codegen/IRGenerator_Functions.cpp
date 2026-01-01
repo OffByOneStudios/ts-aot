@@ -110,6 +110,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         catchStack.clear();
         finallyStack.clear();
         valueOverrides.clear();
+        variableTypes.clear();  // Clear variable type info between function bodies
+        boxedElementArrayVars.clear();  // Clear boxed array tracking between function bodies
 
         if (isAsync || isGenerator) {
             generateAsyncFunctionBody(function, spec.node, spec.argTypes, spec.classType, spec.specializedName);
@@ -237,33 +239,56 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 auto param = funcNode->parameters[pIdx].get();
 
                 if (param->isRest) {
-                    // Create an empty array
-                    llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-                    llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
-                    llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
-
-                    llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                            { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
-
-                    // Collect all remaining arguments into the array
-                    while (argIt != function->arg_end()) {
-                        llvm::Value* argVal = &*argIt;
-                        // Box the value if it's a primitive
-                        std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
-                        llvm::Value* boxedVal = boxValue(argVal, argType);
-                        createCall(pushFt, pushFn.getCallee(), { arr, boxedVal });
+                    // Check if we received exactly one array argument that matches the rest param type
+                    // This happens when the caller used spread: sumAll(...arr)
+                    std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
+                    bool receivedArrayDirectly = false;
+                    
+                    // Count remaining args - if exactly 1 and it's an array type, use it directly
+                    int remainingArgs = 0;
+                    for (auto it = argIt; it != function->arg_end(); ++it) remainingArgs++;
+                    
+                    if (remainingArgs == 1 && argType && argType->kind == TypeKind::Array) {
+                        // Received array directly from spread - use it as-is
+                        llvm::Value* arr = &*argIt;
                         ++argIt;
                         ++idx;
+                        
+                        // Don't mark as boxed - this is a raw array, not boxed elements
+                        // Pass the array type so codegen knows element types for specialized access
+                        generateDestructuring(arr, argType, param->name.get());
+                        receivedArrayDirectly = true;
                     }
+                    
+                    if (!receivedArrayDirectly) {
+                        // Normal case: Create an empty array and collect individual args
+                        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                        llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+                        llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
 
-                    // Mark the rest parameter array as containing boxed elements
-                    // so that array access won't use specialized (direct) access
-                    if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
-                        boxedElementArrayVars.insert(id->name);
+                        llvm::FunctionType* pushFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                                { builder->getPtrTy(), builder->getPtrTy() }, false);
+                        llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+
+                        // Collect all remaining arguments into the array
+                        while (argIt != function->arg_end()) {
+                            llvm::Value* argVal = &*argIt;
+                            // Box the value if it's a primitive
+                            std::shared_ptr<Type> boxArgType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
+                            llvm::Value* boxedVal = boxValue(argVal, boxArgType);
+                            createCall(pushFt, pushFn.getCallee(), { arr, boxedVal });
+                            ++argIt;
+                            ++idx;
+                        }
+
+                        // Mark the rest parameter array as containing boxed elements
+                        // so that array access won't use specialized (direct) access
+                        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                            boxedElementArrayVars.insert(id->name);
+                        }
+
+                        generateDestructuring(arr, nullptr, param->name.get());
                     }
-
-                    generateDestructuring(arr, nullptr, param->name.get());
                     break; // Rest parameter must be the last one
                 } else {
                     if (argIt != function->arg_end()) {
