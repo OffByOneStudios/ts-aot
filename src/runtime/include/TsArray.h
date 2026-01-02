@@ -88,4 +88,5 @@ extern "C" {
     bool ts_array_every(void* arr, void* callback, void* thisArg);
     struct TaggedValue* ts_array_find(void* arr, void* callback, void* thisArg);
     int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg);
+    bool ts_array_is_array(void* value);
 }

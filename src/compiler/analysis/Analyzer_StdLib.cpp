@@ -632,6 +632,23 @@ Analyzer::Analyzer() {
     
     symbols.define("Object", objectType);
 
+    // Register Array global (for static methods like Array.isArray)
+    auto arrayGlobalType = std::make_shared<ObjectType>();
+    
+    // Array.isArray(value) => boolean
+    auto isArrayType = std::make_shared<FunctionType>();
+    isArrayType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    isArrayType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    arrayGlobalType->fields["isArray"] = isArrayType;
+    
+    // Array.from(iterable) => any[] - basic support
+    auto arrayFromType = std::make_shared<FunctionType>();
+    arrayFromType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    arrayFromType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    arrayGlobalType->fields["from"] = arrayFromType;
+    
+    symbols.define("Array", arrayGlobalType);
+
     // Register Math global
     auto mathType = std::make_shared<ObjectType>();
     

@@ -421,13 +421,40 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         if (isSpecialized) {
             visit(node->expression.get());
             llvm::Value* arr = lastValue;
+            
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Array types.
+            // The array might be boxed (e.g., accessed from a cloned object) but not tracked
+            // in boxedValues after being stored to and loaded from an alloca.
+            // ts_value_get_object is idempotent for raw pointers.
+            if (arr->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                arr = createCall(getObjFt, getObjFn.getCallee(), { arr });
+            }
             emitNullCheckForExpression(node->expression.get(), arr);
             visit(node->argumentExpression.get());
             llvm::Value* index = lastValue;
             if (index->getType()->isDoubleTy()) {
                 index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
             }
+            index = castValue(index, llvm::Type::getInt64Ty(*context));
 
+            // ⚠️ RUNTIME CHECK: Arrays may be typed as specialized at compile time
+            // but actually be non-specialized at runtime (e.g., from cloneDeep).
+            // Check at runtime and fall back to ts_array_get_as_value if needed.
+            llvm::FunctionType* isSpecFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee isSpecFn = getRuntimeFunction("ts_array_is_specialized", isSpecFt);
+            llvm::Value* isSpec = createCall(isSpecFt, isSpecFn.getCallee(), { arr });
+            
+            llvm::Function* func = builder->GetInsertBlock()->getParent();
+            llvm::BasicBlock* specBB = llvm::BasicBlock::Create(*context, "spec_access", func);
+            llvm::BasicBlock* boxedBB = llvm::BasicBlock::Create(*context, "boxed_access", func);
+            llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "access_merge", func);
+            
+            builder->CreateCondBr(isSpec, specBB, boxedBB);
+            
+            // Specialized path - direct memory access
+            builder->SetInsertPoint(specBB);
             llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
             llvm::Value* elementsPtrPtr = builder->CreateStructGEP(tsArrayType, arr, 1);
             llvm::Value* elementsPtr = builder->CreateLoad(builder->getPtrTy(), elementsPtrPtr);
@@ -440,7 +467,30 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             }
 
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
-            lastValue = builder->CreateLoad(llvmElemType, ptr);
+            llvm::Value* specResult = builder->CreateLoad(llvmElemType, ptr);
+            llvm::BasicBlock* specEndBB = builder->GetInsertBlock();
+            builder->CreateBr(mergeBB);
+            
+            // Boxed path - use ts_array_get_as_value
+            builder->SetInsertPoint(boxedBB);
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get_as_value", getFt);
+            llvm::Value* boxedVal = createCall(getFt, getFn.getCallee(), { arr, index });
+            // Mark as boxed BEFORE unboxing so unboxValue works correctly
+            boxedValues.insert(boxedVal);
+            // Unbox to get the raw value matching the element type
+            llvm::Value* boxedResult = unboxValue(boxedVal, elemType);
+            llvm::BasicBlock* boxedEndBB = builder->GetInsertBlock();
+            builder->CreateBr(mergeBB);
+            
+            // Merge
+            builder->SetInsertPoint(mergeBB);
+            llvm::PHINode* phi = builder->CreatePHI(specResult->getType(), 2);
+            phi->addIncoming(specResult, specEndBB);
+            phi->addIncoming(boxedResult, boxedEndBB);
+            
+            lastValue = phi;
             if (elemType->kind == TypeKind::Class) {
                 concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(elemType).get();
             }
@@ -451,9 +501,12 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     visit(node->expression.get());
     llvm::Value* arr = lastValue;
     
-    // If the array is boxed, unbox it first
-    if (boxedValues.count(arr) && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
-        arr = unboxValue(arr, node->expression->inferredType);
+    // ⚠️ CRITICAL: Always call ts_value_get_object for Array types.
+    // Same issue as above - arrays from cloned objects may be boxed but not tracked.
+    if (arr->getType()->isPointerTy() && node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
+        llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+        arr = createCall(getObjFt, getObjFn.getCallee(), { arr });
     }
     
     visit(node->argumentExpression.get());
@@ -482,13 +535,15 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         // Safe access
     }
 
-    std::string funcName = isSafe ? "ts_array_get_unchecked" : "ts_array_get";
+    // Use ts_array_get_as_value which properly handles specialized arrays
+    // and returns a boxed TsValue* for int/double specialized arrays
+    std::string funcName = "ts_array_get_as_value";
     llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
     llvm::FunctionCallee getFn = module->getOrInsertFunction(funcName, getFt);
             
     llvm::Value* val = createCall(getFt, getFn.getCallee(), { arr, index });
-    // ts_array_get returns boxed TsValue* - mark it so unboxValue works correctly
+    // ts_array_get_as_value returns boxed TsValue* - mark it so unboxValue works correctly
     boxedValues.insert(val);
 
     std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
@@ -631,6 +686,14 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             lastValue = builder->CreateZExt(length, llvm::Type::getInt64Ty(*context));
             return;
         } else if (node->expression->inferredType->kind == TypeKind::Array || node->expression->inferredType->kind == TypeKind::Tuple) {
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Array types.
+            // The array might be boxed (e.g., accessed from a cloned object) but not tracked
+            // in boxedValues. ts_value_get_object is idempotent for raw pointers.
+            if (obj->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+            }
             llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
             llvm::Value* lengthPtr = builder->CreateStructGEP(tsArrayType, obj, 2);
             llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
@@ -1214,7 +1277,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
 
     if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(node->expression.get());
-            llvm::Value* objPtr = unboxValue(lastValue, node->expression->inferredType);
+            llvm::Value* objPtr = lastValue;
+            
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
+            // The value might be boxed (e.g., returned from a generic function) but not tracked
+            // in boxedValues after being stored to and loaded from an alloca.
+            // ts_value_get_object is idempotent for raw pointers.
+            if (objPtr->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                objPtr = createCall(getObjFt, getObjFn.getCallee(), { objPtr });
+            }
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);

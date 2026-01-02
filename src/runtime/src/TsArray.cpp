@@ -374,6 +374,11 @@ extern "C" {
         return ((TsArray*)arr)->GetElementsPtr();
     }
 
+    bool ts_array_is_specialized(void* arr) {
+        if (!arr) return false;
+        return ((TsArray*)arr)->IsSpecialized();
+    }
+
     void ts_array_push(void* arr, void* value) {
         ((TsArray*)arr)->Push((int64_t)value);
     }
@@ -537,5 +542,22 @@ extern "C" {
         for (size_t i = 0; i < source->Length(); ++i) {
             target->Push(source->Get(i));
         }
+    }
+
+    bool ts_array_is_array(void* value) {
+        if (!value) return false;
+        
+        // Check if the value is a TsValue* with ARRAY_PTR type
+        TsValue* v = (TsValue*)value;
+        if (v->type == ValueType::ARRAY_PTR && v->ptr_val) {
+            // It's a boxed array - check the underlying pointer
+            uint32_t* magic_ptr = (uint32_t*)v->ptr_val;
+            return *magic_ptr == TsArray::MAGIC;
+        }
+        
+        // Check if the value has the TsArray magic number directly
+        // The magic is the first field of TsArray (at offset 0)
+        uint32_t* magic_ptr = (uint32_t*)value;
+        return *magic_ptr == TsArray::MAGIC;
     }
 }

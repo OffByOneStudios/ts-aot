@@ -1,5 +1,6 @@
 #include "TsObject.h"
 #include "TsArray.h"
+#include "TsBigInt.h"
 #include "TsMap.h"
 #include "TsString.h"
 #include "TsBuffer.h"
@@ -79,6 +80,43 @@ TsValue* ts_value_make_int(int64_t i) {
         return val;
     }
 
+    // Box any pointer by detecting its runtime type
+    // This is used when the compile-time type is 'any' but we need proper boxing
+    TsValue* ts_value_box_any(void* ptr) {
+        if (!ptr) {
+            return ts_value_make_undefined();
+        }
+        
+        // Check if it's already a TsValue* (types 0-10)
+        uint8_t firstByte = *(uint8_t*)ptr;
+        if (firstByte <= 10) {
+            // Looks like a TsValue type field - return as-is
+            return (TsValue*)ptr;
+        }
+        
+        // Check magic numbers to detect type
+        uint32_t magic = *(uint32_t*)ptr;
+        
+        if (magic == 0x41525259) { // TsArray::MAGIC "ARRY"
+            return ts_value_make_array(ptr);
+        }
+        if (magic == 0x4D415053) { // TsMap::MAGIC "MAPS"  
+            return ts_value_make_object(ptr);
+        }
+        if (magic == 0x53455453) { // TsSet::MAGIC "SETS"
+            return ts_value_make_object(ptr);
+        }
+        
+        // Check for buffer magic at offset 8 (vtable is at 0)
+        uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
+        if (magic8 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
+            return ts_value_make_object(ptr);
+        }
+        
+        // Default: treat as generic object
+        return ts_value_make_object(ptr);
+    }
+
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
         TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
@@ -146,6 +184,83 @@ TsValue* ts_value_make_int(int64_t i) {
             return v->ptr_val;
         }
         return nullptr;
+    }
+
+    // Strict equality comparison for boxed values (implements === semantics)
+    bool ts_value_strict_eq(TsValue* lhs, TsValue* rhs) {
+        if (!lhs && !rhs) return true;
+        if (!lhs || !rhs) return false;
+        
+        // Get the actual TsValue structs (handle raw pointers)
+        TsValue lhsVal = {};
+        TsValue rhsVal = {};
+        
+        // Check if lhs is a raw pointer or a boxed TsValue
+        uint8_t lhsType = *(uint8_t*)lhs;
+        if (lhsType <= 10) {
+            lhsVal = *lhs;
+        } else {
+            // It's a raw pointer - box it to determine type
+            uint32_t magic = *(uint32_t*)lhs;
+            if (magic == 0x41525259) { // TsArray::MAGIC
+                lhsVal.type = ValueType::ARRAY_PTR;
+                lhsVal.ptr_val = lhs;
+            } else if (magic == 0x53545247) { // TsString::MAGIC
+                lhsVal.type = ValueType::STRING_PTR;
+                lhsVal.ptr_val = lhs;
+            } else {
+                lhsVal.type = ValueType::OBJECT_PTR;
+                lhsVal.ptr_val = lhs;
+            }
+        }
+        
+        // Check if rhs is a raw pointer or a boxed TsValue
+        uint8_t rhsType = *(uint8_t*)rhs;
+        if (rhsType <= 10) {
+            rhsVal = *rhs;
+        } else {
+            // It's a raw pointer - box it to determine type
+            uint32_t magic = *(uint32_t*)rhs;
+            if (magic == 0x41525259) { // TsArray::MAGIC
+                rhsVal.type = ValueType::ARRAY_PTR;
+                rhsVal.ptr_val = rhs;
+            } else if (magic == 0x53545247) { // TsString::MAGIC
+                rhsVal.type = ValueType::STRING_PTR;
+                rhsVal.ptr_val = rhs;
+            } else {
+                rhsVal.type = ValueType::OBJECT_PTR;
+                rhsVal.ptr_val = rhs;
+            }
+        }
+        
+        // Types must match for strict equality
+        if (lhsVal.type != rhsVal.type) return false;
+        
+        switch (lhsVal.type) {
+            case ValueType::UNDEFINED: return true;
+            case ValueType::NUMBER_INT: return lhsVal.i_val == rhsVal.i_val;
+            case ValueType::NUMBER_DBL: {
+                if (std::isnan(lhsVal.d_val) && std::isnan(rhsVal.d_val)) return false; // NaN !== NaN
+                return lhsVal.d_val == rhsVal.d_val;
+            }
+            case ValueType::BOOLEAN: return lhsVal.b_val == rhsVal.b_val;
+            case ValueType::STRING_PTR: {
+                TsString* s1 = (TsString*)lhsVal.ptr_val;
+                TsString* s2 = (TsString*)rhsVal.ptr_val;
+                if (!s1 && !s2) return true;
+                if (!s1 || !s2) return false;
+                return std::strcmp(s1->ToUtf8(), s2->ToUtf8()) == 0;
+            }
+            case ValueType::BIGINT_PTR: {
+                TsBigInt* b1 = (TsBigInt*)lhsVal.ptr_val;
+                TsBigInt* b2 = (TsBigInt*)rhsVal.ptr_val;
+                if (!b1 && !b2) return true;
+                if (!b1 || !b2) return false;
+                return std::strcmp(b1->ToString(), b2->ToString()) == 0;
+            }
+            // For objects/arrays/etc, strict equality compares identity (same pointer)
+            default: return lhsVal.ptr_val == rhsVal.ptr_val;
+        }
     }
 
     // Note: ts_value_get_int and ts_value_get_double are defined in Primitives.cpp

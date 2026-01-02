@@ -1641,11 +1641,15 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             SPDLOG_INFO("boxValue: boxing function");
             funcName = "ts_value_make_function";
         }
-        else if (type && type->kind == TypeKind::Any && !val->getType()->isPointerTy()) {
-             // Fallback for Any that isn't a pointer yet
+        else if (type && type->kind == TypeKind::Any) {
+             // For Any type, handle based on LLVM type
              if (val->getType()->isIntegerTy(64)) funcName = "ts_value_make_int";
              else if (val->getType()->isDoubleTy()) funcName = "ts_value_make_double";
              else if (val->getType()->isIntegerTy(1)) funcName = "ts_value_make_bool";
+             else if (val->getType()->isPointerTy()) {
+                 // For pointer values with any type, use runtime detection
+                 funcName = "ts_value_box_any";
+             }
         }
     }
 

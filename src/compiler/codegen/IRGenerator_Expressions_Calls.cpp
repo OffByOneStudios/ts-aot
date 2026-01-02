@@ -340,7 +340,14 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         // BUT: Skip this if there's a directly callable function with this name - that takes priority
         if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
-            std::string mangledName = Monomorphizer::generateMangledName(id->name, funcType->paramTypes, {});
+            
+            // Compute actual argument types from the call site, not from the declared parameter types
+            // This is critical for functions with 'any' parameters that get monomorphized
+            std::vector<std::shared_ptr<Type>> actualArgTypes;
+            for (const auto& arg : node->arguments) {
+                actualArgTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
+            }
+            std::string mangledName = Monomorphizer::generateMangledName(id->name, actualArgTypes, node->resolvedTypeArguments);
             
             // Check if there's a directly callable function - if so, let the normal path handle it
             llvm::Function* directFunc = module->getFunction(mangledName);

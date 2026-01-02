@@ -93,8 +93,8 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.3.4:** `omit<T>(obj: T, keys: string[]): Partial<T>` - Omit properties ✅
 - [ ] **Task 105.3.5:** `merge<T>(target: T, ...sources: any[]): T` - Deep merge
 - [x] **Task 105.3.6:** `clone<T>(obj: T): T` - Shallow clone ✅
-- [ ] **Task 105.3.7:** `cloneDeep<T>(obj: T): T` - Deep clone
-- [ ] **Task 105.3.8:** `isEqual(a: any, b: any): boolean` - Deep equality
+- [x] **Task 105.3.7:** `cloneDeep<T>(obj: T): T` - Deep clone ✅
+- [x] **Task 105.3.8:** `isEqual(a: any, b: any): boolean` - Deep equality ✅
 - [x] **Task 105.3.9:** `isEmpty(value: any): boolean` - Check if empty ✅
 - [x] **Task 105.3.10:** `has(obj: any, path: string): boolean` - Check property exists ✅
 
@@ -139,8 +139,8 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] **Task 105.5.3:** `memoize<T>(fn: T): T` - Cache function results ✅
 - [x] **Task 105.5.4:** `once<T>(fn: T): T` - Call only once ✅
 - [x] **Task 105.5.5:** `negate<T>(fn: T): T` - Negate predicate ✅
-- [ ] **Task 105.5.6:** `partial(fn, ...args)` - Partial application
-- [ ] **Task 105.5.7:** `curry(fn)` - Currying
+- [x] **Task 105.5.6:** `partial(fn, ...args)` - Partial application ✅ (typed versions: partial1_2, partial2_3)
+- [x] **Task 105.5.7:** `curry(fn)` - Currying ✅ (typed version: curry2; curry3 blocked by triple-nested closure bug)
 
 **Runtime Prerequisites:**
 - [x] `setTimeout(fn, delay)` - Delayed execution ✅

@@ -56,6 +56,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_push",               {false, false}},           // (arr*, value) - RAW
     {"ts_array_pop",                {false}},                  // (arr*) -> raw value
     {"ts_array_get",                {false, false}},           // (arr*, index) -> raw
+    {"ts_array_get_as_value",       {false, false}},           // (arr*, index) -> TsValue* (boxes specialized)
     {"ts_array_get_unchecked",      {false, false}},           // (arr*, index) -> raw
     {"ts_array_set",                {false, false, false}},    // (arr*, index, value)
     {"ts_array_length",             {false}},                  // (arr*) -> int
@@ -94,6 +95,10 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_get_bool",   {true}},               // (TsValue*) -> bool
     {"ts_value_get_string", {true}},               // (TsValue*) -> TsString*
     {"ts_value_get_object", {true}},               // (TsValue*) -> void*
+    
+    // Value comparison functions - compare boxed values
+    // =========================================================================
+    {"ts_value_strict_eq",  {true, true}},         // (TsValue*, TsValue*) -> bool
 
     // =========================================================================
     // String operations - work with raw TsString* pointers
@@ -162,6 +167,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_to_bool",      {true}},             // (TsValue*) -> bool
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
+    {"ts_array_is_array",     {true}},             // (TsValue*) -> bool
 
     // =========================================================================
     // Date operations

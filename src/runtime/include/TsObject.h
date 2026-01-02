@@ -90,6 +90,7 @@ extern "C" {
     TsValue* ts_value_make_object(void* obj);
     TsValue* ts_value_make_promise(void* promise);
     TsValue* ts_value_make_array(void* arr);
+    TsValue* ts_value_box_any(void* ptr);  // Box any pointer by runtime type detection
     TsValue* ts_value_make_function(void* funcPtr, void* context);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
     TsValue* ts_call_0(TsValue* boxedFunc);
@@ -105,6 +106,9 @@ extern "C" {
     double ts_value_get_double(TsValue* val);
     bool ts_value_get_bool(TsValue* val);
     void* ts_value_get_string(TsValue* val);
+    
+    // Comparison helpers
+    bool ts_value_strict_eq(TsValue* lhs, TsValue* rhs);  // Implements === semantics
     
     // Object static methods
     void* ts_object_keys(void* obj);
