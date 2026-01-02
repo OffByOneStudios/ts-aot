@@ -183,6 +183,18 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateUtilCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+        if (id->name == "Object") {
+            if (prop->name == "keys") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* obj = boxValue(lastValue, node->arguments[0]->inferredType);
+                
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_keys", ft);
+                lastValue = createCall(ft, fn.getCallee(), { obj });
+                return true;
+            }
+        }
         if (id->name == "Symbol") {
             if (prop->name == "for") {
                 if (node->arguments.empty()) return true;

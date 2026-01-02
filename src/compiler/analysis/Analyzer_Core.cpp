@@ -15,8 +15,11 @@ using namespace ast;
 void Analyzer::analyze(ast::Program* program, const std::string& path) {
     SPDLOG_DEBUG("Analyzer::analyze starting for {}", path);
     currentFilePath = fs::absolute(path).string();
+    currentModuleType = moduleResolver.getModuleType(currentFilePath);
+    
     auto mainModule = std::make_shared<Module>();
     mainModule->path = currentFilePath;
+    mainModule->type = currentModuleType;
     // We don't own the main program's AST, but we can wrap it in a shared_ptr with a no-op deleter
     // or just assume it lives long enough.
     mainModule->ast = std::shared_ptr<ast::Program>(program, [](ast::Program*){});
@@ -36,9 +39,11 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
 void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     auto oldModule = currentModule;
     auto oldPath = currentFilePath;
+    auto oldModuleType = currentModuleType;
 
     currentModule = module;
     currentFilePath = module->path;
+    currentModuleType = module->type;
 
     symbols.enterScope();
     visitProgram(module->ast.get());
@@ -49,6 +54,7 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
 
     currentModule = oldModule;
     currentFilePath = oldPath;
+    currentModuleType = oldModuleType;
 }
 
 ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
@@ -58,6 +64,14 @@ ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
 void Analyzer::visit(Node* node) {
     if (!node) return;
     node->accept(this);
+
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        // Don't force Any for identifiers, so we can still find functions
+        // and other symbols by their original type in codegen.
+        if (!dynamic_cast<Identifier*>(node)) {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+        }
+    }
 
     if (auto expr = dynamic_cast<Expression*>(node)) {
         expr->inferredType = lastType;

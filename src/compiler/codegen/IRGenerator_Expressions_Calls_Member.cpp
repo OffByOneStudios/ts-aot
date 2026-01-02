@@ -54,54 +54,37 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         llvm::Value* objPtr = lastValue;
         emitNullCheckForExpression(prop->expression.get(), objPtr);
         
-        // Ensure the object is boxed before calling ts_value_get_property
+        // Ensure the object is boxed
         llvm::Value* boxedObj = boxValue(objPtr, prop->expression->inferredType);
         
+        llvm::Value* propNameStr = builder->CreateGlobalStringPtr(prop->name);
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
-        llvm::Value* propNameStr = builder->CreateGlobalStringPtr(prop->name);
         llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
+        propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
+
+        std::vector<llvm::Value*> args;
+        args.push_back(boxedObj);
+        args.push_back(propName);
         
-        llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
-                { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_value_get_property", getPropFt);
+        std::vector<llvm::Type*> paramTypes;
+        paramTypes.push_back(builder->getPtrTy()); // obj
+        paramTypes.push_back(builder->getPtrTy()); // key
         
-        llvm::Value* boxedFunc = createCall(getPropFt, getPropFn.getCallee(), { boxedObj, propName });
-        
-        if (node->arguments.empty()) {
-            llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee callFn = getRuntimeFunction("ts_call_0", callFt);
-            lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
-            lastValue = unboxValue(lastValue, node->inferredType);
-            return true;
-        } else {
-            std::vector<llvm::Value*> args;
-            args.push_back(boxedFunc);
-            
-            std::vector<llvm::Type*> paramTypes;
-            paramTypes.push_back(builder->getPtrTy()); // func
-            
-            for (auto& arg : node->arguments) {
-                visit(arg.get());
-                std::shared_ptr<Type> argType = arg->inferredType;
-                if (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression") {
-                     if (!argType || argType->kind == TypeKind::Any) {
-                         argType = std::make_shared<Type>(TypeKind::Function);
-                     }
-                }
-                llvm::Value* val = boxValue(lastValue, argType);
-                args.push_back(val);
-                paramTypes.push_back(builder->getPtrTy());
-            }
-            
-            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-            
-            lastValue = createCall(ft, fn.getCallee(), args);
-            lastValue = unboxValue(lastValue, node->inferredType);
-            return true;
+        for (auto& arg : node->arguments) {
+            visit(arg.get());
+            args.push_back(boxValue(lastValue, arg->inferredType));
+            paramTypes.push_back(builder->getPtrTy());
         }
+        
+        std::string fnName = "ts_method_call_" + std::to_string(node->arguments.size());
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+        llvm::FunctionCallee fn = getRuntimeFunction(fnName, ft);
+        
+        lastValue = createCall(ft, fn.getCallee(), args);
+        boxedValues.insert(lastValue);
+        lastValue = unboxValue(lastValue, node->inferredType);
+        return true;
     }
 
     if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Function) {

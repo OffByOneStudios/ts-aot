@@ -82,6 +82,9 @@ public:
     // Get list of builtin modules
     static const std::vector<std::string>& getBuiltinModules();
     
+    // Determine module type from file extension
+    static ModuleType getModuleType(const fs::path& filePath);
+    
 private:
     // Resolution strategies
     ResolvedModule resolveRelative(const std::string& specifier, const fs::path& fromDir);
@@ -99,9 +102,6 @@ private:
     
     // Get the entry point from a package
     std::optional<fs::path> getPackageEntryPoint(const fs::path& packageDir, const PackageJson& pkg);
-    
-    // Determine module type from file extension
-    static ModuleType getModuleType(const fs::path& filePath);
     
     fs::path currentDir;
     fs::path projectRoot;

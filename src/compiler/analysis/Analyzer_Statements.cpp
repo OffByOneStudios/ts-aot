@@ -14,7 +14,9 @@ void Analyzer::visitExpressionStatement(ast::ExpressionStatement* node) {
 
 void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
-    if (!node->type.empty()) {
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        type = std::make_shared<Type>(TypeKind::Any);
+    } else if (!node->type.empty()) {
         type = parseType(node->type, symbols);
     }
 

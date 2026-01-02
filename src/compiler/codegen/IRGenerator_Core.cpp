@@ -1,6 +1,7 @@
 #include "IRGenerator.h"
 #include <fmt/core.h>
 #include <filesystem>
+#include <set>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -230,6 +231,11 @@ void IRGenerator::emitLocation(ast::Node* node) {
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     const auto& globals = analyzer.getSymbolTable().getGlobalSymbols();
     SPDLOG_INFO("generateGlobals: processing {} global symbols", globals.size());
+    
+    static const std::set<std::string> runtimeGlobals = {
+        "Object", "Array", "Math", "JSON", "console", "process", "Buffer"
+    };
+
     for (auto& [name, symbol] : globals) {
         SPDLOG_INFO("  Global symbol: {} (type kind {})", name, (int)symbol->type->kind);
         if (module->getGlobalVariable(name)) continue;
@@ -244,8 +250,16 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         if (symbol->type->kind == TypeKind::Interface) continue;
 
         llvm::Type* type = getLLVMType(symbol->type);
+        
+        // If it's a runtime global, create it as a declaration (no initializer)
+        // Otherwise, create it as a definition with a null initializer
+        llvm::Constant* initializer = nullptr;
+        if (runtimeGlobals.find(name) == runtimeGlobals.end()) {
+            initializer = llvm::Constant::getNullValue(type);
+        }
+
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
-            llvm::Constant::getNullValue(type), name);
+            initializer, name);
     }
 
     // Also process top-level variables from modules
@@ -1220,6 +1234,10 @@ public:
         node->operand->accept(this);
     }
     
+    void visitDeleteExpression(ast::DeleteExpression* node) override {
+        node->expression->accept(this);
+    }
+    
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override {
         node->operand->accept(this);
     }
@@ -1481,6 +1499,9 @@ public:
     }
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override {
         node->operand->accept(this);
+    }
+    void visitDeleteExpression(ast::DeleteExpression* node) override {
+        node->expression->accept(this);
     }
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override {
         node->operand->accept(this);

@@ -907,6 +907,9 @@ void Analyzer::visitParenthesizedExpression(ast::ParenthesizedExpression* node) 
 
 void Analyzer::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     visit(node->operand.get());
+    if (node->op == "typeof") {
+        lastType = std::make_shared<Type>(TypeKind::String);
+    }
 }
 
 void Analyzer::visitPostfixUnaryExpression(PostfixUnaryExpression* node) {

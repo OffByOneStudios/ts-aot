@@ -34,6 +34,10 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        funcType->returnType = std::make_shared<Type>(TypeKind::Any);
+    }
+
     if (node->isGenerator) {
         auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
         auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
@@ -61,7 +65,9 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     
     for (const auto& param : node->parameters) {
         std::shared_ptr<Type> pType;
-        if (!param->type.empty()) {
+        if (currentModuleType == ModuleType::UntypedJavaScript) {
+            pType = std::make_shared<Type>(TypeKind::Any);
+        } else if (!param->type.empty()) {
             pType = parseType(param->type, symbols);
         } else {
             pType = std::make_shared<Type>(TypeKind::Any);
@@ -216,6 +222,10 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
             methodType->returnType = std::make_shared<Type>(TypeKind::Void);
         }
 
+        if (currentModuleType == ModuleType::UntypedJavaScript) {
+            methodType->returnType = std::make_shared<Type>(TypeKind::Any);
+        }
+
         if (node->isGenerator) {
             auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
             auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
@@ -242,7 +252,9 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
         
         for (const auto& param : node->parameters) {
-            if (!param->type.empty()) {
+            if (currentModuleType == ModuleType::UntypedJavaScript) {
+                methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            } else if (!param->type.empty()) {
                 methodType->paramTypes.push_back(parseType(param->type, symbols));
             } else {
                 methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
@@ -435,6 +447,10 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
         auto& param = node->parameters[i];
         std::shared_ptr<Type> paramType = parseType(param->type, symbols);
         
+        if (currentModuleType == ModuleType::UntypedJavaScript) {
+            paramType = std::make_shared<Type>(TypeKind::Any);
+        }
+        
         // If param type is Any and we have a contextual type, use that instead
         if (paramType->kind == TypeKind::Any && contextualFuncType && i < contextualFuncType->paramTypes.size()) {
             paramType = contextualFuncType->paramTypes[i];
@@ -510,6 +526,10 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        funcType->returnType = std::make_shared<Type>(TypeKind::Any);
+    }
+
     if (node->isGenerator) {
         auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
         auto wrapped = std::make_shared<ClassType>(node->isAsync ? "AsyncGenerator" : "Generator");
@@ -545,11 +565,15 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
     }
     
     for (const auto& param : node->parameters) {
-        if (!param->type.empty()) {
-            funcType->paramTypes.push_back(parseType(param->type, symbols));
+        std::shared_ptr<Type> pType;
+        if (currentModuleType == ModuleType::UntypedJavaScript) {
+            pType = std::make_shared<Type>(TypeKind::Any);
+        } else if (!param->type.empty()) {
+            pType = parseType(param->type, symbols);
         } else {
-            funcType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            pType = std::make_shared<Type>(TypeKind::Any);
         }
+        funcType->paramTypes.push_back(pType);
         funcType->isOptional.push_back(param->isOptional);
         if (param->isRest) funcType->hasRest = true;
     }

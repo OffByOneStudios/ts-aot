@@ -17,6 +17,11 @@ void Analyzer::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     }
 }
 
+void Analyzer::visitDeleteExpression(ast::DeleteExpression* node) {
+    visit(node->expression.get());
+    lastType = std::make_shared<Type>(TypeKind::Boolean);
+}
+
 void Analyzer::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
     visit(node->operand.get());
     if (lastType && lastType->kind == TypeKind::Int) {

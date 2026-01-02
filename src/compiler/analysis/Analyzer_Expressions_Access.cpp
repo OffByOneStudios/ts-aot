@@ -128,6 +128,7 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
     visit(node->expression.get());
     auto objType = lastType;
+    std::cout << "visitPropertyAccessExpression: name=" << node->name << " objType=" << objType->toString() << " moduleType=" << (int)currentModuleType << std::endl;
 
     if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
         if (node->isOptional) {
@@ -153,6 +154,12 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             objType = std::make_shared<Type>(TypeKind::Any);
             break;
         }
+    }
+
+    if (objType->kind == TypeKind::Any) {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
+        return;
     }
     
     if (node->name == "length") {

@@ -79,6 +79,8 @@ public:
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
+    ModuleType currentModuleType = ModuleType::TypeScript;
+
     // Module resolution for JSON imports (public for codegen access)
     ResolvedModule resolveModule(const std::string& specifier);
 
@@ -148,6 +150,7 @@ private:
     void visitTemplateExpression(ast::TemplateExpression* node);
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override;
+    void visitDeleteExpression(ast::DeleteExpression* node) override;
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
     void visitBlockStatement(ast::BlockStatement* node) override;
     void visitIdentifier(ast::Identifier* node) override;

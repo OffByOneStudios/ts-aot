@@ -184,6 +184,11 @@ ExprPtr parseExpression(const json& j) {
         node->op = j["operator"];
         node->operand = parseExpression(j["operand"]);
         return node;
+    } else if (kind == "DeleteExpression") {
+        auto node = std::make_unique<DeleteExpression>();
+        setLocation(node.get(), j);
+        node->expression = parseExpression(j["expression"]);
+        return node;
     } else if (kind == "PostfixUnaryExpression") {
         auto node = std::make_unique<PostfixUnaryExpression>();
         setLocation(node.get(), j);

@@ -494,6 +494,11 @@ function visitInternal(node) {
                 operator: node.kind === ts.SyntaxKind.TypeOfExpression ? "typeof" : ts.tokenToString(node.operator),
                 operand: visit(node.kind === ts.SyntaxKind.TypeOfExpression ? node.expression : node.operand)
             };
+        case ts.SyntaxKind.DeleteExpression:
+            return {
+                kind: "DeleteExpression",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.PostfixUnaryExpression:
             return {
                 kind: "PostfixUnaryExpression",

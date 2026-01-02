@@ -7,12 +7,14 @@
 #include <optional>
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
+#include "ModuleResolver.h"
 #include <nlohmann/json.hpp>
 
 namespace ts {
 
 struct Module {
     std::string path;
+    ModuleType type = ModuleType::TypeScript;
     std::shared_ptr<ast::Program> ast;
     std::shared_ptr<SymbolTable> exports;
     bool analyzed = false;

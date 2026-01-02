@@ -72,11 +72,14 @@ enum class FunctionType {
 
 class TsFunction : public TsObject {
 public:
+    static constexpr uint32_t MAGIC = 0x46554E43; // "FUNC"
     void* funcPtr;
     void* context;
     FunctionType type;
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED) 
-        : funcPtr(fp), context(ctx), type(t) {}
+        : funcPtr(fp), context(ctx), type(t) {
+        magic = MAGIC;
+    }
 };
 
 typedef TaggedValue* (*TsFunctionPtr)(void* context, int argc, TaggedValue** argv);
@@ -97,6 +100,7 @@ extern "C" {
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+    TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
     TsValue* ts_object_get_property(void* obj, const char* key);
     
@@ -110,15 +114,46 @@ extern "C" {
     // Comparison helpers
     bool ts_value_strict_eq(TsValue* lhs, TsValue* rhs);  // Implements === semantics
     
+    // Slow path arithmetic
+    TsValue* ts_value_add(TsValue* a, TsValue* b);
+    TsValue* ts_value_sub(TsValue* a, TsValue* b);
+    TsValue* ts_value_mul(TsValue* a, TsValue* b);
+    TsValue* ts_value_div(TsValue* a, TsValue* b);
+    
+    // Slow path comparison
+    TsValue* ts_value_eq(TsValue* a, TsValue* b);
+    TsValue* ts_value_lt(TsValue* a, TsValue* b);
+    TsValue* ts_value_gt(TsValue* a, TsValue* b);
+    TsValue* ts_value_lte(TsValue* a, TsValue* b);
+    TsValue* ts_value_gte(TsValue* a, TsValue* b);
+    
+    // Slow path property access
+    TsValue* ts_object_get_prop(TsValue* obj, TsValue* key);
+    TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value);
+    bool ts_object_has_prop(TsValue* obj, TsValue* key);
+    bool ts_object_delete_prop(TsValue* obj, TsValue* key);
+    
+    // Type info
+    TsValue* ts_value_typeof(TsValue* v);
+    
     // Object static methods
-    void* ts_object_keys(void* obj);
-    void* ts_object_values(void* obj);
-    void* ts_object_entries(void* obj);
-    void* ts_object_assign(void* target, void* source);
-    bool ts_object_has_own(void* obj, void* prop);
-    void* ts_object_freeze(void* obj);
-    void* ts_object_seal(void* obj);
-    bool ts_object_is_frozen(void* obj);
-    bool ts_object_is_sealed(void* obj);
-    void* ts_object_from_entries(void* entries);
+    TsValue* ts_object_keys(TsValue* obj);
+    TsValue* ts_object_values(TsValue* obj);
+    TsValue* ts_object_entries(TsValue* obj);
+    TsValue* ts_object_assign(TsValue* target, TsValue* source);
+    bool ts_object_has_own(TsValue* obj, TsValue* prop);
+    TsValue* ts_object_freeze(TsValue* obj);
+    TsValue* ts_object_seal(TsValue* obj);
+    bool ts_object_is_frozen(TsValue* obj);
+    bool ts_object_is_sealed(TsValue* obj);
+    TsValue* ts_object_from_entries(TsValue* entries);
+
+    void ts_runtime_init();
+    extern TsValue* Object;
+    extern TsValue* Array;
+    extern TsValue* Math;
+    extern TsValue* JSON;
+    extern TsValue* console;
+    extern TsValue* process;
+    extern TsValue* Buffer;
 }

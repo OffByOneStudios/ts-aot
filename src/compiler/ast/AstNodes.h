@@ -72,6 +72,7 @@ struct TaggedTemplateExpression;
 struct AsExpression;
 struct ConditionalExpression;
 struct PrefixUnaryExpression;
+struct DeleteExpression;
 struct PostfixUnaryExpression;
 struct AwaitExpression;
 struct YieldExpression;
@@ -136,6 +137,7 @@ struct Visitor {
     virtual void visitTaggedTemplateExpression(TaggedTemplateExpression* node) = 0;
     virtual void visitAsExpression(AsExpression* node) = 0;
     virtual void visitPrefixUnaryExpression(PrefixUnaryExpression* node) = 0;
+    virtual void visitDeleteExpression(DeleteExpression* node) = 0;
     virtual void visitPostfixUnaryExpression(PostfixUnaryExpression* node) = 0;
     virtual void visitClassDeclaration(ClassDeclaration* node) = 0;
     virtual void visitInterfaceDeclaration(InterfaceDeclaration* node) = 0;
@@ -492,6 +494,12 @@ struct PrefixUnaryExpression : Expression {
     ExprPtr operand;
     std::string getKind() const override { return "PrefixUnaryExpression"; }
     void accept(Visitor* visitor) override { visitor->visitPrefixUnaryExpression(this); }
+};
+
+struct DeleteExpression : Expression {
+    ExprPtr expression;
+    std::string getKind() const override { return "DeleteExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitDeleteExpression(this); }
 };
 
 struct PostfixUnaryExpression : Expression {
