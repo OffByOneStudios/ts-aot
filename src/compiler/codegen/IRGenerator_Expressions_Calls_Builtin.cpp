@@ -26,6 +26,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_array_sort", {true}, true);  // arr
     bp.registerRuntimeApi("ts_array_sort_with_comparator", {true, true}, true);  // arr, comparator
     bp.registerRuntimeApi("ts_array_reduce", {true, true, true}, true);  // arr, callback, initialValue
+    bp.registerRuntimeApi("ts_array_is_specialized", {true}, false);  // arr -> bool
     
     // ========== Map methods ==========
     bp.registerRuntimeApi("ts_map_set", {true, true, true}, true);  // map, key, value
@@ -1254,6 +1255,24 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* fromEntriesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fromEntriesFn = getRuntimeFunction("ts_object_from_entries", fromEntriesFt);
                 lastValue = createCall(fromEntriesFt, fromEntriesFn.getCallee(), { arg });
+                return true;
+            }
+        } else if (obj->name == "Array") {
+            if (prop->name == "isArray") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                
+                // For primitives, always return false
+                if (!arg->getType()->isPointerTy()) {
+                    lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+                    return true;
+                }
+                
+                llvm::FunctionType* isArrayFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee isArrayFn = getRuntimeFunction("ts_array_is_array", isArrayFt);
+                lastValue = createCall(isArrayFt, isArrayFn.getCallee(), { arg });
+                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
                 return true;
             }
         }
