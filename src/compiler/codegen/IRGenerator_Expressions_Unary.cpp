@@ -26,6 +26,14 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         }
 
         if (val->getType()->isPointerTy()) {
+            // If it's 'any' type, use the slow path ts_value_typeof
+            if (node->operand->inferredType && node->operand->inferredType->kind == TypeKind::Any) {
+                llvm::FunctionType* typeofFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee typeofFn = getRuntimeFunction("ts_value_typeof", typeofFt);
+                lastValue = createCall(typeofFt, typeofFn.getCallee(), {val});
+                return;
+            }
+
             llvm::FunctionType* typeofFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee typeofFn = getRuntimeFunction("ts_typeof", typeofFt);
             lastValue = createCall(typeofFt, typeofFn.getCallee(), {val});
@@ -58,6 +66,35 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             lastValue = castValue(lastValue, builder->getDoubleTy());
         }
     }
+}
+
+void IRGenerator::visitDeleteExpression(ast::DeleteExpression* node) {
+    if (auto elem = dynamic_cast<ast::ElementAccessExpression*>(node->expression.get())) {
+        visit(elem->expression.get());
+        llvm::Value* obj = boxValue(lastValue, elem->expression->inferredType);
+        visit(elem->argumentExpression.get());
+        llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+        
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_object_delete_prop", ft);
+        lastValue = createCall(ft, fn.getCallee(), { obj, key });
+        return;
+    } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
+        visit(prop->expression.get());
+        llvm::Value* obj = boxValue(lastValue, prop->expression->inferredType);
+        
+        llvm::Value* keyStr = builder->CreateGlobalStringPtr(prop->name);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+        key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_object_delete_prop", ft);
+        lastValue = createCall(ft, fn.getCallee(), { obj, key });
+        return;
+    }
+    lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1);
 }
 
 void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {

@@ -48,6 +48,29 @@ static std::shared_ptr<FunctionType> getExpectedCallbackType(const std::string& 
 }
 
 void Analyzer::visitCallExpression(ast::CallExpression* node) {
+    std::vector<std::shared_ptr<Type>> argTypes;
+    if (currentModule && currentModule->type == ModuleType::UntypedJavaScript) {
+        // Skip type checking for JS but still record usage
+        visit(node->callee.get());
+        for (auto& arg : node->arguments) {
+            visit(arg.get());
+            argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        }
+
+        std::string calleeName;
+        if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+            calleeName = id->name;
+        }
+
+        if (!calleeName.empty()) {
+            functionUsages[calleeName].push_back({argTypes, {}});
+        }
+
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
+        return;
+    }
+
     // First, get the callee type to determine expected parameter types
     visit(node->callee.get());
     auto calleeType = lastType;
@@ -79,7 +102,6 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     }
     
     // 1. Evaluate arguments with contextual typing for arrow functions
-    std::vector<std::shared_ptr<Type>> argTypes;
     for (size_t i = 0; i < node->arguments.size(); i++) {
         auto& arg = node->arguments[i];
         
@@ -478,6 +500,17 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 }
 
 void Analyzer::visitNewExpression(ast::NewExpression* node) {
+    if (currentModule && currentModule->type == ModuleType::UntypedJavaScript) {
+        // Skip type checking for JS
+        visit(node->expression.get());
+        for (auto& arg : node->arguments) {
+            visit(arg.get());
+        }
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
+        return;
+    }
+
     std::vector<std::shared_ptr<Type>> ctorArgTypes;
     for (auto& arg : node->arguments) {
         visit(arg.get());

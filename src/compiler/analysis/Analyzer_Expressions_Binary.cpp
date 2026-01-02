@@ -27,6 +27,12 @@ void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
         lastType = std::make_shared<Type>(TypeKind::Boolean);
         return;
     }
+    if (node->op == "in") {
+        visit(node->left.get());
+        visit(node->right.get());
+        lastType = std::make_shared<Type>(TypeKind::Boolean);
+        return;
+    }
     visit(node->left.get());
     auto leftType = lastType;
     visit(node->right.get());

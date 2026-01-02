@@ -99,6 +99,15 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Value comparison functions - compare boxed values
     // =========================================================================
     {"ts_value_strict_eq",  {true, true}},         // (TsValue*, TsValue*) -> bool
+    {"ts_value_add",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_sub",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_mul",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_div",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_eq",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_lt",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_gt",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_lte",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_gte",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
 
     // =========================================================================
     // String operations - work with raw TsString* pointers
@@ -165,6 +174,13 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_is_nullish",   {true}},             // (TsValue*) -> bool
     {"ts_value_length",       {true}},             // (TsValue*) -> int
     {"ts_value_to_bool",      {true}},             // (TsValue*) -> bool
+    {"ts_value_typeof",       {true}},             // (TsValue*) -> TsValue* (string)
+    {"ts_object_get_prop",    {true, true}},       // (obj, key) -> TsValue*
+    {"ts_object_get_property", {false, false}},    // (obj, key) -> TsValue*
+    {"ts_object_set_prop",    {true, true, true}}, // (obj, key, value) -> TsValue*
+    {"ts_object_has_prop",    {true, true}},       // (obj, key) -> bool
+    {"ts_object_delete_prop", {true, true}},       // (obj, key) -> bool
+    {"ts_object_keys",        {true}},             // (obj) -> TsValue* (Array)
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
     {"ts_array_is_array",     {true}},             // (TsValue*) -> bool

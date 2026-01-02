@@ -157,6 +157,10 @@ public:
         node->operand->accept(this);
     }
 
+    void visitDeleteExpression(ast::DeleteExpression* node) override {
+        node->expression->accept(this);
+    }
+
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override {
         node->operand->accept(this);
     }

@@ -105,7 +105,7 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 - [x] `Object.entries(obj)` - Get key-value pairs ✅
 - [x] `Object.assign(target, ...sources)` - Shallow merge ✅
 - [x] `Object.hasOwn(obj, key)` - Check property exists ✅
-- [ ] `typeof` operator - Runtime type checking
+- [x] `typeof` operator - Runtime type checking ✅
 
 ### Milestone 105.4: String Utilities
 
@@ -163,39 +163,60 @@ Phase 1 gives us immediate value with fully-optimized code. Phase 2 enables comp
 
 **Goal:** Compile real lodash.js by implementing dynamic JavaScript support.
 
+### ⚠️ CRITICAL: Boxing Policy & Runtime Registration ⚠️
+
+To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL** new runtime functions must be registered in `src/compiler/codegen/BoxingPolicy.cpp`.
+
+**Rules:**
+1.  **Registry:** Add entry to `BoxingPolicy::CORE_RUNTIME_ARG_BOXING`.
+2.  **Signature:** Slow path functions MUST take `TsValue*` (boxed) arguments and return `TsValue*`.
+3.  **Policy:** Use `true` for all arguments in the boxing policy map.
+    ```cpp
+    // Example in BoxingPolicy.cpp
+    {"ts_value_add", {true, true}}, // (TsValue* a, TsValue* b) -> TsValue*
+    ```
+4.  **Implementation:**
+    *   **Input:** Receive `TsValue*`. Check `type` tag.
+    *   **Logic:** Handle type coercion (e.g., number + string = string).
+    *   **Output:** Return `TsValue*` using `ts_value_make_*`.
+
 ### Milestone 105.7: TsValue Operations
 
-- [ ] **Task 105.7.1:** Implement `ts_value_add(a, b)` - Dynamic addition
-- [ ] **Task 105.7.2:** Implement `ts_value_subtract(a, b)` - Dynamic subtraction
-- [ ] **Task 105.7.3:** Implement `ts_value_multiply(a, b)` - Dynamic multiplication
-- [ ] **Task 105.7.4:** Implement `ts_value_divide(a, b)` - Dynamic division
-- [ ] **Task 105.7.5:** Implement `ts_value_eq(a, b)` - Loose equality (==)
-- [ ] **Task 105.7.6:** Implement `ts_value_strict_eq(a, b)` - Strict equality (===)
-- [ ] **Task 105.7.7:** Implement `ts_value_lt(a, b)` - Less than
-- [ ] **Task 105.7.8:** Implement `ts_value_gt(a, b)` - Greater than
-- [ ] **Task 105.7.9:** Implement `ts_value_to_bool(v)` - JavaScript truthiness
-- [ ] **Task 105.7.10:** Implement `ts_value_typeof(v)` - typeof operator
+**Boxing Policy:** All arguments `true` (boxed). Returns `TsValue*`.
+
+- [x] **Task 105.7.1:** `ts_value_add(a, b)` - Dynamic addition ✅
+- [x] **Task 105.7.2:** `ts_value_subtract(a, b)` - Dynamic subtraction ✅
+- [x] **Task 105.7.3:** `ts_value_multiply(a, b)` - Dynamic multiplication ✅
+- [x] **Task 105.7.4:** `ts_value_divide(a, b)` - Dynamic division ✅
+- [ ] **Task 105.7.5:** `ts_value_eq(a, b)` - Loose equality (==)
+- [x] **Task 105.7.6:** `ts_value_strict_eq(a, b)` - Strict equality (===) ✅
+- [x] **Task 105.7.7:** `ts_value_lt(a, b)` - Less than ✅
+- [x] **Task 105.7.8:** `ts_value_gt(a, b)` - Greater than ✅
+- [x] **Task 105.7.9:** `ts_value_to_bool(v)` - JavaScript truthiness ✅
+- [x] **Task 105.7.10:** `ts_value_typeof(v)` - typeof operator ✅
 
 ### Milestone 105.8: Dynamic Property Access
 
-- [ ] **Task 105.8.1:** Implement `ts_object_get_prop(obj, key)` - Get property by string
-- [ ] **Task 105.8.2:** Implement `ts_object_set_prop(obj, key, value)` - Set property
-- [ ] **Task 105.8.3:** Implement `ts_object_get_dynamic(obj, key)` - Get by TsValue key
-- [ ] **Task 105.8.4:** Implement `ts_object_has_prop(obj, key)` - Check property exists
-- [ ] **Task 105.8.5:** Implement `ts_object_delete_prop(obj, key)` - Delete property
-- [ ] **Task 105.8.6:** Implement `ts_object_keys(obj)` - Get all keys
-- [ ] **Task 105.8.7:** Implement `ts_array_get_dynamic(arr, index)` - Dynamic array access
-- [ ] **Task 105.8.8:** Implement `ts_array_set_dynamic(arr, index, value)` - Dynamic array set
+**Boxing Policy:** All arguments `true` (boxed). Returns `TsValue*`.
+
+- [x] **Task 105.8.1:** `ts_object_get_prop(obj, key)` - Get property by string ✅
+- [x] **Task 105.8.2:** `ts_object_set_prop(obj, key, value)` - Set property ✅
+- [ ] **Task 105.8.3:** `ts_object_get_dynamic(obj, key)` - Get by TsValue key
+- [x] **Task 105.8.4:** `ts_object_has_prop(obj, key)` - Check property exists ✅
+- [x] **Task 105.8.5:** `ts_object_delete_prop(obj, key)` - Delete property ✅
+- [x] **Task 105.8.6:** `ts_object_keys(obj)` - Get all keys ✅
+- [ ] **Task 105.8.7:** `ts_array_get_dynamic(arr, index)` - Dynamic array access
+- [ ] **Task 105.8.8:** `ts_array_set_dynamic(arr, index, value)` - Dynamic array set
 
 ### Milestone 105.9: Slow Path Codegen
 
-- [ ] **Task 105.9.1:** Detect JavaScript files in ModuleResolver
-- [ ] **Task 105.9.2:** Set "slow path mode" flag in Analyzer for JS modules
-- [ ] **Task 105.9.3:** Type all JS variables as `TsValue*` (Any)
-- [ ] **Task 105.9.4:** Generate `ts_value_*` calls for operators
-- [ ] **Task 105.9.5:** Generate `ts_object_get_prop` for property access
-- [ ] **Task 105.9.6:** Generate `ts_function_call` for dynamic calls
-- [ ] **Task 105.9.7:** Box all return values as `TsValue*`
+- [x] **Task 105.9.1:** Detect JavaScript files in ModuleResolver ✅
+- [x] **Task 105.9.2:** Set "slow path mode" flag in Analyzer for JS modules ✅
+- [x] **Task 105.9.3:** Type all JS variables as `TsValue*` (Any) ✅
+- [x] **Task 105.9.4:** Generate `ts_value_*` calls for operators ✅
+- [x] **Task 105.9.5:** Generate `ts_object_get_prop` for property access ✅
+- [x] **Task 105.9.6:** Generate `ts_function_call` for dynamic calls ✅
+- [x] **Task 105.9.7:** Box all return values as `TsValue*` ✅
 - [ ] **Task 105.9.8:** Emit warnings for untyped code paths
 
 ### Milestone 105.10: JSDoc Type Extraction

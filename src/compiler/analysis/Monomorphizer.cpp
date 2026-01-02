@@ -121,6 +121,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         auto call = std::make_unique<ast::CallExpression>();
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = initName;
+        auto initFt = std::make_shared<FunctionType>();
+        initFt->returnType = std::make_shared<Type>(TypeKind::Void);
+        callId->inferredType = initFt;
         call->callee = std::move(callId);
         
         auto it = analyzer.modules.find(path);

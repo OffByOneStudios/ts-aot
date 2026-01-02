@@ -107,73 +107,106 @@ void ts_console_log_bool(bool val) {
     std::fflush(stdout);
 }
 
-extern "C" void ts_console_log_value(TsValue* val) {
+extern "C" void ts_console_log_value_no_newline(TsValue* val) {
     if (!val) {
-        std::printf("undefined\n");
-        std::fflush(stdout);
+        std::printf("undefined");
         return;
     }
 
-    // Check if it's actually a raw runtime object being passed as a TsValue*
-    // These objects have magic numbers at specific offsets
     uint32_t magic = *(uint32_t*)val;
-    
-    // TsString::MAGIC = 0x53545247 ("STRG")
     if (magic == 0x53545247) {
-        std::printf("%s\n", ((TsString*)val)->ToUtf8());
-        std::fflush(stdout);
+        std::printf("%s", ((TsString*)val)->ToUtf8());
         return;
     }
     
-    // TsArray::MAGIC = 0x41525259 ("ARRY") - print array contents
     if (magic == 0x41525259) {
         TsArray* arr = (TsArray*)val;
         int64_t len = arr->Length();
+        std::printf("[ ");
         for (int64_t i = 0; i < len; i++) {
             void* elem = (void*)arr->Get(i);
-            // Print the element - it could be a TsValue* with a string inside
+            if (i > 0) std::printf(", ");
             if (elem) {
                 TsValue* elemVal = (TsValue*)elem;
                 if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
-                    if (i > 0) std::printf(",");
-                    std::printf("%s", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                    std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                } else if (elemVal->type == ValueType::NUMBER_INT) {
+                    std::printf("%lld", elemVal->i_val);
+                } else if (elemVal->type == ValueType::NUMBER_DBL) {
+                    std::printf("%f", elemVal->d_val);
                 } else {
-                    // Raw TsString check
                     uint32_t elemMagic = *(uint32_t*)elem;
                     if (elemMagic == 0x53545247) {
-                        if (i > 0) std::printf(",");
-                        std::printf("%s", ((TsString*)elem)->ToUtf8());
+                        std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                    } else {
+                        std::printf("[object Object]");
                     }
                 }
+            } else {
+                std::printf("undefined");
             }
         }
-        std::printf("\n");
-        std::fflush(stdout);
+        std::printf(" ]");
         return;
     }
 
     switch (val->type) {
-        case ValueType::UNDEFINED: std::printf("undefined\n"); break;
-        case ValueType::NUMBER_INT: std::printf("%lld\n", val->i_val); break;
-        case ValueType::NUMBER_DBL: std::printf("%f\n", val->d_val); break;
-        case ValueType::BOOLEAN: std::printf("%s\n", val->b_val ? "true" : "false"); break;
-        case ValueType::STRING_PTR: std::printf("%s\n", ((TsString*)val->ptr_val)->ToUtf8()); break;
-        case ValueType::OBJECT_PTR: std::printf("[object Object]\n"); break;
-        case ValueType::ARRAY_PTR: std::printf("[object Array]\n"); break;
-        case ValueType::PROMISE_PTR: std::printf("[object Promise]\n"); break;
-        case ValueType::BIGINT_PTR: std::printf("%sn\n", ((TsBigInt*)val->ptr_val)->ToString()); break;
+        case ValueType::UNDEFINED: std::printf("undefined"); break;
+        case ValueType::NUMBER_INT: std::printf("%lld", val->i_val); break;
+        case ValueType::NUMBER_DBL: std::printf("%f", val->d_val); break;
+        case ValueType::BOOLEAN: std::printf("%s", val->b_val ? "true" : "false"); break;
+        case ValueType::STRING_PTR: std::printf("%s", ((TsString*)val->ptr_val)->ToUtf8()); break;
+        case ValueType::OBJECT_PTR: std::printf("[object Object]"); break;
+        case ValueType::ARRAY_PTR: {
+            TsArray* arr = (TsArray*)val->ptr_val;
+            int64_t len = arr->Length();
+            std::printf("[ ");
+            for (int64_t i = 0; i < len; i++) {
+                void* elem = (void*)arr->Get(i);
+                if (i > 0) std::printf(", ");
+                if (elem) {
+                    TsValue* elemVal = (TsValue*)elem;
+                    if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
+                        std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                    } else if (elemVal->type == ValueType::NUMBER_INT) {
+                        std::printf("%lld", elemVal->i_val);
+                    } else if (elemVal->type == ValueType::NUMBER_DBL) {
+                        std::printf("%f", elemVal->d_val);
+                    } else {
+                        uint32_t elemMagic = *(uint32_t*)elem;
+                        if (elemMagic == 0x53545247) {
+                            std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                        } else {
+                            std::printf("[object Object]");
+                        }
+                    }
+                } else {
+                    std::printf("undefined");
+                }
+            }
+            std::printf(" ]");
+            break;
+        }
+        case ValueType::PROMISE_PTR: std::printf("[object Promise]"); break;
+        case ValueType::BIGINT_PTR: std::printf("%sn", ((TsBigInt*)val->ptr_val)->ToString()); break;
         case ValueType::SYMBOL_PTR: {
             TsSymbol* sym = (TsSymbol*)val->ptr_val;
             if (sym->description) {
-                std::printf("Symbol(%s)\n", sym->description->ToUtf8());
+                std::printf("Symbol(%s)", sym->description->ToUtf8());
             } else {
-                std::printf("Symbol()\n");
+                std::printf("Symbol()");
             }
             break;
         }
     }
+}
+
+extern "C" void ts_console_log_value(TsValue* val) {
+    ts_console_log_value_no_newline(val);
+    std::printf("\n");
     std::fflush(stdout);
 }
+
 
 TsString* ts_typeof(void* val) {
     if (!val) return TsString::Create("undefined");

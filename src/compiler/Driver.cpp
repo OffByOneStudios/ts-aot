@@ -27,8 +27,9 @@ int Driver::run() {
     std::string jsonFile;
     bool isTemporaryJson = false;
 
-    // If input is .ts, run the Node.js parser
-    if (std::filesystem::path(tsFile).extension() == ".ts") {
+    // If input is .ts or .js, run the Node.js parser
+    auto ext = std::filesystem::path(tsFile).extension();
+    if (ext == ".ts" || ext == ".js") {
         jsonFile = std::filesystem::path(tsFile).replace_extension(".json").string();
         // If we are in a "driver" mode, we might want to use a temp file instead of overwriting user's .json
         // but for now, let's just use the same name but in a temp directory if possible, or just next to it.

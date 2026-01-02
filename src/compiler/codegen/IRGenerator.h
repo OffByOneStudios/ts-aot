@@ -109,6 +109,7 @@ private:
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitAsExpression(ast::AsExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
+    void visitDeleteExpression(ast::DeleteExpression* node);
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node);
     void visitSuperExpression(ast::SuperExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);

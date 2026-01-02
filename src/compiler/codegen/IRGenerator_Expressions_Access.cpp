@@ -270,6 +270,20 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         }
     }
 
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+        visit(node->expression.get());
+        llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);
+        visit(node->argumentExpression.get());
+        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        
+        lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
+        boxedValues.insert(lastValue);
+        return;
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Object) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
@@ -609,6 +623,24 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGeneratePathPropertyAccess(node)) return;
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
+
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+        visit(node->expression.get());
+        llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);
+        
+        llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+        key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        
+        lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
+        boxedValues.insert(lastValue);
+        return;
+    }
 
     // Check for size property on Map/Set BEFORE treating Map property access as Map.get()
     if (node->name == "size") {

@@ -58,6 +58,44 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
 
     if (!left || !right) return;
 
+    if (node->op == "in") {
+        llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+        llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+        
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_object_has_prop", ft);
+        lastValue = createCall(ft, fn.getCallee(), { boxedRight, boxedLeft });
+        return;
+    }
+
+    // Check if either side is 'any' - use slow path for arithmetic and comparison
+    bool leftIsAny = node->left->inferredType && node->left->inferredType->kind == TypeKind::Any;
+    bool rightIsAny = node->right->inferredType && node->right->inferredType->kind == TypeKind::Any;
+
+    if (leftIsAny || rightIsAny) {
+        std::string runtimeFn = "";
+        if (node->op == "+") runtimeFn = "ts_value_add";
+        else if (node->op == "-") runtimeFn = "ts_value_sub";
+        else if (node->op == "*") runtimeFn = "ts_value_mul";
+        else if (node->op == "/") runtimeFn = "ts_value_div";
+        else if (node->op == "==") runtimeFn = "ts_value_eq";
+        else if (node->op == "<") runtimeFn = "ts_value_lt";
+        else if (node->op == ">") runtimeFn = "ts_value_gt";
+        else if (node->op == "<=") runtimeFn = "ts_value_lte";
+        else if (node->op == ">=") runtimeFn = "ts_value_gte";
+        
+        if (runtimeFn != "") {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(runtimeFn, ft);
+            lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            boxedValues.insert(lastValue);
+            return;
+        }
+    }
+
     // Unbox if one is a pointer and the other is not, and it's not a string operation
     bool leftIsPtr = left->getType()->isPointerTy();
     bool rightIsPtr = right->getType()->isPointerTy();
@@ -601,22 +639,14 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Handle 'any' type element assignment as map set (since {} creates a TsMap)
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Any) {
             visit(elem->expression.get());
-            llvm::Value* obj = lastValue;
-            // ⚠️ CRITICAL: Always unbox for 'any' type - see runtime-extensions.instructions.md
-            // The object literal {} produces a boxed TsValue*, but when loaded from an alloca,
-            // the boxedValues set won't track the loaded value. ts_value_get_object is idempotent.
-            {
-                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
-                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
-            }
-            emitNullCheckForExpression(elem->expression.get(), obj);
+            llvm::Value* obj = boxValue(lastValue, elem->expression->inferredType);
+            
             visit(elem->argumentExpression.get());
             llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
             
             llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                     { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setFt);
+            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_prop", setFt);
             
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
             createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
@@ -762,6 +792,26 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         createCall(setFt, setFn.getCallee(), { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+            visit(prop->expression.get());
+            llvm::Value* obj = boxValue(lastValue, prop->expression->inferredType);
+            
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(prop->name);
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_prop", setFt);
+            
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            lastValue = val;
+            return;
+        }
+
         if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
             if (innerProp->name == "env") {
                 if (auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {

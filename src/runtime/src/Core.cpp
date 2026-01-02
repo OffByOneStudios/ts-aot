@@ -798,6 +798,9 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     // 1. Initialize Garbage Collector
     ts_gc_init();
 
+    // 1.5 Initialize Runtime Globals
+    ts_runtime_init();
+
     // 2. Initialize Event Loop
     ts_loop_init();
 

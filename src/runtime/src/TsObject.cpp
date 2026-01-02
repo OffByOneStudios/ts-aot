@@ -11,6 +11,9 @@
 #include <new>
 #include <cstdio>
 #include <iostream>
+#include <cmath>
+#include <limits>
+#include <cstring>
 
 // Currently empty, as TsObject.h only defines structs/enums for now.
 
@@ -96,20 +99,27 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // Check magic numbers to detect type
         uint32_t magic = *(uint32_t*)ptr;
+        uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        uint32_t magic24 = *(uint32_t*)((char*)ptr + 24);
         
-        if (magic == 0x41525259) { // TsArray::MAGIC "ARRY"
+        if (magic == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC "ARRY"
             return ts_value_make_array(ptr);
         }
-        if (magic == 0x4D415053) { // TsMap::MAGIC "MAPS"  
+        if (magic == 0x53545247) { // TsString::MAGIC "STRG"
+            return ts_value_make_string((TsString*)ptr);
+        }
+        if (magic == 0x4D415053 || magic8 == 0x4D415053 || magic16 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC "MAPS"  
             return ts_value_make_object(ptr);
         }
-        if (magic == 0x53455453) { // TsSet::MAGIC "SETS"
+        if (magic == 0x53455453 || magic8 == 0x53455453 || magic16 == 0x53455453 || magic24 == 0x53455453) { // TsSet::MAGIC "SETS"
+            return ts_value_make_object(ptr);
+        }
+        if (magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43) { // TsFunction::MAGIC "FUNC"
             return ts_value_make_object(ptr);
         }
         
-        // Check for buffer magic at offset 8 (vtable is at 0)
-        uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
+        if (magic == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
             return ts_value_make_object(ptr);
         }
         
@@ -537,75 +547,87 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 4, argv);
+        } else {
+            typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn4)func->funcPtr)(func->context, arg1, arg2, arg3, arg4);
+        }
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
         if (argc == 2) return ts_call_2(boxedFunc, argv[0], argv[1]);
         if (argc == 3) return ts_call_3(boxedFunc, argv[0], argv[1], argv[2]);
-        // For now, we don't support more than 3 args in this helper
+        if (argc == 4) return ts_call_4(boxedFunc, argv[0], argv[1], argv[2], argv[3]);
+        // For now, we don't support more than 4 args in this helper
         return ts_value_make_undefined();
     }
 
     // Object static methods
     
     // Object.keys(obj) - returns array of string keys
-    void* ts_object_keys(void* obj) {
-        if (!obj) return TsArray::Create(0);
+    TsValue* ts_object_keys(TsValue* obj) {
+        if (!obj) return ts_value_make_array(TsArray::Create(0));
         
         // Unbox if needed
-        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
         // Check TsMap::magic at offset 24
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_map_keys(rawPtr);
+            return ts_value_make_array(ts_map_keys(rawPtr));
         }
         
         // Not a map - return empty array
-        return TsArray::Create(0);
+        return ts_value_make_array(TsArray::Create(0));
     }
     
     // Object.values(obj) - returns array of values
-    // Object.values(obj) - returns array of values
-    void* ts_object_values(void* obj) {
-        if (!obj) return TsArray::Create(0);
+    TsValue* ts_object_values(TsValue* obj) {
+        if (!obj) return ts_value_make_array(TsArray::Create(0));
         
-        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_map_values(rawPtr);
+            return ts_value_make_array(ts_map_values(rawPtr));
         }
-        
-        return TsArray::Create(0);
+        return ts_value_make_array(TsArray::Create(0));
     }
     
     // Object.entries(obj) - returns array of [key, value] pairs
-    void* ts_object_entries(void* obj) {
-        if (!obj) return TsArray::Create(0);
+    TsValue* ts_object_entries(TsValue* obj) {
+        if (!obj) return ts_value_make_array(TsArray::Create(0));
         
-        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_map_entries(rawPtr);
+            return ts_value_make_array(ts_map_entries(rawPtr));
         }
         
-        return TsArray::Create(0);
+        return ts_value_make_array(TsArray::Create(0));
     }
     
     // Object.assign(target, source) - copies properties from source to target
-    void* ts_object_assign(void* target, void* source) {
+    TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
         if (!source) return target;
         
-        void* targetRaw = ts_value_get_object((TsValue*)target);
+        void* targetRaw = ts_value_get_object(target);
         if (!targetRaw) targetRaw = target;
         
-        void* sourceRaw = ts_value_get_object((TsValue*)source);
+        void* sourceRaw = ts_value_get_object(source);
         if (!sourceRaw) sourceRaw = source;
         
         // Check both are TsMaps (magic at offset 24)
@@ -633,59 +655,56 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     
     // Object.hasOwn(obj, prop) - check if object has own property
-    bool ts_object_has_own(void* obj, void* prop) {
+    bool ts_object_has_own(TsValue* obj, TsValue* prop) {
         if (!obj || !prop) return false;
         
-        void* rawPtr = ts_value_get_object((TsValue*)obj);
+        void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            TsValue keyVal;
-            keyVal.type = ValueType::STRING_PTR;
-            keyVal.ptr_val = prop;
-            return ts_map_has(rawPtr, &keyVal);
+            return ts_map_has(rawPtr, prop);
         }
         
         return false;
     }
     
     // Object.freeze(obj) - mark object as frozen (no-op for now, returns obj)
-    void* ts_object_freeze(void* obj) {
+    TsValue* ts_object_freeze(TsValue* obj) {
         // TODO: Implement actual freezing when we have property descriptors
         return obj;
     }
     
     // Object.seal(obj) - mark object as sealed (no-op for now, returns obj)
-    void* ts_object_seal(void* obj) {
+    TsValue* ts_object_seal(TsValue* obj) {
         // TODO: Implement actual sealing when we have property descriptors
         return obj;
     }
     
     // Object.isFrozen(obj) - check if object is frozen
-    bool ts_object_is_frozen(void* obj) {
+    bool ts_object_is_frozen(TsValue* obj) {
         // TODO: Implement when we have property descriptors
         return false;
     }
     
     // Object.isSealed(obj) - check if object is sealed
-    bool ts_object_is_sealed(void* obj) {
+    bool ts_object_is_sealed(TsValue* obj) {
         // TODO: Implement when we have property descriptors
         return false;
     }
     
     // Object.fromEntries(iterable) - create object from key-value pairs
-    void* ts_object_from_entries(void* entries) {
+    TsValue* ts_object_from_entries(TsValue* entries) {
         TsMap* result = TsMap::Create();
-        if (!entries) return result;
+        if (!entries) return ts_value_make_object(result);
         
-        void* rawPtr = ts_value_get_object((TsValue*)entries);
+        void* rawPtr = ts_value_get_object(entries);
         if (!rawPtr) rawPtr = entries;
         
         // Check if it's an array
         uint32_t magic = *(uint32_t*)rawPtr;
         if (magic != 0x41525259) { // TsArray::MAGIC
-            return result;
+            return ts_value_make_object(result);
         }
         
         TsArray* arr = (TsArray*)rawPtr;
@@ -712,6 +731,272 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
         
-        return result;
+        return ts_value_make_object(result);
+    }
+
+    TsValue* ts_value_add(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_undefined();
+        
+        // String concatenation if either is a string
+        if (a->type == ValueType::STRING_PTR || b->type == ValueType::STRING_PTR) {
+            TsString* s1 = (TsString*)ts_value_get_string(a);
+            TsString* s2 = (TsString*)ts_value_get_string(b);
+            if (!s1) s1 = TsString::Create("");
+            if (!s2) s2 = TsString::Create("");
+            return ts_value_make_string(TsString::Concat(s1, s2));
+        }
+        
+        // Number addition
+        if (a->type == ValueType::NUMBER_INT && b->type == ValueType::NUMBER_INT) {
+            return ts_value_make_int(a->i_val + b->i_val);
+        }
+        
+        double d1 = ts_value_get_double(a);
+        double d2 = ts_value_get_double(b);
+        return ts_value_make_double(d1 + d2);
+    }
+
+    TsValue* ts_value_sub(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_undefined();
+        if (a->type == ValueType::NUMBER_INT && b->type == ValueType::NUMBER_INT) {
+            return ts_value_make_int(a->i_val - b->i_val);
+        }
+        return ts_value_make_double(ts_value_get_double(a) - ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_mul(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_undefined();
+        if (a->type == ValueType::NUMBER_INT && b->type == ValueType::NUMBER_INT) {
+            return ts_value_make_int(a->i_val * b->i_val);
+        }
+        return ts_value_make_double(ts_value_get_double(a) * ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_div(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_undefined();
+        double d1 = ts_value_get_double(a);
+        double d2 = ts_value_get_double(b);
+        if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        return ts_value_make_double(d1 / d2);
+    }
+
+    TsValue* ts_value_eq(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_bool(a == b);
+        if (a->type == b->type) return ts_value_make_bool(ts_value_strict_eq(a, b));
+        
+        // null == undefined
+        bool a_nullish = (a->type == ValueType::UNDEFINED || (a->type == ValueType::OBJECT_PTR && a->ptr_val == nullptr));
+        bool b_nullish = (b->type == ValueType::UNDEFINED || (b->type == ValueType::OBJECT_PTR && b->ptr_val == nullptr));
+        if (a_nullish && b_nullish) return ts_value_make_bool(true);
+        
+        // Coerce to numbers
+        return ts_value_make_bool(ts_value_get_double(a) == ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_lt(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_bool(false);
+        if (a->type == ValueType::STRING_PTR && b->type == ValueType::STRING_PTR) {
+            TsString* s1 = (TsString*)a->ptr_val;
+            TsString* s2 = (TsString*)b->ptr_val;
+            return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) < 0);
+        }
+        return ts_value_make_bool(ts_value_get_double(a) < ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_gt(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_bool(false);
+        if (a->type == ValueType::STRING_PTR && b->type == ValueType::STRING_PTR) {
+            TsString* s1 = (TsString*)a->ptr_val;
+            TsString* s2 = (TsString*)b->ptr_val;
+            return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) > 0);
+        }
+        return ts_value_make_bool(ts_value_get_double(a) > ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_lte(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_bool(false);
+        if (a->type == ValueType::STRING_PTR && b->type == ValueType::STRING_PTR) {
+            TsString* s1 = (TsString*)a->ptr_val;
+            TsString* s2 = (TsString*)b->ptr_val;
+            return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) <= 0);
+        }
+        return ts_value_make_bool(ts_value_get_double(a) <= ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_gte(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_bool(false);
+        if (a->type == ValueType::STRING_PTR && b->type == ValueType::STRING_PTR) {
+            TsString* s1 = (TsString*)a->ptr_val;
+            TsString* s2 = (TsString*)b->ptr_val;
+            return ts_value_make_bool(strcmp(s1->ToUtf8(), s2->ToUtf8()) >= 0);
+        }
+        return ts_value_make_bool(ts_value_get_double(a) >= ts_value_get_double(b));
+    }
+
+    TsValue* ts_value_typeof(TsValue* v) {
+        if (!v) return ts_value_make_string((void*)TsString::Create("undefined"));
+        
+        // Check for raw TsString
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x53545247) return ts_value_make_string((void*)TsString::Create("string"));
+
+        switch (v->type) {
+            case ValueType::UNDEFINED: return ts_value_make_string((void*)TsString::Create("undefined"));
+            case ValueType::NUMBER_INT:
+            case ValueType::NUMBER_DBL: return ts_value_make_string((void*)TsString::Create("number"));
+            case ValueType::BOOLEAN: return ts_value_make_string((void*)TsString::Create("boolean"));
+            case ValueType::STRING_PTR: return ts_value_make_string((void*)TsString::Create("string"));
+            case ValueType::OBJECT_PTR: {
+                if (!v->ptr_val) return ts_value_make_string((void*)TsString::Create("object"));
+                // Check if it's a function
+                uint32_t magic = *(uint32_t*)v->ptr_val;
+                uint32_t magic8 = *(uint32_t*)((char*)v->ptr_val + 8);
+                uint32_t magic16 = *(uint32_t*)((char*)v->ptr_val + 16);
+                uint32_t magic24 = *(uint32_t*)((char*)v->ptr_val + 24);
+                if (magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43) 
+                    return ts_value_make_string((void*)TsString::Create("function"));
+                return ts_value_make_string((void*)TsString::Create("object"));
+            }
+            case ValueType::ARRAY_PTR: return ts_value_make_string((void*)TsString::Create("object"));
+            default: return ts_value_make_string((void*)TsString::Create("object"));
+        }
+    }
+
+    TsValue* ts_object_get_prop(TsValue* obj, TsValue* key) {
+        if (!obj || !key) return ts_value_make_undefined();
+        
+        // If key is a number, try array access
+        if (key->type == ValueType::NUMBER_INT || key->type == ValueType::NUMBER_DBL) {
+            int64_t idx = (key->type == ValueType::NUMBER_INT) ? key->i_val : (int64_t)key->d_val;
+            void* rawObj = ts_value_get_object(obj);
+            if (rawObj) {
+                uint32_t magic = *(uint32_t*)rawObj;
+                if (magic == 0x41525259) { // TsArray::MAGIC
+                    return ts_array_get_as_value(rawObj, idx);
+                }
+            }
+        }
+        
+        // Coerce key to string
+        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        if (!keyStr) return ts_value_make_undefined();
+        
+        return ts_value_get_property(obj, (void*)keyStr);
+    }
+
+    TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
+        if (!obj || !key) return value;
+        
+        void* rawObj = ts_value_get_object(obj);
+        if (!rawObj) return value;
+
+        // If key is a number, try array access
+        if (key->type == ValueType::NUMBER_INT || key->type == ValueType::NUMBER_DBL) {
+            int64_t idx = (key->type == ValueType::NUMBER_INT) ? key->i_val : (int64_t)key->d_val;
+            uint32_t magic = *(uint32_t*)rawObj;
+            if (magic == 0x41525259) { // TsArray::MAGIC
+                TsArray* arr = (TsArray*)rawObj;
+                arr->Set(idx, (int64_t)value);
+                return value;
+            }
+        }
+
+        // Coerce key to string
+        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        if (!keyStr) return value;
+
+        // Check if it's a map
+        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
+        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawObj;
+            map->Set(*key, *value);
+            return value;
+        }
+
+        return value;
+    }
+
+    bool ts_object_has_prop(TsValue* obj, TsValue* key) {
+        if (!obj || !key) return false;
+        void* rawObj = ts_value_get_object(obj);
+        if (!rawObj) return false;
+
+        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        if (!keyStr) return false;
+
+        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
+        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawObj;
+            return map->Has(*key);
+        }
+        
+        return false;
+    }
+
+    bool ts_object_delete_prop(TsValue* obj, TsValue* key) {
+        if (!obj || !key) return false;
+        void* rawObj = ts_value_get_object(obj);
+        if (!rawObj) return false;
+
+        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        if (!keyStr) return false;
+
+        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
+        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawObj;
+            return map->Delete(*key);
+        }
+        
+        return false;
+    }
+
+    extern "C" void ts_console_log_value_no_newline(TsValue* val);
+
+    TsValue* ts_console_log_native(void* context, int argc, TsValue** argv) {
+        for (int i = 0; i < argc; i++) {
+            if (i > 0) std::printf(" ");
+            ts_console_log_value_no_newline(argv[i]);
+        }
+        std::printf("\n");
+        std::fflush(stdout);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* ts_object_keys_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_array(TsArray::Create(0));
+        return ts_object_keys(argv[0]);
+    }
+
+    // Global Objects
+    TsValue* Object = nullptr;
+    TsValue* Array = nullptr;
+    TsValue* Math = nullptr;
+    TsValue* JSON = nullptr;
+    TsValue* console = nullptr;
+    TsValue* process = nullptr;
+    TsValue* Buffer = nullptr;
+
+    void ts_runtime_init() {
+        // Initialize Object global
+        TsMap* objectMap = TsMap::Create();
+        
+        // Object.keys
+        TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
+        objectMap->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
+        
+        Object = ts_value_make_object(objectMap);
+
+        // Initialize console
+        TsMap* consoleMap = TsMap::Create();
+        TsValue logKey; logKey.type = ValueType::STRING_PTR; logKey.ptr_val = TsString::Create("log");
+        consoleMap->Set(logKey, *ts_value_make_native_function((void*)ts_console_log_native, nullptr));
+        console = ts_value_make_object(consoleMap);
+
+        // Initialize other globals as empty objects for now
+        Array = ts_value_make_object(TsMap::Create());
+        Math = ts_value_make_object(TsMap::Create());
+        JSON = ts_value_make_object(TsMap::Create());
+        process = ts_value_make_object(TsMap::Create());
+        Buffer = ts_value_make_object(TsMap::Create());
     }
 }
