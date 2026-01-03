@@ -70,12 +70,15 @@ enum class FunctionType {
     NATIVE
 };
 
+class TsMap;  // Forward declaration
+
 class TsFunction : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x46554E43; // "FUNC"
     void* funcPtr;
     void* context;
     FunctionType type;
+    TsMap* properties = nullptr;  // For storing properties like _.chunk
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED) 
         : funcPtr(fp), context(ctx), type(t) {
         magic = MAGIC;
@@ -106,6 +109,8 @@ extern "C" {
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6);
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7);
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8);
+    TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9);
+    TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv);
     TsValue* ts_function_apply(TsValue* boxedFunc, TsValue* thisArg, TsValue* argsArray);

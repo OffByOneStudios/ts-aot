@@ -1378,6 +1378,10 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         ++idx;
     }
     
+    // Pre-pass: Hoist function declarations (JavaScript hoisting behavior)
+    // This ensures function names are available before their declaration is visited
+    hoistFunctionDeclarations(node->body, function);
+    
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
@@ -1812,6 +1816,33 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
     }
     
     return llvm::ConstantPointerNull::get(builder->getPtrTy());
+}
+
+// JavaScript function hoisting - pre-register function declarations before body execution
+// This implements the hoisting semantics where function declarations are accessible
+// throughout their containing scope, even before the declaration appears textually.
+// 
+// Two-phase approach:
+// Phase 1: Create allocas for all function names and initialize to null (this function)
+// Phase 2: The actual function bodies are generated during normal statement processing
+void IRGenerator::hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn) {
+    for (auto& stmt : stmts) {
+        if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            if (funcDecl->name.empty()) continue;
+            
+            // Skip if already registered
+            if (namedValues.count(funcDecl->name)) {
+                continue;
+            }
+            
+            // Phase 1: Just create an alloca and initialize to null
+            // The actual function will be generated during normal body processing
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(enclosingFn, funcDecl->name, builder->getPtrTy());
+            builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), alloca);
+            namedValues[funcDecl->name] = alloca;
+            boxedVariables.insert(funcDecl->name);
+        }
+    }
 }
 
 } // namespace ts

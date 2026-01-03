@@ -65,6 +65,36 @@
       ],
       "line": 6,
       "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./partial",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "partial1_2",
+          "propertyName": null
+        },
+        {
+          "name": "partial2_3",
+          "propertyName": null
+        }
+      ],
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./curry",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "curry2",
+          "propertyName": null
+        }
+      ],
+      "line": 8,
+      "column": 1
     }
   ]
 }

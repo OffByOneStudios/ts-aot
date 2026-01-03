@@ -1,0 +1,251 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "partial1_2",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "(b: number) => number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "fn",
+            "line": 10,
+            "column": 28
+          },
+          "type": "(a: number, b: number) => number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 10,
+          "column": 28
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg1",
+            "line": 10,
+            "column": 66
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 10,
+          "column": 66
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "ArrowFunction",
+            "isAsync": false,
+            "parameters": [
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "b",
+                  "line": 11,
+                  "column": 13
+                },
+                "type": "number",
+                "isOptional": false,
+                "isRest": false,
+                "initializer": null,
+                "access": null,
+                "isReadonly": false,
+                "isParameterProperty": false,
+                "line": 11,
+                "column": 13
+              }
+            ],
+            "body": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "fn",
+                "line": 11,
+                "column": 35
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "arg1",
+                  "line": 11,
+                  "column": 38
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "b",
+                  "line": 11,
+                  "column": 44
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 11,
+              "column": 35
+            },
+            "line": 11,
+            "column": 12
+          },
+          "line": 11,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 10,
+      "column": 1
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "partial2_3",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "(c: number) => number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "fn",
+            "line": 23,
+            "column": 28
+          },
+          "type": "(a: number, b: number, c: number) => number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 23,
+          "column": 28
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg1",
+            "line": 23,
+            "column": 77
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 23,
+          "column": 77
+        },
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "arg2",
+            "line": 23,
+            "column": 91
+          },
+          "type": "number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 23,
+          "column": 91
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "ArrowFunction",
+            "isAsync": false,
+            "parameters": [
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "c",
+                  "line": 24,
+                  "column": 13
+                },
+                "type": "number",
+                "isOptional": false,
+                "isRest": false,
+                "initializer": null,
+                "access": null,
+                "isReadonly": false,
+                "isParameterProperty": false,
+                "line": 24,
+                "column": 13
+              }
+            ],
+            "body": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "Identifier",
+                "name": "fn",
+                "line": 24,
+                "column": 35
+              },
+              "arguments": [
+                {
+                  "kind": "Identifier",
+                  "name": "arg1",
+                  "line": 24,
+                  "column": 38
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "arg2",
+                  "line": 24,
+                  "column": 44
+                },
+                {
+                  "kind": "Identifier",
+                  "name": "c",
+                  "line": 24,
+                  "column": 50
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 24,
+              "column": 35
+            },
+            "line": 24,
+            "column": 12
+          },
+          "line": 24,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 23,
+      "column": 1
+    }
+  ]
+}

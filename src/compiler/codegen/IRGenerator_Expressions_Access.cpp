@@ -89,7 +89,7 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
-    SPDLOG_INFO("Identifier {} not found in namedValues", node->name);
+    SPDLOG_DEBUG("Identifier {} not found in namedValues", node->name);
 
     // Check for global variable
     llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);

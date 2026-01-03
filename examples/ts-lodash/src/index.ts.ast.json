@@ -159,6 +159,35 @@
       ],
       "line": 14,
       "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./function/index",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "once",
+          "propertyName": null
+        },
+        {
+          "name": "negate",
+          "propertyName": null
+        },
+        {
+          "name": "memoize",
+          "propertyName": null
+        },
+        {
+          "name": "debounce",
+          "propertyName": null
+        },
+        {
+          "name": "throttle",
+          "propertyName": null
+        }
+      ],
+      "line": 17,
+      "column": 1
     }
   ]
 }

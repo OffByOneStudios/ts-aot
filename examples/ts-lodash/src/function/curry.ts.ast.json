@@ -1,0 +1,136 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "curry2",
+      "isExported": true,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "(a: number) => (b: number) => number",
+      "parameters": [
+        {
+          "kind": "Parameter",
+          "name": {
+            "kind": "Identifier",
+            "name": "fn",
+            "line": 13,
+            "column": 24
+          },
+          "type": "(a: number, b: number) => number",
+          "isOptional": false,
+          "isRest": false,
+          "initializer": null,
+          "access": null,
+          "isReadonly": false,
+          "isParameterProperty": false,
+          "line": 13,
+          "column": 24
+        }
+      ],
+      "body": [
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "ArrowFunction",
+            "isAsync": false,
+            "parameters": [
+              {
+                "kind": "Parameter",
+                "name": {
+                  "kind": "Identifier",
+                  "name": "a",
+                  "line": 14,
+                  "column": 13
+                },
+                "type": "number",
+                "isOptional": false,
+                "isRest": false,
+                "initializer": null,
+                "access": null,
+                "isReadonly": false,
+                "isParameterProperty": false,
+                "line": 14,
+                "column": 13
+              }
+            ],
+            "body": {
+              "kind": "BlockStatement",
+              "body": [
+                {
+                  "kind": "ReturnStatement",
+                  "expression": {
+                    "kind": "ArrowFunction",
+                    "isAsync": false,
+                    "parameters": [
+                      {
+                        "kind": "Parameter",
+                        "name": {
+                          "kind": "Identifier",
+                          "name": "b",
+                          "line": 15,
+                          "column": 17
+                        },
+                        "type": "number",
+                        "isOptional": false,
+                        "isRest": false,
+                        "initializer": null,
+                        "access": null,
+                        "isReadonly": false,
+                        "isParameterProperty": false,
+                        "line": 15,
+                        "column": 17
+                      }
+                    ],
+                    "body": {
+                      "kind": "CallExpression",
+                      "callee": {
+                        "kind": "Identifier",
+                        "name": "fn",
+                        "line": 15,
+                        "column": 39
+                      },
+                      "arguments": [
+                        {
+                          "kind": "Identifier",
+                          "name": "a",
+                          "line": 15,
+                          "column": 42
+                        },
+                        {
+                          "kind": "Identifier",
+                          "name": "b",
+                          "line": 15,
+                          "column": 45
+                        }
+                      ],
+                      "typeArguments": [],
+                      "isOptional": false,
+                      "line": 15,
+                      "column": 39
+                    },
+                    "line": 15,
+                    "column": 16
+                  },
+                  "line": 15,
+                  "column": 9
+                }
+              ],
+              "line": 14,
+              "column": 52
+            },
+            "line": 14,
+            "column": 12
+          },
+          "line": 14,
+          "column": 5
+        }
+      ],
+      "decorators": [],
+      "line": 13,
+      "column": 1
+    }
+  ]
+}
