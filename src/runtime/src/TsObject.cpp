@@ -705,9 +705,26 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_undefined();
     }
 
+    // Helper to safely extract TsFunction from boxed value
+    static TsFunction* ts_extract_function(TsValue* boxedFunc) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+            return nullptr;
+        }
+        void* ptr = boxedFunc->ptr_val;
+        if (!ptr) {
+            return nullptr;
+        }
+        // Check if this is actually a TsFunction (has FUNC magic at offset 0)
+        uint32_t magic = *(uint32_t*)ptr;
+        if (magic != TsFunction::MAGIC) {
+            printf("[ts_extract_function] ERROR: Attempted to call non-function object (magic=%08X)\n", magic);
+            return nullptr;
+        }
+        return (TsFunction*)ptr;
+    }
+
     TsValue* ts_call_0(TsValue* boxedFunc) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
@@ -722,10 +739,17 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
             return ts_value_make_undefined();
         }
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
-        if (!func) {
+        void* ptr = boxedFunc->ptr_val;
+        if (!ptr) {
             return ts_value_make_undefined();
         }
+        // Check if this is actually a TsFunction (has FUNC magic)
+        uint32_t magic = *(uint32_t*)ptr;
+        if (magic != TsFunction::MAGIC) {
+            printf("[ts_call_1] ERROR: Attempted to call non-function object (magic=%08X)\n", magic);
+            return ts_value_make_undefined();
+        }
+        TsFunction* func = (TsFunction*)ptr;
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
@@ -736,16 +760,8 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
-        if (!boxedFunc) {
-            return ts_value_make_undefined();
-        }
-        if (boxedFunc->type != ValueType::OBJECT_PTR) {
-            return ts_value_make_undefined();
-        }
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
-        if (!func) {
-            return ts_value_make_undefined();
-        }
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[2] = { arg1, arg2 };
             TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);
@@ -758,8 +774,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[3] = { arg1, arg2, arg3 };
@@ -771,8 +786,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
@@ -784,8 +798,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
@@ -797,8 +810,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
@@ -810,8 +822,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
@@ -823,8 +834,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
@@ -836,8 +846,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[9] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
@@ -849,8 +858,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[10] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
@@ -880,14 +888,10 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
         printf("[ts_function_call_with_this] boxedFunc=%p, thisArg=%p, argc=%d\n", boxedFunc, thisArg, argc);
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
-            printf("[ts_function_call_with_this] boxedFunc is invalid\n");
-            return ts_value_make_undefined();
-        }
-        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        TsFunction* func = ts_extract_function(boxedFunc);
         printf("[ts_function_call_with_this] func=%p\n", func);
         if (!func) {
-            printf("[ts_function_call_with_this] func is NULL\n");
+            printf("[ts_function_call_with_this] func is NULL or not a function\n");
             return ts_value_make_undefined();
         }
 
