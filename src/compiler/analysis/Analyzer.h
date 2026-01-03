@@ -79,6 +79,10 @@ public:
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
+    // Synthetic functions (e.g., module init) are not part of any module AST body.
+    // Track ownership so we can apply the correct module context during body analysis.
+    std::map<std::string, std::string> syntheticFunctionOwners;
+
     ModuleType currentModuleType = ModuleType::TypeScript;
 
     // Module resolution for JSON imports (public for codegen access)
@@ -123,6 +127,7 @@ private:
     void visitReturnStatement(ast::ReturnStatement* node) override;
     void visitCallExpression(ast::CallExpression* node) override;
     void visitNewExpression(ast::NewExpression* node) override;
+    void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override;
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) override;
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) override;

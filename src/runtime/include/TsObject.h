@@ -167,4 +167,7 @@ extern "C" {
     extern TsValue* console;
     extern TsValue* process;
     extern TsValue* Buffer;
+    extern TsValue* global;
+    extern TsValue* parseInt;
+    extern TsValue* parseFloat;
 }

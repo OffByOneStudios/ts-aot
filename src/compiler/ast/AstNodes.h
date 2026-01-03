@@ -69,6 +69,7 @@ struct ArrowFunction;
 struct FunctionExpression;
 struct TemplateExpression;
 struct TaggedTemplateExpression;
+struct ParenthesizedExpression;
 struct AsExpression;
 struct ConditionalExpression;
 struct PrefixUnaryExpression;
@@ -111,6 +112,7 @@ struct Visitor {
     virtual void visitAssignmentExpression(AssignmentExpression* node) = 0;
     virtual void visitCallExpression(CallExpression* node) = 0;
     virtual void visitNewExpression(NewExpression* node) = 0;
+    virtual void visitParenthesizedExpression(ParenthesizedExpression* node) = 0;
     virtual void visitArrayLiteralExpression(ArrayLiteralExpression* node) = 0;
     virtual void visitElementAccessExpression(ElementAccessExpression* node) = 0;
     virtual void visitPropertyAccessExpression(PropertyAccessExpression* node) = 0;
@@ -682,6 +684,12 @@ struct FunctionExpression : Expression {
     std::vector<StmtPtr> body;
     std::string getKind() const override { return "FunctionExpression"; }
     void accept(Visitor* visitor) override { visitor->visitFunctionExpression(this); }
+};
+
+struct ParenthesizedExpression : Expression {
+    ExprPtr expression;
+    std::string getKind() const override { return "ParenthesizedExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitParenthesizedExpression(this); }
 };
 
 struct TemplateSpan {

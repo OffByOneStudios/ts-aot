@@ -63,7 +63,71 @@ static TsValue* uncaught_exception_capture_callback = nullptr;
 static uv_idle_t* process_ref_handle = nullptr;
 static bool process_is_referenced = true;
 
+#ifdef _WIN32
+static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
+    if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
+
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    void* addr = info->ExceptionRecord->ExceptionAddress;
+
+    HMODULE mod = nullptr;
+    char modName[MAX_PATH] = {0};
+    if (addr && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                  (LPCSTR)addr, &mod) && mod) {
+        GetModuleFileNameA(mod, modName, MAX_PATH);
+    }
+
+    fprintf(stderr, "[ts-aot] VectoredException: code=0x%08lx addr=%p module=%s\n",
+            (unsigned long)code, addr, (modName[0] ? modName : "<unknown>"));
+    fflush(stderr);
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG WINAPI ts_unhandled_exception_filter(PEXCEPTION_POINTERS info) {
+    if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
+
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    void* addr = info->ExceptionRecord->ExceptionAddress;
+
+    HMODULE mod = nullptr;
+    char modName[MAX_PATH] = {0};
+    if (addr && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                  (LPCSTR)addr, &mod) && mod) {
+        GetModuleFileNameA(mod, modName, MAX_PATH);
+    }
+
+    fprintf(stderr, "[ts-aot] UnhandledException: code=0x%08lx addr=%p module=%s\n",
+            (unsigned long)code, addr, (modName[0] ? modName : "<unknown>"));
+    fflush(stderr);
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
+#ifdef _MSC_VER
+static DWORD ts_last_seh_code = 0;
+static void* ts_last_seh_addr = nullptr;
+
+static int ts_seh_filter(EXCEPTION_POINTERS* info, DWORD code) {
+    ts_last_seh_code = code;
+    ts_last_seh_addr = nullptr;
+    if (info && info->ExceptionRecord) {
+        ts_last_seh_addr = info->ExceptionRecord->ExceptionAddress;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 extern "C" {
+
+TsValue* ts_debug_marker(TsValue* msg) {
+    fprintf(stderr, "[ts-aot] marker: ");
+    ts_console_log_value(msg);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    return ts_value_make_undefined();
+}
 
 void* ts_get_process_argv() {
     if (!process_argv || process_argv->type != ValueType::ARRAY_PTR) return nullptr;
@@ -788,6 +852,19 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
 #endif
 
+#ifdef _WIN32
+    PVOID veh = AddVectoredExceptionHandler(1, ts_vectored_exception_handler);
+    if (!veh) {
+        const DWORD err = GetLastError();
+        fprintf(stderr, "[ts-aot] ts_main: AddVectoredExceptionHandler failed err=%lu\n", (unsigned long)err);
+        fflush(stderr);
+    }
+    SetUnhandledExceptionFilter(ts_unhandled_exception_filter);
+#endif
+
+    fprintf(stderr, "[ts-aot] ts_main: start\n");
+    fflush(stderr);
+
     // 0. Record process start time and argv0
     process_start_time = std::chrono::steady_clock::now();
     if (argc > 0 && argv[0]) {
@@ -796,13 +873,25 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     }
 
     // 1. Initialize Garbage Collector
+    fprintf(stderr, "[ts-aot] ts_main: ts_gc_init...\n");
+    fflush(stderr);
     ts_gc_init();
+    fprintf(stderr, "[ts-aot] ts_main: ts_gc_init OK\n");
+    fflush(stderr);
 
     // 1.5 Initialize Runtime Globals
+    fprintf(stderr, "[ts-aot] ts_main: ts_runtime_init...\n");
+    fflush(stderr);
     ts_runtime_init();
+    fprintf(stderr, "[ts-aot] ts_main: ts_runtime_init OK\n");
+    fflush(stderr);
 
     // 2. Initialize Event Loop
+    fprintf(stderr, "[ts-aot] ts_main: ts_loop_init...\n");
+    fflush(stderr);
     ts_loop_init();
+    fprintf(stderr, "[ts-aot] ts_main: ts_loop_init OK\n");
+    fflush(stderr);
 
     // 3. Initialize process.argv
     TsArray* argvArray = TsArray::Create(argc);
@@ -814,8 +903,27 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 4. Run User Code (which might schedule async work)
     if (user_main) {
+        fprintf(stderr, "[ts-aot] ts_main: user_main...\n");
+        fflush(stderr);
+
+#ifdef _MSC_VER
+        __try {
+            TsValue* result = user_main(nullptr);
+            (void)result; // For now, we don't do anything special with the top-level promise
+            fprintf(stderr, "[ts-aot] ts_main: user_main OK\n");
+            fflush(stderr);
+        } __except(ts_seh_filter(GetExceptionInformation(), GetExceptionCode())) {
+            fprintf(stderr, "[ts-aot] ts_main: user_main EXCEPTION code=0x%08lx addr=%p\n",
+                    (unsigned long)ts_last_seh_code, ts_last_seh_addr);
+            fflush(stderr);
+            return 1;
+        }
+#else
         TsValue* result = user_main(nullptr);
         (void)result; // For now, we don't do anything special with the top-level promise
+        fprintf(stderr, "[ts-aot] ts_main: user_main OK\n");
+        fflush(stderr);
+#endif
     }
 
     // 5. Run Event Loop

@@ -115,6 +115,29 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
     }
 
+    // Hoist variable declarations in this function scope (JS/TS 'var' semantics).
+    // This prevents "undefined variable" errors when a nested function references
+    // a variable declared later in the same function.
+    for (auto& stmt : node->body) {
+        if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+                if (!symbols.lookup(id->name)) {
+                    symbols.define(id->name, std::make_shared<Type>(TypeKind::Any));
+                }
+            } else {
+                // Destructuring patterns: conservatively declare members as Any
+                declareBindingPattern(var->name.get(), std::make_shared<Type>(TypeKind::Any));
+            }
+        } else if (auto fn = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            // Nested function declarations are hoisted.
+            if (!symbols.lookup(fn->name)) {
+                auto nestedType = std::make_shared<FunctionType>();
+                nestedType->node = fn;
+                symbols.define(fn->name, nestedType);
+            }
+        }
+    }
+
     functionDepth++;
     std::shared_ptr<Type> oldReturnType = currentReturnType;
     currentReturnType = nullptr;
@@ -147,6 +170,7 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     functionDepth--;
     symbols.exitScope();
 }
+
 
 void Analyzer::visitMethodDefinition(ast::MethodDefinition* node) {
     visitMethodDefinition(node, nullptr);
@@ -307,7 +331,95 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
 }
 
 std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+    // If this function belongs to a different module (e.g. external JS), switch analyzer context
+    // so semantic rules (permissive/untyped) match the function's origin.
+    auto oldModule = currentModule;
+    auto oldPath = currentFilePath;
+    auto oldModuleType = currentModuleType;
+    bool oldSuppressErrors = suppressErrors;
+    bool oldSkipUntyped = skipUntypedSemantic;
+
+    auto setContextForFunction = [&]() {
+        // First, check explicit ownership for synthetic functions (e.g., module init).
+        if (!node->name.empty()) {
+            auto ownerIt = syntheticFunctionOwners.find(node->name);
+            if (ownerIt != syntheticFunctionOwners.end()) {
+                auto modIt = modules.find(ownerIt->second);
+                if (modIt != modules.end() && modIt->second) {
+                    auto module = modIt->second;
+                    SPDLOG_INFO("analyzeFunctionBody: applying synthetic owner context for {} -> {} (moduleType={})",
+                        node->name, module->path, static_cast<int>(module->type));
+                    currentModule = module;
+                    currentFilePath = module->path;
+                    currentModuleType = module->type;
+                    if (module->type != ModuleType::TypeScript) {
+                        suppressErrors = true;
+                    }
+                    if (module->type == ModuleType::UntypedJavaScript) {
+                        // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
+                        skipUntypedSemantic = false;
+                    }
+                    return;
+                }
+            }
+        }
+
+        for (auto& [path, module] : modules) {
+            if (!module || !module->ast) continue;
+            for (auto& stmt : module->ast->body) {
+                if (auto fn = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    // Prefer pointer identity, but allow name-based match for cloned/specialized nodes.
+                    if (fn == node || (!node->name.empty() && fn->name == node->name)) {
+                        currentModule = module;
+                        currentFilePath = module->path;
+                        currentModuleType = module->type;
+                        if (module->type != ModuleType::TypeScript) {
+                            suppressErrors = true;
+                        }
+                        if (module->type == ModuleType::UntypedJavaScript) {
+                            // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
+                            skipUntypedSemantic = false;
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    };
+
+    setContextForFunction();
+
+    // For untyped/opaque modules, analyze permissively.
+    if (suppressErrors || currentModuleType == ModuleType::UntypedJavaScript || skipUntypedSemantic) {
+        auto anyType = std::make_shared<Type>(TypeKind::Any);
+        currentModule = oldModule;
+        currentFilePath = oldPath;
+        currentModuleType = oldModuleType;
+        suppressErrors = oldSuppressErrors;
+        skipUntypedSemantic = oldSkipUntyped;
+        return anyType;
+    }
+
     symbols.enterScope();
+
+    // Hoist declarations in the function body (var/function hoisting semantics).
+    for (auto& stmt : node->body) {
+        if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+                if (!symbols.lookup(id->name)) {
+                    symbols.define(id->name, std::make_shared<Type>(TypeKind::Any));
+                }
+            } else {
+                declareBindingPattern(var->name.get(), std::make_shared<Type>(TypeKind::Any));
+            }
+        } else if (auto fn = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            if (!symbols.lookup(fn->name)) {
+                auto nestedType = std::make_shared<FunctionType>();
+                nestedType->node = fn;
+                symbols.define(fn->name, nestedType);
+            }
+        }
+    }
     
     // Define type parameters with actual type arguments
     for (size_t i = 0; i < node->typeParameters.size(); ++i) {
@@ -437,6 +549,12 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     }
     
     symbols.exitScope();
+
+    currentModule = oldModule;
+    currentFilePath = oldPath;
+    currentModuleType = oldModuleType;
+    suppressErrors = oldSuppressErrors;
+    skipUntypedSemantic = oldSkipUntyped;
     return inferredReturnType;
 }
 

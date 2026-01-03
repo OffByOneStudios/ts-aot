@@ -300,15 +300,26 @@ function visitInternal(node) {
                 access: "public"
             };
         case ts.SyntaxKind.VariableStatement:
-            // Simplified: assume one declaration per statement
-            const decl = node.declarationList.declarations[0];
-            return {
+            // Handle all declarations in the statement (e.g., var a = 1, b = 2, c = 3)
+            const declarations = node.declarationList.declarations.map(decl => ({
                 kind: "VariableDeclaration",
                 name: visit(decl.name),
                 isExported: isExported(node),
                 type: decl.type ? decl.type.getText(currentSourceFile) : "",
                 initializer: decl.initializer ? visit(decl.initializer) : null
-            };
+            }));
+            // If there's only one declaration, return it directly; otherwise return an array marker
+            // that the AST loader will expand
+            if (declarations.length === 1) {
+                return declarations[0];
+            } else {
+                // Return a special node that signals multiple declarations
+                // The AST loader will need to handle this and expand it into separate statements
+                return {
+                    kind: "MultipleVariableDeclarations",
+                    declarations: declarations
+                };
+            }
         case ts.SyntaxKind.ObjectBindingPattern:
         case ts.SyntaxKind.ArrayBindingPattern:
             return {

@@ -4,6 +4,7 @@
 #include "TsArray.h"
 #include "TsBigInt.h"
 #include "TsMap.h"
+#include "TsJSON.h"
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsEventEmitter.h"
@@ -18,6 +19,9 @@
 #include <cstring>
 #include <unordered_map>
 #include <string>
+#include <cmath>
+#include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -199,6 +203,17 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!ptr) {
             return ts_value_make_undefined();
         }
+
+        // Guard against obviously-invalid pointers (common when 'any' accidentally contains
+        // a non-pointer bit-pattern). Avoid dereferencing very low addresses.
+        uintptr_t raw = (uintptr_t)ptr;
+        if (raw < 0x10000) {
+            return ts_value_make_undefined();
+        }
+
+#ifdef _MSC_VER
+        __try {
+#endif
         
         // Check if it's already a TsValue* (types 0-10)
         uint8_t firstByte = *(uint8_t*)ptr;
@@ -235,6 +250,12 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // Default: treat as generic object
         return ts_value_make_object(ptr);
+
+#ifdef _MSC_VER
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return ts_value_make_undefined();
+        }
+#endif
     }
 
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
@@ -267,12 +288,20 @@ TsValue* ts_value_make_int(int64_t i) {
 
     void* ts_value_get_string(TsValue* v) {
         if (!v) return nullptr;
-        
-        // Check for raw TsString
-        uint32_t magic = *(uint32_t*)v;
-        if (magic == 0x53545247) { // TsString::MAGIC
-            return v;
+
+#ifdef _MSC_VER
+        __try {
+#endif
+            // Check for raw TsString
+            uint32_t magic = *(uint32_t*)v;
+            if (magic == 0x53545247) { // TsString::MAGIC
+                return v;
+            }
+#ifdef _MSC_VER
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return nullptr;
         }
+#endif
 
         if (v->type == ValueType::STRING_PTR) return v->ptr_val;
         
@@ -285,20 +314,28 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // Check for raw pointers
-        uint32_t magic = *(uint32_t*)v;
-        if (magic == 0x41525259) { // TsArray::MAGIC
-            return v;
+#ifdef _MSC_VER
+        __try {
+#endif
+            // Check for raw pointers
+            uint32_t magic = *(uint32_t*)v;
+            if (magic == 0x41525259) { // TsArray::MAGIC
+                return v;
+            }
+            if (magic == 0x4D415053) { // TsMap::MAGIC
+                return v;
+            }
+
+            // Check for objects with vtable (magic at offset 8)
+            uint32_t magic8 = *(uint32_t*)((char*)v + 8);
+            if (magic8 == 0x42554646) { // TsBuffer::MAGIC
+                return v;
+            }
+#ifdef _MSC_VER
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return nullptr;
         }
-        if (magic == 0x4D415053) { // TsMap::MAGIC
-            return v;
-        }
-        
-        // Check for objects with vtable (magic at offset 8)
-        uint32_t magic8 = *(uint32_t*)((char*)v + 8);
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
-            return v;
-        }
+#endif
 
         if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) {
             return v->ptr_val;
@@ -1058,10 +1095,18 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_typeof(TsValue* v) {
         if (!v) return ts_value_make_string((void*)TsString::Create("undefined"));
-        
-        // Check for raw TsString
-        uint32_t magic = *(uint32_t*)v;
-        if (magic == 0x53545247) return ts_value_make_string((void*)TsString::Create("string"));
+
+#ifdef _MSC_VER
+        __try {
+#endif
+            // Check for raw TsString
+            uint32_t magic = *(uint32_t*)v;
+            if (magic == 0x53545247) return ts_value_make_string((void*)TsString::Create("string"));
+#ifdef _MSC_VER
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return ts_value_make_string((void*)TsString::Create("undefined"));
+        }
+#endif
 
         switch (v->type) {
             case ValueType::UNDEFINED: return ts_value_make_string((void*)TsString::Create("undefined"));
@@ -1213,14 +1258,104 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_keys(argv[0]);
     }
 
-    // Global Objects
-    TsValue* Object = nullptr;
-    TsValue* Array = nullptr;
-    TsValue* Math = nullptr;
-    TsValue* JSON = nullptr;
-    TsValue* console = nullptr;
-    TsValue* process = nullptr;
-    TsValue* Buffer = nullptr;
+    TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+
+        void* obj = argv[0];
+        void* replacer = (argc >= 2) ? (void*)argv[1] : nullptr;
+        void* space = (argc >= 3) ? (void*)argv[2] : nullptr;
+        TsString* s = (TsString*)ts_json_stringify(obj, replacer, space);
+        if (!s) return ts_value_make_undefined();
+        return ts_value_make_string((void*)s);
+    }
+
+    TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+
+        TsString* s = (TsString*)ts_value_get_string(argv[0]);
+        if (!s) return ts_value_make_undefined();
+
+        void* parsed = ts_json_parse((void*)s);
+        if (!parsed) return ts_value_make_undefined();
+        return (TsValue*)parsed;
+    }
+
+    TsValue* ts_array_isArray_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1 || !argv[0]) return ts_value_make_bool(false);
+        TsValue* v = argv[0];
+        if (v->type == ValueType::ARRAY_PTR) return ts_value_make_bool(true);
+        void* raw = ts_value_get_object(v);
+        if (!raw) raw = v;
+        uint32_t magic = *(uint32_t*)raw;
+        return ts_value_make_bool(magic == 0x41525259);
+    }
+
+    TsValue* ts_math_random_native(void* context, int argc, TsValue** argv) {
+        double r = (double)std::rand() / (double)RAND_MAX;
+        return ts_value_make_double(r);
+    }
+
+    TsValue* ts_math_floor_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double x = ts_value_get_double(argv[0]);
+        return ts_value_make_int((int64_t)std::floor(x));
+    }
+
+    TsValue* ts_math_ceil_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double x = ts_value_get_double(argv[0]);
+        return ts_value_make_int((int64_t)std::ceil(x));
+    }
+
+    TsValue* ts_math_abs_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double x = ts_value_get_double(argv[0]);
+        return ts_value_make_double(std::abs(x));
+    }
+
+    TsValue* ts_math_max_native(void* context, int argc, TsValue** argv) {
+        if (argc == 0) return ts_value_make_double(-std::numeric_limits<double>::infinity());
+        double m = ts_value_get_double(argv[0]);
+        for (int i = 1; i < argc; i++) {
+            double x = ts_value_get_double(argv[i]);
+            if (x > m) m = x;
+        }
+        return ts_value_make_double(m);
+    }
+
+    TsValue* ts_math_min_native(void* context, int argc, TsValue** argv) {
+        if (argc == 0) return ts_value_make_double(std::numeric_limits<double>::infinity());
+        double m = ts_value_get_double(argv[0]);
+        for (int i = 1; i < argc; i++) {
+            double x = ts_value_get_double(argv[i]);
+            if (x < m) m = x;
+        }
+        return ts_value_make_double(m);
+    }
+
+    extern "C" int64_t ts_parseInt(void* value);
+
+    TsValue* ts_parseInt_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_int(0);
+        return ts_value_make_int(ts_parseInt(argv[0]));
+    }
+
+    TsValue* ts_parseFloat_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        return ts_value_make_double(ts_value_get_double(argv[0]));
+    }
+
+    // Global Objects (must match C linkage declared in TsObject.h)
+    extern "C" TsValue* Object = nullptr;
+    extern "C" TsValue* Array = nullptr;
+    extern "C" TsValue* Math = nullptr;
+    extern "C" TsValue* JSON = nullptr;
+    extern "C" TsValue* console = nullptr;
+    extern "C" TsValue* process = nullptr;
+    extern "C" TsValue* Buffer = nullptr;
+    extern "C" TsValue* global = nullptr;
+    extern "C" TsValue* parseInt = nullptr;
+    extern "C" TsValue* parseFloat = nullptr;
 
     void ts_runtime_init() {
         // Initialize Object global
@@ -1238,18 +1373,65 @@ TsValue* ts_value_make_int(int64_t i) {
         consoleMap->Set(logKey, *ts_value_make_native_function((void*)ts_console_log_native, nullptr));
         console = ts_value_make_object(consoleMap);
 
-        // Initialize other globals as empty objects for now
-        Array = ts_value_make_object(TsMap::Create());
-        Math = ts_value_make_object(TsMap::Create());
-        JSON = ts_value_make_object(TsMap::Create());
+        // Initialize Array with minimal helpers
+        TsMap* arrayMap = TsMap::Create();
+        TsValue isArrayKey; isArrayKey.type = ValueType::STRING_PTR; isArrayKey.ptr_val = TsString::Create("isArray");
+        arrayMap->Set(isArrayKey, *ts_value_make_native_function((void*)ts_array_isArray_native, nullptr));
+        Array = ts_value_make_object(arrayMap);
+
+        // Initialize Math with minimal functions used by common JS libs
+        TsMap* mathMap = TsMap::Create();
+        TsValue randomKey; randomKey.type = ValueType::STRING_PTR; randomKey.ptr_val = TsString::Create("random");
+        TsValue floorKey; floorKey.type = ValueType::STRING_PTR; floorKey.ptr_val = TsString::Create("floor");
+        TsValue ceilKey; ceilKey.type = ValueType::STRING_PTR; ceilKey.ptr_val = TsString::Create("ceil");
+        TsValue absKey; absKey.type = ValueType::STRING_PTR; absKey.ptr_val = TsString::Create("abs");
+        TsValue maxKey; maxKey.type = ValueType::STRING_PTR; maxKey.ptr_val = TsString::Create("max");
+        TsValue minKey; minKey.type = ValueType::STRING_PTR; minKey.ptr_val = TsString::Create("min");
+        mathMap->Set(randomKey, *ts_value_make_native_function((void*)ts_math_random_native, nullptr));
+        mathMap->Set(floorKey, *ts_value_make_native_function((void*)ts_math_floor_native, nullptr));
+        mathMap->Set(ceilKey, *ts_value_make_native_function((void*)ts_math_ceil_native, nullptr));
+        mathMap->Set(absKey, *ts_value_make_native_function((void*)ts_math_abs_native, nullptr));
+        mathMap->Set(maxKey, *ts_value_make_native_function((void*)ts_math_max_native, nullptr));
+        mathMap->Set(minKey, *ts_value_make_native_function((void*)ts_math_min_native, nullptr));
+        Math = ts_value_make_object(mathMap);
+
+        // Initialize JSON with parse/stringify
+        TsMap* jsonMap = TsMap::Create();
+        TsValue parseKey; parseKey.type = ValueType::STRING_PTR; parseKey.ptr_val = TsString::Create("parse");
+        TsValue stringifyKey; stringifyKey.type = ValueType::STRING_PTR; stringifyKey.ptr_val = TsString::Create("stringify");
+        jsonMap->Set(parseKey, *ts_value_make_native_function((void*)ts_json_parse_native, nullptr));
+        jsonMap->Set(stringifyKey, *ts_value_make_native_function((void*)ts_json_stringify_native, nullptr));
+        JSON = ts_value_make_object(jsonMap);
         process = ts_value_make_object(TsMap::Create());
         Buffer = ts_value_make_object(TsMap::Create());
+
+        // Global functions
+        parseInt = ts_value_make_native_function((void*)ts_parseInt_native, nullptr);
+        parseFloat = ts_value_make_native_function((void*)ts_parseFloat_native, nullptr);
+
+        // Node-like global object (minimal)
+        TsMap* globalMap = TsMap::Create();
+        TsValue objectKey; objectKey.type = ValueType::STRING_PTR; objectKey.ptr_val = TsString::Create("Object");
+        TsValue parseIntKey; parseIntKey.type = ValueType::STRING_PTR; parseIntKey.ptr_val = TsString::Create("parseInt");
+        TsValue parseFloatKey; parseFloatKey.type = ValueType::STRING_PTR; parseFloatKey.ptr_val = TsString::Create("parseFloat");
+        TsValue globalKey; globalKey.type = ValueType::STRING_PTR; globalKey.ptr_val = TsString::Create("global");
+
+        if (Object) globalMap->Set(objectKey, *Object);
+        if (parseInt) globalMap->Set(parseIntKey, *parseInt);
+        if (parseFloat) globalMap->Set(parseFloatKey, *parseFloat);
+
+        global = ts_value_make_object(globalMap);
+        // global.global === global
+        globalMap->Set(globalKey, *global);
     }
 
     void ts_module_register(TsValue* path, TsValue* exports) {
         if (!path || path->type != ValueType::STRING_PTR) return;
         TsString* s = (TsString*)path->ptr_val;
         std::string pathStr = s->ToUtf8();
+
+        fprintf(stderr, "[ts-aot] ts_module_register: %s\n", pathStr.c_str());
+        fflush(stderr);
         g_module_cache[pathStr] = exports;
     }
 
@@ -1268,6 +1450,9 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         TsString* s = (TsString*)specifier->ptr_val;
         std::string spec = s->ToUtf8();
+
+        fprintf(stderr, "[ts-aot] ts_require: %s (referrer=%s)\n", spec.c_str(), referrerPath ? referrerPath : "<null>");
+        fflush(stderr);
         
         try {
             fs::path resolved;
@@ -1285,11 +1470,18 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (absPath.empty()) {
+                fprintf(stderr, "[ts-aot] ts_require: resolve failed for %s\n", spec.c_str());
+                fflush(stderr);
                 return ts_value_make_undefined();
             }
 
+            fprintf(stderr, "[ts-aot] ts_require: resolved %s -> %s\n", spec.c_str(), absPath.c_str());
+            fflush(stderr);
+
             TsValue* moduleObj = ts_module_get(absPath.c_str());
             if (moduleObj) {
+                fprintf(stderr, "[ts-aot] ts_require: cache hit %s\n", absPath.c_str());
+                fflush(stderr);
                 // CommonJS: return module.exports
                 if (moduleObj->type == ValueType::OBJECT_PTR) {
                     TsValue* exports = ts_object_get_prop(moduleObj, ts_value_make_string(TsString::Create("exports")));

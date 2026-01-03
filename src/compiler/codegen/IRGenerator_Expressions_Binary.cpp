@@ -374,40 +374,52 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         } else {
             lastValue = builder->CreateICmpNE(left, right, "cmptmp");
         }
-    } else if (node->op == "&&") {
-        if (left->getType()->isDoubleTy()) left = builder->CreateFCmpONE(left, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
-        else if (left->getType()->isIntegerTy(64)) left = builder->CreateICmpNE(left, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
-        else if (left->getType()->isPointerTy()) {
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee toBool = getRuntimeFunction("ts_value_to_bool", toBoolFt);
-            left = createCall(toBoolFt, toBool.getCallee(), { left });
+    } else if (node->op == "&&" || node->op == "||") {
+        // JavaScript semantics:
+        //  - a && b => a if a is falsy, else b
+        //  - a || b => a if a is truthy, else b
+        // Implement as short-circuit control flow and return a boxed (TsValue*) result.
+
+        llvm::Value* leftVal = left;
+        llvm::Value* leftBoxed = boxValue(leftVal, node->left->inferredType);
+        llvm::Value* leftCond = emitToBoolean(leftVal, node->left->inferredType);
+
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* leftBB = builder->GetInsertBlock();
+        llvm::BasicBlock* rhsBB = llvm::BasicBlock::Create(*context, node->op == "&&" ? "land.rhs" : "lor.rhs", func);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, node->op == "&&" ? "land.cont" : "lor.cont");
+
+        if (node->op == "&&") {
+            builder->CreateCondBr(leftCond, rhsBB, mergeBB);
+        } else {
+            builder->CreateCondBr(leftCond, mergeBB, rhsBB);
         }
-        
-        if (right->getType()->isDoubleTy()) right = builder->CreateFCmpONE(right, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
-        else if (right->getType()->isIntegerTy(64)) right = builder->CreateICmpNE(right, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
-        else if (right->getType()->isPointerTy()) {
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee toBool = getRuntimeFunction("ts_value_to_bool", toBoolFt);
-            right = createCall(toBoolFt, toBool.getCallee(), { right });
+
+        // RHS
+        builder->SetInsertPoint(rhsBB);
+        visit(node->right.get());
+        llvm::Value* rightVal = lastValue;
+        llvm::Value* rightBoxed = boxValue(rightVal, node->right->inferredType);
+        llvm::BasicBlock* rhsEndBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+
+        // Merge
+        func->insert(func->end(), mergeBB);
+        builder->SetInsertPoint(mergeBB);
+
+        llvm::PHINode* phi = nullptr;
+        if (mergeBB->empty()) {
+            phi = builder->CreatePHI(builder->getPtrTy(), 2, "condtmp");
+        } else {
+            phi = llvm::PHINode::Create(builder->getPtrTy(), 2, "condtmp", &mergeBB->front());
         }
-        lastValue = builder->CreateAnd(left, right, "andtmp");
-    } else if (node->op == "||") {
-        if (left->getType()->isDoubleTy()) left = builder->CreateFCmpONE(left, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
-        else if (left->getType()->isIntegerTy(64)) left = builder->CreateICmpNE(left, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
-        else if (left->getType()->isPointerTy()) {
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee toBool = getRuntimeFunction("ts_value_to_bool", toBoolFt);
-            left = createCall(toBoolFt, toBool.getCallee(), { left });
-        }
-        
-        if (right->getType()->isDoubleTy()) right = builder->CreateFCmpONE(right, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
-        else if (right->getType()->isIntegerTy(64)) right = builder->CreateICmpNE(right, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
-        else if (right->getType()->isPointerTy()) {
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee toBool = getRuntimeFunction("ts_value_to_bool", toBoolFt);
-            right = createCall(toBoolFt, toBool.getCallee(), { right });
-        }
-        lastValue = builder->CreateOr(left, right, "ortmp");
+
+        // For &&: merge gets left (falsy path) or right (truthy path)
+        // For ||: merge gets left (truthy path) or right (falsy path)
+        phi->addIncoming(leftBoxed, leftBB);
+        phi->addIncoming(rightBoxed, rhsEndBB);
+        boxedValues.insert(phi);
+        lastValue = phi;
     } else if (node->op == "&" || node->op == "&=") {
         left = toInt32(left);
         right = toInt32(right);
@@ -523,6 +535,9 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
     builder->SetInsertPoint(thenBB);
     visit(node->whenTrue.get());
     llvm::Value* thenVal = lastValue;
+    if (thenVal) {
+        thenVal = boxValue(thenVal, node->whenTrue->inferredType);
+    }
     thenBB = builder->GetInsertBlock();
     builder->CreateBr(mergeBB);
 
@@ -531,6 +546,9 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
     builder->SetInsertPoint(elseBB);
     visit(node->whenFalse.get());
     llvm::Value* elseVal = lastValue;
+    if (elseVal) {
+        elseVal = boxValue(elseVal, node->whenFalse->inferredType);
+    }
     elseBB = builder->GetInsertBlock();
     builder->CreateBr(mergeBB);
 
@@ -539,16 +557,17 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
     builder->SetInsertPoint(mergeBB);
 
     if (thenVal && elseVal) {
-        // Ensure types match for PHI
-        if (thenVal->getType() != elseVal->getType()) {
-            // Box both to be safe if they don't match
-            thenVal = boxValue(thenVal, node->whenTrue->inferredType);
-            elseVal = boxValue(elseVal, node->whenFalse->inferredType);
+        // Always return a boxed (TsValue*) result to match JS semantics and
+        // ensure incoming values are defined in their originating blocks.
+        llvm::PHINode* phi = nullptr;
+        if (mergeBB->empty()) {
+            phi = builder->CreatePHI(builder->getPtrTy(), 2, "condtmp");
+        } else {
+            phi = llvm::PHINode::Create(builder->getPtrTy(), 2, "condtmp", &mergeBB->front());
         }
-        
-        llvm::PHINode* phi = builder->CreatePHI(thenVal->getType(), 2, "condtmp");
         phi->addIncoming(thenVal, thenBB);
         phi->addIncoming(elseVal, elseBB);
+        boxedValues.insert(phi);
         lastValue = phi;
     } else {
         lastValue = nullptr;

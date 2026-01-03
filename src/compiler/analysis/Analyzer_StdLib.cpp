@@ -61,6 +61,12 @@ Analyzer::Analyzer() {
     registerType->returnType = std::make_shared<Type>(TypeKind::Void);
     symbols.define("ts_module_register", registerType);
 
+    // Register ts_debug_marker (internal)
+    auto markerType = std::make_shared<FunctionType>();
+    markerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    markerType->returnType = std::make_shared<Type>(TypeKind::Any);
+    symbols.define("ts_debug_marker", markerType);
+
     // Register undefined
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));

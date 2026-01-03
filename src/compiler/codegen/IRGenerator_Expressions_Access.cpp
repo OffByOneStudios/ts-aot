@@ -42,9 +42,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 
     if (namedValues.count(node->name)) {
         if (node->inferredType) {
-            SPDLOG_ERROR("visitIdentifier: {} inferredType kind = {}", node->name, (int)node->inferredType->kind);
+            SPDLOG_DEBUG("visitIdentifier: {} inferredType kind = {}", node->name, (int)node->inferredType->kind);
         } else {
-            SPDLOG_ERROR("visitIdentifier: {} inferredType is null", node->name);
+            SPDLOG_DEBUG("visitIdentifier: {} inferredType is null", node->name);
         }
         // Check if this is a cell variable (captured and mutable)
         if (cellVariables.count(node->name)) {
@@ -238,7 +238,10 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         }
     }
 
-    lastValue = nullptr;
+    // In permissive/untyped JS scenarios we can encounter unresolved identifiers.
+    // Returning a null llvm::Value* will later crash codegen when used as an operand.
+    // Prefer producing a real JS `undefined` value.
+    lastValue = getUndefinedValue();
 }
 
 void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* node) {

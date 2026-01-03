@@ -25,6 +25,16 @@ void Analyzer::visitProgram(ast::Program* node) {
             if (func->isDefaultExport && currentModule) {
                 currentModule->exports->define("default", funcType);
             }
+        } else if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            // Hoist variable declarations so JS/TS 'var' semantics work for nested function bodies.
+            // We currently don't distinguish var/let/const in the AST, so we hoist all variable
+            // names as Any to avoid spurious "undefined variable" errors in common JS patterns.
+            declareBindingPattern(var->name.get(), std::make_shared<Type>(TypeKind::Any));
+            if (var->isExported && currentModule) {
+                if (auto id = dynamic_cast<ast::Identifier*>(var->name.get())) {
+                    currentModule->exports->define(id->name, std::make_shared<Type>(TypeKind::Any));
+                }
+            }
         } else if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
             auto classType = std::make_shared<ClassType>(cls->name);
             classType->node = cls;

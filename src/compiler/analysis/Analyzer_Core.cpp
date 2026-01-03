@@ -86,8 +86,11 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
         suppressErrors = true;
     }
     if (currentModuleType == ModuleType::UntypedJavaScript) {
-        skipUntypedSemantic = true;
-        SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
+        // For real-world JS (e.g., lodash), we still need a full traversal to build enough
+        // symbol info for codegen, but we do it permissively (suppressErrors=true).
+        // Avoid the ultra-minimal skipUntypedSemantic path here.
+        skipUntypedSemantic = false;
+        SPDLOG_INFO("Permissive mode: analyzing untyped JavaScript for {}", currentFilePath);
     }
 
     symbols.enterScope();
@@ -97,28 +100,31 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
     symbols.define("module", moduleType);
     symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
-        auto requireFn = std::make_shared<FunctionType>();
-        requireFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-        requireFn->returnType = std::make_shared<Type>(TypeKind::Any);
-        symbols.define("require", requireFn);
-        symbols.define("global", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("self", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("window", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("Function", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("process", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("console", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
-        symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
-        auto parseFloatFn = std::make_shared<FunctionType>();
-        parseFloatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-        parseFloatFn->returnType = std::make_shared<Type>(TypeKind::Any);
-        symbols.define("parseFloat", parseFloatFn);
-        auto parseIntFn = std::make_shared<FunctionType>();
-        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
-        parseIntFn->returnType = std::make_shared<Type>(TypeKind::Any);
-        symbols.define("parseInt", parseIntFn);
+    // CommonJS/Node-ish globals (safe defaults; already permissive for untyped JS)
+    {
+        auto ensureAny = [&](const std::string& name) {
+            if (!symbols.lookup(name)) symbols.define(name, std::make_shared<Type>(TypeKind::Any));
+        };
+        auto ensureFnAny = [&](const std::string& name, size_t arity) {
+            if (symbols.lookup(name)) return;
+            auto fn = std::make_shared<FunctionType>();
+            for (size_t i = 0; i < arity; ++i) fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            fn->returnType = std::make_shared<Type>(TypeKind::Any);
+            symbols.define(name, fn);
+        };
+
+        ensureFnAny("require", 1);
+        ensureAny("global");
+        ensureAny("self");
+        ensureAny("window");
+        ensureAny("Function");
+        ensureAny("process");
+        ensureAny("console");
+        if (!symbols.lookup("__dirname")) symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
+        if (!symbols.lookup("__filename")) symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
+        ensureFnAny("parseFloat", 1);
+        // parseInt commonly takes (string, radix)
+        ensureFnAny("parseInt", 2);
     }
 
     visitProgram(module->ast.get());

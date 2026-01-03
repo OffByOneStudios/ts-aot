@@ -10,6 +10,7 @@
 #include <chrono>
 #include <map>
 #include <string>
+#include <cstdlib>
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 
@@ -364,6 +365,42 @@ double ts_value_get_double(TsValue* v) {
         }
     }
     return 0.0;
+}
+
+int64_t ts_parseInt(void* value) {
+    if (!value) return 0;
+
+    // Raw TsString*
+    uint32_t magic = *(uint32_t*)value;
+    if (magic == 0x53545247) { // TsString::MAGIC
+        const char* s = ((TsString*)value)->ToUtf8();
+        if (!s) return 0;
+        char* end = nullptr;
+        long long v = std::strtoll(s, &end, 10);
+        (void)end;
+        return (int64_t)v;
+    }
+
+    // Boxed TsValue*
+    uint8_t firstByte = *(uint8_t*)value;
+    if (firstByte <= 10) {
+        TsValue* v = (TsValue*)value;
+        if (v->type == ValueType::NUMBER_INT) return v->i_val;
+        if (v->type == ValueType::NUMBER_DBL) return (int64_t)v->d_val;
+        if (v->type == ValueType::BOOLEAN) return v->b_val ? 1 : 0;
+        if (v->type == ValueType::STRING_PTR) {
+            TsString* str = (TsString*)v->ptr_val;
+            const char* s = str ? str->ToUtf8() : nullptr;
+            if (!s) return 0;
+            char* end = nullptr;
+            long long n = std::strtoll(s, &end, 10);
+            (void)end;
+            return (int64_t)n;
+        }
+        return 0;
+    }
+
+    return 0;
 }
 
 bool ts_value_to_bool(TsValue* v) {

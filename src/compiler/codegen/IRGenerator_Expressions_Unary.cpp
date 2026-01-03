@@ -5,6 +5,11 @@
 
 namespace ts {
 using namespace ast;
+
+void IRGenerator::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
+    visit(node->expression.get());
+}
+
 void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     if (node->op == "typeof") {
         visit(node->operand.get());
@@ -109,7 +114,17 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
 
     if (node->op == "++" || node->op == "--") {
         llvm::Value* next;
-        if (val->getType()->isDoubleTy()) {
+        if (val->getType()->isPointerTy()) {
+            // Boxed runtime value: increment/decrement via runtime helpers.
+            llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+            llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+            llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+            const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+            llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+            next = createCall(arithFt, arithFn.getCallee(), { val, oneBoxed });
+        } else if (val->getType()->isDoubleTy()) {
             double delta = (node->op == "++") ? 1.0 : -1.0;
             next = builder->CreateFAdd(val, llvm::ConstantFP::get(*context, llvm::APFloat(delta)), "incdec");
         } else {
