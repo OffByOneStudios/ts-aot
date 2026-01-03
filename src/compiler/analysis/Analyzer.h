@@ -91,8 +91,10 @@ private:
     std::map<std::string, std::vector<CallSignature>> functionUsages;
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;
     int errorCount = 0;
+    bool suppressErrors = false; // Permissive mode for untyped JS
     int functionDepth = 0;
     bool verbose = false;
+    bool skipUntypedSemantic = false; // Skip expensive semantic checks for raw JS
 
     // Contextual typing stack - used to propagate expected types to arrow functions
     std::vector<std::shared_ptr<Type>> contextualTypeStack;

@@ -16,6 +16,11 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     SPDLOG_DEBUG("Analyzer::analyze starting for {}", path);
     currentFilePath = fs::absolute(path).string();
     currentModuleType = moduleResolver.getModuleType(currentFilePath);
+    bool prevSkipUntyped = skipUntypedSemantic;
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        skipUntypedSemantic = true;
+        SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
+    }
     
     auto mainModule = std::make_shared<Module>();
     mainModule->path = currentFilePath;
@@ -33,6 +38,29 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
     symbols.define("module", moduleType);
     symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        auto requireFn = std::make_shared<FunctionType>();
+        requireFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        requireFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("require", requireFn);
+        symbols.define("global", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("self", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("window", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("Function", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("process", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("console", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
+        symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
+        auto parseFloatFn = std::make_shared<FunctionType>();
+        parseFloatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseFloatFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("parseFloat", parseFloatFn);
+        auto parseIntFn = std::make_shared<FunctionType>();
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+        parseIntFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("parseInt", parseIntFn);
+    }
 
     visitProgram(program);
     // symbols.exitScope();
@@ -41,16 +69,26 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     moduleOrder.push_back(currentFilePath);
 
     performEscapeAnalysis(program);
+    skipUntypedSemantic = prevSkipUntyped;
 }
 
 void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     auto oldModule = currentModule;
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
+    bool oldSuppressErrors = suppressErrors;
+    bool oldSkipUntyped = skipUntypedSemantic;
 
     currentModule = module;
     currentFilePath = module->path;
     currentModuleType = module->type;
+    if (module->type != ModuleType::TypeScript) {
+        suppressErrors = true;
+    }
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        skipUntypedSemantic = true;
+        SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
+    }
 
     symbols.enterScope();
     
@@ -59,6 +97,29 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
     symbols.define("module", moduleType);
     symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        auto requireFn = std::make_shared<FunctionType>();
+        requireFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        requireFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("require", requireFn);
+        symbols.define("global", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("self", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("window", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("Function", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("process", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("console", std::make_shared<Type>(TypeKind::Any));
+        symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
+        symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
+        auto parseFloatFn = std::make_shared<FunctionType>();
+        parseFloatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseFloatFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("parseFloat", parseFloatFn);
+        auto parseIntFn = std::make_shared<FunctionType>();
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+        parseIntFn->returnType = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("parseInt", parseIntFn);
+    }
 
     visitProgram(module->ast.get());
     symbols.exitScope();
@@ -69,6 +130,8 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentModule = oldModule;
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
+    suppressErrors = oldSuppressErrors;
+    skipUntypedSemantic = oldSkipUntyped;
 }
 
 ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
@@ -77,6 +140,24 @@ ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
 
 void Analyzer::visit(Node* node) {
     if (!node) return;
+    if (skipUntypedSemantic && currentModuleType == ModuleType::UntypedJavaScript) {
+        // Minimal traversal for raw JS: detect require() to pull deps, otherwise treat as any.
+        if (auto call = dynamic_cast<ast::CallExpression*>(node)) {
+            if (auto id = dynamic_cast<ast::Identifier*>(call->callee.get())) {
+                if (id->name == "require" && !call->arguments.empty()) {
+                    if (auto lit = dynamic_cast<ast::StringLiteral*>(call->arguments[0].get())) {
+                        loadModule(lit->value);
+                    }
+                }
+            }
+        }
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        if (auto expr = dynamic_cast<Expression*>(node)) {
+            expr->inferredType = lastType;
+            expressions.push_back(expr);
+        }
+        return;
+    }
     node->accept(this);
 
     if (currentModuleType == ModuleType::UntypedJavaScript) {
@@ -201,4 +282,3 @@ void Analyzer::setProjectRoot(const std::string& rootPath) {
 }
 
 } // namespace ts
-

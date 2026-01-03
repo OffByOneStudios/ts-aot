@@ -310,6 +310,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_process_get_exec_argv",          {}},           // () -> array
     {"ts_require",                        {true, false}}, // (specifier: boxed, referrerPath: raw)
     {"ts_module_register",                {true, true}},  // (path: boxed, exports: boxed)
+    {"ts_function_call_with_this",        {true, true, false, false}}, // (func: boxed, thisArg: boxed, argc, argv)
+    {"ts_function_apply",                 {true, true, true}},         // (func: boxed, thisArg: boxed, argsArray boxed)
     {"ts_process_get_exec_path",          {}},           // () -> str*
     {"ts_process_get_exit_code",          {}},           // () -> int
     {"ts_process_get_features",           {}},           // () -> object
@@ -372,10 +374,16 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_call_3",
     "ts_call_4",
     "ts_call_n",
+    "ts_call_5",
+    "ts_call_6",
+    "ts_call_7",
+    "ts_call_8",
     "ts_async_await",
     "ts_async_iterator_next",
     "ts_cell_get",
     "ts_require",
+    "ts_function_call_with_this",
+    "ts_function_apply",
 };
 
 // =============================================================================

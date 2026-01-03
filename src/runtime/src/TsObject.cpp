@@ -1,3 +1,5 @@
+#define FMT_UNICODE 0
+#define SPDLOG_COMPILED_LIB 1
 #include "TsObject.h"
 #include "TsArray.h"
 #include "TsBigInt.h"
@@ -19,6 +21,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <vector>
+#include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 
@@ -675,14 +679,112 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 5, argv);
+        } else {
+            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn5)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5);
+        }
+    }
+
+    TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 6, argv);
+        } else {
+            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn6)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6);
+        }
+    }
+
+    TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 7, argv);
+        } else {
+            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn7)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+        }
+    }
+
+    TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 8, argv);
+        } else {
+            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn8)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+        }
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
         if (argc == 2) return ts_call_2(boxedFunc, argv[0], argv[1]);
         if (argc == 3) return ts_call_3(boxedFunc, argv[0], argv[1], argv[2]);
         if (argc == 4) return ts_call_4(boxedFunc, argv[0], argv[1], argv[2], argv[3]);
-        // For now, we don't support more than 4 args in this helper
-        return ts_value_make_undefined();
+        if (argc == 5) return ts_call_5(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4]);
+        if (argc == 6) return ts_call_6(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
+        if (argc == 7) return ts_call_7(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
+        if (argc == 8) return ts_call_8(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+        // For now, cap at 8 args
+        SPDLOG_WARN("ts_function_call called with argc={} > 8; extra args dropped", argc);
+        return ts_call_8(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+    }
+
+    TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+            return ts_value_make_undefined();
+        }
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) {
+            return ts_value_make_undefined();
+        }
+
+        // Preserve the captured context and only override when the function has none.
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_function_call(boxedFunc, argc, argv);
+
+        if (patchedCtx) {
+            func->context = savedCtx;
+        }
+        return result;
+    }
+
+    TsValue* ts_function_apply(TsValue* boxedFunc, TsValue* thisArg, TsValue* argsArray) {
+        int64_t argc = ts_value_length(argsArray);
+        if (argc < 0) argc = 0;
+
+        // Cap apply to 8 args for now to match ts_function_call
+        int64_t cappedArgc = argc > 8 ? 8 : argc;
+        std::vector<TsValue*> argv(static_cast<size_t>(cappedArgc), ts_value_make_undefined());
+        for (int64_t i = 0; i < cappedArgc; ++i) {
+            argv[static_cast<size_t>(i)] = (TsValue*)ts_value_get_element(argsArray, i);
+        }
+        if (argc > 8) {
+            SPDLOG_WARN("ts_function_apply truncated args from {} to 8", argc);
+        }
+        return ts_function_call_with_this(boxedFunc, thisArg, static_cast<int>(cappedArgc), argv.data());
     }
 
     // Object static methods

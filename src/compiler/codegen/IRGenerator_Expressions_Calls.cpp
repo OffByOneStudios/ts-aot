@@ -115,6 +115,73 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
     }
 
+    if (auto pa = dynamic_cast<ast::PropertyAccessExpression*>(unwrapCalleeExpression(node->callee.get()))) {
+        if (pa->name == "call") {
+            visit(pa->expression.get());
+            llvm::Value* target = boxValue(lastValue, pa->expression->inferredType);
+
+            // thisArg is first argument; default undefined/null if missing
+            llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            size_t argStart = 0;
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                thisArg = boxValue(lastValue, node->arguments[0]->inferredType);
+                argStart = 1;
+            }
+
+            size_t restCount = node->arguments.size() > argStart ? node->arguments.size() - argStart : 0;
+            llvm::AllocaInst* argvAlloca = nullptr;
+            if (restCount == 0) {
+                argvAlloca = builder->CreateAlloca(builder->getPtrTy(), llvm::ConstantInt::get(builder->getInt32Ty(), 1), "argv_empty");
+                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), argvAlloca);
+            } else {
+                argvAlloca = builder->CreateAlloca(builder->getPtrTy(), llvm::ConstantInt::get(builder->getInt32Ty(), (uint32_t)restCount), "argv_call");
+                for (size_t i = 0; i < restCount; ++i) {
+                    visit(node->arguments[argStart + i].get());
+                    llvm::Value* boxedArg = boxValue(lastValue, node->arguments[argStart + i]->inferredType);
+                    llvm::Value* slot = builder->CreateGEP(builder->getPtrTy(), argvAlloca, llvm::ConstantInt::get(builder->getInt32Ty(), (uint32_t)i));
+                    builder->CreateStore(boxedArg, slot);
+                }
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getInt32Ty(), llvm::PointerType::getUnqual(builder->getPtrTy()) },
+                false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_function_call_with_this", ft);
+            llvm::Value* argcVal = llvm::ConstantInt::get(builder->getInt32Ty(), (uint32_t)restCount);
+            llvm::Value* argvPtr = builder->CreateBitCast(argvAlloca, llvm::PointerType::getUnqual(builder->getPtrTy()));
+            llvm::Value* res = createCall(ft, fn.getCallee(), { target, thisArg, argcVal, argvPtr });
+            boxedValues.insert(res);
+            lastValue = unboxValue(res, node->inferredType);
+            return;
+        } else if (pa->name == "apply") {
+            visit(pa->expression.get());
+            llvm::Value* target = boxValue(lastValue, pa->expression->inferredType);
+
+            llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* argsArray = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                thisArg = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                argsArray = boxValue(lastValue, node->arguments[1]->inferredType);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_function_apply", ft);
+            llvm::Value* res = createCall(ft, fn.getCallee(), { target, thisArg, argsArray });
+            boxedValues.insert(res);
+            lastValue = unboxValue(res, node->inferredType);
+            return;
+        }
+    }
+
     if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Any) {
         // If this callee ultimately resolves to a named function specialization, prefer
         // a direct call (stable ABI, avoids ts_call_N wrappers).

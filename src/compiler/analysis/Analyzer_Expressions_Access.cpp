@@ -134,7 +134,14 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
     visit(node->expression.get());
     auto objType = lastType;
-    std::cout << "visitPropertyAccessExpression: name=" << node->name << " objType=" << objType->toString() << " moduleType=" << (int)currentModuleType << std::endl;
+    SPDLOG_TRACE("visitPropertyAccessExpression: name={} objType={} moduleType={}", node->name, objType->toString(), static_cast<int>(currentModuleType));
+
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        // For untyped JS, don't surface property errors—treat everything as any.
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
+        return;
+    }
 
     if (objType->kind == TypeKind::Null || objType->kind == TypeKind::Undefined) {
         if (node->isOptional) {
