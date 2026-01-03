@@ -6,6 +6,7 @@ namespace ts {
 using namespace ast;
 
 void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
+    emitLocation(node);
     llvm::Function* func = builder->GetInsertBlock()->getParent();
 
     llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "whilecond", func);
@@ -102,6 +103,7 @@ void IRGenerator::visitWhileStatement(ast::WhileStatement* node) {
 }
 
 void IRGenerator::visitForStatement(ast::ForStatement* node) {
+    emitLocation(node);
     llvm::Function* func = builder->GetInsertBlock()->getParent();
 
     // Detect for (let i = 0; i < arr.length; i++)
@@ -281,6 +283,7 @@ void IRGenerator::visitForStatement(ast::ForStatement* node) {
 }
 
 void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
+    emitLocation(node);
     llvm::Function* function = builder->GetInsertBlock()->getParent();
 
     if (node->isAwait) {
