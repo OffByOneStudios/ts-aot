@@ -8,6 +8,17 @@
 namespace ts {
 using namespace ast;
 void Analyzer::visitIdentifier(ast::Identifier* node) {
+    // Fully permissive path for untyped/non-TS modules
+    if (currentModuleType == ModuleType::UntypedJavaScript || suppressErrors || skipUntypedSemantic) {
+        auto anyType = std::make_shared<Type>(TypeKind::Any);
+        if (!symbols.lookup(node->name)) {
+            symbols.define(node->name, anyType);
+        }
+        lastType = anyType;
+        node->inferredType = lastType;
+        return;
+    }
+
     if (node->name == "null") {
         lastType = std::make_shared<Type>(TypeKind::Null);
         node->inferredType = lastType;
@@ -59,15 +70,9 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
-            if (currentModuleType == ModuleType::UntypedJavaScript) {
-                auto anyType = std::make_shared<Type>(TypeKind::Any);
-                symbols.define(node->name, anyType);
-                lastType = anyType;
-            } else {
-                SPDLOG_ERROR("Failed to find identifier: {}", node->name);
-                reportError("Undefined variable " + node->name);
-                lastType = std::make_shared<Type>(TypeKind::Any);
-            }
+            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
+            reportError("Undefined variable " + node->name);
+            lastType = std::make_shared<Type>(TypeKind::Any);
         }
     }
     node->inferredType = lastType;

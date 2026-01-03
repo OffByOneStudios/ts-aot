@@ -46,6 +46,10 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_call_2",      {true, true, true}},        // (func, arg0, arg1)
     {"ts_call_3",      {true, true, true, true}},  // (func, arg0, arg1, arg2)
     {"ts_call_4",      {true, true, true, true, true}},
+    {"ts_call_5",      {true, true, true, true, true, true}},
+    {"ts_call_6",      {true, true, true, true, true, true, true}},
+    {"ts_call_7",      {true, true, true, true, true, true, true, true}},
+    {"ts_call_8",      {true, true, true, true, true, true, true, true, true}},
     {"ts_call_n",      {true, false, true}},       // (func, argc, argv[])
 
     // =========================================================================
@@ -83,6 +87,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_make_string",    {false}},          // (TsString*) -> TsValue*
     {"ts_value_make_object",    {false}},          // (void*) -> TsValue*
     {"ts_value_make_function",  {false, false}},   // (fn_ptr, closure) -> TsValue*
+    {"ts_value_make_native_function", {false, false}}, // (fn_ptr, closure) -> TsValue*
+    {"ts_value_make_array",     {false}},          // (arr*) -> TsValue*
     {"ts_value_make_undefined", {}},               // () -> TsValue*
     {"ts_value_make_null",      {}},               // () -> TsValue*
     {"ts_value_box_any",        {false}},          // (void*) -> TsValue*
@@ -310,6 +316,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_process_get_exec_argv",          {}},           // () -> array
     {"ts_require",                        {true, false}}, // (specifier: boxed, referrerPath: raw)
     {"ts_module_register",                {true, true}},  // (path: boxed, exports: boxed)
+    {"ts_debug_marker",                  {true, true}},  // (msg: boxed) -> boxed (undefined)
+    {"ts_function_call",                  {true, false, false}},      // (func: boxed, argc, argv)
     {"ts_function_call_with_this",        {true, true, false, false}}, // (func: boxed, thisArg: boxed, argc, argv)
     {"ts_function_apply",                 {true, true, true}},         // (func: boxed, thisArg: boxed, argsArray boxed)
     {"ts_process_get_exec_path",          {}},           // () -> str*

@@ -198,6 +198,8 @@ void* ts_value_get_string(TsValue* v);
 bool ts_value_to_bool(TsValue* v);
 bool ts_value_is_nullish(TsValue* v);
 
+int64_t ts_parseInt(void* value);
+
 // --- Promises ---
 TsValue* ts_promise_all(TsValue* iterable);
 

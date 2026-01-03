@@ -8,6 +8,33 @@
 
 namespace ts {
 
+static ast::Expression* unwrapParens(ast::Expression* expr) {
+    while (expr) {
+        auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(expr);
+        if (!paren || !paren->expression) break;
+        expr = paren->expression.get();
+    }
+    return expr;
+}
+
+static std::unique_ptr<ast::Statement> makeConsoleLogStatement(const std::string& msg) {
+    auto logCall = std::make_unique<ast::CallExpression>();
+    auto logAccess = std::make_unique<ast::PropertyAccessExpression>();
+    auto consoleId = std::make_unique<ast::Identifier>();
+    consoleId->name = "console";
+    logAccess->expression = std::move(consoleId);
+    logAccess->name = "log";
+    logCall->callee = std::move(logAccess);
+
+    auto msgLit = std::make_unique<ast::StringLiteral>();
+    msgLit->value = msg;
+    logCall->arguments.push_back(std::move(msgLit));
+
+    auto logStmt = std::make_unique<ast::ExpressionStatement>();
+    logStmt->expression = std::move(logCall);
+    return logStmt;
+}
+
 Monomorphizer::Monomorphizer() {}
 
 void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
@@ -37,6 +64,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
         moduleInitFunctions.push_back(initName);
 
+        // Track which module this synthetic init belongs to so analysis/codegen can
+        // apply the correct (e.g., untyped JS) semantic mode when re-analyzing bodies.
+        analyzer.syntheticFunctionOwners[initName] = path;
+        SPDLOG_INFO("Registered synthetic owner: {} -> {}", initName, path);
+
         // Add 'module' parameter to module init
         auto moduleParam = std::make_unique<ast::Parameter>();
         auto paramName = std::make_unique<ast::Identifier>();
@@ -63,6 +95,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             moduleInit->body.push_back(std::move(exportsDecl));
         }
 
+        const bool isLodashModule =
+            (path.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
+            (path.size() >= 9 && path.substr(path.size() - 9) == "lodash.js");
+
+        // For crash localization: log immediately on module init entry.
+        if (isLodashModule) {
+            moduleInit->body.insert(moduleInit->body.begin(),
+                                    makeConsoleLogStatement("lodash_module_init_entry"));
+        }
+
         std::vector<std::unique_ptr<ast::Statement>> newBody;
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
@@ -76,6 +118,41 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
                 // fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
+            }
+        }
+
+        // Targeted debug markers for lodash: try to find the top-level IIFE and
+        // insert:
+        //  - a log immediately before the IIFE call statement
+        //  - a log at the start of the IIFE function body
+        if (isLodashModule) {
+            for (size_t stmtIndex = 0; stmtIndex < moduleInit->body.size(); ++stmtIndex) {
+                auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(moduleInit->body[stmtIndex].get());
+                if (!exprStmt || !exprStmt->expression) continue;
+
+                auto* call = dynamic_cast<ast::CallExpression*>(exprStmt->expression.get());
+                if (!call || !call->callee) continue;
+
+                auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(call->callee.get());
+                if (!prop || prop->name != "call" || !prop->expression) continue;
+
+                // The IIFE callee is commonly parenthesized.
+                auto* innerExpr = unwrapParens(prop->expression.get());
+                auto* fn = dynamic_cast<ast::FunctionExpression*>(innerExpr);
+                if (!fn) continue;
+
+                moduleInit->body.insert(moduleInit->body.begin() + (ptrdiff_t)stmtIndex,
+                                        makeConsoleLogStatement("lodash_before_iife_call"));
+                fn->body.insert(fn->body.begin(), makeConsoleLogStatement("lodash_iife_enter"));
+                
+                // Add a marker after the first 50 statements to see if we get past the initial declarations
+                if (fn->body.size() > 50) {
+                    fn->body.insert(fn->body.begin() + 50, makeConsoleLogStatement("lodash_iife_after_50"));
+                }
+                
+                fn->body.push_back(makeConsoleLogStatement("lodash_iife_exit"));
+                
+                break;
             }
         }
 
@@ -95,6 +172,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         module->ast->body = std::move(newBody);
 
         std::string mangledName = Monomorphizer::generateMangledName(initName, { std::make_shared<Type>(TypeKind::Any) }, {});
+
+        // Some later phases may refer to the synthetic function by its mangled name.
+        analyzer.syntheticFunctionOwners[mangledName] = path;
+        SPDLOG_INFO("Registered synthetic owner: {} -> {}", mangledName, path);
         SPDLOG_INFO("Adding specialization for module init: {} -> {}", initName, mangledName);
         Specialization spec;
         spec.originalName = initName;
@@ -194,6 +275,25 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         const auto& initName = moduleInitFunctions[i];
         const auto& path = analyzer.moduleOrder[i];
         const auto& modObjName = moduleObjNames[i];
+
+        // Debug marker before running module init
+        {
+            auto logCall = std::make_unique<ast::CallExpression>();
+            auto logAccess = std::make_unique<ast::PropertyAccessExpression>();
+            auto consoleId = std::make_unique<ast::Identifier>();
+            consoleId->name = "console";
+            logAccess->expression = std::move(consoleId);
+            logAccess->name = "log";
+            logCall->callee = std::move(logAccess);
+
+            auto msgLit = std::make_unique<ast::StringLiteral>();
+            msgLit->value = std::string("module_init_begin: ") + path;
+            logCall->arguments.push_back(std::move(msgLit));
+
+            auto logStmt = std::make_unique<ast::ExpressionStatement>();
+            logStmt->expression = std::move(logCall);
+            userMain->body.push_back(std::move(logStmt));
+        }
         
         // Create a variable to hold the module init result
         std::string resVarName = "__module_res_" + std::to_string(i);
@@ -240,6 +340,25 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         resDecl->initializer = std::move(finalExpr);
         userMain->body.push_back(std::move(resDecl));
+
+        // Debug marker after running module init
+        {
+            auto logCall = std::make_unique<ast::CallExpression>();
+            auto logAccess = std::make_unique<ast::PropertyAccessExpression>();
+            auto consoleId = std::make_unique<ast::Identifier>();
+            consoleId->name = "console";
+            logAccess->expression = std::move(consoleId);
+            logAccess->name = "log";
+            logCall->callee = std::move(logAccess);
+
+            auto msgLit = std::make_unique<ast::StringLiteral>();
+            msgLit->value = std::string("module_init_end: ") + path;
+            logCall->arguments.push_back(std::move(msgLit));
+
+            auto logStmt = std::make_unique<ast::ExpressionStatement>();
+            logStmt->expression = std::move(logCall);
+            userMain->body.push_back(std::move(logStmt));
+        }
 
         // If this is the last module init and there's NO user-defined user_main,
         // make it a return statement.

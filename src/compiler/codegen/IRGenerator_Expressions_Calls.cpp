@@ -118,7 +118,37 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     if (auto pa = dynamic_cast<ast::PropertyAccessExpression*>(unwrapCalleeExpression(node->callee.get()))) {
         if (pa->name == "call") {
             visit(pa->expression.get());
-            llvm::Value* target = boxValue(lastValue, pa->expression->inferredType);
+            llvm::Value* target = nullptr;
+
+            // IMPORTANT: the left side of `.call` may be a raw compiled function pointer
+            // (e.g. an IIFE lowered to `@func_expr_N`). In that case, we must wrap it in a
+            // TsFunction via `ts_value_make_function` rather than treating it as an arbitrary
+            // object pointer (which would crash when invoked).
+            if (lastValue) {
+                llvm::Value* stripped = lastValue->stripPointerCasts();
+                if (stripped && llvm::isa<llvm::Function>(stripped)) {
+                    llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
+
+                    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                    llvm::Value* currentContext = nullptr;
+                    if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
+                        currentContext = currentFunc->getArg(0);
+                    } else {
+                        currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    }
+
+                    target = createCall(
+                        makeFnFt,
+                        makeFnFn.getCallee(),
+                        { builder->CreateBitCast(stripped, builder->getPtrTy()), currentContext });
+                    boxedValues.insert(target);
+                }
+            }
+
+            if (!target) {
+                target = boxValue(lastValue, pa->expression->inferredType);
+            }
 
             // thisArg is first argument; default undefined/null if missing
             llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -255,6 +285,15 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                         }
 
                         callArgs.push_back(argVal);
+                    }
+
+                    // JavaScript allows calling functions with fewer arguments than parameters.
+                    // Our compiled function prototypes have a fixed arity, so we must pad missing
+                    // parameters with an `undefined`-like value. For pointer-typed params this is
+                    // represented as null; for primitives we use a null/zero initializer.
+                    while (callArgs.size() < func->getFunctionType()->getNumParams()) {
+                        llvm::Type* missingTy = func->getFunctionType()->getParamType(static_cast<unsigned>(callArgs.size()));
+                        callArgs.push_back(llvm::Constant::getNullValue(missingTy));
                     }
 
                     lastValue = createCall(func->getFunctionType(), func, callArgs);

@@ -88,9 +88,44 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("returnType")) node->returnType = j["returnType"];
         parseDecorators(node->decorators, j);
         for (const auto& stmt : j["body"]) {
-            node->body.push_back(parseStatement(stmt));
+            auto parsed = parseStatement(stmt);
+            // Flatten BlockStatements from MultipleVariableDeclarations expansion
+            if (auto block = dynamic_cast<BlockStatement*>(parsed.get())) {
+                for (auto& s : block->statements) {
+                    node->body.push_back(std::move(s));
+                }
+            } else {
+                node->body.push_back(std::move(parsed));
+            }
         }
         return node;
+    } else if (kind == "MultipleVariableDeclarations") {
+        // Special case: multiple declarators in a single var statement
+        // Expand into separate VariableDeclaration statements
+        // We'll return the first one and inject the rest into a temporary list
+        // that the caller will need to handle. Actually, since we can't modify
+        // the parent's body from here, we'll just return the first and log a warning.
+        // Better approach: Return a BlockStatement containing all declarations
+        auto block = std::make_unique<BlockStatement>();
+        setLocation(block.get(), j);
+        for (const auto& declJson : j["declarations"]) {
+            auto node = std::make_unique<VariableDeclaration>();
+            setLocation(node.get(), declJson);
+            node->name = parseNode(declJson["name"]);
+            if (declJson.contains("isExported")) {
+                node->isExported = declJson["isExported"];
+            }
+            if (declJson.contains("type")) node->type = declJson["type"];
+            if (declJson.contains("initializer") && !declJson["initializer"].is_null()) {
+                node->initializer = parseExpression(declJson["initializer"]);
+            }
+            block->statements.push_back(std::move(node));
+        }
+        // Unwrap if there's only one statement (shouldn't happen but be safe)
+        if (block->statements.size() == 1) {
+            return std::move(block->statements[0]);
+        }
+        return block;
     } else if (kind == "VariableDeclaration") {
         auto node = std::make_unique<VariableDeclaration>();
         setLocation(node.get(), j);
@@ -112,7 +147,15 @@ StmtPtr parseStatement(const json& j) {
         auto node = std::make_unique<BlockStatement>();
         setLocation(node.get(), j);
         for (const auto& stmt : j["body"]) {
-            node->statements.push_back(parseStatement(stmt));
+            auto parsed = parseStatement(stmt);
+            // Flatten BlockStatements from MultipleVariableDeclarations expansion
+            if (auto block = dynamic_cast<BlockStatement*>(parsed.get())) {
+                for (auto& s : block->statements) {
+                    node->statements.push_back(std::move(s));
+                }
+            } else {
+                node->statements.push_back(std::move(parsed));
+            }
         }
         return node;
     } else if (kind == "ReturnStatement") {

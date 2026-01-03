@@ -53,6 +53,8 @@ private:
 
     void emitLocation(ast::Node* node);
 
+    void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override;
+
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;
     std::set<llvm::Value*> boxedValues;

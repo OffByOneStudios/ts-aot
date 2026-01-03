@@ -246,13 +246,25 @@ std::unique_ptr<Program> loadAst(const std::string& jsonPath) {
     i >> j;
     
     auto program = std::make_unique<Program>();
+    auto flattenAndAdd = [&](std::unique_ptr<Statement> stmt) {
+        // If the statement is a BlockStatement from MultipleVariableDeclarations expansion,
+        // flatten it by adding each statement directly
+        if (auto block = dynamic_cast<BlockStatement*>(stmt.get())) {
+            for (auto& s : block->statements) {
+                program->body.push_back(std::move(s));
+            }
+        } else {
+            program->body.push_back(std::move(stmt));
+        }
+    };
+    
     if (j.contains("body")) {
         for (const auto& stmt : j["body"]) {
-            program->body.push_back(parseStatement(stmt));
+            flattenAndAdd(parseStatement(stmt));
         }
     } else if (j.contains("statements")) {
         for (const auto& stmt : j["statements"]) {
-            program->body.push_back(parseStatement(stmt));
+            flattenAndAdd(parseStatement(stmt));
         }
     }
     

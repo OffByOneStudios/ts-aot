@@ -197,6 +197,15 @@ int Driver::run() {
 
             linkOpts.libraries.push_back("tsruntime.lib");
             linkOpts.libraries.push_back("tommath.lib");
+
+            // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.
+            if (options.debugRuntime) {
+                linkOpts.libraries.push_back("spdlogd.lib");
+                linkOpts.libraries.push_back("fmtd.lib");
+            } else {
+                linkOpts.libraries.push_back("spdlog.lib");
+                linkOpts.libraries.push_back("fmt.lib");
+            }
             
             // Windows system libraries
             linkOpts.libraries.push_back("ws2_32.lib");

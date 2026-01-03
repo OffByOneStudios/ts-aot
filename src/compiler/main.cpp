@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
             ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"))
-            ("log-level", "Set log level (trace, debug, info, warn, error, off)", cxxopts::value<std::string>()->default_value("info"))
+            ("log-level", "Set log level (trace, debug, info, warn, error, off)", cxxopts::value<std::string>()->default_value("warning"))
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
             ("p,project", "Path to tsconfig.json (or auto-detect if not specified)", cxxopts::value<std::string>())
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())

@@ -109,6 +109,10 @@ public:
         }
     }
 
+    void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+
     void visitNewExpression(ast::NewExpression* node) override {
         node->expression->accept(this);
         allNewExpressions.insert(node);

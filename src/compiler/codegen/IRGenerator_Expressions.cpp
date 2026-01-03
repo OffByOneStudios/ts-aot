@@ -406,10 +406,40 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 variable = module->getGlobalVariable(id->name);
             }
             if (variable) {
-                llvm::Value* one = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);
-                operand = node->op == "++" ? builder->CreateAdd(operand, one) : builder->CreateSub(operand, one);
-                builder->CreateStore(operand, variable);
-                lastValue = operand;
+                llvm::Value* newVal = nullptr;
+                if (operand->getType()->isPointerTy()) {
+                    // Boxed 'any' / runtime value: use runtime arithmetic to avoid invalid `add ptr` IR.
+                    llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+                    llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+                    const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+                    llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+                    newVal = createCall(arithFt, arithFn.getCallee(), { operand, oneBoxed });
+                } else if (operand->getType()->isDoubleTy()) {
+                    llvm::Value* one = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 1.0);
+                    newVal = (node->op == "++") ? builder->CreateFAdd(operand, one) : builder->CreateFSub(operand, one);
+                } else if (operand->getType()->isIntegerTy()) {
+                    llvm::Value* one = llvm::ConstantInt::get(operand->getType(), 1);
+                    newVal = (node->op == "++") ? builder->CreateAdd(operand, one) : builder->CreateSub(operand, one);
+                }
+
+                if (newVal) {
+                    // Cast for store if needed.
+                    llvm::Type* varType = nullptr;
+                    if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                        varType = alloca->getAllocatedType();
+                    } else if (auto gv = llvm::dyn_cast<llvm::GlobalVariable>(variable)) {
+                        varType = gv->getValueType();
+                    }
+                    if (varType && newVal->getType() != varType) {
+                        newVal = castValue(newVal, varType);
+                    }
+                    builder->CreateStore(newVal, variable);
+                    lastValue = newVal;
+                    return;
+                }
                 return;
             }
         }
@@ -444,9 +474,36 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
                 variable = module->getGlobalVariable(id->name);
             }
             if (variable) {
-                llvm::Value* one = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);
-                llvm::Value* newVal = node->op == "++" ? builder->CreateAdd(operand, one) : builder->CreateSub(operand, one);
-                builder->CreateStore(newVal, variable);
+                llvm::Value* newVal = nullptr;
+                if (operand->getType()->isPointerTy()) {
+                    llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+                    llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+                    const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+                    llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+                    newVal = createCall(arithFt, arithFn.getCallee(), { operand, oneBoxed });
+                } else if (operand->getType()->isDoubleTy()) {
+                    llvm::Value* one = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 1.0);
+                    newVal = (node->op == "++") ? builder->CreateFAdd(operand, one) : builder->CreateFSub(operand, one);
+                } else if (operand->getType()->isIntegerTy()) {
+                    llvm::Value* one = llvm::ConstantInt::get(operand->getType(), 1);
+                    newVal = (node->op == "++") ? builder->CreateAdd(operand, one) : builder->CreateSub(operand, one);
+                }
+
+                if (newVal) {
+                    llvm::Type* varType = nullptr;
+                    if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                        varType = alloca->getAllocatedType();
+                    } else if (auto gv = llvm::dyn_cast<llvm::GlobalVariable>(variable)) {
+                        varType = gv->getValueType();
+                    }
+                    if (varType && newVal->getType() != varType) {
+                        newVal = castValue(newVal, varType);
+                    }
+                    builder->CreateStore(newVal, variable);
+                }
             }
         }
     }

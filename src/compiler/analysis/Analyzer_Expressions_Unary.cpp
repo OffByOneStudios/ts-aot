@@ -4,6 +4,12 @@
 
 namespace ts {
 using namespace ast;
+
+void Analyzer::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
+    visit(node->expression.get());
+    node->inferredType = lastType;
+}
+
 void Analyzer::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     visit(node->operand.get());
     if (node->op == "!") {

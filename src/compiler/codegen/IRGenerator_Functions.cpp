@@ -704,7 +704,94 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         }));
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
-    auto oldNamedValues = namedValues;
+
+    struct SavedFunctionState {
+        std::map<std::string, llvm::Value*> namedValues;
+        std::map<std::string, llvm::Type*> forcedVariableTypes;
+        std::map<std::string, std::shared_ptr<Type>> variableTypes;
+        std::map<ast::Node*, llvm::Value*> valueOverrides;
+        std::set<llvm::Value*> boxedValues;
+        std::set<std::string> boxedVariables;
+        std::set<std::string> boxedElementArrayVars;
+        std::set<std::string> cellVariables;
+        std::map<std::string, llvm::Value*> cellPointers;
+        std::map<llvm::Value*, std::string> lengthAliases;
+        std::string lastLengthArray;
+
+        std::vector<CatchInfo> catchStack;
+        std::vector<FinallyInfo> finallyStack;
+        std::vector<LoopInfo> loopStack;
+
+        std::set<llvm::Value*> nonNullValues;
+        std::set<llvm::Value*> checkedAllocas;
+
+        std::shared_ptr<Type> currentClass;
+        std::shared_ptr<Type> currentReturnType;
+        llvm::Value* currentContext;
+
+        llvm::BasicBlock* currentBreakBB;
+        llvm::BasicBlock* currentContinueBB;
+        llvm::BasicBlock* currentReturnBB;
+        llvm::Value* currentReturnValueAlloca;
+        llvm::Value* currentShouldReturnAlloca;
+        llvm::Value* currentShouldBreakAlloca;
+        llvm::Value* currentShouldContinueAlloca;
+        llvm::Value* currentBreakTargetAlloca;
+        llvm::Value* currentContinueTargetAlloca;
+
+        llvm::Value* currentAsyncContext;
+        llvm::Value* currentAsyncResumedValue;
+        llvm::Value* currentAsyncFrame;
+        llvm::StructType* currentAsyncFrameType;
+        std::map<std::string, int> currentAsyncFrameMap;
+        llvm::BasicBlock* asyncDispatcherBB;
+        std::vector<llvm::BasicBlock*> asyncStateBlocks;
+        bool currentIsGenerator;
+        bool currentIsAsync;
+
+        int anonVarCounter;
+    };
+
+    SavedFunctionState saved{
+        namedValues,
+        forcedVariableTypes,
+        variableTypes,
+        valueOverrides,
+        boxedValues,
+        boxedVariables,
+        boxedElementArrayVars,
+        cellVariables,
+        cellPointers,
+        lengthAliases,
+        lastLengthArray,
+        catchStack,
+        finallyStack,
+        loopStack,
+        nonNullValues,
+        checkedAllocas,
+        currentClass,
+        currentReturnType,
+        currentContext,
+        currentBreakBB,
+        currentContinueBB,
+        currentReturnBB,
+        currentReturnValueAlloca,
+        currentShouldReturnAlloca,
+        currentShouldBreakAlloca,
+        currentShouldContinueAlloca,
+        currentBreakTargetAlloca,
+        currentContinueTargetAlloca,
+        currentAsyncContext,
+        currentAsyncResumedValue,
+        currentAsyncFrame,
+        currentAsyncFrameType,
+        currentAsyncFrameMap,
+        asyncDispatcherBB,
+        asyncStateBlocks,
+        currentIsGenerator,
+        currentIsAsync,
+        anonVarCounter,
+    };
 
     // === CLOSURE CAPTURE: Collect free variables BEFORE clearing namedValues ===
     std::set<std::string> paramNames;
@@ -724,6 +811,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     llvm::Value* closureContext = nullptr;
     std::map<std::string, int> capturedVarIndices;
     
+    std::set<std::string> capturedCellVarNames;
     if (!capturedVars.empty()) {
         std::vector<llvm::Type*> contextFields;
         for (size_t i = 0; i < capturedVars.size(); ++i) {
@@ -748,6 +836,7 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
                 // For cell variables, just copy the cell pointer
                 llvm::Value* cellPtr = builder->CreateLoad(builder->getPtrTy(), capturedVars[i].value);
                 builder->CreateStore(cellPtr, fieldPtr);
+                capturedCellVarNames.insert(capturedVars[i].name);
                 SPDLOG_INFO("  Captured cell variable {} at index {}", capturedVars[i].name, i);
                 continue;
             }
@@ -791,21 +880,92 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         }
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
         builder->SetInsertPoint(oldBB);
-        namedValues = oldNamedValues;
+        // Restore outer function state
+        namedValues = saved.namedValues;
+        forcedVariableTypes = saved.forcedVariableTypes;
+        variableTypes = saved.variableTypes;
+        valueOverrides = saved.valueOverrides;
+        boxedValues = saved.boxedValues;
+        boxedVariables = saved.boxedVariables;
+        boxedElementArrayVars = saved.boxedElementArrayVars;
+        cellVariables = saved.cellVariables;
+        cellPointers = saved.cellPointers;
+        lengthAliases = saved.lengthAliases;
+        lastLengthArray = saved.lastLengthArray;
+        catchStack = saved.catchStack;
+        finallyStack = saved.finallyStack;
+        loopStack = saved.loopStack;
+        nonNullValues = saved.nonNullValues;
+        checkedAllocas = saved.checkedAllocas;
+        currentClass = saved.currentClass;
+        currentReturnType = saved.currentReturnType;
+        currentContext = saved.currentContext;
+        currentBreakBB = saved.currentBreakBB;
+        currentContinueBB = saved.currentContinueBB;
+        currentReturnBB = saved.currentReturnBB;
+        currentReturnValueAlloca = saved.currentReturnValueAlloca;
+        currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+        currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+        currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+        currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+        currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+        currentAsyncContext = saved.currentAsyncContext;
+        currentAsyncResumedValue = saved.currentAsyncResumedValue;
+        currentAsyncFrame = saved.currentAsyncFrame;
+        currentAsyncFrameType = saved.currentAsyncFrameType;
+        currentAsyncFrameMap = saved.currentAsyncFrameMap;
+        asyncDispatcherBB = saved.asyncDispatcherBB;
+        asyncStateBlocks = saved.asyncStateBlocks;
+        currentIsGenerator = saved.currentIsGenerator;
+        currentIsAsync = saved.currentIsAsync;
+        anonVarCounter = saved.anonVarCounter;
+
         lastValue = boxValue(function, node->inferredType);
         return;
     }
     
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
     builder->SetInsertPoint(bb);
-    
+
+    // Clear function-specific state for this nested function body
     namedValues.clear();
+    forcedVariableTypes.clear();
+    variableTypes.clear();
+    valueOverrides.clear();
+    boxedVariables.clear();
+    boxedValues.clear();
+    boxedElementArrayVars.clear();
+    cellVariables.clear();
+    cellPointers.clear();
+    lengthAliases.clear();
+    lastLengthArray.clear();
+    catchStack.clear();
+    finallyStack.clear();
+    loopStack.clear();
+    nonNullValues.clear();
+    checkedAllocas.clear();
     lastValue = nullptr;
     anonVarCounter = 0;
     
     // Force return type to Any for arrow functions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
+
+    // Initialize per-function return/break/continue state so try/finally and loops do not
+    // accidentally branch to blocks from an enclosing function.
+    currentBreakBB = nullptr;
+    currentContinueBB = nullptr;
+    currentReturnBB = llvm::BasicBlock::Create(*context, "return", function);
+    currentShouldReturnAlloca = createEntryBlockAlloca(function, "shouldReturn", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
+    currentShouldBreakAlloca = createEntryBlockAlloca(function, "shouldBreak", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+    currentShouldContinueAlloca = createEntryBlockAlloca(function, "shouldContinue", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+    currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
+    currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
+    currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", builder->getPtrTy());
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     
     auto argIt = function->arg_begin();
     llvm::Value* contextArg = nullptr;
@@ -831,9 +991,11 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
             namedValues[cv.name] = alloca;
             
             // Check if this was a cell variable in the outer scope
-            if (cellVariables.count(cv.name)) {
+            if (capturedCellVarNames.count(cv.name)) {
                 // The captured value is a cell pointer - keep it as a cell variable
                 // No need to mark as boxed since access goes through ts_cell_get
+                cellVariables.insert(cv.name);
+                cellPointers[cv.name] = capturedValue;
                 SPDLOG_INFO("  Extracted cell variable {} at index {}", cv.name, i);
             } else {
                 // Regular captured value - mark as boxed
@@ -875,13 +1037,64 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         std::shared_ptr<Type> returnType = funcType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
         llvm::Value* boxedRet = boxValue(lastValue, returnType);
         builder->CreateRet(boxedRet);
-    } else if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    } else {
+        llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+        if (currentBB && !currentBB->getTerminator()) {
+            builder->CreateBr(currentReturnBB);
+        }
+
+        // Emit unified return block if it has predecessors
+        if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
+            currentReturnBB->eraseFromParent();
+        } else {
+            builder->SetInsertPoint(currentReturnBB);
+            llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+            builder->CreateRet(retVal);
+        }
     }
     
     currentReturnType = oldReturnType;
     builder->SetInsertPoint(oldBB);
-    namedValues = oldNamedValues;
+
+    // Restore outer function state
+    namedValues = saved.namedValues;
+    forcedVariableTypes = saved.forcedVariableTypes;
+    variableTypes = saved.variableTypes;
+    valueOverrides = saved.valueOverrides;
+    boxedValues = saved.boxedValues;
+    boxedVariables = saved.boxedVariables;
+    boxedElementArrayVars = saved.boxedElementArrayVars;
+    cellVariables = saved.cellVariables;
+    cellPointers = saved.cellPointers;
+    lengthAliases = saved.lengthAliases;
+    lastLengthArray = saved.lastLengthArray;
+    catchStack = saved.catchStack;
+    finallyStack = saved.finallyStack;
+    loopStack = saved.loopStack;
+    nonNullValues = saved.nonNullValues;
+    checkedAllocas = saved.checkedAllocas;
+    currentClass = saved.currentClass;
+    currentReturnType = saved.currentReturnType;
+    currentContext = saved.currentContext;
+    currentBreakBB = saved.currentBreakBB;
+    currentContinueBB = saved.currentContinueBB;
+    currentReturnBB = saved.currentReturnBB;
+    currentReturnValueAlloca = saved.currentReturnValueAlloca;
+    currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+    currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+    currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+    currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+    currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+    currentAsyncContext = saved.currentAsyncContext;
+    currentAsyncResumedValue = saved.currentAsyncResumedValue;
+    currentAsyncFrame = saved.currentAsyncFrame;
+    currentAsyncFrameType = saved.currentAsyncFrameType;
+    currentAsyncFrameMap = saved.currentAsyncFrameMap;
+    asyncDispatcherBB = saved.asyncDispatcherBB;
+    asyncStateBlocks = saved.asyncStateBlocks;
+    currentIsGenerator = saved.currentIsGenerator;
+    currentIsAsync = saved.currentIsAsync;
+    anonVarCounter = saved.anonVarCounter;
     
     // Always box the function so it can be called via ts_call_N
     // Functions with closure context have a populated context pointer
@@ -917,7 +1130,94 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         }));
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
-    auto oldNamedValues = namedValues;
+
+    struct SavedFunctionState {
+        std::map<std::string, llvm::Value*> namedValues;
+        std::map<std::string, llvm::Type*> forcedVariableTypes;
+        std::map<std::string, std::shared_ptr<Type>> variableTypes;
+        std::map<ast::Node*, llvm::Value*> valueOverrides;
+        std::set<llvm::Value*> boxedValues;
+        std::set<std::string> boxedVariables;
+        std::set<std::string> boxedElementArrayVars;
+        std::set<std::string> cellVariables;
+        std::map<std::string, llvm::Value*> cellPointers;
+        std::map<llvm::Value*, std::string> lengthAliases;
+        std::string lastLengthArray;
+
+        std::vector<CatchInfo> catchStack;
+        std::vector<FinallyInfo> finallyStack;
+        std::vector<LoopInfo> loopStack;
+
+        std::set<llvm::Value*> nonNullValues;
+        std::set<llvm::Value*> checkedAllocas;
+
+        std::shared_ptr<Type> currentClass;
+        std::shared_ptr<Type> currentReturnType;
+        llvm::Value* currentContext;
+
+        llvm::BasicBlock* currentBreakBB;
+        llvm::BasicBlock* currentContinueBB;
+        llvm::BasicBlock* currentReturnBB;
+        llvm::Value* currentReturnValueAlloca;
+        llvm::Value* currentShouldReturnAlloca;
+        llvm::Value* currentShouldBreakAlloca;
+        llvm::Value* currentShouldContinueAlloca;
+        llvm::Value* currentBreakTargetAlloca;
+        llvm::Value* currentContinueTargetAlloca;
+
+        llvm::Value* currentAsyncContext;
+        llvm::Value* currentAsyncResumedValue;
+        llvm::Value* currentAsyncFrame;
+        llvm::StructType* currentAsyncFrameType;
+        std::map<std::string, int> currentAsyncFrameMap;
+        llvm::BasicBlock* asyncDispatcherBB;
+        std::vector<llvm::BasicBlock*> asyncStateBlocks;
+        bool currentIsGenerator;
+        bool currentIsAsync;
+
+        int anonVarCounter;
+    };
+
+    SavedFunctionState saved{
+        namedValues,
+        forcedVariableTypes,
+        variableTypes,
+        valueOverrides,
+        boxedValues,
+        boxedVariables,
+        boxedElementArrayVars,
+        cellVariables,
+        cellPointers,
+        lengthAliases,
+        lastLengthArray,
+        catchStack,
+        finallyStack,
+        loopStack,
+        nonNullValues,
+        checkedAllocas,
+        currentClass,
+        currentReturnType,
+        currentContext,
+        currentBreakBB,
+        currentContinueBB,
+        currentReturnBB,
+        currentReturnValueAlloca,
+        currentShouldReturnAlloca,
+        currentShouldBreakAlloca,
+        currentShouldContinueAlloca,
+        currentBreakTargetAlloca,
+        currentContinueTargetAlloca,
+        currentAsyncContext,
+        currentAsyncResumedValue,
+        currentAsyncFrame,
+        currentAsyncFrameType,
+        currentAsyncFrameMap,
+        asyncDispatcherBB,
+        asyncStateBlocks,
+        currentIsGenerator,
+        currentIsAsync,
+        anonVarCounter,
+    };
 
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
@@ -931,21 +1231,92 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         }
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
         builder->SetInsertPoint(oldBB);
-        namedValues = oldNamedValues;
+        // Restore outer function state
+        namedValues = saved.namedValues;
+        forcedVariableTypes = saved.forcedVariableTypes;
+        variableTypes = saved.variableTypes;
+        valueOverrides = saved.valueOverrides;
+        boxedValues = saved.boxedValues;
+        boxedVariables = saved.boxedVariables;
+        boxedElementArrayVars = saved.boxedElementArrayVars;
+        cellVariables = saved.cellVariables;
+        cellPointers = saved.cellPointers;
+        lengthAliases = saved.lengthAliases;
+        lastLengthArray = saved.lastLengthArray;
+        catchStack = saved.catchStack;
+        finallyStack = saved.finallyStack;
+        loopStack = saved.loopStack;
+        nonNullValues = saved.nonNullValues;
+        checkedAllocas = saved.checkedAllocas;
+        currentClass = saved.currentClass;
+        currentReturnType = saved.currentReturnType;
+        currentContext = saved.currentContext;
+        currentBreakBB = saved.currentBreakBB;
+        currentContinueBB = saved.currentContinueBB;
+        currentReturnBB = saved.currentReturnBB;
+        currentReturnValueAlloca = saved.currentReturnValueAlloca;
+        currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+        currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+        currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+        currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+        currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+        currentAsyncContext = saved.currentAsyncContext;
+        currentAsyncResumedValue = saved.currentAsyncResumedValue;
+        currentAsyncFrame = saved.currentAsyncFrame;
+        currentAsyncFrameType = saved.currentAsyncFrameType;
+        currentAsyncFrameMap = saved.currentAsyncFrameMap;
+        asyncDispatcherBB = saved.asyncDispatcherBB;
+        asyncStateBlocks = saved.asyncStateBlocks;
+        currentIsGenerator = saved.currentIsGenerator;
+        currentIsAsync = saved.currentIsAsync;
+        anonVarCounter = saved.anonVarCounter;
+
         lastValue = boxValue(function, node->inferredType);
         return;
     }
     
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
     builder->SetInsertPoint(bb);
-    
+
+    // Clear function-specific state for this nested function body
     namedValues.clear();
+    forcedVariableTypes.clear();
+    variableTypes.clear();
+    valueOverrides.clear();
+    boxedVariables.clear();
+    boxedValues.clear();
+    boxedElementArrayVars.clear();
+    cellVariables.clear();
+    cellPointers.clear();
+    lengthAliases.clear();
+    lastLengthArray.clear();
+    catchStack.clear();
+    finallyStack.clear();
+    loopStack.clear();
+    nonNullValues.clear();
+    checkedAllocas.clear();
     lastValue = nullptr;
     anonVarCounter = 0;
     
     // Force return type to Any for function expressions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
+
+    // Initialize per-function return/break/continue state so try/finally and loops do not
+    // accidentally branch to blocks from an enclosing function.
+    currentBreakBB = nullptr;
+    currentContinueBB = nullptr;
+    currentReturnBB = llvm::BasicBlock::Create(*context, "return", function);
+    currentShouldReturnAlloca = createEntryBlockAlloca(function, "shouldReturn", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
+    currentShouldBreakAlloca = createEntryBlockAlloca(function, "shouldBreak", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+    currentShouldContinueAlloca = createEntryBlockAlloca(function, "shouldContinue", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+    currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
+    currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
+    currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", builder->getPtrTy());
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     
     auto argIt = function->arg_begin();
     if (argIt != function->arg_end()) {
@@ -970,15 +1341,64 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
-    
-    if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+
+    llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+    if (currentBB && !currentBB->getTerminator()) {
+        builder->CreateBr(currentReturnBB);
+    }
+
+    // Emit unified return block if it has predecessors
+    if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
+        currentReturnBB->eraseFromParent();
+    } else {
+        builder->SetInsertPoint(currentReturnBB);
+        llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+        builder->CreateRet(retVal);
     }
     
     currentReturnType = oldReturnType;
     builder->SetInsertPoint(oldBB);
-    namedValues = oldNamedValues;
-    
+
+    // Restore outer function state
+    namedValues = saved.namedValues;
+    forcedVariableTypes = saved.forcedVariableTypes;
+    variableTypes = saved.variableTypes;
+    valueOverrides = saved.valueOverrides;
+    boxedValues = saved.boxedValues;
+    boxedVariables = saved.boxedVariables;
+    boxedElementArrayVars = saved.boxedElementArrayVars;
+    cellVariables = saved.cellVariables;
+    cellPointers = saved.cellPointers;
+    lengthAliases = saved.lengthAliases;
+    lastLengthArray = saved.lastLengthArray;
+    catchStack = saved.catchStack;
+    finallyStack = saved.finallyStack;
+    loopStack = saved.loopStack;
+    nonNullValues = saved.nonNullValues;
+    checkedAllocas = saved.checkedAllocas;
+    currentClass = saved.currentClass;
+    currentReturnType = saved.currentReturnType;
+    currentContext = saved.currentContext;
+    currentBreakBB = saved.currentBreakBB;
+    currentContinueBB = saved.currentContinueBB;
+    currentReturnBB = saved.currentReturnBB;
+    currentReturnValueAlloca = saved.currentReturnValueAlloca;
+    currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+    currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+    currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+    currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+    currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+    currentAsyncContext = saved.currentAsyncContext;
+    currentAsyncResumedValue = saved.currentAsyncResumedValue;
+    currentAsyncFrame = saved.currentAsyncFrame;
+    currentAsyncFrameType = saved.currentAsyncFrameType;
+    currentAsyncFrameMap = saved.currentAsyncFrameMap;
+    asyncDispatcherBB = saved.asyncDispatcherBB;
+    asyncStateBlocks = saved.asyncStateBlocks;
+    currentIsGenerator = saved.currentIsGenerator;
+    currentIsAsync = saved.currentIsAsync;
+    anonVarCounter = saved.anonVarCounter;
+
     lastValue = boxValue(function, node->inferredType);
 }
 
@@ -1006,7 +1426,94 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
         }));
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
-    auto oldNamedValues = namedValues;
+
+    struct SavedFunctionState {
+        std::map<std::string, llvm::Value*> namedValues;
+        std::map<std::string, llvm::Type*> forcedVariableTypes;
+        std::map<std::string, std::shared_ptr<Type>> variableTypes;
+        std::map<ast::Node*, llvm::Value*> valueOverrides;
+        std::set<llvm::Value*> boxedValues;
+        std::set<std::string> boxedVariables;
+        std::set<std::string> boxedElementArrayVars;
+        std::set<std::string> cellVariables;
+        std::map<std::string, llvm::Value*> cellPointers;
+        std::map<llvm::Value*, std::string> lengthAliases;
+        std::string lastLengthArray;
+
+        std::vector<CatchInfo> catchStack;
+        std::vector<FinallyInfo> finallyStack;
+        std::vector<LoopInfo> loopStack;
+
+        std::set<llvm::Value*> nonNullValues;
+        std::set<llvm::Value*> checkedAllocas;
+
+        std::shared_ptr<Type> currentClass;
+        std::shared_ptr<Type> currentReturnType;
+        llvm::Value* currentContext;
+
+        llvm::BasicBlock* currentBreakBB;
+        llvm::BasicBlock* currentContinueBB;
+        llvm::BasicBlock* currentReturnBB;
+        llvm::Value* currentReturnValueAlloca;
+        llvm::Value* currentShouldReturnAlloca;
+        llvm::Value* currentShouldBreakAlloca;
+        llvm::Value* currentShouldContinueAlloca;
+        llvm::Value* currentBreakTargetAlloca;
+        llvm::Value* currentContinueTargetAlloca;
+
+        llvm::Value* currentAsyncContext;
+        llvm::Value* currentAsyncResumedValue;
+        llvm::Value* currentAsyncFrame;
+        llvm::StructType* currentAsyncFrameType;
+        std::map<std::string, int> currentAsyncFrameMap;
+        llvm::BasicBlock* asyncDispatcherBB;
+        std::vector<llvm::BasicBlock*> asyncStateBlocks;
+        bool currentIsGenerator;
+        bool currentIsAsync;
+
+        int anonVarCounter;
+    };
+
+    SavedFunctionState saved{
+        namedValues,
+        forcedVariableTypes,
+        variableTypes,
+        valueOverrides,
+        boxedValues,
+        boxedVariables,
+        boxedElementArrayVars,
+        cellVariables,
+        cellPointers,
+        lengthAliases,
+        lastLengthArray,
+        catchStack,
+        finallyStack,
+        loopStack,
+        nonNullValues,
+        checkedAllocas,
+        currentClass,
+        currentReturnType,
+        currentContext,
+        currentBreakBB,
+        currentContinueBB,
+        currentReturnBB,
+        currentReturnValueAlloca,
+        currentShouldReturnAlloca,
+        currentShouldBreakAlloca,
+        currentShouldContinueAlloca,
+        currentBreakTargetAlloca,
+        currentContinueTargetAlloca,
+        currentAsyncContext,
+        currentAsyncResumedValue,
+        currentAsyncFrame,
+        currentAsyncFrameType,
+        currentAsyncFrameMap,
+        asyncDispatcherBB,
+        asyncStateBlocks,
+        currentIsGenerator,
+        currentIsAsync,
+        anonVarCounter,
+    };
 
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
@@ -1020,21 +1527,91 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
         }
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
         builder->SetInsertPoint(oldBB);
-        namedValues = oldNamedValues;
+        // Restore outer function state
+        namedValues = saved.namedValues;
+        forcedVariableTypes = saved.forcedVariableTypes;
+        variableTypes = saved.variableTypes;
+        valueOverrides = saved.valueOverrides;
+        boxedValues = saved.boxedValues;
+        boxedVariables = saved.boxedVariables;
+        boxedElementArrayVars = saved.boxedElementArrayVars;
+        cellVariables = saved.cellVariables;
+        cellPointers = saved.cellPointers;
+        lengthAliases = saved.lengthAliases;
+        lastLengthArray = saved.lastLengthArray;
+        catchStack = saved.catchStack;
+        finallyStack = saved.finallyStack;
+        loopStack = saved.loopStack;
+        nonNullValues = saved.nonNullValues;
+        checkedAllocas = saved.checkedAllocas;
+        currentClass = saved.currentClass;
+        currentReturnType = saved.currentReturnType;
+        currentContext = saved.currentContext;
+        currentBreakBB = saved.currentBreakBB;
+        currentContinueBB = saved.currentContinueBB;
+        currentReturnBB = saved.currentReturnBB;
+        currentReturnValueAlloca = saved.currentReturnValueAlloca;
+        currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+        currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+        currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+        currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+        currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+        currentAsyncContext = saved.currentAsyncContext;
+        currentAsyncResumedValue = saved.currentAsyncResumedValue;
+        currentAsyncFrame = saved.currentAsyncFrame;
+        currentAsyncFrameType = saved.currentAsyncFrameType;
+        currentAsyncFrameMap = saved.currentAsyncFrameMap;
+        asyncDispatcherBB = saved.asyncDispatcherBB;
+        asyncStateBlocks = saved.asyncStateBlocks;
+        currentIsGenerator = saved.currentIsGenerator;
+        currentIsAsync = saved.currentIsAsync;
+        anonVarCounter = saved.anonVarCounter;
+
         lastValue = boxValue(function, node->inferredType);
         return;
     }
     
     llvm::BasicBlock* bb = llvm::BasicBlock::Create(*context, "entry", function);
     builder->SetInsertPoint(bb);
-    
+
+    // Clear function-specific state for this nested function body
     namedValues.clear();
+    forcedVariableTypes.clear();
+    variableTypes.clear();
+    valueOverrides.clear();
+    boxedVariables.clear();
+    boxedValues.clear();
+    boxedElementArrayVars.clear();
+    cellVariables.clear();
+    cellPointers.clear();
+    lengthAliases.clear();
+    lastLengthArray.clear();
+    catchStack.clear();
+    finallyStack.clear();
+    loopStack.clear();
+    nonNullValues.clear();
+    checkedAllocas.clear();
     lastValue = nullptr;
     anonVarCounter = 0;
     
     // Force return type to Any for function expressions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
+
+    // Initialize per-function return/break/continue state
+    currentBreakBB = nullptr;
+    currentContinueBB = nullptr;
+    currentReturnBB = llvm::BasicBlock::Create(*context, "return", function);
+    currentShouldReturnAlloca = createEntryBlockAlloca(function, "shouldReturn", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
+    currentShouldBreakAlloca = createEntryBlockAlloca(function, "shouldBreak", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+    currentShouldContinueAlloca = createEntryBlockAlloca(function, "shouldContinue", builder->getInt1Ty());
+    builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+    currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
+    currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
+    currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", builder->getPtrTy());
+    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     
     auto argIt = function->arg_begin();
     if (argIt != function->arg_end()) {
@@ -1059,14 +1636,62 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
-    
-    if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+
+    llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+    if (currentBB && !currentBB->getTerminator()) {
+        builder->CreateBr(currentReturnBB);
+    }
+
+    if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
+        currentReturnBB->eraseFromParent();
+    } else {
+        builder->SetInsertPoint(currentReturnBB);
+        llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+        builder->CreateRet(retVal);
     }
     
     currentReturnType = oldReturnType;
     builder->SetInsertPoint(oldBB);
-    namedValues = oldNamedValues;
+
+    // Restore outer function state
+    namedValues = saved.namedValues;
+    forcedVariableTypes = saved.forcedVariableTypes;
+    variableTypes = saved.variableTypes;
+    valueOverrides = saved.valueOverrides;
+    boxedValues = saved.boxedValues;
+    boxedVariables = saved.boxedVariables;
+    boxedElementArrayVars = saved.boxedElementArrayVars;
+    cellVariables = saved.cellVariables;
+    cellPointers = saved.cellPointers;
+    lengthAliases = saved.lengthAliases;
+    lastLengthArray = saved.lastLengthArray;
+    catchStack = saved.catchStack;
+    finallyStack = saved.finallyStack;
+    loopStack = saved.loopStack;
+    nonNullValues = saved.nonNullValues;
+    checkedAllocas = saved.checkedAllocas;
+    currentClass = saved.currentClass;
+    currentReturnType = saved.currentReturnType;
+    currentContext = saved.currentContext;
+    currentBreakBB = saved.currentBreakBB;
+    currentContinueBB = saved.currentContinueBB;
+    currentReturnBB = saved.currentReturnBB;
+    currentReturnValueAlloca = saved.currentReturnValueAlloca;
+    currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+    currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+    currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+    currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+    currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+    currentAsyncContext = saved.currentAsyncContext;
+    currentAsyncResumedValue = saved.currentAsyncResumedValue;
+    currentAsyncFrame = saved.currentAsyncFrame;
+    currentAsyncFrameType = saved.currentAsyncFrameType;
+    currentAsyncFrameMap = saved.currentAsyncFrameMap;
+    asyncDispatcherBB = saved.asyncDispatcherBB;
+    asyncStateBlocks = saved.asyncStateBlocks;
+    currentIsGenerator = saved.currentIsGenerator;
+    currentIsAsync = saved.currentIsAsync;
+    anonVarCounter = saved.anonVarCounter;
     
     lastValue = boxValue(function, node->inferredType);
 }
