@@ -158,6 +158,7 @@ void IRGenerator::visitIfStatement(ast::IfStatement* node) {
 }
 
 void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
+    emitLocation(node);
     visit(node->expression.get());
     llvm::Value* switchVal = lastValue;
     if (!switchVal) return;
