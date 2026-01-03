@@ -8,6 +8,28 @@ You are an expert C++ developer working on `ts-aot`, an Ahead-of-Time compiler f
 - `.github/instructions/runtime-extensions.instructions.md` - Runtime extension guide
 - `.github/instructions/adding-nodejs-api.instructions.md` - How to add new Node.js APIs
 
+## Skills
+
+This project includes Copilot skills for automated tasks:
+
+### Auto-Debug Skill
+**Location:** `.github/skills/auto-debug/`
+
+Automatically analyzes crashes using CDB debugger. Extracts stack traces, exception info, and crash locations.
+
+**Usage:**
+```powershell
+.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
+```
+
+**When to suggest:**
+- User reports a crash without clear cause
+- Debugging lodash or complex executables
+- Need automated crash analysis
+- CI/CD integration for crash detection
+
+See `.github/skills/auto-debug/skill.md` for full documentation.
+
 ## ⛔ STOP AND CHECK - Before ANY Runtime Edit ⛔
 
 Before editing ANY file in `src/runtime/`, verify your code uses these patterns:
