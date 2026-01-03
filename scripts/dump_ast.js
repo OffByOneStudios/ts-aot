@@ -699,6 +699,29 @@ function visitInternal(node) {
                 })),
                 isExported: isExported(node)
             };
+        case ts.SyntaxKind.EmptyStatement:
+            // No-op statement; omit from AST
+            return null;
+        case ts.SyntaxKind.DoStatement:
+            // Lower do { body } while (test) into an equivalent block:
+            // { body; while (test) { body; } }
+            const bodyOnce = visit(node.statement);
+            const bodyLoop = visit(node.statement);
+            const testExpr = visit(node.expression);
+            return {
+                kind: "BlockStatement",
+                body: [
+                    bodyOnce,
+                    {
+                        kind: "WhileStatement",
+                        condition: testExpr,
+                        statement: bodyLoop
+                    }
+                ]
+            };
+        case ts.SyntaxKind.LabeledStatement:
+            // Drop the label and keep the inner statement to avoid label handling downstream.
+            return visit(node.statement);
         case ts.SyntaxKind.Decorator:
             return null;
         default:

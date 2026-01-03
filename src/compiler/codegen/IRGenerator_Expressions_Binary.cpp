@@ -79,6 +79,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         else if (node->op == "*") runtimeFn = "ts_value_mul";
         else if (node->op == "/") runtimeFn = "ts_value_div";
         else if (node->op == "==") runtimeFn = "ts_value_eq";
+        else if (node->op == "===") runtimeFn = "ts_value_strict_eq_wrapper";
         else if (node->op == "<") runtimeFn = "ts_value_lt";
         else if (node->op == ">") runtimeFn = "ts_value_gt";
         else if (node->op == "<=") runtimeFn = "ts_value_lte";
@@ -91,7 +92,13 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction(runtimeFn, ft);
             lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
-            boxedValues.insert(lastValue);
+            
+            // If the inferred type is Boolean (for comparisons), we must unbox the result
+            if (node->inferredType && node->inferredType->kind == TypeKind::Boolean) {
+                lastValue = unboxValue(lastValue, node->inferredType);
+            } else {
+                boxedValues.insert(lastValue);
+            }
             return;
         }
     }
@@ -275,35 +282,45 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         if (isDouble) lastValue = builder->CreateFCmpOGE(left, right, "cmptmp");
         else lastValue = builder->CreateICmpSGE(left, right, "cmptmp");
     } else if (node->op == "==" || node->op == "===") {
-        // Handle comparison between primitive and null/undefined
-        // A primitive value is never equal to null/undefined in strict equality
-        bool leftIsNull = node->left->inferredType && 
-            (node->left->inferredType->kind == TypeKind::Null || node->left->inferredType->kind == TypeKind::Undefined);
-        bool rightIsNull = node->right->inferredType && 
-            (node->right->inferredType->kind == TypeKind::Null || node->right->inferredType->kind == TypeKind::Undefined);
-        
-        // Check if both are 'any' type - need runtime comparison
-        bool leftIsAny = node->left->inferredType && node->left->inferredType->kind == TypeKind::Any;
-        bool rightIsAny = node->right->inferredType && node->right->inferredType->kind == TypeKind::Any;
-        
-        // If one side is null/undefined (pointer) and the other is a primitive (not pointer),
-        // the result is always false
-        if ((leftIsNull && !right->getType()->isPointerTy()) || 
-            (rightIsNull && !left->getType()->isPointerTy())) {
-            lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
-        } else if (isString) {
-             if (!leftIsString) left = unboxValue(left, std::make_shared<Type>(TypeKind::String));
-             if (!rightIsString) right = unboxValue(right, std::make_shared<Type>(TypeKind::String));
-             
-             llvm::FunctionType* eqFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
-                     { builder->getPtrTy(), builder->getPtrTy() }, false);
-             llvm::FunctionCallee eqFn = getRuntimeFunction("ts_string_eq", eqFt);
-             lastValue = createCall(eqFt, eqFn.getCallee(), { left, right });
-        } else if ((leftIsAny || rightIsAny) && left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-            // Both are pointer types (boxed values) - use runtime strict equality
+        Type* leftType = node->left->inferredType.get();
+        Type* rightType = node->right->inferredType.get();
+
+        bool leftIsAny = leftType && leftType->kind == TypeKind::Any;
+        bool rightIsAny = rightType && rightType->kind == TypeKind::Any;
+        bool leftIsNullish = leftType && (leftType->kind == TypeKind::Null || leftType->kind == TypeKind::Undefined);
+        bool rightIsNullish = rightType && (rightType->kind == TypeKind::Null || rightType->kind == TypeKind::Undefined);
+
+        // If types are different, or either is 'any' or nullish, use slow path
+        if (leftIsAny || rightIsAny || leftIsNullish || rightIsNullish || (leftType && rightType && leftType->kind != rightType->kind)) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            
+            if (node->op == "==") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_eq", ft);
+                lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+                
+                if (node->inferredType && node->inferredType->kind == TypeKind::Boolean) {
+                    lastValue = unboxValue(lastValue, node->inferredType);
+                } else {
+                    boxedValues.insert(lastValue);
+                }
+            } else {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq", ft);
+                lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            }
+            return;
+        }
+
+        // Same types - fast path
+        if (isString) {
+            if (!leftIsString) left = unboxValue(left, std::make_shared<Type>(TypeKind::String));
+            if (!rightIsString) right = unboxValue(right, std::make_shared<Type>(TypeKind::String));
+            
             llvm::FunctionType* eqFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee eqFn = getRuntimeFunction("ts_value_strict_eq", eqFt);
+            llvm::FunctionCallee eqFn = getRuntimeFunction("ts_string_eq", eqFt);
             lastValue = createCall(eqFt, eqFn.getCallee(), { left, right });
         } else if (isDouble) {
             lastValue = builder->CreateFCmpOEQ(left, right, "cmptmp");
@@ -311,23 +328,39 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             lastValue = builder->CreateICmpEQ(left, right, "cmptmp");
         }
     } else if (node->op == "!=" || node->op == "!==") {
-        // Handle comparison between primitive and null/undefined
-        // A primitive value is never equal to null/undefined in strict equality
-        bool leftIsNullNE = node->left->inferredType && 
-            (node->left->inferredType->kind == TypeKind::Null || node->left->inferredType->kind == TypeKind::Undefined);
-        bool rightIsNullNE = node->right->inferredType && 
-            (node->right->inferredType->kind == TypeKind::Null || node->right->inferredType->kind == TypeKind::Undefined);
-        
-        // Check if both are 'any' type - need runtime comparison
-        bool leftIsAnyNE = node->left->inferredType && node->left->inferredType->kind == TypeKind::Any;
-        bool rightIsAnyNE = node->right->inferredType && node->right->inferredType->kind == TypeKind::Any;
-        
-        // If one side is null/undefined (pointer) and the other is a primitive (not pointer),
-        // the result is always true
-        if ((leftIsNullNE && !right->getType()->isPointerTy()) || 
-            (rightIsNullNE && !left->getType()->isPointerTy())) {
-            lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1);
-        } else if (isString) {
+        Type* leftType = node->left->inferredType.get();
+        Type* rightType = node->right->inferredType.get();
+
+        bool leftIsAny = leftType && leftType->kind == TypeKind::Any;
+        bool rightIsAny = rightType && rightType->kind == TypeKind::Any;
+        bool leftIsNullish = leftType && (leftType->kind == TypeKind::Null || leftType->kind == TypeKind::Undefined);
+        bool rightIsNullish = rightType && (rightType->kind == TypeKind::Null || rightType->kind == TypeKind::Undefined);
+
+        if (leftIsAny || rightIsAny || leftIsNullish || rightIsNullish || (leftType && rightType && leftType->kind != rightType->kind)) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            
+            if (node->op == "!=") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_eq", ft);
+                llvm::Value* res = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+                
+                // Unbox and negate
+                llvm::FunctionType* getBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getBoolFn = getRuntimeFunction("ts_value_get_bool", getBoolFt);
+                llvm::Value* eq = createCall(getBoolFt, getBoolFn.getCallee(), { res });
+                lastValue = builder->CreateNot(eq);
+            } else {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq", ft);
+                llvm::Value* eq = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+                lastValue = builder->CreateNot(eq);
+            }
+            return;
+        }
+
+        // Same types - fast path
+        if (isString) {
              if (!leftIsString) left = unboxValue(left, std::make_shared<Type>(TypeKind::String));
              if (!rightIsString) right = unboxValue(right, std::make_shared<Type>(TypeKind::String));
 
@@ -336,13 +369,6 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
              llvm::FunctionCallee eqFn = getRuntimeFunction("ts_string_eq", eqFt);
              llvm::Value* eq = createCall(eqFt, eqFn.getCallee(), { left, right });
              lastValue = builder->CreateNot(eq);
-        } else if ((leftIsAnyNE || rightIsAnyNE) && left->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-            // Both are pointer types (boxed values) - use runtime strict equality and negate
-            llvm::FunctionType* eqFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
-                    { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee eqFn = getRuntimeFunction("ts_value_strict_eq", eqFt);
-            llvm::Value* eq = createCall(eqFt, eqFn.getCallee(), { left, right });
-            lastValue = builder->CreateNot(eq);
         } else if (isDouble) {
             lastValue = builder->CreateFCmpONE(left, right, "cmptmp");
         } else {
@@ -735,11 +761,25 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         visit(elem->argumentExpression.get());
         llvm::Value* index = lastValue;
         
-        index = castValue(index, llvm::Type::getInt64Ty(*context));
-
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Array) {
             auto arrayType = std::static_pointer_cast<ArrayType>(elem->expression->inferredType);
             auto elemType = arrayType->elementType;
+
+            // If index is not an integer, use dynamic access
+            if (index->getType()->isPointerTy() || index->getType()->isDoubleTy()) {
+                llvm::Value* boxedIndex = boxValue(index, elem->argumentExpression->inferredType);
+                llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+                
+                llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee setFn = getRuntimeFunction("ts_array_set_dynamic", setFt);
+                
+                createCall(setFt, setFn.getCallee(), { boxValue(arr, elem->expression->inferredType), boxedIndex, boxedVal });
+                lastValue = val;
+                return;
+            }
+
+            index = castValue(index, llvm::Type::getInt64Ty(*context));
 
             bool isSpecialized = false;
             llvm::Type* llvmElemType = nullptr;
@@ -777,6 +817,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 return;
             }
         }
+        
+        index = castValue(index, llvm::Type::getInt64Ty(*context));
         
         llvm::Value* storeVal = val;
         if (storeVal->getType()->isDoubleTy()) {

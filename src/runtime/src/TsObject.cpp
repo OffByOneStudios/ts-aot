@@ -14,6 +14,105 @@
 #include <cmath>
 #include <limits>
 #include <cstring>
+#include <unordered_map>
+#include <string>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+namespace fs = std::filesystem;
+
+extern "C" {
+    // Prototypes for functions in Primitives.cpp
+    double ts_value_get_double(TsValue* v);
+    int64_t ts_value_get_int(TsValue* v);
+    bool ts_value_to_bool(TsValue* v);
+}
+
+static std::unordered_map<std::string, TsValue*> g_module_cache;
+
+// Internal helpers (no C linkage needed).
+static std::string finalize_module_path(const fs::path& base) {
+    fs::path candidate = base;
+    if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
+        return fs::absolute(candidate).string();
+    }
+
+    std::string withJs = candidate.string() + ".js";
+    if (fs::exists(withJs)) {
+        return fs::absolute(withJs).string();
+    }
+
+    std::string withTs = candidate.string() + ".ts";
+    if (fs::exists(withTs)) {
+        return fs::absolute(withTs).string();
+    }
+
+    if (fs::exists(candidate) && fs::is_directory(candidate)) {
+        fs::path idxJs = candidate / "index.js";
+        if (fs::exists(idxJs)) {
+            return fs::absolute(idxJs).string();
+        }
+        fs::path idxTs = candidate / "index.ts";
+        if (fs::exists(idxTs)) {
+            return fs::absolute(idxTs).string();
+        }
+    }
+
+    return "";
+}
+
+// Extremely small package.json parser to extract "main".
+static std::string read_package_main(const fs::path& packageJsonPath) {
+    std::ifstream in(packageJsonPath);
+    if (!in) return "";
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string key = "\"main\"";
+    size_t pos = content.find(key);
+    if (pos == std::string::npos) return "";
+    pos = content.find(':', pos + key.size());
+    if (pos == std::string::npos) return "";
+    pos = content.find('"', pos);
+    if (pos == std::string::npos) return "";
+    size_t end = content.find('"', pos + 1);
+    if (end == std::string::npos || end <= pos + 1) return "";
+    return content.substr(pos + 1, end - pos - 1);
+}
+
+static std::string resolve_node_module(const std::string& spec, const std::string& referrerPath) {
+    fs::path referrer = fs::absolute(referrerPath);
+    fs::path dir = referrer.has_filename() ? referrer.parent_path() : referrer;
+
+    while (true) {
+        fs::path candidateBase = dir / "node_modules" / spec;
+        if (fs::exists(candidateBase)) {
+            if (fs::is_directory(candidateBase)) {
+                fs::path packageJson = candidateBase / "package.json";
+                if (fs::exists(packageJson)) {
+                    std::string mainEntry = read_package_main(packageJson);
+                    if (!mainEntry.empty()) {
+                        std::string resolved = finalize_module_path(candidateBase / mainEntry);
+                        if (!resolved.empty()) return resolved;
+                    }
+                }
+
+                // Fallbacks if package.json is missing or lacks "main".
+                std::string resolved = finalize_module_path(candidateBase / "index");
+                if (!resolved.empty()) return resolved;
+                resolved = finalize_module_path(candidateBase);
+                if (!resolved.empty()) return resolved;
+            } else {
+                std::string resolved = finalize_module_path(candidateBase);
+                if (!resolved.empty()) return resolved;
+            }
+        }
+
+        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+        dir = dir.parent_path();
+    }
+
+    return "";
+}
 
 // Currently empty, as TsObject.h only defines structs/enums for now.
 
@@ -28,7 +127,7 @@ TsValue* ts_value_make_undefined() {
 
 TsValue* ts_value_make_null() {
     TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-    v->type = ValueType::UNDEFINED; // We don't have a NULL type yet, use UNDEFINED with nullptr
+    v->type = ValueType::OBJECT_PTR; // Use OBJECT_PTR with nullptr for null
     v->ptr_val = nullptr;
     return v;
 }
@@ -81,6 +180,15 @@ TsValue* ts_value_make_int(int64_t i) {
         val->type = ValueType::ARRAY_PTR;
         val->ptr_val = arr;
         return val;
+    }
+
+    bool ts_value_is_undefined(TsValue* v) {
+        if (!v) {
+            printf("ts_value_is_undefined: v is null\n");
+            return true;
+        }
+        printf("ts_value_is_undefined: v=%p, type=%d\n", v, (int)v->type);
+        return v->type == ValueType::UNDEFINED;
     }
 
     // Box any pointer by detecting its runtime type
@@ -197,9 +305,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Strict equality comparison for boxed values (implements === semantics)
-    bool ts_value_strict_eq(TsValue* lhs, TsValue* rhs) {
-        if (!lhs && !rhs) return true;
-        if (!lhs || !rhs) return false;
+    bool ts_value_strict_eq_bool(TsValue* lhs, TsValue* rhs) {
+        // Treat nullptr as undefined
+        TsValue undef;
+        undef.type = ValueType::UNDEFINED;
+        undef.ptr_val = nullptr;
+
+        if (!lhs) lhs = &undef;
+        if (!rhs) rhs = &undef;
         
         // Get the actual TsValue structs (handle raw pointers)
         TsValue lhsVal = {};
@@ -271,6 +384,10 @@ TsValue* ts_value_make_int(int64_t i) {
             // For objects/arrays/etc, strict equality compares identity (same pointer)
             default: return lhsVal.ptr_val == rhsVal.ptr_val;
         }
+    }
+
+    TsValue* ts_value_strict_eq(TsValue* lhs, TsValue* rhs) {
+        return ts_value_make_bool(ts_value_strict_eq_bool(lhs, rhs));
     }
 
     // Note: ts_value_get_int and ts_value_get_double are defined in Primitives.cpp
@@ -781,13 +898,19 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_eq(TsValue* a, TsValue* b) {
-        if (!a || !b) return ts_value_make_bool(a == b);
-        if (a->type == b->type) return ts_value_make_bool(ts_value_strict_eq(a, b));
+        // Treat nullptr as undefined for loose equality
+        if (!a) a = ts_value_make_undefined();
+        if (!b) b = ts_value_make_undefined();
+
+        if (a->type == b->type) return ts_value_make_bool(ts_value_strict_eq_bool(a, b));
         
         // null == undefined
         bool a_nullish = (a->type == ValueType::UNDEFINED || (a->type == ValueType::OBJECT_PTR && a->ptr_val == nullptr));
         bool b_nullish = (b->type == ValueType::UNDEFINED || (b->type == ValueType::OBJECT_PTR && b->ptr_val == nullptr));
         if (a_nullish && b_nullish) return ts_value_make_bool(true);
+        
+        // If one is nullish but not both, they are not equal
+        if (a_nullish || b_nullish) return ts_value_make_bool(false);
         
         // Coerce to numbers
         return ts_value_make_bool(ts_value_get_double(a) == ts_value_get_double(b));
@@ -882,6 +1005,29 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!keyStr) return ts_value_make_undefined();
         
         return ts_value_get_property(obj, (void*)keyStr);
+    }
+
+    TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
+        return ts_object_get_prop(obj, key);
+    }
+
+    TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index) {
+        void* rawArr = ts_value_get_object(arr);
+        if (!rawArr) return ts_value_make_undefined();
+        
+        int64_t idx = ts_value_get_int(index);
+        return ts_array_get_as_value(rawArr, idx);
+    }
+
+    void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value) {
+        void* rawArr = ts_value_get_object(arr);
+        if (!rawArr) return;
+        
+        int64_t idx = ts_value_get_int(index);
+        uint32_t magic = *(uint32_t*)rawArr;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            ((TsArray*)rawArr)->Set(idx, (int64_t)value);
+        }
     }
 
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
@@ -998,5 +1144,72 @@ TsValue* ts_value_make_int(int64_t i) {
         JSON = ts_value_make_object(TsMap::Create());
         process = ts_value_make_object(TsMap::Create());
         Buffer = ts_value_make_object(TsMap::Create());
+    }
+
+    void ts_module_register(TsValue* path, TsValue* exports) {
+        if (!path || path->type != ValueType::STRING_PTR) return;
+        TsString* s = (TsString*)path->ptr_val;
+        std::string pathStr = s->ToUtf8();
+        std::printf("ts_module_register: %s\n", pathStr.c_str());
+        g_module_cache[pathStr] = exports;
+    }
+
+    TsValue* ts_module_get(const char* path) {
+        std::string p = path;
+        auto it = g_module_cache.find(p);
+        if (it != g_module_cache.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+
+    TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
+        if (!specifier || specifier->type != ValueType::STRING_PTR) {
+            return ts_value_make_undefined();
+        }
+        TsString* s = (TsString*)specifier->ptr_val;
+        std::string spec = s->ToUtf8();
+        std::printf("ts_require: spec=%s, referrer=%s\n", spec.c_str(), referrerPath);
+        
+        try {
+            fs::path resolved;
+            std::string absPath;
+
+            if (spec.rfind("./", 0) == 0 || spec.rfind("../", 0) == 0 || spec.rfind("/", 0) == 0) {
+                resolved = fs::path(referrerPath).parent_path() / spec;
+                absPath = finalize_module_path(resolved);
+            } else {
+                absPath = resolve_node_module(spec, referrerPath);
+            }
+
+            if (absPath.empty()) {
+                absPath = finalize_module_path(spec);
+            }
+
+            if (absPath.empty()) {
+                std::printf("ts_require: unable to resolve %s\n", spec.c_str());
+                return ts_value_make_undefined();
+            }
+
+            std::printf("ts_require: final absPath=%s\n", absPath.c_str());
+            
+            TsValue* moduleObj = ts_module_get(absPath.c_str());
+            if (moduleObj) {
+                std::printf("ts_require: found module in cache\n");
+                // CommonJS: return module.exports
+                if (moduleObj->type == ValueType::OBJECT_PTR) {
+                    TsValue* exports = ts_object_get_prop(moduleObj, ts_value_make_string(TsString::Create("exports")));
+                    if (exports && exports->type != ValueType::UNDEFINED) {
+                        return exports;
+                    }
+                }
+                return moduleObj;
+            }
+            std::printf("ts_require: module NOT found in cache\n");
+        } catch (const std::exception& e) {
+            std::printf("ts_require: error: %s\n", e.what());
+        }
+        
+        return ts_value_make_undefined();
     }
 }

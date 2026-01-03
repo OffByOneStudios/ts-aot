@@ -85,6 +85,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_make_function",  {false, false}},   // (fn_ptr, closure) -> TsValue*
     {"ts_value_make_undefined", {}},               // () -> TsValue*
     {"ts_value_make_null",      {}},               // () -> TsValue*
+    {"ts_value_box_any",        {false}},          // (void*) -> TsValue*
 
     // =========================================================================
     // Value unboxing functions - these EXTRACT raw values from boxed
@@ -95,10 +96,12 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_get_bool",   {true}},               // (TsValue*) -> bool
     {"ts_value_get_string", {true}},               // (TsValue*) -> TsString*
     {"ts_value_get_object", {true}},               // (TsValue*) -> void*
+    {"ts_value_is_undefined", {true}},             // (TsValue*) -> bool
     
     // Value comparison functions - compare boxed values
     // =========================================================================
-    {"ts_value_strict_eq",  {true, true}},         // (TsValue*, TsValue*) -> bool
+    {"ts_value_strict_eq",  {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_strict_eq_wrapper", {true, true}},  // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_add",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_sub",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_mul",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
@@ -108,6 +111,13 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_gt",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_lte",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_gte",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+
+    // Slow path property access
+    {"ts_object_get_prop",  {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_object_set_prop",  {true, true, true}},   // (TsValue*, TsValue*, TsValue*) -> TsValue*
+    {"ts_object_get_dynamic", {true, true}},       // (TsValue*, TsValue*) -> TsValue*
+    {"ts_array_get_dynamic", {true, true}},        // (TsValue*, TsValue*) -> TsValue*
+    {"ts_array_set_dynamic", {true, true, true}},  // (TsValue*, TsValue*, TsValue*) -> void
 
     // =========================================================================
     // String operations - work with raw TsString* pointers
@@ -298,6 +308,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_process_get_config",             {}},           // () -> object
     {"ts_process_get_debug_port",         {}},           // () -> int
     {"ts_process_get_exec_argv",          {}},           // () -> array
+    {"ts_require",                        {true, false}}, // (specifier: boxed, referrerPath: raw)
+    {"ts_module_register",                {true, true}},  // (path: boxed, exports: boxed)
     {"ts_process_get_exec_path",          {}},           // () -> str*
     {"ts_process_get_exit_code",          {}},           // () -> int
     {"ts_process_get_features",           {}},           // () -> object
@@ -348,6 +360,10 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_value_make_undefined",
     "ts_value_make_null",
     "ts_value_make_promise",
+    "ts_value_box_any",
+    "ts_value_eq",
+    "ts_value_strict_eq",
+    "ts_value_strict_eq_wrapper",
     "ts_value_get_element",
     "ts_value_get_property",
     "ts_call_0",
@@ -359,6 +375,7 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_async_await",
     "ts_async_iterator_next",
     "ts_cell_get",
+    "ts_require",
 };
 
 // =============================================================================

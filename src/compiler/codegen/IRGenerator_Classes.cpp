@@ -1048,6 +1048,19 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             if (keyStr && val) {
                 createCall(setMapFt, setFn.getCallee(), { map, keyStr, val });
             }
+        } else if (auto spread = dynamic_cast<ast::SpreadElement*>(prop.get())) {
+            visit(spread->expression.get());
+            llvm::Value* source = lastValue;
+            
+            // Box source if needed
+            llvm::Value* boxedSource = boxValue(source, spread->expression->inferredType);
+            
+            llvm::FunctionType* assignFt = llvm::FunctionType::get(builder->getPtrTy(), 
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee assignFn = getRuntimeFunction("ts_object_assign", assignFt);
+            
+            // ts_object_assign(target, source)
+            createCall(assignFt, assignFn.getCallee(), { boxValue(map, std::make_shared<Type>(TypeKind::Object)), boxedSource });
         }
     }
 

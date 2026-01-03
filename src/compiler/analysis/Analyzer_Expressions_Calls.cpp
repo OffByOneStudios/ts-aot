@@ -64,6 +64,12 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 
         if (!calleeName.empty()) {
             functionUsages[calleeName].push_back({argTypes, {}});
+            
+            if (calleeName == "require" && !node->arguments.empty()) {
+                if (auto lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
+                    loadModule(lit->value);
+                }
+            }
         }
 
         lastType = std::make_shared<Type>(TypeKind::Any);
@@ -85,6 +91,11 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         }
     } else if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         methodName = id->name;
+        if (methodName == "require" && !node->arguments.empty()) {
+            if (auto lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
+                loadModule(lit->value);
+            }
+        }
     }
     
     // Get expected parameter types from callee
@@ -497,6 +508,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     if (!lastType) {
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitNewExpression(ast::NewExpression* node) {

@@ -431,6 +431,7 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     
     auto module = std::make_shared<Module>();
     module->path = resolved.path;
+    module->type = resolved.type;
     modules[resolved.path] = module;  // Cache early to handle circular deps
     
     try {

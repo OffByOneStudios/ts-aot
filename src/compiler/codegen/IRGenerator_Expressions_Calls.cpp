@@ -47,6 +47,11 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
 
+    // Slow-path JS often has missing or any-typed callees; default to any to keep runtime behavior.
+    if (!node->callee->inferredType) {
+        node->callee->inferredType = std::make_shared<Type>(TypeKind::Any);
+    }
+
     if (node->isComptime) {
         SPDLOG_DEBUG("Handling comptime call");
         if (node->arguments.size() > 0) {
@@ -96,13 +101,35 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
         if (id->name == "require") {
             if (node->arguments.empty()) {
-                lastValue = getUndefinedValue();
+                lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
                 return;
             }
             visit(node->arguments[0].get());
-            // require returns 'any', so we just return a null pointer for now.
-            // The built-in handlers for fs.xxx will handle the calls.
-            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            llvm::Value* specifier = boxValue(lastValue, node->arguments[0]->inferredType);
+            
+            // Get current file path from IRGenerator
+            llvm::Value* referrerPath = builder->CreateGlobalStringPtr(currentSourceFile);
+            
+            llvm::FunctionType* requireFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee requireFn = getRuntimeFunction("ts_require", requireFt);
+            
+            lastValue = createCall(requireFt, requireFn.getCallee(), { specifier, referrerPath });
+            return;
+        }
+
+        if (id->name == "ts_module_register") {
+            if (node->arguments.size() < 2) return;
+            
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            
+            visit(node->arguments[1].get());
+            llvm::Value* exports = boxValue(lastValue, node->arguments[1]->inferredType);
+            
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_module_register", ft);
+            
+            createCall(ft, fn.getCallee(), { path, exports });
             return;
         }
 
@@ -643,25 +670,49 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
 
         llvm::Function* func = module->getFunction(mangledName);
-        if (func) {
-            // Add context as first argument
-            std::vector<llvm::Value*> callArgs;
-            if (currentAsyncContext) {
-                callArgs.push_back(currentAsyncContext);
-            } else {
-                callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+         if (func) {
+             // Add context as first argument
+             std::vector<llvm::Value*> callArgs;
+             if (currentAsyncContext) {
+                 callArgs.push_back(currentAsyncContext);
+             } else {
+                 callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+             }
+
+            // Ensure call-site values match the callee's LLVM signature.
+            // This is especially important for defaulted primitive parameters, which
+            // are represented as boxed TsValue* so `undefined` can be detected.
+            for (size_t i = 0; i < args.size(); ++i) {
+                llvm::Value* argVal = args[i];
+                llvm::Type* paramTy = nullptr;
+                if (i + 1 < func->getFunctionType()->getNumParams()) {
+                    paramTy = func->getFunctionType()->getParamType(static_cast<unsigned>(i + 1));
+                }
+
+                if (paramTy && argVal && argVal->getType() != paramTy) {
+                    std::shared_ptr<Type> tsArgType = (i < argTypes.size() && argTypes[i]) ? argTypes[i] : std::make_shared<Type>(TypeKind::Any);
+
+                    if (paramTy->isPointerTy() && !argVal->getType()->isPointerTy()) {
+                        argVal = boxValue(argVal, tsArgType);
+                    } else if (!paramTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                        argVal = unboxValue(argVal, tsArgType);
+                    }
+
+                    if (argVal->getType() != paramTy) {
+                        argVal = castValue(argVal, paramTy);
+                    }
+                }
+
+                callArgs.push_back(argVal);
             }
-            for (auto arg : args) callArgs.push_back(arg);
-            
-            lastValue = createCall(func->getFunctionType(), func, callArgs);
-        } else {
-            SPDLOG_ERROR("Function not found: {}", mangledName);
-            // TODO: Error handling
+             
+             lastValue = createCall(func->getFunctionType(), func, callArgs);
+         } else {
+             SPDLOG_ERROR("Function not found: {}", mangledName);
+             // TODO: Error handling
             lastValue = nullptr;
         }
     }
 }
 
 } // namespace ts
-
-

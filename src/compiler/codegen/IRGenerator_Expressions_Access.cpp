@@ -41,6 +41,11 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
     }
 
     if (namedValues.count(node->name)) {
+        if (node->inferredType) {
+            SPDLOG_ERROR("visitIdentifier: {} inferredType kind = {}", node->name, (int)node->inferredType->kind);
+        } else {
+            SPDLOG_ERROR("visitIdentifier: {} inferredType is null", node->name);
+        }
         // Check if this is a cell variable (captured and mutable)
         if (cellVariables.count(node->name)) {
             llvm::Value* cellAlloca = namedValues[node->name];
@@ -83,6 +88,8 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 
         return;
     }
+
+    SPDLOG_INFO("Identifier {} not found in namedValues", node->name);
 
     // Check for global variable
     llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);
@@ -415,6 +422,35 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         auto arrayType = std::static_pointer_cast<ArrayType>(effectiveArrayType);
         auto elemType = arrayType->elementType;
 
+        visit(node->expression.get());
+        llvm::Value* arr = lastValue;
+        
+        // ⚠️ CRITICAL: Always call ts_value_get_object for Array types.
+        // The array might be boxed (e.g., accessed from a cloned object) but not tracked
+        // in boxedValues after being stored to and loaded from an alloca.
+        // ts_value_get_object is idempotent for raw pointers.
+        if (arr->getType()->isPointerTy()) {
+            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+            arr = createCall(getObjFt, getObjFn.getCallee(), { arr });
+        }
+        emitNullCheckForExpression(node->expression.get(), arr);
+        
+        visit(node->argumentExpression.get());
+        llvm::Value* index = lastValue;
+
+        // If index is not an integer, use dynamic access
+        if (index->getType()->isPointerTy() || index->getType()->isDoubleTy()) {
+            llvm::Value* boxedIndex = boxValue(index, node->argumentExpression->inferredType);
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get_dynamic", getFt);
+            
+            llvm::Value* res = createCall(getFt, getFn.getCallee(), { boxValue(arr, effectiveArrayType), boxedIndex });
+            boxedValues.insert(res);
+            lastValue = unboxValue(res, elemType);
+            return;
+        }
+
         bool isSpecialized = false;
         llvm::Type* llvmElemType = nullptr;
 
@@ -433,24 +469,6 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         }
 
         if (isSpecialized) {
-            visit(node->expression.get());
-            llvm::Value* arr = lastValue;
-            
-            // ⚠️ CRITICAL: Always call ts_value_get_object for Array types.
-            // The array might be boxed (e.g., accessed from a cloned object) but not tracked
-            // in boxedValues after being stored to and loaded from an alloca.
-            // ts_value_get_object is idempotent for raw pointers.
-            if (arr->getType()->isPointerTy()) {
-                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
-                arr = createCall(getObjFt, getObjFn.getCallee(), { arr });
-            }
-            emitNullCheckForExpression(node->expression.get(), arr);
-            visit(node->argumentExpression.get());
-            llvm::Value* index = lastValue;
-            if (index->getType()->isDoubleTy()) {
-                index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
-            }
             index = castValue(index, llvm::Type::getInt64Ty(*context));
 
             // ⚠️ RUNTIME CHECK: Arrays may be typed as specialized at compile time
@@ -614,7 +632,8 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
 
 void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (!node->expression->inferredType) {
-        SPDLOG_ERROR("visitPropertyAccessExpression: node->expression->inferredType is NULL for {}", node->name);
+        // Default to any so we still generate runtime property access in slow-path JS.
+        node->expression->inferredType = std::make_shared<Type>(TypeKind::Any);
     }
     SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
@@ -1060,6 +1079,13 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Function) {
         auto funcType = std::static_pointer_cast<FunctionType>(node->expression->inferredType);
+        if (node->name == "call" || node->name == "apply") {
+            // Treat foo.call/apply as direct reference to foo; we don't model Function.prototype here.
+            visit(node->expression.get());
+            lastValue = boxValue(lastValue, node->expression->inferredType);
+            boxedValues.insert(lastValue);
+            return;
+        }
         if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
             
@@ -1119,6 +1145,23 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 current = current->baseClass;
             }
         }
+
+        // Generic function property access (fallback)
+        visit(node->expression.get());
+        llvm::Value* funcVal = boxValue(lastValue, node->expression->inferredType);
+
+        llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+        key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        
+        lastValue = createCall(getFt, getFn.getCallee(), { funcVal, key });
+        boxedValues.insert(lastValue);
+        return;
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {

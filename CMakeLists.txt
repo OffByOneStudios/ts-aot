@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.20)
 
 project(ts-aot LANGUAGES CXX)
 
-set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
+# Force Release mode only
+set(CMAKE_CONFIGURATION_TYPES "Release" CACHE STRING "" FORCE)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

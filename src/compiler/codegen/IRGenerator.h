@@ -44,6 +44,7 @@ private:
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
     Analyzer* analyzer = nullptr;
+    std::string currentSourceFile;
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
     bool verbose = false;
@@ -182,6 +183,7 @@ private:
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
     llvm::Value* emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type);
     llvm::Value* getUndefinedValue();
+    llvm::Value* getNullValue();
 
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* function, const std::string& varName, llvm::Type* type);
 

@@ -362,11 +362,20 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
             declareBindingPattern(param->name.get(), restType);
             break; // Rest parameter must be last
         } else if (i < argTypes.size()) {
+            std::shared_ptr<Type> paramType = argTypes[i];
+            
+            // If argument is undefined and there is a default value, use the default value's type
+            if (param->initializer && (paramType->kind == TypeKind::Undefined || paramType->kind == TypeKind::Void)) {
+                visit(param->initializer.get());
+                paramType = lastType;
+                SPDLOG_INFO("analyzeFunctionBody: argument is undefined, using default value type: {}", paramType->toString());
+            }
+
             SPDLOG_INFO("analyzeFunctionBody: defining param {} with type {}", 
                 dynamic_cast<ast::Identifier*>(param->name.get()) ? 
                     dynamic_cast<ast::Identifier*>(param->name.get())->name : "?",
-                argTypes[i]->toString());
-            declareBindingPattern(param->name.get(), argTypes[i]);
+                paramType->toString());
+            declareBindingPattern(param->name.get(), paramType);
         } else {
             // Handle default parameters or optional parameters
             if (param->initializer) {
