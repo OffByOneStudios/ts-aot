@@ -184,10 +184,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     bool ts_value_is_undefined(TsValue* v) {
         if (!v) {
-            printf("ts_value_is_undefined: v is null\n");
             return true;
         }
-        printf("ts_value_is_undefined: v=%p, type=%d\n", v, (int)v->type);
         return v->type == ValueType::UNDEFINED;
     }
 
@@ -1150,7 +1148,6 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!path || path->type != ValueType::STRING_PTR) return;
         TsString* s = (TsString*)path->ptr_val;
         std::string pathStr = s->ToUtf8();
-        std::printf("ts_module_register: %s\n", pathStr.c_str());
         g_module_cache[pathStr] = exports;
     }
 
@@ -1169,7 +1166,6 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         TsString* s = (TsString*)specifier->ptr_val;
         std::string spec = s->ToUtf8();
-        std::printf("ts_require: spec=%s, referrer=%s\n", spec.c_str(), referrerPath);
         
         try {
             fs::path resolved;
@@ -1187,15 +1183,11 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (absPath.empty()) {
-                std::printf("ts_require: unable to resolve %s\n", spec.c_str());
                 return ts_value_make_undefined();
             }
 
-            std::printf("ts_require: final absPath=%s\n", absPath.c_str());
-            
             TsValue* moduleObj = ts_module_get(absPath.c_str());
             if (moduleObj) {
-                std::printf("ts_require: found module in cache\n");
                 // CommonJS: return module.exports
                 if (moduleObj->type == ValueType::OBJECT_PTR) {
                     TsValue* exports = ts_object_get_prop(moduleObj, ts_value_make_string(TsString::Create("exports")));
@@ -1205,9 +1197,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 return moduleObj;
             }
-            std::printf("ts_require: module NOT found in cache\n");
         } catch (const std::exception& e) {
-            std::printf("ts_require: error: %s\n", e.what());
+            // Swallow errors in requires to keep parity with JS runtime behavior
         }
         
         return ts_value_make_undefined();

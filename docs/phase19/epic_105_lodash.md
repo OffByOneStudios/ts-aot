@@ -224,7 +224,8 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 - [x] **Task 105.10.1:** `in` operator support (`'key' in obj`) ✅
 - [x] **Task 105.10.2:** Object spread in literals (`{ ...obj }`) ✅
 - [ ] **Task 105.10.3:** `arguments` object support (legacy JS)
-- [x] **Task 105.10.4:** Fix default parameters for `undefined` arguments (Type inference fixed, runtime value propagation still broken)
+- [x] **Task 105.10.4:** Fix default parameters for `undefined` arguments (type + runtime)  
+  - Analyzer/codegen now agree on specializations when callers pass `undefined` into defaulted params; wrappers preserve boxed defaulted primitives so runtime defaulting works. Integration test `tests/integration/default_params_undefined.ts` passes. Removed noisy `ts_value_is_undefined` / `ts_require` printf spam in the runtime.
 
 ### Milestone 105.11: Compile Real Lodash
 

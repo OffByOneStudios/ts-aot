@@ -1,10 +1,53 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include "../ast/AstNodes.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
 namespace ts {
 using namespace ast;
+
+static ast::Expression* unwrapCalleeExpression(ast::Expression* expr) {
+    while (expr) {
+        if (auto asExpr = dynamic_cast<ast::AsExpression*>(expr)) {
+            expr = asExpr->expression.get();
+            continue;
+        }
+        break;
+    }
+    return expr;
+}
+
+static bool paramHasDefaultInitializer(const std::shared_ptr<FunctionType>& funcType, size_t paramIndex) {
+    if (!funcType || !funcType->node) return false;
+
+    if (auto fn = dynamic_cast<ast::FunctionDeclaration*>(funcType->node)) {
+        if (paramIndex >= fn->parameters.size()) return false;
+        const auto& p = fn->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto fnExpr = dynamic_cast<ast::FunctionExpression*>(funcType->node)) {
+        if (paramIndex >= fnExpr->parameters.size()) return false;
+        const auto& p = fnExpr->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto arrow = dynamic_cast<ast::ArrowFunction*>(funcType->node)) {
+        if (paramIndex >= arrow->parameters.size()) return false;
+        const auto& p = arrow->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto method = dynamic_cast<ast::MethodDefinition*>(funcType->node)) {
+        if (paramIndex >= method->parameters.size()) return false;
+        const auto& p = method->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    return false;
+}
+
 void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     if (node->isOptional) {
         visit(node->callee.get());
@@ -73,6 +116,86 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     }
 
     if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Any) {
+        // If this callee ultimately resolves to a named function specialization, prefer
+        // a direct call (stable ABI, avoids ts_call_N wrappers).
+        auto unwrapped = unwrapCalleeExpression(node->callee.get());
+        if (auto id = dynamic_cast<ast::Identifier*>(unwrapped)) {
+            bool hasKnownSpecialization = false;
+            if (module->getFunction(id->name)) {
+                hasKnownSpecialization = true;
+            } else {
+                std::string prefix = id->name + "_";
+                for (auto& fn : module->functions()) {
+                    if (fn.getName().starts_with(prefix)) {
+                        hasKnownSpecialization = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasKnownSpecialization) {
+                std::vector<llvm::Value*> args;
+                std::vector<std::shared_ptr<Type>> argTypes;
+
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    llvm::Value* argVal = lastValue;
+                    std::shared_ptr<Type> argType = arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any);
+                    args.push_back(argVal);
+                    argTypes.push_back(argType);
+                }
+
+                if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
+                    auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
+                    for (size_t i = 0; i < argTypes.size() && i < funcType->paramTypes.size(); ++i) {
+                        if (!argTypes[i]) continue;
+                        if (argTypes[i]->kind != TypeKind::Undefined && argTypes[i]->kind != TypeKind::Void) continue;
+                        if (!paramHasDefaultInitializer(funcType, i)) continue;
+                        if (!funcType->paramTypes[i]) continue;
+                        argTypes[i] = funcType->paramTypes[i];
+                    }
+                }
+
+                std::string mangledName = Monomorphizer::generateMangledName(id->name, argTypes, node->resolvedTypeArguments);
+                llvm::Function* func = module->getFunction(mangledName);
+                if (func) {
+                    std::vector<llvm::Value*> callArgs;
+                    if (currentAsyncContext) {
+                        callArgs.push_back(currentAsyncContext);
+                    } else {
+                        callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+                    }
+
+                    for (size_t i = 0; i < args.size(); ++i) {
+                        llvm::Value* argVal = args[i];
+                        llvm::Type* paramTy = nullptr;
+                        if (i + 1 < func->getFunctionType()->getNumParams()) {
+                            paramTy = func->getFunctionType()->getParamType(static_cast<unsigned>(i + 1));
+                        }
+
+                        if (paramTy && argVal && argVal->getType() != paramTy) {
+                            std::shared_ptr<Type> tsArgType = (i < argTypes.size() && argTypes[i]) ? argTypes[i] : std::make_shared<Type>(TypeKind::Any);
+
+                            if (paramTy->isPointerTy() && !argVal->getType()->isPointerTy()) {
+                                argVal = boxValue(argVal, tsArgType);
+                            } else if (!paramTy->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                argVal = unboxValue(argVal, tsArgType);
+                            }
+
+                            if (argVal->getType() != paramTy) {
+                                argVal = castValue(argVal, paramTy);
+                            }
+                        }
+
+                        callArgs.push_back(argVal);
+                    }
+
+                    lastValue = createCall(func->getFunctionType(), func, callArgs);
+                    return;
+                }
+            }
+        }
+
         visit(node->callee.get());
         llvm::Value* callee = boxValue(lastValue, node->callee->inferredType);
         
@@ -648,6 +771,20 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                 
                 args.push_back(argVal);
                 argTypes.push_back(argType);
+            }
+        }
+
+        // Keep specialization selection consistent with analyzer: if an argument is explicitly
+        // `undefined` and the callee has a default initializer, treat the argument as the
+        // declared parameter type so we select the same specialization that the monomorphizer emitted.
+        if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
+            for (size_t i = 0; i < argTypes.size() && i < funcType->paramTypes.size(); ++i) {
+                if (!argTypes[i]) continue;
+                if (argTypes[i]->kind != TypeKind::Undefined && argTypes[i]->kind != TypeKind::Void) continue;
+                if (!paramHasDefaultInitializer(funcType, i)) continue;
+                if (!funcType->paramTypes[i]) continue;
+                argTypes[i] = funcType->paramTypes[i];
             }
         }
 

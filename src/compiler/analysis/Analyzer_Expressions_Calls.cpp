@@ -9,6 +9,36 @@
 namespace ts {
 using namespace ast;
 
+static bool paramHasDefaultInitializer(const std::shared_ptr<FunctionType>& funcType, size_t paramIndex) {
+    if (!funcType || !funcType->node) return false;
+
+    if (auto fn = dynamic_cast<ast::FunctionDeclaration*>(funcType->node)) {
+        if (paramIndex >= fn->parameters.size()) return false;
+        const auto& p = fn->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto fnExpr = dynamic_cast<ast::FunctionExpression*>(funcType->node)) {
+        if (paramIndex >= fnExpr->parameters.size()) return false;
+        const auto& p = fnExpr->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto arrow = dynamic_cast<ast::ArrowFunction*>(funcType->node)) {
+        if (paramIndex >= arrow->parameters.size()) return false;
+        const auto& p = arrow->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    if (auto method = dynamic_cast<ast::MethodDefinition*>(funcType->node)) {
+        if (paramIndex >= method->parameters.size()) return false;
+        const auto& p = method->parameters[paramIndex];
+        return p && p->initializer && !p->isRest;
+    }
+
+    return false;
+}
+
 // Helper to get expected callback type for known APIs
 static std::shared_ptr<FunctionType> getExpectedCallbackType(const std::string& objName, const std::string& methodName, size_t argIndex) {
     // http.createServer / https.createServer callback: (req: IncomingMessage, res: ServerResponse) => void
@@ -174,6 +204,19 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         
         visit(arg.get());
         argTypes.push_back(lastType);
+    }
+
+    // If an argument is explicitly `undefined` and the callee has a default initializer,
+    // treat the argument type as the declared parameter type so specialization ABI stays consistent.
+    if (calleeType && calleeType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(calleeType);
+        for (size_t i = 0; i < argTypes.size() && i < funcType->paramTypes.size(); ++i) {
+            if (!argTypes[i]) continue;
+            if (argTypes[i]->kind != TypeKind::Undefined && argTypes[i]->kind != TypeKind::Void) continue;
+            if (!paramHasDefaultInitializer(funcType, i)) continue;
+            if (!funcType->paramTypes[i]) continue;
+            argTypes[i] = funcType->paramTypes[i];
+        }
     }
 
     // Resolve type arguments if any
@@ -709,5 +752,4 @@ std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
 }
 
 } // namespace ts
-
 
