@@ -146,6 +146,12 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                     break;
                 }
             }
+
+            // ts_call_N expects a TsValue* result for non-native functions. If the specialized
+            // function returns a primitive (int/double/bool), we must wrap and box the return.
+            if (!funcFT->getReturnType()->isPointerTy()) {
+                needsWrapper = true;
+            }
             
             SPDLOG_INFO("visitIdentifier: needsWrapper={}", needsWrapper);
             
@@ -184,20 +190,31 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                     SPDLOG_INFO("Wrapper unboxing arg {}: argType={}, expectedType={}", 
                                i, argType ? (int)argType->kind : -1, (int)expectedType->getTypeID());
                     
-                    // Mark wrapper args as boxed so unboxValue will process them
-                    boxedValues.insert(boxedArg);
-                    llvm::Value* unboxedArg = unboxValue(boxedArg, argType);
-                    SPDLOG_INFO("Wrapper unboxed arg {}: type={}", i, (int)unboxedArg->getType()->getTypeID());
-                    
-                    // Convert to expected LLVM type if needed
-                    if (unboxedArg->getType() != expectedType) {
-                        if (expectedType->isIntegerTy(64) && unboxedArg->getType()->isDoubleTy()) {
-                            unboxedArg = builder->CreateFPToSI(unboxedArg, expectedType);
-                        } else if (expectedType->isDoubleTy() && unboxedArg->getType()->isIntegerTy(64)) {
-                            unboxedArg = builder->CreateSIToFP(unboxedArg, expectedType);
+                    llvm::Value* callArg = boxedArg;
+
+                    // If the callee expects a native (non-pointer) value, unbox first.
+                    // If it already expects a pointer (e.g. defaulted primitives use TsValue*),
+                    // pass through the boxed argument unchanged.
+                    if (!expectedType->isPointerTy()) {
+                        boxedValues.insert(boxedArg);
+                        callArg = unboxValue(boxedArg, argType);
+                        SPDLOG_INFO("Wrapper unboxed arg {}: type={}", i, (int)callArg->getType()->getTypeID());
+
+                        // Convert to expected LLVM type if needed
+                        if (callArg->getType() != expectedType) {
+                            if (expectedType->isIntegerTy(64) && callArg->getType()->isDoubleTy()) {
+                                callArg = builder->CreateFPToSI(callArg, expectedType);
+                            } else if (expectedType->isDoubleTy() && callArg->getType()->isIntegerTy(64)) {
+                                callArg = builder->CreateSIToFP(callArg, expectedType);
+                            }
                         }
                     }
-                    callArgs.push_back(unboxedArg);
+
+                    if (callArg->getType() != expectedType) {
+                        callArg = castValue(callArg, expectedType);
+                    }
+
+                    callArgs.push_back(callArg);
                 }
                 
                 // Call the real function

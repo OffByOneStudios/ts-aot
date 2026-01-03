@@ -16,3 +16,5 @@ function main() {
     console.log('greet(undefined, "Yo") =', greet(undefined, "Yo")); // Yo, Anon!
     console.log('greet("Sam", undefined) =', greet("Sam", undefined)); // Hi, Sam!
 }
+
+main();
