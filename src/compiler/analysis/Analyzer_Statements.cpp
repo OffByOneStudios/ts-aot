@@ -14,7 +14,10 @@ void Analyzer::visitExpressionStatement(ast::ExpressionStatement* node) {
 
 void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
+    bool isJavaScript = (currentModuleType == ModuleType::UntypedJavaScript);
+    
+    if (isJavaScript) {
+        // JavaScript slow path: all variables are Any
         type = std::make_shared<Type>(TypeKind::Any);
     } else if (!node->type.empty()) {
         type = parseType(node->type, symbols);
@@ -26,7 +29,8 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     if (node->initializer) {
         visit(node->initializer.get());
         if (lastType) {
-            if (node->type.empty()) {
+            // For JavaScript, keep type as Any - don't infer from initializer
+            if (!isJavaScript && node->type.empty()) {
                 type = lastType;
                 // Update the type in the symbol table
                 if (auto id = dynamic_cast<Identifier*>(node->name.get())) {
@@ -37,7 +41,7 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                     // Re-declare with the correct type to update individual variables
                     declareBindingPattern(node->name.get(), type);
                 }
-            } else {
+            } else if (!isJavaScript) {
                 // Type annotation is present - use the declared type for the initializer
                 // This is important for empty arrays like `const arr: Set<T>[] = []`
                 node->initializer->inferredType = type;

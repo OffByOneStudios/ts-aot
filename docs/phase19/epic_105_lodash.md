@@ -30,6 +30,7 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 7. **Optional Parameters:** `undefined` checks need more work
 8. ~~**Mutable Closures:**~~ **FIXED** - TsCell-based capture-by-reference now works for counter/memoize patterns
 9. ~~**Function Hoisting in Nested Scopes:**~~ **FIXED** - Two-phase hoisting approach: Phase 1 creates null placeholders for all function names, Phase 2 fills them during normal statement processing. Added `ts_call_9` and `ts_call_10` for 9-10 argument function calls.
+10. ~~**JavaScript Slow Path Analysis:**~~ **FIXED** - For JavaScript modules, `analyzeFunctionBody` was returning early without setting `inferredType` on AST nodes. This prevented codegen from recognizing `TypeKind::Any` for property assignment (`obj.b = 20`) and other operations. Fixed by visiting all statements even for UntypedJavaScript modules. Also fixed variable type inference to not update types from initializers in JavaScript mode.
 
 ## Design Rationale
 
