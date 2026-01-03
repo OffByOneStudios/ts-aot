@@ -662,7 +662,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_get_property(TsValue* val, void* propName) {
         if (!val || !propName) {
-            return nullptr;
+            return ts_value_make_undefined();
         }
         
         const char* keyCStr = nullptr;
@@ -702,7 +702,7 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_object_get_property(val, keyCStr);
         }
 
-        return nullptr;
+        return ts_value_make_undefined();
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
@@ -1546,10 +1546,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue parseIntKey; parseIntKey.type = ValueType::STRING_PTR; parseIntKey.ptr_val = TsString::Create("parseInt");
         TsValue parseFloatKey; parseFloatKey.type = ValueType::STRING_PTR; parseFloatKey.ptr_val = TsString::Create("parseFloat");
         TsValue globalKey; globalKey.type = ValueType::STRING_PTR; globalKey.ptr_val = TsString::Create("global");
+        TsValue processKey; processKey.type = ValueType::STRING_PTR; processKey.ptr_val = TsString::Create("process");
+        TsValue bufferKey; bufferKey.type = ValueType::STRING_PTR; bufferKey.ptr_val = TsString::Create("Buffer");
 
         if (Object) globalMap->Set(objectKey, *Object);
         if (parseInt) globalMap->Set(parseIntKey, *parseInt);
         if (parseFloat) globalMap->Set(parseFloatKey, *parseFloat);
+        if (process) globalMap->Set(processKey, *process);
+        if (Buffer) globalMap->Set(bufferKey, *Buffer);
 
         global = ts_value_make_object(globalMap);
         // global.global === global

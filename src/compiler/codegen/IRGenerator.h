@@ -63,6 +63,7 @@ private:
     std::set<std::string> boxedElementArrayVars;  // Array variables where elements are boxed (e.g., rest parameters)
     std::set<std::string> cellVariables;  // Variables that need cells (captured and mutable)
     std::map<std::string, llvm::Value*> cellPointers;  // Maps var name -> cell pointer
+    std::set<std::string> functionsWithClosures;  // Functions that capture outer scope variables
     std::map<llvm::Value*, std::string> lengthAliases; // Value* -> arrayVarName
     std::string lastLengthArray;
     
