@@ -3,6 +3,8 @@
 #include "TsBigInt.h"
 #include "TsSymbol.h"
 #include "TsArray.h"
+#include "TsMap.h"
+#include "TsSet.h"
 #include <cstdio>
 #include <cmath>
 #include <chrono>
@@ -119,6 +121,16 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
         return;
     }
     
+    if (magic == 0x4D415053) { // MAPS
+        std::printf("Map(%lld)", ((TsMap*)val)->Size());
+        return;
+    }
+
+    if (magic == 0x53455453) { // SETS
+        std::printf("Set(%lld)", ((TsSet*)val)->Size());
+        return;
+    }
+
     if (magic == 0x41525259) {
         TsArray* arr = (TsArray*)val;
         int64_t len = arr->Length();
@@ -156,7 +168,23 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
         case ValueType::NUMBER_DBL: std::printf("%f", val->d_val); break;
         case ValueType::BOOLEAN: std::printf("%s", val->b_val ? "true" : "false"); break;
         case ValueType::STRING_PTR: std::printf("%s", ((TsString*)val->ptr_val)->ToUtf8()); break;
-        case ValueType::OBJECT_PTR: std::printf("[object Object]"); break;
+        case ValueType::OBJECT_PTR: {
+            if (!val->ptr_val) {
+                std::printf("null");
+            } else {
+                uint32_t objMagic = *(uint32_t*)val->ptr_val;
+                if (objMagic == 0x4D415053) { // MAPS
+                    std::printf("Map(%lld)", ((TsMap*)val->ptr_val)->Size());
+                } else if (objMagic == 0x53455453) { // SETS
+                    std::printf("Set(%lld)", ((TsSet*)val->ptr_val)->Size());
+                } else if (objMagic == 0x53545247) { // STRG
+                    std::printf("%s", ((TsString*)val->ptr_val)->ToUtf8());
+                } else {
+                    std::printf("[object Object]");
+                }
+            }
+            break;
+        }
         case ValueType::ARRAY_PTR: {
             TsArray* arr = (TsArray*)val->ptr_val;
             int64_t len = arr->Length();
@@ -312,8 +340,29 @@ int64_t ts_value_get_int(TsValue* v) {
 
 double ts_value_get_double(TsValue* v) {
     if (!v) return 0.0;
+    
+    // Check for raw TsString* (magic at offset 0)
+    uint32_t magic = *(uint32_t*)v;
+    if (magic == 0x53545247) { // TsString::MAGIC
+        TsString* str = (TsString*)v;
+        try {
+            return std::stod(str->ToUtf8());
+        } catch (...) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+
     if (v->type == ValueType::NUMBER_DBL) return v->d_val;
     if (v->type == ValueType::NUMBER_INT) return (double)v->i_val;
+    if (v->type == ValueType::BOOLEAN) return v->b_val ? 1.0 : 0.0;
+    if (v->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)v->ptr_val;
+        try {
+            return std::stod(str->ToUtf8());
+        } catch (...) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+    }
     return 0.0;
 }
 
@@ -347,6 +396,12 @@ bool ts_value_to_bool(TsValue* v) {
             return v->ptr_val != nullptr;
         default: return false;
     }
+}
+
+TsValue* ts_value_strict_eq(TsValue* lhs, TsValue* rhs);
+
+TsValue* ts_value_strict_eq_wrapper(TsValue* lhs, TsValue* rhs) {
+    return ts_value_strict_eq(lhs, rhs);
 }
 
 }

@@ -1925,31 +1925,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          visit(node->arguments[0].get());
          llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          visit(node->arguments[1].get());
-         llvm::Value* value = lastValue;
-         
-         SPDLOG_INFO("Map.set value: isPointer={}, inBoxed={}, llvmType={}", 
-             value->getType()->isPointerTy(),
-             boxedValues.count(value) > 0,
-             (int)value->getType()->getTypeID());
-         
-         // For Map.set value, we need to box it. If the value is already a pointer,
-         // use ts_value_make_object to ensure proper boxing regardless of the inferred type
-         // (which may be incorrect due to AST sharing in monomorphization)
-         if (value->getType()->isPointerTy() && !boxedValues.count(value)) {
-             SPDLOG_INFO("Map.set: boxing pointer with ts_value_make_object");
-             // Pointer that's not already boxed - box it as object/array
-             llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_object", boxFt);
-             value = createCall(boxFt, boxFn.getCallee(), { value });
-             boxedValues.insert(value);
-         } else if (!boxedValues.count(value)) {
-             SPDLOG_INFO("Map.set: using boxValue for non-pointer");
-             // Primitive value - use normal boxing
-             value = boxValue(value, node->arguments[1]->inferredType);
-         } else {
-             SPDLOG_INFO("Map.set: value already boxed, using as-is");
-         }
-         // If already boxed, use as-is
+         llvm::Value* value = boxValue(lastValue, node->arguments[1]->inferredType);
          
          llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
                  { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -1978,36 +1954,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::Value* boxedResult = createCall(getFt, fn.getCallee(), { map, key });
          
          // ts_map_get returns a boxed TsValue*, unbox based on the call expression's inferred type
-         SPDLOG_INFO("Map.get: About to unbox, node->inferredType->kind = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
-         if (node->inferredType && node->inferredType->kind == TypeKind::Double) {
-             SPDLOG_INFO("Map.get: Using ts_value_get_double");
-             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getDoubleTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
-             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
-             // Do NOT add to boxedValues - this is an unboxed primitive
-         } else if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
-             SPDLOG_INFO("Map.get: Using ts_value_get_int");
-             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
-             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
-             // Do NOT add to boxedValues - this is an unboxed primitive
-         } else if (node->inferredType && node->inferredType->kind == TypeKind::Boolean) {
-             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
-             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
-             // Do NOT add to boxedValues - this is an unboxed primitive
-         } else if (node->inferredType && node->inferredType->kind == TypeKind::String) {
-             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
-             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
-             // Strings are raw pointers, not boxed - do NOT add to boxedValues
-         } else {
-             // For objects, use ts_value_get_object - result is also a raw pointer
-             llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
-             lastValue = createCall(unboxFt, unboxFn.getCallee(), { boxedResult });
-             // Object pointers are raw, not boxed - do NOT add to boxedValues
-         }
+         boxedValues.insert(boxedResult);
+         lastValue = unboxValue(boxedResult, node->inferredType);
          return true;
     } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
          visit(prop->expression.get());

@@ -59,9 +59,15 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
-            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
-            reportError("Undefined variable " + node->name);
-            lastType = std::make_shared<Type>(TypeKind::Any);
+            if (currentModuleType == ModuleType::UntypedJavaScript) {
+                auto anyType = std::make_shared<Type>(TypeKind::Any);
+                symbols.define(node->name, anyType);
+                lastType = anyType;
+            } else {
+                SPDLOG_ERROR("Failed to find identifier: {}", node->name);
+                reportError("Undefined variable " + node->name);
+                lastType = std::make_shared<Type>(TypeKind::Any);
+            }
         }
     }
     node->inferredType = lastType;
@@ -646,7 +652,9 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             return;
         }
 
-        reportError(fmt::format("Unknown property {}", node->name));
+        if (currentModuleType != ModuleType::UntypedJavaScript) {
+            reportError(fmt::format("Unknown property {}", node->name));
+        }
         lastType = std::make_shared<Type>(TypeKind::Any);
         node->inferredType = lastType;
 }
@@ -661,5 +669,3 @@ void Analyzer::visitSuperExpression(ast::SuperExpression* node) {
 }
 
 } // namespace ts
-
-

@@ -54,6 +54,13 @@ Analyzer::Analyzer() {
     requireType->returnType = std::make_shared<Type>(TypeKind::Any);
     symbols.define("require", requireType);
 
+    // Register ts_module_register (internal)
+    auto registerType = std::make_shared<FunctionType>();
+    registerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    registerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    registerType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("ts_module_register", registerType);
+
     // Register undefined
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));

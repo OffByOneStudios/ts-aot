@@ -27,6 +27,13 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     modules[currentFilePath] = mainModule;
 
     // symbols.enterScope(); // Don't enter a new scope, use the global scope
+    
+    // Inject module and exports for CommonJS support
+    auto moduleType = std::make_shared<ObjectType>();
+    moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.define("module", moduleType);
+    symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
+
     visitProgram(program);
     // symbols.exitScope();
     
@@ -46,6 +53,13 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentModuleType = module->type;
 
     symbols.enterScope();
+    
+    // Inject module and exports for CommonJS support
+    auto moduleType = std::make_shared<ObjectType>();
+    moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
+    symbols.define("module", moduleType);
+    symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
+
     visitProgram(module->ast.get());
     symbols.exitScope();
     

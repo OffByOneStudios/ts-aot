@@ -44,6 +44,7 @@ IRGenerator::IRGenerator() {
 void IRGenerator::generate(ast::Program* program, const std::vector<Specialization>& specializations, Analyzer& analyzer, const std::string& sourceFile) {
     this->specializations = specializations;
     this->analyzer = &analyzer;
+    this->currentSourceFile = sourceFile;
     concreteTypes.clear();
     lastConcreteType = nullptr;
 
@@ -230,14 +231,12 @@ void IRGenerator::emitLocation(ast::Node* node) {
 
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     const auto& globals = analyzer.getSymbolTable().getGlobalSymbols();
-    SPDLOG_INFO("generateGlobals: processing {} global symbols", globals.size());
     
     static const std::set<std::string> runtimeGlobals = {
         "Object", "Array", "Math", "JSON", "console", "process", "Buffer"
     };
 
     for (auto& [name, symbol] : globals) {
-        SPDLOG_INFO("  Global symbol: {} (type kind {})", name, (int)symbol->type->kind);
         if (module->getGlobalVariable(name)) continue;
         
         // Skip functions, they are handled by generatePrototypes or are runtime functions
@@ -264,7 +263,6 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
 
     // Also process top-level variables from modules
     // Note: these are variable declarations (const x = ...), not function declarations
-    SPDLOG_INFO("generateGlobals: processing {} top-level variables", analyzer.topLevelVariables.size());
     for (auto& symbol : analyzer.topLevelVariables) {
         if (module->getGlobalVariable(symbol->name)) continue;
         if (symbol->name.find("ts_") == 0) continue;
@@ -276,7 +274,6 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         if (symbol->type->kind == TypeKind::Function) {
             // Store as a pointer (TsValue* boxed function)
             type = builder->getPtrTy();
-            SPDLOG_INFO("  Top-level function variable: {} -> creating pointer global", symbol->name);
         } else {
             type = getLLVMType(symbol->type);
             SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
@@ -485,6 +482,9 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::Intersection:
         case TypeKind::TypeParameter:
         case TypeKind::Function:
+        case TypeKind::Unknown:
+        case TypeKind::Undefined:
+        case TypeKind::Null:
             return llvm::PointerType::getUnqual(*context);
         default: return llvm::Type::getInt8Ty(*context);
     }
@@ -966,6 +966,12 @@ llvm::Function* IRGenerator::getRuntimeFunction(const std::string& name) {
 llvm::Value* IRGenerator::getUndefinedValue() {
     llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
     llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_undefined", ft);
+    return createCall(ft, fn.getCallee(), {});
+}
+
+llvm::Value* IRGenerator::getNullValue() {
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_null", ft);
     return createCall(ft, fn.getCallee(), {});
 }
 
@@ -1590,27 +1596,69 @@ void IRGenerator::collectCapturedVariableNames(ast::Node* node,
 }
 
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
+    if (type) {
+        if (type->kind == TypeKind::Null) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_null", ft);
+            llvm::Value* res = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(res);
+            return res;
+        }
+        if (type->kind == TypeKind::Undefined) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_undefined", ft);
+            llvm::Value* res = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(res);
+            return res;
+        }
+        if (type->kind == TypeKind::Any) {
+            if (val && boxedValues.count(val)) return val;
+
+            // Handle primitives explicitly
+            if (val) {
+                llvm::Type* valType = val->getType();
+                if (valType->isIntegerTy(64)) {
+                    return boxValue(val, std::make_shared<Type>(TypeKind::Int));
+                }
+                if (valType->isDoubleTy()) return boxValue(val, std::make_shared<Type>(TypeKind::Double));
+                if (valType->isIntegerTy(1)) return boxValue(val, std::make_shared<Type>(TypeKind::Boolean));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_box_any", ft);
+            llvm::Value* res = createCall(ft, fn.getCallee(), { val ? val : llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+            boxedValues.insert(res);
+            return res;
+        }
+    }
     if (!val) {
         if (type && type->kind == TypeKind::Void) {
             return getUndefinedValue();
         }
-        SPDLOG_ERROR("boxValue: val is NULL! type={}", type ? (int)type->kind : -1);
-        // Print stack trace or more info if possible
         return getUndefinedValue();
     }
     if (boxedValues.count(val)) {
         return val;
     }
 
-    SPDLOG_INFO("boxValue: val={}, type={}, llvm_type={}", (void*)val, type ? (int)type->kind : -1, (int)val->getType()->getTypeID());
-    if (auto func = llvm::dyn_cast<llvm::Function>(val)) {
-        SPDLOG_INFO("boxValue: val is function {}", func->getName().str());
+    llvm::Type* valType = val->getType();
+    if (valType->isPointerTy()) {
+        if (type && (type->kind == TypeKind::Int || type->kind == TypeKind::Double || type->kind == TypeKind::Boolean)) {
+            return val;
+        }
+    }
+    
+    if (type) {
+        SPDLOG_ERROR("boxValue: type kind = {}", (int)type->kind);
+    } else {
+        SPDLOG_ERROR("boxValue: type is null");
     }
 
-    llvm::Type* valType = val->getType();
     std::string funcName;
 
-    if (valType->isIntegerTy(64)) funcName = "ts_value_make_int";
+    if (valType->isIntegerTy(64)) {
+        funcName = "ts_value_make_int";
+    }
     else if (valType->isDoubleTy()) funcName = "ts_value_make_double";
     else if (valType->isIntegerTy(1)) funcName = "ts_value_make_bool";
     else if (valType->isVoidTy() || valType->isIntegerTy(8)) {
@@ -1621,7 +1669,6 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return res;
     }
     else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val)) {
-        SPDLOG_DEBUG("boxValue: boxing function val={}", (void*)val);
         llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_function", fnFt);
         
@@ -1638,6 +1685,8 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
         return res;
     } else if (valType->isPointerTy()) {
         if (type && type->kind == TypeKind::String) funcName = "ts_value_make_string";
+        else if (type && type->kind == TypeKind::Null) funcName = "ts_value_make_null";
+        else if (type && type->kind == TypeKind::Undefined) funcName = "ts_value_make_undefined";
         else if (type && (type->kind == TypeKind::Array || type->kind == TypeKind::Tuple)) funcName = "ts_value_make_array";
         else if (type && type->kind == TypeKind::BigInt) funcName = "ts_value_make_bigint";
         else if (type && type->kind == TypeKind::Symbol) funcName = "ts_value_make_symbol";
@@ -1715,6 +1764,9 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
 
 llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> type) {
     if (!type || !val) return val;
+    
+    // If it's Any, it's already in its standard boxed form (TsValue*)
+    if (type->kind == TypeKind::Any) return val;
     
     // If it's not a pointer, it's already unboxed (primitive)
     if (!val->getType()->isPointerTy()) return val;
@@ -1800,7 +1852,7 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
     std::string name;
     llvm::Value* actualCallee = callee->stripPointerCasts();
     if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
-    SPDLOG_INFO("createCall: {} with {} args, returnType={}", name, args.size(), (int)ft->getReturnType()->getTypeID());
+    printf("createCall: %s with %zu args\n", name.c_str(), args.size());
 
     if (ft->getNumParams() != args.size()) {
         // Some functions might be vararg or we might have optional args

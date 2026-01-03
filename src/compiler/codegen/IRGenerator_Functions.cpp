@@ -7,6 +7,55 @@
 namespace ts {
 using namespace ast;
 
+static bool isParamIndexDefaultedPrimitive(const Specialization& spec, size_t argTypeIndex) {
+    // Only primitives (non-pointer LLVM types) need boxing to represent `undefined` at runtime.
+    // For pointer params, `undefined` can be represented as nullptr and handled without changing ABI.
+    ast::Parameter* param = nullptr;
+
+    bool isInstanceMethod = false;
+    if (spec.classType && spec.node) {
+        if (auto method = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            if (!method->isStatic) isInstanceMethod = true;
+        }
+    }
+
+    if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+        if (argTypeIndex < funcNode->parameters.size()) {
+            param = funcNode->parameters[argTypeIndex].get();
+        }
+    } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+        if (isInstanceMethod) {
+            if (argTypeIndex == 0) return false; // 'this'
+            size_t paramIndex = argTypeIndex - 1;
+            if (paramIndex < methodNode->parameters.size()) {
+                param = methodNode->parameters[paramIndex].get();
+            }
+        } else {
+            if (argTypeIndex < methodNode->parameters.size()) {
+                param = methodNode->parameters[argTypeIndex].get();
+            }
+        }
+    }
+
+    if (!param) return false;
+    if (!param->initializer) return false;
+    if (param->isRest) return false;
+
+    // Primitive check happens at LLVM type level (int/double/bool are non-pointer).
+    // Caller will box when callee expects a pointer (TsValue*) argument.
+    // NOTE: Any/Union/etc are pointer-typed and do not need this ABI change.
+    auto& argType = spec.argTypes[argTypeIndex];
+    if (!argType) return false;
+    switch (argType->kind) {
+        case TypeKind::Int:
+        case TypeKind::Double:
+        case TypeKind::Boolean:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void IRGenerator::generatePrototypes(const std::vector<Specialization>& specializations) {
     for (const auto& spec : specializations) {
         if (module->getFunction(spec.specializedName)) continue;
@@ -29,13 +78,19 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
                 // 'this' is always a pointer
                 argTypes.push_back(builder->getPtrTy());
             } else {
-                argTypes.push_back(getLLVMType(argType));
+                if (isParamIndexDefaultedPrimitive(spec, i)) {
+                    // Boxed TsValue* so we can represent `undefined` and apply default at runtime.
+                    argTypes.push_back(builder->getPtrTy());
+                } else {
+                    argTypes.push_back(getLLVMType(argType));
+                }
             }
         }
 
         llvm::Type* returnType = getLLVMType(spec.returnType);
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
+        printf("Creating prototype: %s with %zu args\n", spec.specializedName.c_str(), argTypes.size());
         SPDLOG_DEBUG("Creating prototype: {} with {} args", spec.specializedName, argTypes.size());
         llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
         addStackProtection(func);
@@ -294,6 +349,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     if (argIt != function->arg_end()) {
                         auto argVal = &*argIt;
                         std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
+                        std::shared_ptr<Type> bindType = argType;
+                        if (param->initializer) {
+                            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                                if (id->inferredType) bindType = id->inferredType;
+                            }
+                        }
+                        if (!bindType) bindType = std::make_shared<Type>(TypeKind::Any);
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
@@ -308,15 +370,77 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (argType && argType->kind == TypeKind::Function && argVal->getType()->isPointerTy()) {
                             boxedValues.insert(argVal);
                         }
-                        generateDestructuring(argVal, argType, param->name.get());
+                        // Apply runtime defaulting here so primitives can be unboxed correctly.
+                        if (param->initializer && !param->isRest) {
+                            llvm::FunctionType* isUndefFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee isUndefFn = getRuntimeFunction("ts_value_is_undefined", isUndefFt);
+
+                            llvm::Type* expectedLLVM = bindType ? getLLVMType(bindType) : argVal->getType();
+                            bool primitiveDefaulted = (expectedLLVM && !expectedLLVM->isPointerTy() && argVal->getType()->isPointerTy());
+
+                            if (argVal->getType()->isPointerTy() && (primitiveDefaulted || (expectedLLVM && expectedLLVM->isPointerTy()))) {
+                                llvm::Value* isUndefined = builder->CreateCall(isUndefFn, { argVal }, "is_undefined");
+
+                                llvm::BasicBlock* defaultBB = llvm::BasicBlock::Create(*context, "default_param", function);
+                                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "default_merge", function);
+                                llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "default_next", function);
+
+                                builder->CreateCondBr(isUndefined, defaultBB, nextBB);
+
+                                builder->SetInsertPoint(defaultBB);
+                                visit(param->initializer.get());
+                                llvm::Value* defaultValRaw = lastValue;
+                                if (expectedLLVM && defaultValRaw && defaultValRaw->getType() != expectedLLVM) {
+                                    defaultValRaw = castValue(defaultValRaw, expectedLLVM);
+                                }
+                                builder->CreateBr(mergeBB);
+
+                                builder->SetInsertPoint(nextBB);
+                                llvm::Value* passedValRaw = argVal;
+                                if (primitiveDefaulted) {
+                                    passedValRaw = unboxValue(argVal, bindType);
+                                    if (expectedLLVM && passedValRaw->getType() != expectedLLVM) {
+                                        passedValRaw = castValue(passedValRaw, expectedLLVM);
+                                    }
+                                }
+                                builder->CreateBr(mergeBB);
+
+                                builder->SetInsertPoint(mergeBB);
+                                llvm::Type* phiTy = primitiveDefaulted ? expectedLLVM : argVal->getType();
+                                llvm::PHINode* phi = builder->CreatePHI(phiTy, 2, "param_val");
+                                phi->addIncoming(defaultValRaw, defaultBB);
+                                phi->addIncoming(primitiveDefaulted ? passedValRaw : argVal, nextBB);
+
+                                generateDestructuring(phi, bindType, param->name.get());
+                            } else {
+                                generateDestructuring(argVal, bindType, param->name.get());
+                            }
+                        } else {
+                            // If callee prototype uses boxed args (defaulted primitives), unbox before binding.
+                            if (bindType && !getLLVMType(bindType)->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                llvm::Value* unboxed = unboxValue(argVal, bindType);
+                                generateDestructuring(unboxed, bindType, param->name.get());
+                            } else {
+                                generateDestructuring(argVal, bindType, param->name.get());
+                            }
+                        }
                         ++argIt;
                         ++idx;
                     } else {
                         // Handle missing parameters (optional/default)
                         llvm::Value* initVal = nullptr;
+                        
+                        // Check if we have an initializer (default value)
                         if (param->initializer) {
                             visit(param->initializer.get());
                             initVal = lastValue;
+                            std::shared_ptr<Type> bindType = nullptr;
+                            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                                bindType = id->inferredType;
+                            }
+                            if (!bindType) bindType = std::make_shared<Type>(TypeKind::Any);
+                            generateDestructuring(initVal, bindType, param->name.get());
+                            continue;
                         } else {
                             // Default to undefined (null pointer for now)
                             initVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -429,6 +553,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     if (argIt != function->arg_end()) {
                         auto argVal = &*argIt;
                         std::shared_ptr<Type> argType = (idx < spec.argTypes.size()) ? spec.argTypes[idx] : nullptr;
+                        std::shared_ptr<Type> bindType = argType;
+                        if (param->initializer) {
+                            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                                if (id->inferredType) bindType = id->inferredType;
+                            }
+                        }
+                        if (!bindType) bindType = std::make_shared<Type>(TypeKind::Any);
                         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                             argVal->setName(id->name);
                         }
@@ -438,7 +569,60 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (argType && argType->kind == TypeKind::Class) {
                             concreteTypes[argVal] = std::static_pointer_cast<ClassType>(argType).get();
                         }
-                        generateDestructuring(argVal, argType, param->name.get());
+                        // Apply runtime defaulting here so primitives can be unboxed correctly.
+                        if (param->initializer && !param->isRest) {
+                            llvm::FunctionType* isUndefFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee isUndefFn = getRuntimeFunction("ts_value_is_undefined", isUndefFt);
+
+                            llvm::Type* expectedLLVM = bindType ? getLLVMType(bindType) : argVal->getType();
+                            bool primitiveDefaulted = (expectedLLVM && !expectedLLVM->isPointerTy() && argVal->getType()->isPointerTy());
+
+                            if (argVal->getType()->isPointerTy() && (primitiveDefaulted || (expectedLLVM && expectedLLVM->isPointerTy()))) {
+                                llvm::Value* isUndefined = builder->CreateCall(isUndefFn, { argVal }, "is_undefined");
+
+                                llvm::BasicBlock* defaultBB = llvm::BasicBlock::Create(*context, "default_param", function);
+                                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "default_merge", function);
+                                llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "default_next", function);
+
+                                builder->CreateCondBr(isUndefined, defaultBB, nextBB);
+
+                                builder->SetInsertPoint(defaultBB);
+                                visit(param->initializer.get());
+                                llvm::Value* defaultValRaw = lastValue;
+                                if (expectedLLVM && defaultValRaw && defaultValRaw->getType() != expectedLLVM) {
+                                    defaultValRaw = castValue(defaultValRaw, expectedLLVM);
+                                }
+                                builder->CreateBr(mergeBB);
+
+                                builder->SetInsertPoint(nextBB);
+                                llvm::Value* passedValRaw = argVal;
+                                if (primitiveDefaulted) {
+                                    passedValRaw = unboxValue(argVal, bindType);
+                                    if (expectedLLVM && passedValRaw->getType() != expectedLLVM) {
+                                        passedValRaw = castValue(passedValRaw, expectedLLVM);
+                                    }
+                                }
+                                builder->CreateBr(mergeBB);
+
+                                builder->SetInsertPoint(mergeBB);
+                                llvm::Type* phiTy = primitiveDefaulted ? expectedLLVM : argVal->getType();
+                                llvm::PHINode* phi = builder->CreatePHI(phiTy, 2, "param_val");
+                                phi->addIncoming(defaultValRaw, defaultBB);
+                                phi->addIncoming(primitiveDefaulted ? passedValRaw : argVal, nextBB);
+
+                                generateDestructuring(phi, bindType, param->name.get());
+                            } else {
+                                generateDestructuring(argVal, bindType, param->name.get());
+                            }
+                        } else {
+                            // If callee prototype uses boxed args (defaulted primitives), unbox before binding.
+                            if (bindType && !getLLVMType(bindType)->isPointerTy() && argVal->getType()->isPointerTy()) {
+                                llvm::Value* unboxed = unboxValue(argVal, bindType);
+                                generateDestructuring(unboxed, bindType, param->name.get());
+                            } else {
+                                generateDestructuring(argVal, bindType, param->name.get());
+                            }
+                        }
                         ++argIt;
                         ++idx;
                     } else {
@@ -447,6 +631,13 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (param->initializer) {
                             visit(param->initializer.get());
                             initVal = lastValue;
+                            std::shared_ptr<Type> bindType = nullptr;
+                            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                                bindType = id->inferredType;
+                            }
+                            if (!bindType) bindType = std::make_shared<Type>(TypeKind::Any);
+                            generateDestructuring(initVal, bindType, param->name.get());
+                            continue;
                         } else {
                             initVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
                         }

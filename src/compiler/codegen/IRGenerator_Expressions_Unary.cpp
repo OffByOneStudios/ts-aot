@@ -161,7 +161,14 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
 
 void IRGenerator::visitAsExpression(ast::AsExpression* node) {
     visit(node->expression.get());
-    lastValue = castValue(lastValue, getLLVMType(node->inferredType));
+    
+    if (node->inferredType && node->inferredType->kind == TypeKind::Any) {
+        // If casting to Any, we must box the value to preserve its type info
+        // especially for null/undefined which are both nullptr in IR
+        lastValue = boxValue(lastValue, node->expression->inferredType);
+    } else {
+        lastValue = castValue(lastValue, getLLVMType(node->inferredType));
+    }
 }
 
 } // namespace ts

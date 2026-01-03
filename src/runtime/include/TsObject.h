@@ -96,6 +96,7 @@ extern "C" {
     TsValue* ts_value_box_any(void* ptr);  // Box any pointer by runtime type detection
     TsValue* ts_value_make_function(void* funcPtr, void* context);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
+    bool ts_value_is_undefined(TsValue* v);
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
@@ -112,7 +113,8 @@ extern "C" {
     void* ts_value_get_string(TsValue* val);
     
     // Comparison helpers
-    bool ts_value_strict_eq(TsValue* lhs, TsValue* rhs);  // Implements === semantics
+    bool ts_value_strict_eq_bool(TsValue* lhs, TsValue* rhs);
+    TsValue* ts_value_strict_eq(TsValue* lhs, TsValue* rhs);  // Implements === semantics
     
     // Slow path arithmetic
     TsValue* ts_value_add(TsValue* a, TsValue* b);
@@ -130,6 +132,9 @@ extern "C" {
     // Slow path property access
     TsValue* ts_object_get_prop(TsValue* obj, TsValue* key);
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value);
+    TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
+    TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index);
+    void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     

@@ -99,6 +99,10 @@ ExprPtr parseExpression(const json& j) {
                 node->properties.push_back(std::move(nodeSpa));
             } else if (pKind == "MethodDefinition") {
                 node->properties.push_back(parseNode(prop));
+            } else if (pKind == "SpreadElement") {
+                auto nodeSpread = std::make_unique<SpreadElement>();
+                nodeSpread->expression = parseExpression(prop["expression"]);
+                node->properties.push_back(std::move(nodeSpread));
             }
         }
         return node;

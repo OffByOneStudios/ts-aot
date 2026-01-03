@@ -304,4 +304,9 @@ TsValue* ts_promise_any(TsValue* iterable);
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
 TsValue* ts_call_0(TsValue* func);
 
+// --- Modules ---
+void ts_module_register(TsValue* path, TsValue* exports);
+TsValue* ts_module_get(const char* path);
+TsValue* ts_require(TsValue* specifier, const char* referrerPath);
+
 }

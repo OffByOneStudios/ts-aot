@@ -14,8 +14,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     const auto& usages = analyzer.getFunctionUsages();
     std::vector<std::string> moduleInitFunctions;
 
+    SPDLOG_INFO("Monomorphizing {} modules", analyzer.moduleOrder.size());
     for (const auto& path : analyzer.moduleOrder) {
-        // fmt::print("Processing module: {}\n", path);
+        SPDLOG_INFO("Processing module: {}", path);
         auto it = analyzer.modules.find(path);
         if (it == analyzer.modules.end()) {
             // fmt::print("Module NOT FOUND in analyzer.modules: {}\n", path);
@@ -36,6 +37,32 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
         moduleInitFunctions.push_back(initName);
 
+        // Add 'module' parameter to module init
+        auto moduleParam = std::make_unique<ast::Parameter>();
+        auto paramName = std::make_unique<ast::Identifier>();
+        paramName->name = "module";
+        moduleParam->name = std::move(paramName);
+        moduleParam->type = "any";
+        moduleInit->parameters.push_back(std::move(moduleParam));
+
+        // Prepend exports declaration for CommonJS support
+        // const exports = module.exports;
+        {
+            auto exportsDecl = std::make_unique<ast::VariableDeclaration>();
+            auto exportsName = std::make_unique<ast::Identifier>();
+            exportsName->name = "exports";
+            exportsDecl->name = std::move(exportsName);
+            exportsDecl->type = "any";
+            
+            auto moduleAccess = std::make_unique<ast::PropertyAccessExpression>();
+            auto moduleRef = std::make_unique<ast::Identifier>();
+            moduleRef->name = "module";
+            moduleAccess->expression = std::move(moduleRef);
+            moduleAccess->name = "exports";
+            exportsDecl->initializer = std::move(moduleAccess);
+            moduleInit->body.push_back(std::move(exportsDecl));
+        }
+
         std::vector<std::unique_ptr<ast::Statement>> newBody;
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
@@ -52,22 +79,27 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
-        // If the last statement is an expression, turn it into a return
-        if (!moduleInit->body.empty()) {
-            if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(moduleInit->body.back().get())) {
-                auto retStmt = std::make_unique<ast::ReturnStatement>();
-                retStmt->expression = std::move(exprStmt->expression);
-                moduleInit->body.back() = std::move(retStmt);
-            }
+        // Always return module.exports at the end of module init for CommonJS support
+        {
+            auto finalRet = std::make_unique<ast::ReturnStatement>();
+            auto finalModuleAccess = std::make_unique<ast::PropertyAccessExpression>();
+            auto finalModuleRef = std::make_unique<ast::Identifier>();
+            finalModuleRef->name = "module";
+            finalModuleAccess->expression = std::move(finalModuleRef);
+            finalModuleAccess->name = "exports";
+            finalRet->expression = std::move(finalModuleAccess);
+            moduleInit->body.push_back(std::move(finalRet));
         }
 
         // fmt::print("Module init now has {} statements\n", moduleInit->body.size());
         module->ast->body = std::move(newBody);
 
+        std::string mangledName = Monomorphizer::generateMangledName(initName, { std::make_shared<Type>(TypeKind::Any) }, {});
+        SPDLOG_INFO("Adding specialization for module init: {} -> {}", initName, mangledName);
         Specialization spec;
         spec.originalName = initName;
-        spec.specializedName = initName;
-        spec.argTypes = {};
+        spec.specializedName = mangledName;
+        spec.argTypes = { std::make_shared<Type>(TypeKind::Any) };
         spec.returnType = std::make_shared<Type>(TypeKind::Any);
         spec.node = moduleInit.get();
         
@@ -77,6 +109,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         
         auto ft = std::make_shared<FunctionType>();
         ft->returnType = std::make_shared<Type>(TypeKind::Any);
+        ft->paramTypes = { std::make_shared<Type>(TypeKind::Any) };
         analyzer.getSymbolTable().define(initName, ft);
 
         specializations.push_back(spec);
@@ -115,47 +148,106 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     userMainFt->returnType = std::make_shared<Type>(TypeKind::Any);
     analyzer.getSymbolTable().define("user_main", userMainFt);
 
+    // Phase 1: Create and register all module objects
+    std::vector<std::string> moduleObjNames;
+    for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
+        const auto& path = analyzer.moduleOrder[i];
+        std::string modObjName = "__module_obj_" + std::to_string(i);
+        moduleObjNames.push_back(modObjName);
+
+        // let __module_obj_i = { exports: {} };
+        auto modDecl = std::make_unique<ast::VariableDeclaration>();
+        auto modName = std::make_unique<ast::Identifier>();
+        modName->name = modObjName;
+        modDecl->name = std::move(modName);
+        modDecl->type = "any";
+
+        auto objLit = std::make_unique<ast::ObjectLiteralExpression>();
+        auto prop = std::make_unique<ast::PropertyAssignment>();
+        prop->name = "exports";
+        prop->initializer = std::make_unique<ast::ObjectLiteralExpression>();
+        objLit->properties.push_back(std::move(prop));
+        modDecl->initializer = std::move(objLit);
+        userMain->body.push_back(std::move(modDecl));
+
+        // ts_module_register(path, __module_obj_i);
+        auto registerCall = std::make_unique<ast::CallExpression>();
+        auto registerId = std::make_unique<ast::Identifier>();
+        registerId->name = "ts_module_register";
+        registerCall->callee = std::move(registerId);
+        
+        auto pathLit = std::make_unique<ast::StringLiteral>();
+        pathLit->value = path;
+        registerCall->arguments.push_back(std::move(pathLit));
+        
+        auto modRef = std::make_unique<ast::Identifier>();
+        modRef->name = modObjName;
+        registerCall->arguments.push_back(std::move(modRef));
+        
+        auto registerStmt = std::make_unique<ast::ExpressionStatement>();
+        registerStmt->expression = std::move(registerCall);
+        userMain->body.push_back(std::move(registerStmt));
+    }
+
+    // Phase 2: Initialize all modules
     for (size_t i = 0; i < moduleInitFunctions.size(); ++i) {
         const auto& initName = moduleInitFunctions[i];
         const auto& path = analyzer.moduleOrder[i];
+        const auto& modObjName = moduleObjNames[i];
+        
+        // Create a variable to hold the module init result
+        std::string resVarName = "__module_res_" + std::to_string(i);
+        auto resDecl = std::make_unique<ast::VariableDeclaration>();
+        auto resName = std::make_unique<ast::Identifier>();
+        resName->name = resVarName;
+        resDecl->name = std::move(resName);
+
         auto call = std::make_unique<ast::CallExpression>();
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = initName;
         auto initFt = std::make_shared<FunctionType>();
-        initFt->returnType = std::make_shared<Type>(TypeKind::Void);
+        initFt->returnType = std::make_shared<Type>(TypeKind::Any);
+        // Add parameter type for 'module'
+        initFt->paramTypes = { std::make_shared<Type>(TypeKind::Any) };
         callId->inferredType = initFt;
         call->callee = std::move(callId);
+
+        // Pass the module object as argument
+        auto modRef = std::make_unique<ast::Identifier>();
+        modRef->name = modObjName;
+        call->arguments.push_back(std::move(modRef));
         
         auto it = analyzer.modules.find(path);
         if (it != analyzer.modules.end() && it->second->isAsync) {
              auto promiseClass = std::static_pointer_cast<ClassType>(analyzer.getSymbolTable().lookupType("Promise"));
              auto wrapped = std::make_shared<ClassType>("Promise");
              wrapped->methods = promiseClass->methods;
-             wrapped->typeArguments = { std::make_shared<Type>(TypeKind::Void) };
+             wrapped->typeArguments = { std::make_shared<Type>(TypeKind::Any) };
              call->inferredType = wrapped;
         } else {
-             call->inferredType = std::make_shared<Type>(TypeKind::Void);
+             call->inferredType = std::make_shared<Type>(TypeKind::Any);
         }
 
         std::unique_ptr<ast::Expression> finalExpr;
         if (anyAsync) {
             auto awaitExpr = std::make_unique<ast::AwaitExpression>();
             awaitExpr->expression = std::move(call);
-            awaitExpr->inferredType = std::make_shared<Type>(TypeKind::Void);
+            awaitExpr->inferredType = std::make_shared<Type>(TypeKind::Any);
             finalExpr = std::move(awaitExpr);
         } else {
             finalExpr = std::move(call);
         }
 
+        resDecl->initializer = std::move(finalExpr);
+        userMain->body.push_back(std::move(resDecl));
+
         // If this is the last module init and there's NO user-defined user_main,
-        // make it a return statement. Otherwise, just call the module init.
+        // make it a return statement.
         if (i == moduleInitFunctions.size() - 1 && !userDefinedMain) {
             auto stmt = std::make_unique<ast::ReturnStatement>();
-            stmt->expression = std::move(finalExpr);
-            userMain->body.push_back(std::move(stmt));
-        } else {
-            auto stmt = std::make_unique<ast::ExpressionStatement>();
-            stmt->expression = std::move(finalExpr);
+            auto finalResRef = std::make_unique<ast::Identifier>();
+            finalResRef->name = resVarName;
+            stmt->expression = std::move(finalResRef);
             userMain->body.push_back(std::move(stmt));
         }
     }
