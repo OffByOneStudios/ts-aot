@@ -229,7 +229,13 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 
 ### Milestone 105.11: Compile Real Lodash
 
-- **Progress (2026-01-02):** Installed npm `lodash`, added smoke test `examples/lodash_npm_test.ts`, and taught `ts_require` to resolve `node_modules` with `package.json` mains. Untyped JS now auto-defines missing globals as `any`, so lodash parses. Runtime still returns empty exports because the lodash bootstrap IIFE isn’t executing correctly (`Function.prototype.call`/`this` handling in slow-path JS); current `ts-aot` run exits non-zero with `boxValue` slow-path warnings.
+- **Progress (2026-01-02):** Installed npm `lodash`, added smoke test `examples/lodash_npm_test.ts`, and taught `ts_require` to resolve `node_modules` with `package.json` mains. Untyped JS now auto-defines missing globals as `any`, so lodash parses. Runtime still returns empty exports because the lodash bootstrap IIFE isn't executing correctly (`Function.prototype.call`/`this` handling in slow-path JS); current `ts-aot` run exits non-zero with `boxValue` slow-path warnings.
+- **Plan to finish 105.11:**
+  1) **CJS wrapper execution semantics:** ensure `ts_require` executes the module factory with `{module, exports, require}` and returns `module.exports`; verify the lodash factory actually runs.  
+  2) **Function.prototype.call/apply/bind in slow-path JS:** implement runtime + codegen so `.call/.apply` preserve `this` and argument spreading (lodash UMD wraps the factory with `.call(this)`).  
+  3) **Module/global `this` binding:** align slow-path module entry so top-level `this` maps to `globalThis`/exports as lodash expects.  
+  4) **Smoke test target:** get `examples/lodash_npm_test.ts` printing the chunk/merge/shuffle outputs (non-null exports) as success criteria; trim any slow-path `boxValue` warnings observed during that run.  
+  5) **Regression guard:** add a minimal test/script to prevent regressions once the smoke test passes.
 - [ ] **Task 105.11.1:** Parse lodash.js without errors
 - [ ] **Task 105.11.2:** Compile lodash core functions
 - [ ] **Task 105.11.3:** Run lodash test suite
