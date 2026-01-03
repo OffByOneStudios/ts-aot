@@ -1,0 +1,335 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "outer",
+        "line": 4,
+        "column": 5
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "ObjectLiteralExpression",
+        "properties": [],
+        "line": 4,
+        "column": 13
+      },
+      "line": 4,
+      "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "inner",
+        "line": 7,
+        "column": 5
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "ParenthesizedExpression",
+          "expression": {
+            "kind": "FunctionExpression",
+            "name": null,
+            "isAsync": false,
+            "isGenerator": false,
+            "typeParameters": [],
+            "returnType": "",
+            "parameters": [],
+            "body": [
+              {
+                "kind": "TryStatement",
+                "tryBlock": [
+                  {
+                    "kind": "VariableDeclaration",
+                    "name": {
+                      "kind": "Identifier",
+                      "name": "x",
+                      "line": 10,
+                      "column": 13
+                    },
+                    "isExported": false,
+                    "type": "",
+                    "initializer": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "PropertyAccessExpression",
+                        "expression": {
+                          "kind": "Identifier",
+                          "name": "outer",
+                          "line": 10,
+                          "column": 17
+                        },
+                        "name": "foo",
+                        "isOptional": false,
+                        "line": 10,
+                        "column": 17
+                      },
+                      "name": "bar",
+                      "isOptional": false,
+                      "line": 10,
+                      "column": 17
+                    },
+                    "line": 10,
+                    "column": 9
+                  },
+                  {
+                    "kind": "ReturnStatement",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "x",
+                      "line": 11,
+                      "column": 16
+                    },
+                    "line": 11,
+                    "column": 9
+                  }
+                ],
+                "catchClause": {
+                  "kind": "CatchClause",
+                  "variable": {
+                    "kind": "Identifier",
+                    "name": "e",
+                    "line": 12,
+                    "column": 14
+                  },
+                  "block": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console",
+                            "line": 14,
+                            "column": 9
+                          },
+                          "name": "log",
+                          "isOptional": false,
+                          "line": 14,
+                          "column": 9
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "Caught error in inner IIFE",
+                            "line": 14,
+                            "column": 21
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 14,
+                        "column": 9
+                      },
+                      "line": 14,
+                      "column": 9
+                    }
+                  ]
+                },
+                "finallyBlock": null,
+                "line": 8,
+                "column": 5
+              }
+            ],
+            "line": 7,
+            "column": 14
+          },
+          "line": 7,
+          "column": 13
+        },
+        "arguments": [],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 7,
+        "column": 13
+      },
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 18,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 18,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "inner value:",
+            "line": 18,
+            "column": 13
+          },
+          {
+            "kind": "Identifier",
+            "name": "inner",
+            "line": 18,
+            "column": 29
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 18,
+        "column": 1
+      },
+      "line": 18,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "AssignmentExpression",
+        "left": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "outer",
+            "line": 21,
+            "column": 1
+          },
+          "name": "test",
+          "isOptional": false,
+          "line": 21,
+          "column": 1
+        },
+        "right": {
+          "kind": "StringLiteral",
+          "value": "success",
+          "line": 21,
+          "column": 14
+        },
+        "line": 21,
+        "column": 1
+      },
+      "line": 21,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 22,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 22,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "outer.test:",
+            "line": 22,
+            "column": 13
+          },
+          {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "Identifier",
+              "name": "outer",
+              "line": 22,
+              "column": 28
+            },
+            "name": "test",
+            "isOptional": false,
+            "line": 22,
+            "column": 28
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 22,
+        "column": 1
+      },
+      "line": 22,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "AssignmentExpression",
+        "left": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "module",
+            "line": 25,
+            "column": 1
+          },
+          "name": "exports",
+          "isOptional": false,
+          "line": 25,
+          "column": 1
+        },
+        "right": {
+          "kind": "ObjectLiteralExpression",
+          "properties": [
+            {
+              "kind": "PropertyAssignment",
+              "name": "outer",
+              "nameNode": {
+                "kind": "Identifier",
+                "name": "outer",
+                "line": 26,
+                "column": 5
+              },
+              "initializer": {
+                "kind": "Identifier",
+                "name": "outer",
+                "line": 26,
+                "column": 12
+              }
+            },
+            {
+              "kind": "PropertyAssignment",
+              "name": "inner",
+              "nameNode": {
+                "kind": "Identifier",
+                "name": "inner",
+                "line": 27,
+                "column": 5
+              },
+              "initializer": {
+                "kind": "Identifier",
+                "name": "inner",
+                "line": 27,
+                "column": 12
+              }
+            }
+          ],
+          "line": 25,
+          "column": 18
+        },
+        "line": 25,
+        "column": 1
+      },
+      "line": 25,
+      "column": 1
+    }
+  ]
+}

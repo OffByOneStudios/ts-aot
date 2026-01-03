@@ -222,8 +222,12 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
     if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Any) {
         // If this callee ultimately resolves to a named function specialization, prefer
         // a direct call (stable ABI, avoids ts_call_N wrappers).
+        // EXCEPTION: Functions with closures must go through ts_call_N to get their context.
         auto unwrapped = unwrapCalleeExpression(node->callee.get());
         if (auto id = dynamic_cast<ast::Identifier*>(unwrapped)) {
+            // Skip direct call optimization for functions that capture variables
+            // They need their closure context which is only available via ts_call_N
+            if (!functionsWithClosures.count(id->name)) {
             bool hasKnownSpecialization = false;
             if (module->getFunction(id->name)) {
                 hasKnownSpecialization = true;
@@ -307,6 +311,7 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                     return;
                 }
             }
+            } // end else (no closures - direct call allowed)
         }
 
         visit(node->callee.get());

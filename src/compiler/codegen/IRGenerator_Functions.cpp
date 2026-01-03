@@ -906,6 +906,8 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         }
         
         SPDLOG_INFO("Arrow function {} captures {} variables", name, capturedVars.size());
+        // Track that this function has closures - needed to prevent direct call optimization
+        functionsWithClosures.insert(name);
     }
 
     if (node->isAsync) {
@@ -1244,6 +1246,8 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         }
         
         SPDLOG_INFO("FunctionExpression {} captures {} variables", name, capturedVars.size());
+        // Track that this function has closures - needed to prevent direct call optimization
+        functionsWithClosures.insert(name);
     }
 
     struct SavedFunctionState {
