@@ -303,7 +303,7 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 
 ### Milestone 105.12: Compile Real Lodash
 
-**Status:** In Progress - Fixed multiple crashes, now debugging type confusion
+**Status:** In Progress - Fixed multiple crashes, debugging type confusion in lodash
 
 **Progress (2026-01-03):**
 - ✅ Fixed LLVM verification error (`add ptr` with pointer operands)
@@ -319,24 +319,34 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
   - Modified direct call optimization to skip functions with closures
   - These functions now use ts_call_N path which properly extracts context
   - Previously crashed with null pointer dereference at `mov rax, [rcx]` with `rcx=0`
-- ⚠️ **Current Issue:** Type confusion crash at address `0x4D415053` (TsMap "MAPS" magic)
-  - Lodash progresses much further - past typedArrayTags and cloneableTags setup
-  - Something treats TsMap object as function pointer and tries to execute it
-  - Exit code 0 (SEH catches exception) but execution fails
-  - Last successful operations: Object/process property access, cloneableTags setup
+- ✅ **Fixed function magic check** (commit 32a0276)
+  - Added `ts_extract_function()` helper with magic check (0x46554E43 "FUNC")
+  - Updated all `ts_call_N` functions to verify object is TsFunction before casting
+  - Prevents crashes when non-function objects (TsMap, TsArray, etc.) are called
+  - Simple tests work: object property assignment, function calls all pass
+- ⚠️ **Current Issue:** Lodash still crashes at address `0x4D415053` (TsMap "MAPS" magic)
+  - Crash occurs late in lodash initialization after cloneableTags/typedArrayTags setup
+  - Simple property set/get tests pass (`examples/object_prop_test.ts`)
+  - Crash address suggests trying to execute TsMap magic as code  
+  - Likely issue: function pointer or return address corrupted during lodash-specific code path
 
 **Root Cause Analysis (In Progress):**
 - Crash address `0x4D415053` is the TsMap magic number ("MAPS")
-- The runtime is trying to execute a TsMap object as if it were a function
-- Likely function pointer stored in object property is actually a TsMap
-- May be related to how functions are stored/retrieved from objects
+- Simple object operations work fine in isolation
+- Crash is specific to lodash initialization code path
+- Hypothesis: May be related to complex lodash initialization patterns:
+  - Multiple nested IIFEs with closures
+  - Function factories and higher-order functions  
+  - Property assignment to function objects
+  - Constructor function handling
 
 **Debug Steps:**
 1. ✅ Used auto-debug skill to analyze first crash (null context)
 2. ✅ Fixed direct call optimization to preserve closure context
-3. 🔄 Use CDB debugger to analyze TsMap crash: `.\.github\skills\auto-debug\debug_analyzer.ps1`
-4. 🔄 Look at call stack to identify where TsMap is mistaken for function
-5. 🔄 Check if codegen incorrectly stores TsMap as function or runtime retrieves wrong type
+3. ✅ Added magic checks to all function call helpers
+4. ✅ Verified simple object property assignment works
+5. 🔄 Need to identify specific lodash code pattern causing crash
+6. 🔄 May need to dump IR and trace execution path to crash point
 
 - [x] **Task 105.12.1:** Debug lodash runtime crash - Part 1: Null Context ✅
   - [x] Get stack trace from CDB debugger ✅
@@ -344,11 +354,17 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
   - [x] Fixed direct call optimization to preserve closure context ✅
   - [x] Commit 3698c2c created ✅
   
-- [ ] **Task 105.12.1b:** Debug lodash runtime crash - Part 2: Type Confusion
-  - [ ] Get stack trace for TsMap crash
-  - [ ] Identify where TsMap treated as function pointer
-  - [ ] Determine if codegen stores wrong type or runtime retrieves wrong type
-  - [ ] Fix the root cause
+- [x] **Task 105.12.1b:** Debug lodash runtime crash - Part 2: Function Type Safety ✅
+  - [x] Added ts_extract_function helper with magic check ✅
+  - [x] Updated all ts_call_N functions to use helper ✅
+  - [x] Verified simple tests pass ✅
+  - [x] Commit 32a0276 created ✅
+
+- [ ] **Task 105.12.1c:** Debug lodash runtime crash - Part 3: Execution Path Analysis
+  - [ ] Narrow down which lodash function/pattern causes crash
+  - [ ] Analyze IR for suspicious code generation
+  - [ ] Check for issues with: function factories, constructor calls, or prototype chains
+  - [ ] Add targeted logging or breakpoints to identify crash location
 
 - [ ] **Task 105.12.2:** `Function.prototype.call/apply/bind` support
   - Lodash UMD wrapper uses `.call(this)` to invoke the factory
