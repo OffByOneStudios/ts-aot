@@ -530,7 +530,7 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
 
-        printf("[ts_object_get_property] magics: 0=%08X, 8=%08X, 16=%08X\n", magic0, magic8, magic16);
+        printf("[ts_object_get_property] magics: 0=%08X, 8=%08X, 16=%08X, 20=%08X, 24=%08X\n", magic0, magic8, magic16, magic20, magic24);
 
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
         if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
@@ -567,6 +567,7 @@ TsValue* ts_value_make_int(int64_t i) {
             k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::Create(keyStr);
             TsValue val = map->Get(k);
+            printf("[ts_object_get_property] TsMap::Get(%s) returned type=%d\n", keyStr, (int)val.type);
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
@@ -1278,7 +1279,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
-        if (!obj || !key) return value;
+        if (!obj || !key || !value) return value;
         
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return value;
@@ -1308,6 +1309,11 @@ TsValue* ts_value_make_int(int64_t i) {
         const char* keyNameDbg = keyStrDbg ? keyStrDbg->ToUtf8() : "<null>";
         printf("[ts_object_set_prop] rawObj=%p, key=%s, magic0=%08X, magic16=%08X, magic20=%08X, magic24=%08X\n",
                rawObj, keyNameDbg, magic0, magic16, magic20, magic24);
+        
+        // Debug: special log for exports key
+        if (keyStrDbg && strcmp(keyNameDbg, "exports") == 0) {
+            printf("[ts_object_set_prop] SETTING EXPORTS! value=%p, value->type=%d\n", value, (int)value->type);
+        }
 
         // Check for TsFunction (can have properties like _.chunk)
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")

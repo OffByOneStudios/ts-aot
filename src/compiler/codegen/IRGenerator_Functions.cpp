@@ -1171,6 +1171,81 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
 
+    // === CLOSURE CAPTURE: Collect free variables BEFORE clearing namedValues ===
+    std::set<std::string> paramNames;
+    for (auto& param : node->parameters) {
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramNames.insert(id->name);
+        }
+    }
+    
+    std::vector<CapturedVariable> capturedVars;
+    for (auto& stmt : node->body) {
+        collectFreeVariables(stmt.get(), paramNames, capturedVars);
+    }
+    
+    // Create closure context struct type (if we have captures)
+    llvm::StructType* closureContextType = nullptr;
+    llvm::Value* closureContext = nullptr;
+    std::map<std::string, int> capturedVarIndices;
+    
+    std::set<std::string> capturedCellVarNames;
+    if (!capturedVars.empty()) {
+        std::vector<llvm::Type*> contextFields;
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            contextFields.push_back(builder->getPtrTy()); // All captured values are pointers (cells or boxed values)
+            capturedVarIndices[capturedVars[i].name] = static_cast<int>(i);
+        }
+        closureContextType = llvm::StructType::create(*context, name + "_closure");
+        closureContextType->setBody(contextFields);
+        
+        // Allocate and populate the closure context (in the OUTER function)
+        llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
+        uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
+        closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
+        
+        // Store captured values into the context struct
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, closureContext, static_cast<unsigned>(i));
+            
+            // Check if this is a cell variable
+            if (cellVariables.count(capturedVars[i].name)) {
+                // For cell variables, just copy the cell pointer
+                llvm::Value* cellPtr = builder->CreateLoad(builder->getPtrTy(), capturedVars[i].value);
+                builder->CreateStore(cellPtr, fieldPtr);
+                capturedCellVarNames.insert(capturedVars[i].name);
+                SPDLOG_INFO("  Captured cell variable {} at index {}", capturedVars[i].name, i);
+                continue;
+            }
+            
+            // Determine the type to load from the outer scope's alloca
+            llvm::Type* loadType = builder->getPtrTy(); // default
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(capturedVars[i].value)) {
+                loadType = alloca->getAllocatedType();
+            }
+            
+            // Load the current value from the outer scope's alloca
+            llvm::Value* outerValue = builder->CreateLoad(loadType, capturedVars[i].value);
+            
+            // Box it if not already a pointer (i.e., if it's a primitive type)
+            // BUT: don't box function pointers that are already boxed TsValue*
+            bool shouldBox = !loadType->isPointerTy() || !boxedValues.count(outerValue);
+            
+            // Function type variables that are already pointers are boxed TsValue* - don't box again
+            if (capturedVars[i].type && capturedVars[i].type->kind == TypeKind::Function && loadType->isPointerTy()) {
+                shouldBox = false;
+            }
+            
+            if (shouldBox) {
+                outerValue = boxValue(outerValue, capturedVars[i].type);
+            }
+            builder->CreateStore(outerValue, fieldPtr);
+        }
+        
+        SPDLOG_INFO("FunctionExpression {} captures {} variables", name, capturedVars.size());
+    }
+
     struct SavedFunctionState {
         std::map<std::string, llvm::Value*> namedValues;
         std::map<std::string, llvm::Type*> forcedVariableTypes;
@@ -1359,10 +1434,42 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     
     auto argIt = function->arg_begin();
+    llvm::Value* contextArg = nullptr;
     if (argIt != function->arg_end()) {
         argIt->setName("context");
-        currentContext = &*argIt;
+        contextArg = &*argIt;
+        currentContext = contextArg;
         ++argIt;
+    }
+
+    // === CLOSURE CAPTURE: Extract captured values from context at function entry ===
+    if (!capturedVars.empty() && closureContextType && contextArg) {
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            const auto& cv = capturedVars[i];
+            // Create a local alloca for this captured variable
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(function, cv.name, builder->getPtrTy());
+            // Load the value from the context struct
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, contextArg, static_cast<unsigned>(i));
+            llvm::Value* capturedValue = builder->CreateLoad(builder->getPtrTy(), fieldPtr);
+            // Store into local alloca
+            builder->CreateStore(capturedValue, alloca);
+            // Add to namedValues so the body can use it
+            namedValues[cv.name] = alloca;
+            
+            // Check if this was a cell variable in the outer scope
+            if (capturedCellVarNames.count(cv.name)) {
+                // The captured value is a cell pointer - keep it as a cell variable
+                // No need to mark as boxed since access goes through ts_cell_get
+                cellVariables.insert(cv.name);
+                cellPointers[cv.name] = capturedValue;
+                SPDLOG_INFO("  FuncExpr: Extracted cell variable {} at index {}", cv.name, i);
+            } else {
+                // Regular captured value - mark as boxed
+                boxedValues.insert(capturedValue);
+                boxedVariables.insert(cv.name);
+                SPDLOG_INFO("  FuncExpr: Extracted captured var {} at index {}", cv.name, i);
+            }
+        }
     }
 
     unsigned idx = 0;
@@ -1443,7 +1550,14 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     currentIsAsync = saved.currentIsAsync;
     anonVarCounter = saved.anonVarCounter;
 
-    lastValue = boxValue(function, node->inferredType);
+    // Always box the function so it can be called via ts_call_N
+    // Functions with closure context have a populated context pointer
+    // Functions without closure context have a null context pointer
+    llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
+    llvm::Value* contextPtr = closureContext ? closureContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+    lastValue = createCall(makeFnFt, makeFnFn.getCallee(), { function, contextPtr });
+    boxedValues.insert(lastValue);
 }
 
 void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {

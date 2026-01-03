@@ -303,18 +303,49 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 
 ### Milestone 105.12: Compile Real Lodash
 
-- **Progress (2026-01-02):** Installed npm `lodash`, added smoke test `examples/lodash_npm_test.ts`, and taught `ts_require` to resolve `node_modules` with `package.json` mains. Untyped JS now auto-defines missing globals as `any`, so lodash parses. Runtime still returns empty exports because the lodash bootstrap IIFE isn't executing correctly (`Function.prototype.call`/`this` handling in slow-path JS); current `ts-aot` run exits non-zero with `boxValue` slow-path warnings.
-- **Plan to finish 105.12:**
-  1) **CJS wrapper execution semantics:** ensure `ts_require` executes the module factory with `{module, exports, require}` and returns `module.exports`; verify the lodash factory actually runs.  
-  2) **Function.prototype.call/apply/bind in slow-path JS:** implement runtime + codegen so `.call/.apply` preserve `this` and argument spreading (lodash UMD wraps the factory with `.call(this)`).  
-  3) **Module/global `this` binding:** align slow-path module entry so top-level `this` maps to `globalThis`/exports as lodash expects.  
-  4) **Smoke test target:** get `examples/lodash_npm_test.ts` printing the chunk/merge/shuffle outputs (non-null exports) as success criteria; trim any slow-path `boxValue` warnings observed during that run.  
-  5) **Regression guard:** add a minimal test/script to prevent regressions once the smoke test passes.
-- [ ] **Task 105.12.1:** Parse lodash.js without errors
-- [ ] **Task 105.12.2:** Compile lodash core functions
-- [ ] **Task 105.12.3:** Run lodash test suite
-- [ ] **Task 105.12.4:** Benchmark vs Node.js
-- [ ] **Task 105.12.5:** Document performance comparison
+**Status:** In Progress - Lodash compiles but crashes during initialization
+
+**Progress (2026-01-03):**
+- ✅ Fixed LLVM verification error (`add ptr` with pointer operands)
+- ✅ Added safety fallbacks for pointer arithmetic in binary expressions
+- ✅ Lodash now compiles successfully to native code
+- ⚠️ Crashes with access violation (0xc0000005) late in module initialization
+- The crash occurs after lodash has set up most methods (chunk, compact, flatten, etc.)
+
+**Root Cause Analysis:**
+- The crash happens near `isBoolean`/`isBuffer` method setup
+- Likely involves prototype chain manipulation or constructor function handling
+- May be null pointer dereference in a runtime helper
+
+**Debug Steps:**
+1. Use CDB debugger: `.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\lodash_npm_test.exe`
+2. Look at call stack to identify the failing function
+3. Check if it's a codegen issue or runtime issue
+
+- [ ] **Task 105.12.1:** Debug lodash runtime crash
+  - [ ] Get stack trace from CDB debugger
+  - [ ] Identify failing function in lodash initialization
+  - [ ] Determine if codegen or runtime issue
+  - [ ] Fix the root cause
+
+- [ ] **Task 105.12.2:** `Function.prototype.call/apply/bind` support
+  - Lodash UMD wrapper uses `.call(this)` to invoke the factory
+  - Need runtime support for `ts_function_call_with_this`
+  - Ensure proper `this` binding in slow-path JS
+
+- [ ] **Task 105.12.3:** Prototype chain handling
+  - Lodash sets up constructor/prototype relationships
+  - Need proper `__proto__`/`prototype` support
+  - `new` operator for constructor functions
+
+- [ ] **Task 105.12.4:** Get lodash methods callable
+  - Once initialization passes, test basic lodash calls
+  - `_.chunk([1,2,3,4], 2)` should work
+  - `_.map([1,2,3], x => x * 2)` should work
+
+- [ ] **Task 105.12.5:** Run lodash test suite
+- [ ] **Task 105.12.6:** Benchmark vs Node.js
+- [ ] **Task 105.12.7:** Document performance comparison
 
 ---
 
