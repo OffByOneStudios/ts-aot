@@ -102,12 +102,9 @@ StmtPtr parseStatement(const json& j) {
     } else if (kind == "MultipleVariableDeclarations") {
         // Special case: multiple declarators in a single var statement
         // Expand into separate VariableDeclaration statements
-        // We'll return the first one and inject the rest into a temporary list
-        // that the caller will need to handle. Actually, since we can't modify
-        // the parent's body from here, we'll just return the first and log a warning.
-        // Better approach: Return a BlockStatement containing all declarations
         auto block = std::make_unique<BlockStatement>();
         setLocation(block.get(), j);
+        size_t declCount = j["declarations"].size();
         for (const auto& declJson : j["declarations"]) {
             auto node = std::make_unique<VariableDeclaration>();
             setLocation(node.get(), declJson);
