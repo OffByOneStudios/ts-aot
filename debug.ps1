@@ -1,11 +1,11 @@
-# Debug Helper Script for ts-aot
+﻿# Debug Helper Script for ts-aot
 # Usage: .\debug.ps1 examples\debug_test.exe
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$ExePath,
     [switch]$BreakOnStart,
-    [string]$BreakOnFunction
+    [switch]$UseCDB
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,25 +32,54 @@ if (Test-Path $pdbFile) {
     Write-Host "Warning: No PDB file found. Compile with -g flag." -ForegroundColor Red
 }
 
+# Find CDB debugger
+$cdbPaths = @(
+    "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe",
+    "C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe"
+)
+$cdbPath = $null
+foreach ($path in $cdbPaths) {
+    if (Test-Path $path) {
+        $cdbPath = $path
+        break
+    }
+}
+
 Write-Host ""
-Write-Host "Options:" -ForegroundColor Cyan
-Write-Host "  1) Run normally (shows crash location if it crashes)"
-Write-Host "  2) Open in Visual Studio debugger (GUI)"
-Write-Host "  3) Install Windows SDK for CDB (command-line debugger)"
+Write-Host "Available debuggers:" -ForegroundColor Cyan
+if ($cdbPath) {
+    Write-Host "   CDB (Console Debugger): $cdbPath" -ForegroundColor Green
+} else {
+    Write-Host "   CDB not found - install Windows SDK" -ForegroundColor DarkGray
+}
+Write-Host "   Visual Studio Debugger (GUI)" -ForegroundColor Green
 Write-Host ""
 
+# Handle CDB debugging
+if ($UseCDB) {
+    if (-not $cdbPath) {
+        Write-Error "CDB not found. Install Windows SDK"
+        exit 1
+    }
+    Write-Host "Starting CDB debugger..." -ForegroundColor Cyan
+    Write-Host "Commands: g (go), k (stack), dv (variables), q (quit)" -ForegroundColor Yellow
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    & $cdbPath $ExePath
+    exit 0
+}
+
 if ($BreakOnStart) {
-    Write-Host "Opening in Visual Studio debugger with break on start..." -ForegroundColor Cyan
+    Write-Host "Opening in Visual Studio debugger..." -ForegroundColor Cyan
     $devenv = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.exe"
     & $devenv /debugexe $ExePath
     exit 0
 }
 
 Write-Host "Running executable (Ctrl+C to abort)..." -ForegroundColor Cyan
+Write-Host "Tip: Use -UseCDB for command-line debugging or -BreakOnStart for GUI" -ForegroundColor DarkGray
 Write-Host "----------------------------------------" -ForegroundColor DarkGray
 
 try {
-    # Run with error handling to catch crashes
     $process = Start-Process -FilePath $ExePath -NoNewWindow -Wait -PassThru
     
     if ($process.ExitCode -ne 0) {
@@ -58,8 +87,10 @@ try {
         Write-Host "Process exited with code: $($process.ExitCode)" -ForegroundColor Red
         Write-Host ""
         Write-Host "To debug this crash:" -ForegroundColor Yellow
-        Write-Host "  1. Run: .\debug.ps1 $ExePath -BreakOnStart" -ForegroundColor White
-        Write-Host "  2. Or install Windows SDK and use: cdb.exe $ExePath" -ForegroundColor White
+        if ($cdbPath) {
+            Write-Host "  Command-line: .\debug.ps1 $ExePath -UseCDB" -ForegroundColor White
+        }
+        Write-Host "  GUI: .\debug.ps1 $ExePath -BreakOnStart" -ForegroundColor White
         exit $process.ExitCode
     } else {
         Write-Host ""
@@ -68,6 +99,5 @@ try {
 } catch {
     Write-Host ""
     Write-Host "Error running process: $_" -ForegroundColor Red
-    Write-Host "To debug: .\debug.ps1 $ExePath -BreakOnStart" -ForegroundColor Yellow
     exit 1
 }
