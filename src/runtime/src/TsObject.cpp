@@ -708,14 +708,17 @@ TsValue* ts_value_make_int(int64_t i) {
     // Helper to safely extract TsFunction from boxed value
     static TsFunction* ts_extract_function(TsValue* boxedFunc) {
         if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+            printf("[ts_extract_function] boxedFunc is null or wrong type (type=%d)\n", boxedFunc ? (int)boxedFunc->type : -1);
             return nullptr;
         }
         void* ptr = boxedFunc->ptr_val;
         if (!ptr) {
+            printf("[ts_extract_function] ptr_val is NULL\n");
             return nullptr;
         }
         // Check if this is actually a TsFunction (has FUNC magic at offset 0)
         uint32_t magic = *(uint32_t*)ptr;
+        printf("[ts_extract_function] Checking magic: got=%08X, expected=%08X, ptr=%p\n", magic, TsFunction::MAGIC, ptr);
         if (magic != TsFunction::MAGIC) {
             printf("[ts_extract_function] ERROR: Attempted to call non-function object (magic=%08X)\n", magic);
             return nullptr;
@@ -1283,9 +1286,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
-        if (!obj || !key || !value) return value;
+        printf("[ts_object_set_prop] ENTRY: obj=%p, key=%p, value=%p\n", obj, key, value);
+        if (!obj || !key || !value) {
+            printf("[ts_object_set_prop] NULL parameter detected\n");
+            return value;
+        }
         
+        printf("[ts_object_set_prop] About to call ts_value_get_object\n");
         void* rawObj = ts_value_get_object(obj);
+        printf("[ts_object_set_prop] ts_value_get_object returned: %p\n", rawObj);
         if (!rawObj) return value;
 
         // If key is a number, try array access
@@ -1332,8 +1341,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if it's a map
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+            printf("[ts_object_set_prop] Calling TsMap::Set: map=%p, key=%p, value=%p\n", rawObj, key, value);
             TsMap* map = (TsMap*)rawObj;
+            printf("[ts_object_set_prop] Before Set: *key type=%d, *value type=%d\n", (int)key->type, (int)value->type);
             map->Set(*key, *value);
+            printf("[ts_object_set_prop] After Set\n");
             return value;
         }
 
@@ -1492,15 +1504,59 @@ TsValue* ts_value_make_int(int64_t i) {
     extern "C" TsValue* parseInt = nullptr;
     extern "C" TsValue* parseFloat = nullptr;
 
+    // Object constructor function - converts value to object
+    static TsValue* ts_object_constructor_native(void* ctx, int argc, TsValue** argv) {
+        if (argc == 0) {
+            // Object() with no args returns empty object
+            return ts_value_make_object(TsMap::Create());
+        }
+        TsValue* val = argv[0];
+        if (!val) {
+            return ts_value_make_object(TsMap::Create());
+        }
+        // If already an object, return as-is
+        if (val->type == ValueType::OBJECT_PTR) {
+            return val;
+        }
+        // Otherwise wrap in object
+        return ts_value_make_object(TsMap::Create());
+    }
+
+    // Array constructor function
+    static TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv) {
+        if (argc == 0) {
+            return ts_value_make_object(TsArray::Create(0));
+        }
+        if (argc == 1) {
+            // Array(n) creates array of length n
+            TsValue* val = argv[0];
+            if (val && val->type == ValueType::NUMBER_INT) {
+                return ts_value_make_object(TsArray::Create(val->i_val));
+            }
+        }
+        // Array(...items) creates array with items
+        TsArray* arr = TsArray::Create(argc);
+        for (int i = 0; i < argc; i++) {
+            arr->Push((int64_t)argv[i]);
+        }
+        return ts_value_make_object(arr);
+    }
+
     void ts_runtime_init() {
-        // Initialize Object global
-        TsMap* objectMap = TsMap::Create();
+        // Initialize Object global - make it callable
+        TsValue* objectConstructor = ts_value_make_native_function((void*)ts_object_constructor_native, nullptr);
+        
+        // Get the TsFunction so we can add static methods as properties
+        TsFunction* objectFunc = (TsFunction*)objectConstructor->ptr_val;
+        if (!objectFunc->properties) {
+            objectFunc->properties = TsMap::Create();
+        }
         
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
-        objectMap->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
+        objectFunc->properties->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
         
-        Object = ts_value_make_object(objectMap);
+        Object = objectConstructor;
 
         // Initialize console
         TsMap* consoleMap = TsMap::Create();
@@ -1508,11 +1564,20 @@ TsValue* ts_value_make_int(int64_t i) {
         consoleMap->Set(logKey, *ts_value_make_native_function((void*)ts_console_log_native, nullptr));
         console = ts_value_make_object(consoleMap);
 
-        // Initialize Array with minimal helpers
-        TsMap* arrayMap = TsMap::Create();
+        // Initialize Array - make it callable
+        TsValue* arrayConstructor = ts_value_make_native_function((void*)ts_array_constructor_native, nullptr);
+        
+        // Get the TsFunction so we can add static methods as properties
+        TsFunction* arrayFunc = (TsFunction*)arrayConstructor->ptr_val;
+        if (!arrayFunc->properties) {
+            arrayFunc->properties = TsMap::Create();
+        }
+        
+        // Array.isArray
         TsValue isArrayKey; isArrayKey.type = ValueType::STRING_PTR; isArrayKey.ptr_val = TsString::Create("isArray");
-        arrayMap->Set(isArrayKey, *ts_value_make_native_function((void*)ts_array_isArray_native, nullptr));
-        Array = ts_value_make_object(arrayMap);
+        arrayFunc->properties->Set(isArrayKey, *ts_value_make_native_function((void*)ts_array_isArray_native, nullptr));
+        
+        Array = arrayConstructor;
 
         // Initialize Math with minimal functions used by common JS libs
         TsMap* mathMap = TsMap::Create();
