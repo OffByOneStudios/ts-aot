@@ -32,6 +32,9 @@ if (-not (Test-Path $ExePath)) {
     exit 1
 }
 
+# Resolve to absolute path for CDB
+$ExePath = (Resolve-Path $ExePath).Path
+
 Write-Host "=== Automated Debug Analysis ===" -ForegroundColor Cyan
 Write-Host "Executable: $ExePath" -ForegroundColor Yellow
 Write-Host "Debugger: $cdbPath" -ForegroundColor Yellow
@@ -58,8 +61,25 @@ $commandScript | Out-File -FilePath $tempScript -Encoding ascii
 Write-Host "Running debugger with automated commands..." -ForegroundColor Cyan
 Write-Host ""
 
-# Run CDB with command script
-$output = & $cdbPath -c "`$`$<$tempScript" -g -G $ExePath 2>&1
+# Run CDB with command script using -cfr (command file then exit)
+# Wrap in a job with timeout to prevent hanging
+$job = Start-Job -ScriptBlock {
+    param($cdb, $script, $exe)
+    & $cdb -cfr $script -g -G $exe 2>&1
+} -ArgumentList $cdbPath, $tempScript, $ExePath
+
+# Wait up to 30 seconds for the job to complete
+$completed = Wait-Job $job -Timeout 30
+
+if ($completed) {
+    $output = Receive-Job $job
+    Remove-Job $job
+} else {
+    Write-Host "WARNING: Debugger timed out after 30 seconds, stopping..." -ForegroundColor Yellow
+    Stop-Job $job
+    $output = Receive-Job $job
+    Remove-Job $job
+}
 
 # Save full output
 $output | Out-File -FilePath $OutputFile -Encoding utf8
