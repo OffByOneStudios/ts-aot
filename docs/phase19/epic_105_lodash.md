@@ -303,29 +303,51 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 
 ### Milestone 105.12: Compile Real Lodash
 
-**Status:** In Progress - Lodash compiles but crashes during initialization
+**Status:** In Progress - Fixed multiple crashes, now debugging type confusion
 
 **Progress (2026-01-03):**
 - ✅ Fixed LLVM verification error (`add ptr` with pointer operands)
 - ✅ Added safety fallbacks for pointer arithmetic in binary expressions
 - ✅ Lodash now compiles successfully to native code
-- ⚠️ Crashes with access violation (0xc0000005) late in module initialization
-- The crash occurs after lodash has set up most methods (chunk, compact, flatten, etc.)
+- ✅ **Fixed IIFE closure capture bug** (commit a5fd35f)
+  - CommonJS modules use IIFE pattern that was failing to capture outer scope
+  - Fixed: Analyzer now propagates parent scope to IIFE function expressions
+  - Test: `examples/iife_test.ts` and `examples/test_iife_multivar.ts` pass
+- ✅ **Fixed null closure context bug** (commit 3698c2c)
+  - Direct call optimization was bypassing function wrapper and passing null context
+  - Added `functionsWithClosures` set to track functions with captures
+  - Modified direct call optimization to skip functions with closures
+  - These functions now use ts_call_N path which properly extracts context
+  - Previously crashed with null pointer dereference at `mov rax, [rcx]` with `rcx=0`
+- ⚠️ **Current Issue:** Type confusion crash at address `0x4D415053` (TsMap "MAPS" magic)
+  - Lodash progresses much further - past typedArrayTags and cloneableTags setup
+  - Something treats TsMap object as function pointer and tries to execute it
+  - Exit code 0 (SEH catches exception) but execution fails
+  - Last successful operations: Object/process property access, cloneableTags setup
 
-**Root Cause Analysis:**
-- The crash happens near `isBoolean`/`isBuffer` method setup
-- Likely involves prototype chain manipulation or constructor function handling
-- May be null pointer dereference in a runtime helper
+**Root Cause Analysis (In Progress):**
+- Crash address `0x4D415053` is the TsMap magic number ("MAPS")
+- The runtime is trying to execute a TsMap object as if it were a function
+- Likely function pointer stored in object property is actually a TsMap
+- May be related to how functions are stored/retrieved from objects
 
 **Debug Steps:**
-1. Use CDB debugger: `.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\lodash_npm_test.exe`
-2. Look at call stack to identify the failing function
-3. Check if it's a codegen issue or runtime issue
+1. ✅ Used auto-debug skill to analyze first crash (null context)
+2. ✅ Fixed direct call optimization to preserve closure context
+3. 🔄 Use CDB debugger to analyze TsMap crash: `.\.github\skills\auto-debug\debug_analyzer.ps1`
+4. 🔄 Look at call stack to identify where TsMap is mistaken for function
+5. 🔄 Check if codegen incorrectly stores TsMap as function or runtime retrieves wrong type
 
-- [ ] **Task 105.12.1:** Debug lodash runtime crash
-  - [ ] Get stack trace from CDB debugger
-  - [ ] Identify failing function in lodash initialization
-  - [ ] Determine if codegen or runtime issue
+- [x] **Task 105.12.1:** Debug lodash runtime crash - Part 1: Null Context ✅
+  - [x] Get stack trace from CDB debugger ✅
+  - [x] Identified null pointer in closure context extraction ✅
+  - [x] Fixed direct call optimization to preserve closure context ✅
+  - [x] Commit 3698c2c created ✅
+  
+- [ ] **Task 105.12.1b:** Debug lodash runtime crash - Part 2: Type Confusion
+  - [ ] Get stack trace for TsMap crash
+  - [ ] Identify where TsMap treated as function pointer
+  - [ ] Determine if codegen stores wrong type or runtime retrieves wrong type
   - [ ] Fix the root cause
 
 - [ ] **Task 105.12.2:** `Function.prototype.call/apply/bind` support
