@@ -42,6 +42,23 @@
     },
     {
       "kind": "ExportDeclaration",
+      "moduleSpecifier": "./flattenDeep",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "flattenDeep",
+          "propertyName": null
+        },
+        {
+          "name": "flattenDepth",
+          "propertyName": null
+        }
+      ],
+      "line": 5,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
       "moduleSpecifier": "./take",
       "isStarExport": false,
       "namedExports": [
@@ -54,7 +71,7 @@
           "propertyName": null
         }
       ],
-      "line": 5,
+      "line": 6,
       "column": 1
     },
     {
@@ -71,7 +88,7 @@
           "propertyName": null
         }
       ],
-      "line": 6,
+      "line": 7,
       "column": 1
     },
     {
@@ -100,7 +117,50 @@
           "propertyName": null
         }
       ],
-      "line": 7,
+      "line": 8,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./uniq",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "uniq",
+          "propertyName": null
+        },
+        {
+          "name": "uniqBy",
+          "propertyName": null
+        }
+      ],
+      "line": 9,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./difference",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "difference",
+          "propertyName": null
+        }
+      ],
+      "line": 10,
+      "column": 1
+    },
+    {
+      "kind": "ExportDeclaration",
+      "moduleSpecifier": "./intersection",
+      "isStarExport": false,
+      "namedExports": [
+        {
+          "name": "intersection",
+          "propertyName": null
+        }
+      ],
+      "line": 11,
       "column": 1
     }
   ]

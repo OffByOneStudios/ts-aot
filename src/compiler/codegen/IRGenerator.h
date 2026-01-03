@@ -196,6 +196,9 @@ private:
         llvm::Type* llvmType;
     };
     void collectVariables(ast::Node* node, std::vector<VariableInfo>& vars);
+    
+    // JavaScript function hoisting - pre-register function declarations before body execution
+    void hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn);
 
     struct CapturedVariable {
         std::string name;

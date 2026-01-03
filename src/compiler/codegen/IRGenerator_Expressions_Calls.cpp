@@ -155,7 +155,14 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             size_t argStart = 0;
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
-                thisArg = boxValue(lastValue, node->arguments[0]->inferredType);
+                // CRITICAL: If the argument type is 'any', the value is ALREADY boxed (TsValue*).
+                // Parameters typed 'any' are always TsValue* - do NOT box them again.
+                auto argType = node->arguments[0]->inferredType;
+                if (argType && argType->kind == TypeKind::Any) {
+                    thisArg = lastValue;  // Already boxed - use as-is
+                } else {
+                    thisArg = boxValue(lastValue, argType);
+                }
                 argStart = 1;
             }
 

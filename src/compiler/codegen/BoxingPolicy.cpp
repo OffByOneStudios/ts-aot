@@ -50,6 +50,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_call_6",      {true, true, true, true, true, true, true}},
     {"ts_call_7",      {true, true, true, true, true, true, true, true}},
     {"ts_call_8",      {true, true, true, true, true, true, true, true, true}},
+    {"ts_call_9",      {true, true, true, true, true, true, true, true, true, true}},
+    {"ts_call_10",     {true, true, true, true, true, true, true, true, true, true, true}},
     {"ts_call_n",      {true, false, true}},       // (func, argc, argv[])
 
     // =========================================================================
@@ -386,6 +388,8 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_call_6",
     "ts_call_7",
     "ts_call_8",
+    "ts_call_9",
+    "ts_call_10",
     "ts_async_await",
     "ts_async_iterator_next",
     "ts_cell_get",

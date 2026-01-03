@@ -9,6 +9,7 @@
 #include "TsBuffer.h"
 #include "TsEventEmitter.h"
 #include "TsHttp.h"
+#include "TsRegExp.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -514,36 +515,50 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
+        printf("[ts_object_get_property] obj=%p, keyStr=%s\n", obj, keyStr);
         if (!obj) {
+            printf("[ts_object_get_property] obj is NULL\n");
             return ts_value_make_undefined();
         }
         
-        // Try dynamic_cast for TsIncomingMessage first (has virtual inheritance)
-        TsObject* tsObj = (TsObject*)obj;
-        TsIncomingMessage* incomingMsg = dynamic_cast<TsIncomingMessage*>(tsObj);
-        if (incomingMsg) {
-            if (strcmp(keyStr, "statusCode") == 0) {
-                return ts_value_make_int(incomingMsg->statusCode);
-            }
-            if (strcmp(keyStr, "method") == 0) {
-                return ts_value_make_string(incomingMsg->method);
-            }
-            if (strcmp(keyStr, "url") == 0) {
-                return ts_value_make_string(incomingMsg->url);
-            }
-            if (strcmp(keyStr, "headers") == 0) {
-                return ts_value_make_object(incomingMsg->headers);
-            }
-        }
-        
-        // TsObject layout: vtable (8) + TsObject::vtable member (8) = 16 bytes
-        // TsMap adds: magic (4) + impl (8)
-        // So magic is at offset 16 for TsMap, TsEventEmitter, etc.
+        // IMPORTANT: Check magic FIRST before any dynamic_cast!
+        // Many runtime types (TsRegExp, TsMap, TsArray) don't inherit from TsObject,
+        // so dynamic_cast on them would cause undefined behavior/crashes.
         uint32_t magic0 = *(uint32_t*)obj;
         uint32_t magic8 = *(uint32_t*)((char*)obj + 8);
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
         uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
+
+        printf("[ts_object_get_property] magics: 0=%08X, 8=%08X, 16=%08X\n", magic0, magic8, magic16);
+
+        // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
+        if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+            printf("[ts_object_get_property] Detected TsRegExp\n");
+            TsRegExp* re = (TsRegExp*)obj;
+            if (strcmp(keyStr, "source") == 0) {
+                return ts_value_make_string(re->GetSource());
+            }
+            if (strcmp(keyStr, "flags") == 0) {
+                return ts_value_make_string(re->GetFlags());
+            }
+            if (strcmp(keyStr, "global") == 0) {
+                return ts_value_make_bool(re->IsGlobal());
+            }
+            if (strcmp(keyStr, "ignoreCase") == 0) {
+                return ts_value_make_bool(re->IsIgnoreCase());
+            }
+            if (strcmp(keyStr, "multiline") == 0) {
+                return ts_value_make_bool(re->IsMultiline());
+            }
+            if (strcmp(keyStr, "sticky") == 0) {
+                return ts_value_make_bool(re->IsSticky());
+            }
+            if (strcmp(keyStr, "lastIndex") == 0) {
+                return ts_value_make_int(re->GetLastIndex());
+            }
+            return ts_value_make_undefined();
+        }
 
         // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
@@ -587,6 +602,57 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic8 == 0x45564E54 || magic16 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
             if (strcmp(keyStr, "on") == 0) {
                 return ts_value_make_function((void*)ts_event_emitter_on, obj);
+            }
+        }
+
+        // Check for TsFunction (magic at offset 16 typically) - functions can have properties like _.chunk
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
+            printf("[ts_object_get_property] Detected TsFunction, checking properties\n");
+            TsFunction* func = (TsFunction*)obj;
+            if (func->properties) {
+                TsValue k;
+                k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::Create(keyStr);
+                TsValue val = func->properties->Get(k);
+                if (val.type != ValueType::UNDEFINED) {
+                    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                    *res = val;
+                    return res;
+                }
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Only try dynamic_cast for TsIncomingMessage AFTER all magic checks.
+        // TsIncomingMessage inherits from TsObject, so this is safe.
+        // Do NOT do dynamic_cast on arbitrary pointers - they may not be polymorphic types!
+        // Check if this could be a TsIncomingMessage by looking for typical vtable pattern
+        // TsIncomingMessage has a vtable, and doesn't have magic at common offsets
+        if (magic0 != 0x52454758 && magic0 != 0x41525259 && magic0 != 0x53545247 &&
+            magic0 != 0x42554646 && magic0 != 0x4D415053) {
+            // Might be a polymorphic TsObject - try dynamic_cast carefully
+            printf("[ts_object_get_property] Trying dynamic_cast for TsIncomingMessage...\n");
+            try {
+                TsObject* tsObj = (TsObject*)obj;
+                TsIncomingMessage* incomingMsg = dynamic_cast<TsIncomingMessage*>(tsObj);
+                printf("[ts_object_get_property] dynamic_cast result: %p\n", incomingMsg);
+                if (incomingMsg) {
+                    if (strcmp(keyStr, "statusCode") == 0) {
+                        return ts_value_make_int(incomingMsg->statusCode);
+                    }
+                    if (strcmp(keyStr, "method") == 0) {
+                        return ts_value_make_string(incomingMsg->method);
+                    }
+                    if (strcmp(keyStr, "url") == 0) {
+                        return ts_value_make_string(incomingMsg->url);
+                    }
+                    if (strcmp(keyStr, "headers") == 0) {
+                        return ts_value_make_object(incomingMsg->headers);
+                    }
+                }
+            } catch (...) {
+                // dynamic_cast failed - not a polymorphic type
+                printf("[ts_object_get_property] dynamic_cast threw exception\n");
             }
         }
 
@@ -768,6 +834,32 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[9] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 9, argv);
+        } else {
+            typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn9)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+        }
+    }
+
+    TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
+        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) return ts_value_make_undefined();
+        TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        if (!func) return ts_value_make_undefined();
+        if (func->type == FunctionType::NATIVE) {
+            TsValue* argv[10] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 10, argv);
+        } else {
+            typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn10)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+        }
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
@@ -778,29 +870,39 @@ TsValue* ts_value_make_int(int64_t i) {
         if (argc == 6) return ts_call_6(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
         if (argc == 7) return ts_call_7(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
         if (argc == 8) return ts_call_8(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
-        // For now, cap at 8 args
-        SPDLOG_WARN("ts_function_call called with argc={} > 8; extra args dropped", argc);
-        return ts_call_8(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+        if (argc == 9) return ts_call_9(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
+        if (argc == 10) return ts_call_10(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8], argv[9]);
+        // For now, cap at 10 args
+        SPDLOG_WARN("ts_function_call called with argc={} > 10; extra args dropped", argc);
+        return ts_call_10(boxedFunc, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8], argv[9]);
     }
 
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
+        printf("[ts_function_call_with_this] boxedFunc=%p, thisArg=%p, argc=%d\n", boxedFunc, thisArg, argc);
         if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+            printf("[ts_function_call_with_this] boxedFunc is invalid\n");
             return ts_value_make_undefined();
         }
         TsFunction* func = (TsFunction*)boxedFunc->ptr_val;
+        printf("[ts_function_call_with_this] func=%p\n", func);
         if (!func) {
+            printf("[ts_function_call_with_this] func is NULL\n");
             return ts_value_make_undefined();
         }
 
         // Preserve the captured context and only override when the function has none.
         void* savedCtx = func->context;
         bool patchedCtx = false;
+        printf("[ts_function_call_with_this] func->context=%p, thisArg=%p\n", func->context, thisArg);
         if (!func->context) {
+            printf("[ts_function_call_with_this] Patching context with thisArg\n");
             func->context = thisArg;
             patchedCtx = true;
         }
 
+        printf("[ts_function_call_with_this] About to call ts_function_call\n");
         TsValue* result = ts_function_call(boxedFunc, argc, argv);
+        printf("[ts_function_call_with_this] ts_function_call returned\n");
 
         if (patchedCtx) {
             func->context = savedCtx;
@@ -1196,9 +1298,30 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* keyStr = (TsString*)ts_value_get_string(key);
         if (!keyStr) return value;
 
-        // Check if it's a map
+        // Check multiple magic offsets for TsMap
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+
+        TsString* keyStrDbg = (TsString*)ts_value_get_string(key);
+        const char* keyNameDbg = keyStrDbg ? keyStrDbg->ToUtf8() : "<null>";
+        printf("[ts_object_set_prop] rawObj=%p, key=%s, magic0=%08X, magic16=%08X, magic20=%08X, magic24=%08X\n",
+               rawObj, keyNameDbg, magic0, magic16, magic20, magic24);
+
+        // Check for TsFunction (can have properties like _.chunk)
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
+            printf("[ts_object_set_prop] Detected TsFunction, adding property %s\n", keyNameDbg);
+            TsFunction* func = (TsFunction*)rawObj;
+            if (!func->properties) {
+                func->properties = TsMap::Create();
+            }
+            func->properties->Set(*key, *value);
+            return value;
+        }
+
+        // Check if it's a map
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
             map->Set(*key, *value);
             return value;
@@ -1215,8 +1338,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* keyStr = (TsString*)ts_value_get_string(key);
         if (!keyStr) return false;
 
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
             return map->Has(*key);
         }
