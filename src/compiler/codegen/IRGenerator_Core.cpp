@@ -229,6 +229,34 @@ void IRGenerator::emitLocation(ast::Node* node) {
     builder->SetCurrentDebugLocation(llvm::DILocation::get(*context, node->line, node->column, scope));
 }
 
+llvm::DIType* IRGenerator::createDebugType(std::shared_ptr<Type> type) {
+    if (!debug || !type) {
+        return nullptr;
+    }
+    
+    // Map TypeScript types to LLVM debug types
+    switch (type->kind) {
+        case TypeKind::Int:
+            return diBuilder->createBasicType("number", 64, llvm::dwarf::DW_ATE_signed);
+        case TypeKind::Double:
+            return diBuilder->createBasicType("number", 64, llvm::dwarf::DW_ATE_float);
+        case TypeKind::Boolean:
+            return diBuilder->createBasicType("boolean", 1, llvm::dwarf::DW_ATE_boolean);
+        case TypeKind::String:
+        case TypeKind::Any:
+        case TypeKind::Object:
+        case TypeKind::Array:
+        case TypeKind::Function:
+            // All pointer types represented as generic pointer
+            return diBuilder->createPointerType(nullptr, 64);
+        case TypeKind::Void:
+            return nullptr;
+        default:
+            // Unknown type - use generic pointer
+            return diBuilder->createPointerType(nullptr, 64);
+    }
+}
+
 void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     const auto& globals = analyzer.getSymbolTable().getGlobalSymbols();
     
@@ -634,6 +662,25 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         } else {
             varPtr = createEntryBlockAlloca(builder->GetInsertBlock()->getParent(), id->name, varType);
             namedValues[id->name] = varPtr;
+            
+            // Add debug info for local variable
+            if (debug && !debugScopes.empty()) {
+                llvm::DILocalVariable* debugVar = diBuilder->createAutoVariable(
+                    debugScopes.back(),
+                    id->name,
+                    compileUnit->getFile(),
+                    id->line,
+                    createDebugType(type),
+                    true // alwaysPreserve
+                );
+                diBuilder->insertDeclare(
+                    varPtr,
+                    debugVar,
+                    diBuilder->createExpression(),
+                    llvm::DILocation::get(*context, id->line, id->column, debugScopes.back()),
+                    builder->GetInsertBlock()
+                );
+            }
         }
         builder->CreateStore(value, varPtr);
 

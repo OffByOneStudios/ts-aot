@@ -52,6 +52,7 @@ private:
     bool debugRuntime = false;
 
     void emitLocation(ast::Node* node);
+    llvm::DIType* createDebugType(std::shared_ptr<Type> type);
 
     void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override;
 
