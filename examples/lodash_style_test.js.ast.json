@@ -1,0 +1,630 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 2,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 2,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "lodash_style_test.js: start",
+            "line": 2,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 2,
+        "column": 1
+      },
+      "line": 2,
+      "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "freeExports",
+        "line": 5,
+        "column": 5
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "BinaryExpression",
+        "operator": "&&",
+        "left": {
+          "kind": "BinaryExpression",
+          "operator": "&&",
+          "left": {
+            "kind": "BinaryExpression",
+            "operator": "&&",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "==",
+              "left": {
+                "kind": "PrefixUnaryExpression",
+                "operator": "typeof",
+                "operand": {
+                  "kind": "Identifier",
+                  "name": "exports",
+                  "line": 5,
+                  "column": 26
+                },
+                "line": 5,
+                "column": 19
+              },
+              "right": {
+                "kind": "StringLiteral",
+                "value": "object",
+                "line": 5,
+                "column": 37
+              },
+              "line": 5,
+              "column": 19
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "exports",
+              "line": 5,
+              "column": 49
+            },
+            "line": 5,
+            "column": 19
+          },
+          "right": {
+            "kind": "PrefixUnaryExpression",
+            "operator": "!",
+            "operand": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "exports",
+                "line": 5,
+                "column": 61
+              },
+              "name": "nodeType",
+              "isOptional": false,
+              "line": 5,
+              "column": 61
+            },
+            "line": 5,
+            "column": 60
+          },
+          "line": 5,
+          "column": 19
+        },
+        "right": {
+          "kind": "Identifier",
+          "name": "exports",
+          "line": 5,
+          "column": 81
+        },
+        "line": 5,
+        "column": 19
+      },
+      "line": 5,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 6,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 6,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "freeExports:",
+            "line": 6,
+            "column": 13
+          },
+          {
+            "kind": "ConditionalExpression",
+            "condition": {
+              "kind": "Identifier",
+              "name": "freeExports",
+              "line": 6,
+              "column": 29
+            },
+            "whenTrue": {
+              "kind": "StringLiteral",
+              "value": "truthy",
+              "line": 6,
+              "column": 43
+            },
+            "whenFalse": {
+              "kind": "StringLiteral",
+              "value": "falsy",
+              "line": 6,
+              "column": 54
+            },
+            "line": 6,
+            "column": 29
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 6,
+        "column": 1
+      },
+      "line": 6,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 7,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 7,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "typeof exports:",
+            "line": 7,
+            "column": 13
+          },
+          {
+            "kind": "PrefixUnaryExpression",
+            "operator": "typeof",
+            "operand": {
+              "kind": "Identifier",
+              "name": "exports",
+              "line": 7,
+              "column": 39
+            },
+            "line": 7,
+            "column": 32
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 7,
+        "column": 1
+      },
+      "line": 7,
+      "column": 1
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "freeModule",
+        "line": 9,
+        "column": 5
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "BinaryExpression",
+        "operator": "&&",
+        "left": {
+          "kind": "BinaryExpression",
+          "operator": "&&",
+          "left": {
+            "kind": "BinaryExpression",
+            "operator": "&&",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "&&",
+              "left": {
+                "kind": "Identifier",
+                "name": "freeExports",
+                "line": 9,
+                "column": 18
+              },
+              "right": {
+                "kind": "BinaryExpression",
+                "operator": "==",
+                "left": {
+                  "kind": "PrefixUnaryExpression",
+                  "operator": "typeof",
+                  "operand": {
+                    "kind": "Identifier",
+                    "name": "module",
+                    "line": 9,
+                    "column": 40
+                  },
+                  "line": 9,
+                  "column": 33
+                },
+                "right": {
+                  "kind": "StringLiteral",
+                  "value": "object",
+                  "line": 9,
+                  "column": 50
+                },
+                "line": 9,
+                "column": 33
+              },
+              "line": 9,
+              "column": 18
+            },
+            "right": {
+              "kind": "Identifier",
+              "name": "module",
+              "line": 9,
+              "column": 62
+            },
+            "line": 9,
+            "column": 18
+          },
+          "right": {
+            "kind": "PrefixUnaryExpression",
+            "operator": "!",
+            "operand": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "module",
+                "line": 9,
+                "column": 73
+              },
+              "name": "nodeType",
+              "isOptional": false,
+              "line": 9,
+              "column": 73
+            },
+            "line": 9,
+            "column": 72
+          },
+          "line": 9,
+          "column": 18
+        },
+        "right": {
+          "kind": "Identifier",
+          "name": "module",
+          "line": 9,
+          "column": 92
+        },
+        "line": 9,
+        "column": 18
+      },
+      "line": 9,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 10,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 10,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "freeModule:",
+            "line": 10,
+            "column": 13
+          },
+          {
+            "kind": "ConditionalExpression",
+            "condition": {
+              "kind": "Identifier",
+              "name": "freeModule",
+              "line": 10,
+              "column": 28
+            },
+            "whenTrue": {
+              "kind": "StringLiteral",
+              "value": "truthy",
+              "line": 10,
+              "column": 41
+            },
+            "whenFalse": {
+              "kind": "StringLiteral",
+              "value": "falsy",
+              "line": 10,
+              "column": 52
+            },
+            "line": 10,
+            "column": 28
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 10,
+        "column": 1
+      },
+      "line": 10,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 11,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 11,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "typeof module:",
+            "line": 11,
+            "column": 13
+          },
+          {
+            "kind": "PrefixUnaryExpression",
+            "operator": "typeof",
+            "operand": {
+              "kind": "Identifier",
+              "name": "module",
+              "line": 11,
+              "column": 38
+            },
+            "line": 11,
+            "column": 31
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 11,
+        "column": 1
+      },
+      "line": 11,
+      "column": 1
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "Identifier",
+        "name": "freeModule",
+        "line": 13,
+        "column": 5
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "body": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "console",
+                  "line": 14,
+                  "column": 5
+                },
+                "name": "log",
+                "isOptional": false,
+                "line": 14,
+                "column": 5
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "Inside freeModule block!",
+                  "line": 14,
+                  "column": 17
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 14,
+              "column": 5
+            },
+            "line": 14,
+            "column": 5
+          },
+          {
+            "kind": "VariableDeclaration",
+            "name": {
+              "kind": "Identifier",
+              "name": "_",
+              "line": 15,
+              "column": 9
+            },
+            "isExported": false,
+            "type": "",
+            "initializer": {
+              "kind": "ObjectLiteralExpression",
+              "properties": [
+                {
+                  "kind": "PropertyAssignment",
+                  "name": "version",
+                  "nameNode": {
+                    "kind": "Identifier",
+                    "name": "version",
+                    "line": 15,
+                    "column": 15
+                  },
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "test",
+                    "line": 15,
+                    "column": 24
+                  }
+                }
+              ],
+              "line": 15,
+              "column": 13
+            },
+            "line": 15,
+            "column": 5
+          },
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "AssignmentExpression",
+              "left": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "ParenthesizedExpression",
+                  "expression": {
+                    "kind": "AssignmentExpression",
+                    "left": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "freeModule",
+                        "line": 16,
+                        "column": 6
+                      },
+                      "name": "exports",
+                      "isOptional": false,
+                      "line": 16,
+                      "column": 6
+                    },
+                    "right": {
+                      "kind": "Identifier",
+                      "name": "_",
+                      "line": 16,
+                      "column": 27
+                    },
+                    "line": 16,
+                    "column": 6
+                  },
+                  "line": 16,
+                  "column": 5
+                },
+                "name": "_",
+                "isOptional": false,
+                "line": 16,
+                "column": 5
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "_",
+                "line": 16,
+                "column": 34
+              },
+              "line": 16,
+              "column": 5
+            },
+            "line": 16,
+            "column": 5
+          },
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "CallExpression",
+              "callee": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "console",
+                  "line": 17,
+                  "column": 5
+                },
+                "name": "log",
+                "isOptional": false,
+                "line": 17,
+                "column": 5
+              },
+              "arguments": [
+                {
+                  "kind": "StringLiteral",
+                  "value": "Assigned _ to freeModule.exports",
+                  "line": 17,
+                  "column": 17
+                }
+              ],
+              "typeArguments": [],
+              "isOptional": false,
+              "line": 17,
+              "column": 5
+            },
+            "line": 17,
+            "column": 5
+          }
+        ],
+        "line": 13,
+        "column": 17
+      },
+      "elseStatement": null,
+      "line": 13,
+      "column": 1
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 20,
+            "column": 1
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 20,
+          "column": 1
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "lodash_style_test.js: done",
+            "line": 20,
+            "column": 13
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 20,
+        "column": 1
+      },
+      "line": 20,
+      "column": 1
+    }
+  ]
+}

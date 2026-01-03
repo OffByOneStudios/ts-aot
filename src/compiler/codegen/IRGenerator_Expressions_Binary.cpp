@@ -904,7 +904,9 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
         createCall(setFt, setFn.getCallee(), { arr, index, storeVal });
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
-        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
+        // For JavaScript slow-path: null inferredType or TypeKind::Any means dynamic object
+        bool exprIsAny = !prop->expression->inferredType || prop->expression->inferredType->kind == TypeKind::Any;
+        if (exprIsAny) {
             visit(prop->expression.get());
             llvm::Value* obj = boxValue(lastValue, prop->expression->inferredType);
             
