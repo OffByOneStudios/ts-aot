@@ -69,8 +69,9 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     }
 
     // Check if either side is 'any' - use slow path for arithmetic and comparison
-    bool leftIsAny = node->left->inferredType && node->left->inferredType->kind == TypeKind::Any;
-    bool rightIsAny = node->right->inferredType && node->right->inferredType->kind == TypeKind::Any;
+    // Treat null inferredType as 'any' (can happen for some JavaScript expressions)
+    bool leftIsAny = !node->left->inferredType || node->left->inferredType->kind == TypeKind::Any;
+    bool rightIsAny = !node->right->inferredType || node->right->inferredType->kind == TypeKind::Any;
 
     if (leftIsAny || rightIsAny) {
         std::string runtimeFn = "";
@@ -221,21 +222,71 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (isDouble) {
             lastValue = builder->CreateFAdd(left, right, "addtmp");
         } else {
-            lastValue = builder->CreateAdd(left, right, "addtmp");
+            // SAFETY: If either operand is still a pointer, use runtime ts_value_add
+            if (left->getType()->isPointerTy() || right->getType()->isPointerTy()) {
+                llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+                llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_add", ft);
+                lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+                boxedValues.insert(lastValue);
+            } else {
+                lastValue = builder->CreateAdd(left, right, "addtmp");
+            }
         }
     } else if (node->op == "-" || node->op == "-=") {
-        if (isDouble) lastValue = builder->CreateFSub(left, right, "subtmp");
-        else lastValue = builder->CreateSub(left, right, "subtmp");
+        // SAFETY: If either operand is still a pointer, use runtime ts_value_sub
+        if (left->getType()->isPointerTy() || right->getType()->isPointerTy()) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_sub", ft);
+            lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            boxedValues.insert(lastValue);
+        } else if (isDouble) {
+            lastValue = builder->CreateFSub(left, right, "subtmp");
+        } else {
+            lastValue = builder->CreateSub(left, right, "subtmp");
+        }
     } else if (node->op == "*" || node->op == "*=") {
-        if (isDouble) lastValue = builder->CreateFMul(left, right, "multmp");
-        else lastValue = builder->CreateMul(left, right, "multmp");
+        // SAFETY: If either operand is still a pointer, use runtime
+        if (left->getType()->isPointerTy() || right->getType()->isPointerTy()) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_mul", ft);
+            lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            boxedValues.insert(lastValue);
+        } else if (isDouble) {
+            lastValue = builder->CreateFMul(left, right, "multmp");
+        } else {
+            lastValue = builder->CreateMul(left, right, "multmp");
+        }
     } else if (node->op == "/" || node->op == "/=") {
-        // In TypeScript, division is always floating point
-        if (!left->getType()->isDoubleTy()) left = castValue(left, llvm::Type::getDoubleTy(*context));
-        if (!right->getType()->isDoubleTy()) right = castValue(right, llvm::Type::getDoubleTy(*context));
-        lastValue = builder->CreateFDiv(left, right, "divtmp");
+        // SAFETY: If either operand is still a pointer, use runtime
+        if (left->getType()->isPointerTy() || right->getType()->isPointerTy()) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_div", ft);
+            lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            boxedValues.insert(lastValue);
+        } else {
+            // In TypeScript, division is always floating point
+            if (!left->getType()->isDoubleTy()) left = castValue(left, llvm::Type::getDoubleTy(*context));
+            if (!right->getType()->isDoubleTy()) right = castValue(right, llvm::Type::getDoubleTy(*context));
+            lastValue = builder->CreateFDiv(left, right, "divtmp");
+        }
     } else if (node->op == "%" || node->op == "%=") {
-        if (isDouble) {
+        // SAFETY: If either operand is still a pointer, use runtime
+        if (left->getType()->isPointerTy() || right->getType()->isPointerTy()) {
+            llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+            llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_value_mod", ft);
+            lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
+            boxedValues.insert(lastValue);
+        } else if (isDouble) {
             lastValue = builder->CreateFRem(left, right, "remtmp");
         } else {
             // In JS, % can return double even for integers if operands are large, 
