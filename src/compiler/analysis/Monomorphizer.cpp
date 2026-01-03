@@ -99,33 +99,60 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             (path.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
             (path.size() >= 9 && path.substr(path.size() - 9) == "lodash.js");
 
-        // For crash localization: log immediately on module init entry.
-        if (isLodashModule) {
-            moduleInit->body.insert(moduleInit->body.begin(),
-                                    makeConsoleLogStatement("lodash_module_init_entry"));
-        }
-
         std::vector<std::unique_ptr<ast::Statement>> newBody;
+        if (isLodashModule) {
+            fmt::print("Monomorphizer: lodash module->ast->body has {} statements:\n", module->ast->body.size());
+            for (size_t i = 0; i < module->ast->body.size(); ++i) {
+                fmt::print("  [{}]: {}\n", i, module->ast->body[i]->getKind());
+            }
+        }
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
+            if (isLodashModule) {
+                fmt::print("  Processing stmt: {}\n", kind);
+            }
             if (kind == "FunctionDeclaration" || 
                 kind == "ClassDeclaration" ||
                 kind == "InterfaceDeclaration" ||
                 kind == "ImportDeclaration" ||
                 kind == "ExportDeclaration") {
                 newBody.push_back(std::move(stmt));
+                if (isLodashModule) {
+                    fmt::print("    -> Moved to newBody\n");
+                }
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
                 // fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
+                if (isLodashModule) {
+                    fmt::print("    -> Moved to moduleInit (now {} stmts)\n", moduleInit->body.size());
+                }
             }
         }
 
-        // Targeted debug markers for lodash: try to find the top-level IIFE and
-        // insert:
-        //  - a log immediately before the IIFE call statement
-        //  - a log at the start of the IIFE function body
+        // For crash localization: log immediately on module init entry.
         if (isLodashModule) {
+            // Build a snapshot of statement kinds AFTER moving from AST (avoid commas in output)
+            std::string kinds_summary = "lodash_stmts=[";
+            for (size_t i = 0; i < moduleInit->body.size(); ++i) {
+                if (i > 0) kinds_summary += "|";  // Use | instead of comma
+                kinds_summary += moduleInit->body[i]->getKind();
+            }
+            kinds_summary += "]";
+            fmt::print("After moving statements, moduleInit->body: {}\n", kinds_summary);
+            
+            moduleInit->body.insert(moduleInit->body.begin(),
+                                    makeConsoleLogStatement(kinds_summary));
+            moduleInit->body.insert(moduleInit->body.begin() + 1,
+                                    makeConsoleLogStatement("lodash_module_init_entry"));
+        }
+
+        // Targeted debug markers for lodash: DISABLED for now
+        if (false && isLodashModule) {
+            // Add marker showing how many statements we're about to traverse
+            std::string sizeMsg = "lodash_moduleInit_stmts=" + std::to_string(moduleInit->body.size());
+            moduleInit->body.insert(moduleInit->body.begin() + 1, makeConsoleLogStatement(sizeMsg));
+            
             for (size_t stmtIndex = 0; stmtIndex < moduleInit->body.size(); ++stmtIndex) {
                 auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(moduleInit->body[stmtIndex].get());
                 if (!exprStmt || !exprStmt->expression) continue;
@@ -141,16 +168,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 auto* fn = dynamic_cast<ast::FunctionExpression*>(innerExpr);
                 if (!fn) continue;
 
-                moduleInit->body.insert(moduleInit->body.begin() + (ptrdiff_t)stmtIndex,
-                                        makeConsoleLogStatement("lodash_before_iife_call"));
-                fn->body.insert(fn->body.begin(), makeConsoleLogStatement("lodash_iife_enter"));
+                // Found IIFE - add markers before and after the call
+                std::string beforeMarker = "lodash_before_iife_at_stmt=" + std::to_string(stmtIndex);
+                moduleInit->body.insert(moduleInit->body.begin() + stmtIndex, makeConsoleLogStatement(beforeMarker));
                 
-                // Add a marker after the first 50 statements to see if we get past the initial declarations
-                if (fn->body.size() > 50) {
-                    fn->body.insert(fn->body.begin() + 50, makeConsoleLogStatement("lodash_iife_after_50"));
-                }
+                // After inserting before marker, the IIFE is now at stmtIndex + 1
+                // Insert after marker at stmtIndex + 2
+                moduleInit->body.insert(moduleInit->body.begin() + stmtIndex + 2, 
+                                       makeConsoleLogStatement("lodash_after_iife"));
                 
-                fn->body.push_back(makeConsoleLogStatement("lodash_iife_exit"));
+                // DON'T add markers inside the IIFE - they might corrupt something
                 
                 break;
             }
