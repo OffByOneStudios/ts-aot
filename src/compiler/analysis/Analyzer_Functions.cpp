@@ -389,16 +389,10 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 
     setContextForFunction();
 
-    // For untyped/opaque modules, analyze permissively.
-    if (suppressErrors || currentModuleType == ModuleType::UntypedJavaScript || skipUntypedSemantic) {
-        auto anyType = std::make_shared<Type>(TypeKind::Any);
-        currentModule = oldModule;
-        currentFilePath = oldPath;
-        currentModuleType = oldModuleType;
-        suppressErrors = oldSuppressErrors;
-        skipUntypedSemantic = oldSkipUntyped;
-        return anyType;
-    }
+    // For untyped/opaque modules, we still need to visit statements to set inferredType on AST nodes.
+    // This is required for codegen to work correctly (e.g., knowing when to use ts_object_set_prop).
+    // We just skip error checking and return `any`.
+    bool isUntypedModule = (currentModuleType == ModuleType::UntypedJavaScript || suppressErrors || skipUntypedSemantic);
 
     symbols.enterScope();
 
@@ -555,6 +549,11 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
     skipUntypedSemantic = oldSkipUntyped;
+    
+    // For untyped modules, always return any regardless of inferred type
+    if (isUntypedModule) {
+        return std::make_shared<Type>(TypeKind::Any);
+    }
     return inferredReturnType;
 }
 

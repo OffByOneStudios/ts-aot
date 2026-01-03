@@ -99,6 +99,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             (path.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
             (path.size() >= 9 && path.substr(path.size() - 9) == "lodash.js");
 
+        // For JavaScript modules, FunctionDeclarations should be moved to moduleInit
+        // because JavaScript function hoisting happens at runtime within the module scope.
+        // For TypeScript, FunctionDeclarations are kept in newBody and processed by the monomorphizer.
+        const bool isJavaScriptModule = (module->type == ModuleType::UntypedJavaScript || 
+                                         module->type == ModuleType::TypedJavaScript);
+
         std::vector<std::unique_ptr<ast::Statement>> newBody;
         if (isLodashModule) {
             fmt::print("Monomorphizer: lodash module->ast->body has {} statements:\n", module->ast->body.size());
@@ -111,11 +117,21 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             if (isLodashModule) {
                 fmt::print("  Processing stmt: {}\n", kind);
             }
-            if (kind == "FunctionDeclaration" || 
-                kind == "ClassDeclaration" ||
+            // For JavaScript: move FunctionDeclarations to moduleInit (runtime hoisting)
+            // For TypeScript: keep FunctionDeclarations in newBody (compile-time processing)
+            bool keepInNewBody = false;
+            if (kind == "ClassDeclaration" ||
                 kind == "InterfaceDeclaration" ||
                 kind == "ImportDeclaration" ||
                 kind == "ExportDeclaration") {
+                keepInNewBody = true;
+            } else if (kind == "FunctionDeclaration") {
+                // TypeScript: keep for monomorphization
+                // JavaScript: move to moduleInit for runtime hoisting
+                keepInNewBody = !isJavaScriptModule;
+            }
+            
+            if (keepInNewBody) {
                 newBody.push_back(std::move(stmt));
                 if (isLodashModule) {
                     fmt::print("    -> Moved to newBody\n");
