@@ -90,7 +90,6 @@ void IRGenerator::generatePrototypes(const std::vector<Specialization>& speciali
         llvm::Type* returnType = getLLVMType(spec.returnType);
         llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, argTypes, false);
 
-        printf("Creating prototype: %s with %zu args\n", spec.specializedName.c_str(), argTypes.size());
         SPDLOG_DEBUG("Creating prototype: {} with {} args", spec.specializedName, argTypes.size());
         llvm::Function* func = llvm::Function::Create(funcType, llvm::Function::ExternalLinkage, spec.specializedName, module.get());
         addStackProtection(func);
@@ -119,7 +118,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         }
         llvm::Function* function = module->getFunction(spec.specializedName);
         if (!function) {
-            printf("Function %s not found in module\n", spec.specializedName.c_str());
+            SPDLOG_WARN("Function {} not found in module", spec.specializedName);
             continue;
         }
 
@@ -128,7 +127,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         }
 
         if (!function->empty()) {
-            printf("Function %s already has body\n", spec.specializedName.c_str());
+            SPDLOG_DEBUG("Function {} already has body", spec.specializedName);
             continue;
         }
 
@@ -155,8 +154,6 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         }
 
         SPDLOG_DEBUG("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
-        printf("Generating body for: %s isAsync: %d\n", spec.specializedName.c_str(), isAsync);
-        SPDLOG_INFO("Generating body for: {} isAsync: {} isGenerator: {}", spec.specializedName, isAsync, isGenerator);
 
         // Clear function-specific state
         namedValues.clear();

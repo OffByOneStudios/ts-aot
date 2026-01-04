@@ -251,29 +251,23 @@ std::unique_ptr<Program> loadAst(const std::string& jsonPath) {
         // If the statement is a BlockStatement from MultipleVariableDeclarations expansion,
         // flatten it by adding each statement directly
         if (auto block = dynamic_cast<BlockStatement*>(stmt.get())) {
-            fmt::print("flattenAndAdd: Flattening BlockStatement with {} statements\n", block->statements.size());
             for (auto& s : block->statements) {
-                fmt::print("  Adding flattened: {}\n", s->getKind());
                 program->body.push_back(std::move(s));
             }
         } else {
-            fmt::print("flattenAndAdd: Adding {}\n", stmt->getKind());
             program->body.push_back(std::move(stmt));
         }
     };
     
     if (j.contains("body")) {
-        fmt::print("AST has 'body' with {} statements\n", j["body"].size());
         for (const auto& stmt : j["body"]) {
             flattenAndAdd(parseStatement(stmt));
         }
     } else if (j.contains("statements")) {
-        fmt::print("AST has 'statements' with {} items\n", j["statements"].size());
         for (const auto& stmt : j["statements"]) {
             flattenAndAdd(parseStatement(stmt));
         }
     }
-    fmt::print("Program body has {} statements after loading\n", program->body.size());
     
     return program;
 }
