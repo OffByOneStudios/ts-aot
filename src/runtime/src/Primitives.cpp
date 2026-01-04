@@ -268,10 +268,10 @@ TsString* ts_typeof(void* val) {
     }
     
     // Now check for boxed TsValue* 
-    // A TsValue has type byte at offset 0, and the valid range is 0-9
+    // A TsValue has type byte at offset 0, and the valid range is 0-10 (includes FUNCTION_PTR)
     // Magic numbers have much larger first bytes (0x41, 0x42, 0x46, 0x4D, 0x53)
     uint8_t firstByte = *(uint8_t*)val;
-    if (firstByte <= 9) {
+    if (firstByte <= 10) {
         TsValue* tv = (TsValue*)val;
         switch (tv->type) {
             case ValueType::UNDEFINED:
@@ -283,6 +283,8 @@ TsString* ts_typeof(void* val) {
                 return TsString::Create("boolean");
             case ValueType::STRING_PTR:
                 return TsString::Create("string");
+            case ValueType::FUNCTION_PTR:
+                return TsString::Create("function");
             case ValueType::OBJECT_PTR:
                 if (!tv->ptr_val) return TsString::Create("object"); // null
                 // Recursively check the inner pointer

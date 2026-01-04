@@ -194,7 +194,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_is_nullish",   {true}},             // (TsValue*) -> bool
     {"ts_value_length",       {true}},             // (TsValue*) -> int
     {"ts_value_to_bool",      {true}},             // (TsValue*) -> bool
-    {"ts_value_typeof",       {true}},             // (TsValue*) -> TsValue* (string)
+    {"ts_value_typeof",       {true}},             // (TsValue*) -> TsString*
     {"ts_object_get_prop",    {true, true}},       // (obj, key) -> TsValue*
     {"ts_object_get_property", {false, false}},    // (obj, key) -> TsValue*
     {"ts_object_set_prop",    {true, true, true}}, // (obj, key, value) -> TsValue*

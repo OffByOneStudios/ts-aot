@@ -1710,6 +1710,32 @@ void IRGenerator::initTsValueType() {
     });
 }
 
+// Convert TypeKind to runtime ValueType enum value
+// Must match runtime/include/TsObject.h ValueType enum
+static uint8_t typeKindToValueType(ts::TypeKind kind) {
+    switch (kind) {
+        case ts::TypeKind::Undefined: return 0;  // UNDEFINED
+        case ts::TypeKind::Int:       return 1;  // NUMBER_INT
+        case ts::TypeKind::Double:    return 2;  // NUMBER_DBL
+        case ts::TypeKind::Boolean:   return 3;  // BOOLEAN
+        case ts::TypeKind::String:    return 4;  // STRING_PTR
+        case ts::TypeKind::Object:
+        case ts::TypeKind::Class:
+        case ts::TypeKind::Interface:
+        case ts::TypeKind::Intersection:
+        case ts::TypeKind::Map:
+        case ts::TypeKind::SetType:   return 5;  // OBJECT_PTR
+        // Note: TypeKind::Promise conflicts with Windows macro, using explicit namespace
+        case (ts::TypeKind)16:        return 6;  // PROMISE_PTR (TypeKind::Promise = 16)
+        case ts::TypeKind::Array:
+        case ts::TypeKind::Tuple:     return 7;  // ARRAY_PTR
+        case ts::TypeKind::BigInt:    return 8;  // BIGINT_PTR
+        case ts::TypeKind::Symbol:    return 9;  // SYMBOL_PTR
+        case ts::TypeKind::Function:  return 10; // FUNCTION_PTR
+        default:                      return 5;  // Default to OBJECT_PTR for unknown types
+    }
+}
+
 llvm::Value* IRGenerator::emitInlineBox(llvm::Value* rawPtr, uint8_t valueType) {
     initTsValueType();
     

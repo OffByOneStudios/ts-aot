@@ -373,10 +373,19 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         if (argType && argType->kind == TypeKind::Class) {
                             concreteTypes[argVal] = std::static_pointer_cast<ClassType>(argType).get();
                         }
-                        // Mark function parameters with function types as already boxed
-                        // (they're boxed by the caller before being passed)
-                        if (argType && argType->kind == TypeKind::Function && argVal->getType()->isPointerTy()) {
-                            boxedValues.insert(argVal);
+                        // Mark pointer-type parameters as already boxed if they could be TsValue*
+                        // This happens when:
+                        // - Function types (passed as boxed TsFunction*)
+                        // - Object/Class/Interface types (may be passed as boxed TsValue* from any-typed callers)
+                        // This prevents double-boxing when storing to cells
+                        if (argVal->getType()->isPointerTy()) {
+                            if (argType && (argType->kind == TypeKind::Function ||
+                                           argType->kind == TypeKind::Object ||
+                                           argType->kind == TypeKind::Class ||
+                                           argType->kind == TypeKind::Interface ||
+                                           argType->kind == TypeKind::Any)) {
+                                boxedValues.insert(argVal);
+                            }
                         }
                         // Apply runtime defaulting here so primitives can be unboxed correctly.
                         if (param->initializer && !param->isRest) {

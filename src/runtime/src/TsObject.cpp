@@ -279,7 +279,7 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
         TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        v->type = ValueType::OBJECT_PTR;
+        v->type = ValueType::FUNCTION_PTR;
         v->ptr_val = func;
         return v;
     }
@@ -290,13 +290,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // Explicitly set magic using member access instead of offset calculation
         func->magic = TsFunction::MAGIC;
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        v->type = ValueType::OBJECT_PTR;
+        v->type = ValueType::FUNCTION_PTR;
         v->ptr_val = func;
         return v;
     }
 
     void* ts_function_get_ptr(TsValue* val) {
-        if (!val || val->type != ValueType::OBJECT_PTR) return nullptr;
+        if (!val) return nullptr;
+        // Accept both FUNCTION_PTR and OBJECT_PTR for backwards compatibility
+        if (val->type != ValueType::FUNCTION_PTR && val->type != ValueType::OBJECT_PTR) return nullptr;
         TsFunction* func = (TsFunction*)val->ptr_val;
         return func->funcPtr;
     }
@@ -608,9 +610,6 @@ TsValue* ts_value_make_int(int64_t i) {
             k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::GetInterned(keyStr);
             TsValue val = map->Get(k);
-            if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
-                uint32_t valMagic = *(uint32_t*)val.ptr_val;
-            }
             return ts_property_return_value(val);
         }
 
@@ -784,7 +783,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Helper to safely extract TsFunction from boxed value
     static TsFunction* ts_extract_function(TsValue* boxedFunc) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
+        if (!boxedFunc) {
+            return nullptr;
+        }
+        // Accept both FUNCTION_PTR and OBJECT_PTR for backward compatibility
+        if (boxedFunc->type != ValueType::FUNCTION_PTR && boxedFunc->type != ValueType::OBJECT_PTR) {
             return nullptr;
         }
         void* ptr = boxedFunc->ptr_val;
@@ -811,18 +814,8 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
-            return ts_value_make_undefined();
-        }
-        void* ptr = boxedFunc->ptr_val;
-        if (!ptr) {
-            return ts_value_make_undefined();
-        }
-        // Check if this is actually a TsFunction (has FUNC magic)
-        TsFunction* func = (TsFunction*)ptr;
-        if (func->magic != TsFunction::MAGIC) {
-            return ts_value_make_undefined();
-        }
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
@@ -1266,40 +1259,41 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_bool(ts_value_get_double(a) >= ts_value_get_double(b));
     }
 
-    TsValue* ts_value_typeof(TsValue* v) {
-        if (!v) return ts_value_make_string((void*)TsString::Create("undefined"));
+    TsString* ts_value_typeof(TsValue* v) {
+        if (!v) return TsString::Create("undefined");
 
 #ifdef _MSC_VER
         __try {
 #endif
             // Check for raw TsString
             uint32_t magic = *(uint32_t*)v;
-            if (magic == 0x53545247) return ts_value_make_string((void*)TsString::Create("string"));
+            if (magic == 0x53545247) return TsString::Create("string");
 #ifdef _MSC_VER
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            return ts_value_make_string((void*)TsString::Create("undefined"));
+            return TsString::Create("undefined");
         }
 #endif
 
         switch (v->type) {
-            case ValueType::UNDEFINED: return ts_value_make_string((void*)TsString::Create("undefined"));
+            case ValueType::UNDEFINED: return TsString::Create("undefined");
             case ValueType::NUMBER_INT:
-            case ValueType::NUMBER_DBL: return ts_value_make_string((void*)TsString::Create("number"));
-            case ValueType::BOOLEAN: return ts_value_make_string((void*)TsString::Create("boolean"));
-            case ValueType::STRING_PTR: return ts_value_make_string((void*)TsString::Create("string"));
+            case ValueType::NUMBER_DBL: return TsString::Create("number");
+            case ValueType::BOOLEAN: return TsString::Create("boolean");
+            case ValueType::STRING_PTR: return TsString::Create("string");
+            case ValueType::FUNCTION_PTR: return TsString::Create("function");
             case ValueType::OBJECT_PTR: {
-                if (!v->ptr_val) return ts_value_make_string((void*)TsString::Create("object"));
-                // Check if it's a function
+                if (!v->ptr_val) return TsString::Create("object");
+                // Check if it's a function (legacy magic number support)
                 uint32_t magic = *(uint32_t*)v->ptr_val;
                 uint32_t magic8 = *(uint32_t*)((char*)v->ptr_val + 8);
                 uint32_t magic16 = *(uint32_t*)((char*)v->ptr_val + 16);
                 uint32_t magic24 = *(uint32_t*)((char*)v->ptr_val + 24);
                 if (magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43) 
-                    return ts_value_make_string((void*)TsString::Create("function"));
-                return ts_value_make_string((void*)TsString::Create("object"));
+                    return TsString::Create("function");
+                return TsString::Create("object");
             }
-            case ValueType::ARRAY_PTR: return ts_value_make_string((void*)TsString::Create("object"));
-            default: return ts_value_make_string((void*)TsString::Create("object"));
+            case ValueType::ARRAY_PTR: return TsString::Create("object");
+            default: return TsString::Create("object");
         }
     }
 

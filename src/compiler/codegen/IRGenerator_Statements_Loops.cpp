@@ -544,6 +544,7 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     if (!obj) return;
 
     llvm::Value* keys = nullptr;
+    bool keysAreBoxed = false;  // Track if keys from ts_object_keys are boxed TsValue*
     if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Class)) {
         llvm::FunctionType* createArrFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
         llvm::FunctionCallee createArrFn = getRuntimeFunction("ts_array_create", createArrFt);
@@ -576,6 +577,8 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     } else {
         // For Any, Function, or any other type - use ts_object_keys with proper boxing
         // This handles all dynamic types correctly including functions
+        // NOTE: ts_object_keys returns keys as boxed TsValue*, need to unbox in loop
+        keysAreBoxed = true;
         llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
         llvm::FunctionType* keysFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee keysFn = getRuntimeFunction("ts_object_keys", keysFt);
@@ -616,6 +619,13 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
     llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get", getFt);
     llvm::Value* key = createCall(getFt, getFn.getCallee(), { currKeys, index });
+    
+    // If keys came from ts_object_keys, they are boxed TsValue* - need to unbox to get raw TsString*
+    if (keysAreBoxed) {
+        llvm::FunctionType* getStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getStrFn = getRuntimeFunction("ts_value_get_string", getStrFt);
+        key = createCall(getStrFt, getStrFn.getCallee(), { key });
+    }
     boxedValues.insert(key);
 
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
