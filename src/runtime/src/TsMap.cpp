@@ -102,6 +102,7 @@ TsMap* TsMap::Create() {
 }
 
 TsMap::TsMap() {
+    TsObject::magic = MAGIC;  // Set base class magic for type detection
     void* mem = ts_alloc(sizeof(MapType));
     impl = new(mem) MapType();
 }

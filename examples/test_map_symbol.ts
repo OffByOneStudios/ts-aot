@@ -1,9 +1,7 @@
-const m = new Map();
-console.log("Created map");
+﻿const m = new Map();
 m.set("a", 1);
-console.log("Set a=1, size:", m.size);
+m.set(2, "b");
+m.set(BigInt(3), "c");
 const s = Symbol("d");
-console.log("Created symbol:", s);
 m.set(s, "e");
-console.log("Set symbol=e, size:", m.size);
-console.log("All done!");
+console.log("Map size (should be 4):", m.size);

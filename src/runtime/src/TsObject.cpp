@@ -337,7 +337,27 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // Check type field first - if valid TsValue type (0-10), use it directly
+        // FIRST: Check for TsObject-derived classes with vtable
+        // Layout: [vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
+        // So TsObject::magic is at offset 16
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC
+            return v;
+        }
+        if (magic16 == 0x53455453) { // TsSet::MAGIC
+            return v;
+        }
+        if (magic16 == 0x41525259) { // TsArray::MAGIC
+            return v;
+        }
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC
+            return v;
+        }
+        if (magic16 == 0x42554646) { // TsBuffer::MAGIC
+            return v;
+        }
+
+        // Check type field - if valid TsValue type (0-10), use it
         uint8_t typeField = *(uint8_t*)v;
         if (typeField <= 10) {
             // It's a proper TsValue
@@ -350,8 +370,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // Type > 10 means this might be a raw pointer (TsArray*, TsMap*, etc.)
-        // Check magic numbers to identify the type
+        // Type > 10 means this might be a raw pointer without vtable
+        // Check magic at offset 0 for structs without virtual methods
         uint32_t magic = *(uint32_t*)v;
         if (magic == 0x41525259) { // TsArray::MAGIC
             return v;
@@ -366,18 +386,10 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // Check for objects with vtable (magic at offset 8)
+        // Check offset 8 for objects with different layout
         uint32_t magic8 = *(uint32_t*)((char*)v + 8);
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
-            return v;
-        }
-        if (magic8 == 0x4D415053) { // TsMap::MAGIC at offset 8
-            return v;
-        }
-
-        // Check offset 16 (some objects have magic there due to virtual inheritance)
-        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
-        if (magic16 == 0x4D415053 || magic16 == 0x46554E43) {
+        if (magic8 == 0x4D415053 || magic8 == 0x42554646 || 
+            magic8 == 0x53455453 || magic8 == 0x46554E43) {
             return v;
         }
 

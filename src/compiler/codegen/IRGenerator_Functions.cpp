@@ -501,7 +501,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 // Find the module that corresponds to this init function
                 for (auto& [path, mod] : analyzer->modules) {
                     std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
-                    if (initName == spec.specializedName && mod->ast) {
+                    // The specializedName has a type suffix like "_any", so check if it starts with initName
+                    if (spec.specializedName.starts_with(initName) && mod->ast) {
                         // Process ImportDeclarations for JSON modules
                         for (auto& stmt : mod->ast->body) {
                             if (auto importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get())) {
@@ -511,6 +512,12 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                                     if (modIt != analyzer->modules.end() && modIt->second->jsonContent.has_value()) {
                                         llvm::Value* jsonVal = generateJsonValue(modIt->second->jsonContent.value());
                                         if (!importDecl->defaultImport.empty()) {
+                                            // Store to global variable (for later loads)
+                                            llvm::GlobalVariable* gv = module->getGlobalVariable(importDecl->defaultImport);
+                                            if (gv) {
+                                                builder->CreateStore(jsonVal, gv);
+                                            }
+                                            // Also set up local namedValues for immediate use
                                             llvm::AllocaInst* alloca = createEntryBlockAlloca(function, importDecl->defaultImport, builder->getPtrTy());
                                             builder->CreateStore(jsonVal, alloca);
                                             namedValues[importDecl->defaultImport] = alloca;
