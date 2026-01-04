@@ -1783,6 +1783,82 @@ llvm::Value* IRGenerator::emitTypeCheck(llvm::Value* boxedVal, uint8_t expectedT
     return builder->CreateICmpEQ(actualType, builder->getInt8(expectedType), "typeMatch");
 }
 
+// ============================================================================
+// Value-passing API Helpers (_v variants)
+// ============================================================================
+// These helpers call runtime functions that take/return TsValue by value.
+// This avoids heap allocation for intermediate TsValue objects.
+
+llvm::Value* IRGenerator::emitObjectGetPropV(llvm::Value* objBoxed, llvm::Value* keyBoxed) {
+    initTsValueType();
+    
+    // Allocate space for return value on stack
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "getPropResult");
+    
+    // Load obj and key TsValue structs
+    llvm::Value* objVal = builder->CreateLoad(tsValueType, objBoxed, "objVal");
+    llvm::Value* keyVal = builder->CreateLoad(tsValueType, keyBoxed, "keyVal");
+    
+    // Call ts_object_get_prop_v: TsValue (TsValue, TsValue)
+    llvm::FunctionType* ft = llvm::FunctionType::get(tsValueType, { tsValueType, tsValueType }, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_object_get_prop_v", ft);
+    
+    llvm::Value* retVal = createCall(ft, fn.getCallee(), { objVal, keyVal });
+    
+    // Store result
+    builder->CreateStore(retVal, result);
+    boxedValues.insert(result);
+    
+    return result;
+}
+
+llvm::Value* IRGenerator::emitMapGetV(llvm::Value* rawMap, llvm::Value* keyBoxed) {
+    initTsValueType();
+    
+    // Allocate space for return value on stack
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "mapGetResult");
+    
+    // Load key TsValue struct
+    llvm::Value* keyVal = builder->CreateLoad(tsValueType, keyBoxed, "keyVal");
+    
+    // Call ts_map_get_v: TsValue (void*, TsValue)
+    llvm::FunctionType* ft = llvm::FunctionType::get(tsValueType, { builder->getPtrTy(), tsValueType }, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_map_get_v", ft);
+    
+    llvm::Value* retVal = createCall(ft, fn.getCallee(), { rawMap, keyVal });
+    
+    // Store result
+    builder->CreateStore(retVal, result);
+    boxedValues.insert(result);
+    
+    return result;
+}
+
+llvm::Value* IRGenerator::emitArrayGetV(llvm::Value* rawArr, llvm::Value* index) {
+    initTsValueType();
+    
+    // Allocate space for return value on stack
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "arrayGetResult");
+    
+    // Call ts_array_get_v: TsValue (void*, int64)
+    llvm::FunctionType* ft = llvm::FunctionType::get(tsValueType, { builder->getPtrTy(), builder->getInt64Ty() }, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_array_get_v", ft);
+    
+    llvm::Value* retVal = createCall(ft, fn.getCallee(), { rawArr, index });
+    
+    // Store result
+    builder->CreateStore(retVal, result);
+    boxedValues.insert(result);
+    
+    return result;
+}
+
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
     // Handle explicit null/undefined first
     if (type) {

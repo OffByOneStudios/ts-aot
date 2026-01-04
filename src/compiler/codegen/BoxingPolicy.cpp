@@ -204,6 +204,18 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
     {"ts_array_is_array",     {true}},             // (TsValue*) -> bool
+    
+    // =========================================================================
+    // Value-passing variants (_v) - pass TsValue by value, avoid heap alloc
+    // =========================================================================
+    {"ts_object_get_prop_v",  {}},                 // (TsValue, TsValue) -> TsValue (by value)
+    {"ts_object_set_prop_v",  {}},                 // (TsValue, TsValue, TsValue) -> TsValue
+    {"ts_map_get_v",          {}},                 // (void*, TsValue) -> TsValue
+    {"ts_map_set_v",          {}},                 // (void*, TsValue, TsValue) -> void
+    {"ts_map_has_v",          {}},                 // (void*, TsValue) -> bool
+    {"ts_map_delete_v",       {}},                 // (void*, TsValue) -> bool
+    {"ts_array_get_v",        {}},                 // (void*, int64) -> TsValue
+    {"ts_array_set_v",        {}},                 // (void*, int64, TsValue) -> void
 
     // =========================================================================
     // Date operations

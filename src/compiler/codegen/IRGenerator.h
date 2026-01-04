@@ -63,10 +63,15 @@ private:
     // Inline boxing/unboxing - avoids function call overhead
     // ValueType enum values (must match runtime/include/TsObject.h):
     //   UNDEFINED=0, NUMBER_INT=1, NUMBER_DBL=2, BOOLEAN=3, STRING_PTR=4,
-    //   OBJECT_PTR=5, PROMISE_PTR=6, ARRAY_PTR=7, BIGINT_PTR=8, SYMBOL_PTR=9
+    //   OBJECT_PTR=5, PROMISE_PTR=6, ARRAY_PTR=7, BIGINT_PTR=8, SYMBOL_PTR=9, FUNCTION_PTR=10
     llvm::Value* emitInlineBox(llvm::Value* rawPtr, uint8_t valueType);
     llvm::Value* emitInlineUnbox(llvm::Value* boxedVal);
     llvm::Value* emitTypeCheck(llvm::Value* boxedVal, uint8_t expectedType);
+    
+    // Value-passing API helpers (_v variants) - avoid heap allocation for returns
+    llvm::Value* emitObjectGetPropV(llvm::Value* objBoxed, llvm::Value* keyBoxed);
+    llvm::Value* emitMapGetV(llvm::Value* rawMap, llvm::Value* keyBoxed);
+    llvm::Value* emitArrayGetV(llvm::Value* rawArr, llvm::Value* index);
 
     llvm::Value* lastConcreteType = nullptr;
     std::map<llvm::Value*, ClassType*> concreteTypes;
