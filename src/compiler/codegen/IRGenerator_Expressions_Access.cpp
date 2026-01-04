@@ -322,9 +322,10 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         // OR it might be a raw TsString*. We need to ensure it's always boxed for ts_map_get.
         // 
         // Problem: boxedValues doesn't track values loaded from allocas, so we can't rely on it.
-        // Solution: Always unbox first (idempotent if already unboxed), then box.
+        // Solution: Always unbox first (idempotent if already unboxed), then inline box.
         //
-        // For string keys: unbox TsValue* → TsString*, then box TsString* → TsValue*
+        // For string keys: unbox TsValue* → TsString*, then inline box TsString* → TsValue*
+        // Using inline boxing avoids heap allocation - TsValue is stack-allocated.
         if (node->argumentExpression->inferredType && node->argumentExpression->inferredType->kind == TypeKind::String) {
             // Unbox if it's a TsValue* wrapping a TsString*
             // ts_value_get_string returns TsString* (idempotent if key is already TsString*)
@@ -332,11 +333,9 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
             llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { key });
             
-            // Now box the TsString* to TsValue*
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_string", boxFt);
-            key = createCall(boxFt, boxFn.getCallee(), { rawKey });
-            boxedValues.insert(key);
+            // INLINE BOXING: Stack-allocate TsValue instead of heap-allocating via ts_value_make_string
+            // ValueType::STRING_PTR = 4
+            key = emitInlineBox(rawKey, 4);
         }
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);

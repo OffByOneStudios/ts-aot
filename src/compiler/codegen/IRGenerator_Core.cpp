@@ -1686,6 +1686,77 @@ void IRGenerator::collectCapturedVariableNames(ast::Node* node,
     }
 }
 
+// ============================================================================
+// Inline Boxing Infrastructure
+// ============================================================================
+// These helpers emit LLVM IR directly for boxing/unboxing, avoiding function
+// call overhead and heap allocation. TsValue is stack-allocated and LLVM's
+// mem2reg pass will optimize it to registers when possible.
+
+void IRGenerator::initTsValueType() {
+    if (tsValueType) return;  // Already initialized
+    
+    // TsValue structure: { i8 type, [7 x i8] padding, i64 value }
+    // This matches the C++ TaggedValue layout:
+    //   - 1 byte for ValueType enum
+    //   - 7 bytes padding for alignment
+    //   - 8 bytes for the union (int64/double/bool/ptr)
+    // Total: 16 bytes
+    tsValueType = llvm::StructType::create(*context, "TsValue");
+    tsValueType->setBody({
+        builder->getInt8Ty(),                           // type field (ValueType enum)
+        llvm::ArrayType::get(builder->getInt8Ty(), 7),  // padding for alignment
+        builder->getInt64Ty()                           // value union (all members fit in i64)
+    });
+}
+
+llvm::Value* IRGenerator::emitInlineBox(llvm::Value* rawPtr, uint8_t valueType) {
+    initTsValueType();
+    
+    // Allocate TsValue on stack
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* boxed = entryBuilder.CreateAlloca(tsValueType, nullptr, "inlineBoxed");
+    
+    // Store type field
+    llvm::Value* typePtr = builder->CreateStructGEP(tsValueType, boxed, 0, "typePtr");
+    builder->CreateStore(builder->getInt8(valueType), typePtr);
+    
+    // Store value field (index 2, after padding)
+    llvm::Value* valuePtr = builder->CreateStructGEP(tsValueType, boxed, 2, "valuePtr");
+    
+    // Convert pointer to i64 for storage in the union
+    llvm::Value* ptrAsInt = builder->CreatePtrToInt(rawPtr, builder->getInt64Ty(), "ptrAsInt");
+    builder->CreateStore(ptrAsInt, valuePtr);
+    
+    // Track as boxed for downstream code
+    boxedValues.insert(boxed);
+    
+    return boxed;
+}
+
+llvm::Value* IRGenerator::emitInlineUnbox(llvm::Value* boxedVal) {
+    initTsValueType();
+    
+    // Load value field (index 2, after padding)
+    llvm::Value* valuePtr = builder->CreateStructGEP(tsValueType, boxedVal, 2, "valuePtr");
+    llvm::Value* valueAsInt = builder->CreateLoad(builder->getInt64Ty(), valuePtr, "valueAsInt");
+    
+    // Convert i64 back to pointer
+    return builder->CreateIntToPtr(valueAsInt, builder->getPtrTy(), "unboxed");
+}
+
+llvm::Value* IRGenerator::emitTypeCheck(llvm::Value* boxedVal, uint8_t expectedType) {
+    initTsValueType();
+    
+    // Load type field
+    llvm::Value* typePtr = builder->CreateStructGEP(tsValueType, boxedVal, 0, "typePtr");
+    llvm::Value* actualType = builder->CreateLoad(builder->getInt8Ty(), typePtr, "actualType");
+    
+    // Compare with expected type
+    return builder->CreateICmpEQ(actualType, builder->getInt8(expectedType), "typeMatch");
+}
+
 llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type) {
     // Handle explicit null/undefined first
     if (type) {
