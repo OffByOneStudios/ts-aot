@@ -151,14 +151,18 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
     
     if (iterable->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("[Symbol.asyncIterator]");
-        TsValue keyVal;
-        keyVal.type = ValueType::STRING_PTR;
-        keyVal.ptr_val = key;
-        TsValue* method = ts_map_get(iterable->ptr_val, &keyVal);
-        if (method && method->type == ValueType::OBJECT_PTR) {
-             TsFunction* func = (TsFunction*)method->ptr_val;
-             typedef TsValue* (*AsyncIterFunc)(void*);
-             return ((AsyncIterFunc)func->funcPtr)(func->context);
+        // Use scalar helpers directly
+        uint64_t hash = (uint64_t)key; // Use pointer as hash
+        int64_t bucket = __ts_map_find_bucket(iterable->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
+        if (bucket >= 0) {
+            uint8_t method_type;
+            int64_t method_val;
+            __ts_map_get_value_at(iterable->ptr_val, bucket, &method_type, &method_val);
+            if (method_type == (uint8_t)ValueType::OBJECT_PTR) {
+                TsFunction* func = (TsFunction*)method_val;
+                typedef TsValue* (*AsyncIterFunc)(void*);
+                return ((AsyncIterFunc)func->funcPtr)(func->context);
+            }
         }
     }
     
@@ -170,14 +174,18 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
     
     if (iterator->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("next");
-        TsValue keyVal;
-        keyVal.type = ValueType::STRING_PTR;
-        keyVal.ptr_val = key;
-        TsValue* method = ts_map_get(iterator->ptr_val, &keyVal);
-        if (method && method->type == ValueType::OBJECT_PTR) {
-             TsFunction* func = (TsFunction*)method->ptr_val;
-             typedef TsValue* (*NextFunc)(void*, TsValue*);
-             return ((NextFunc)func->funcPtr)(func->context, value);
+        // Use scalar helpers directly
+        uint64_t hash = (uint64_t)key; // Use pointer as hash
+        int64_t bucket = __ts_map_find_bucket(iterator->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
+        if (bucket >= 0) {
+            uint8_t method_type;
+            int64_t method_val;
+            __ts_map_get_value_at(iterator->ptr_val, bucket, &method_type, &method_val);
+            if (method_type == (uint8_t)ValueType::OBJECT_PTR) {
+                TsFunction* func = (TsFunction*)method_val;
+                typedef TsValue* (*NextFunc)(void*, TsValue*);
+                return ((NextFunc)func->funcPtr)(func->context, value);
+            }
         }
     }
     

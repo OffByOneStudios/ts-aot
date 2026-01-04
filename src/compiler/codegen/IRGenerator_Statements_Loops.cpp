@@ -476,10 +476,9 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { currIndex });
         elementVal = builder->CreateLoad(llvmElemType, ptr);
     } else {
-        std::vector<llvm::Type*> args = { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) };
-        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), args, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get", getFt);
-        elementVal = createCall(getFt, getFn.getCallee(), { currIterable, currIndex });
+        // Use inline array get operation
+        elementVal = emitInlineArrayGet(currIterable, currIndex);
+        // Result is boxed TsValue* on stack, already marked as boxed
     }
 
     if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
@@ -615,10 +614,8 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
     builder->SetInsertPoint(loopBB);
 
     llvm::Value* currKeys = builder->CreateLoad(builder->getPtrTy(), keysVar, "keys");
-    llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
-            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-    llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get", getFt);
-    llvm::Value* key = createCall(getFt, getFn.getCallee(), { currKeys, index });
+    // Use inline array get operation for key access
+    llvm::Value* key = emitInlineArrayGet(currKeys, index);
     
     // If keys came from ts_object_keys, they are boxed TsValue* - need to unbox to get raw TsString*
     if (keysAreBoxed) {

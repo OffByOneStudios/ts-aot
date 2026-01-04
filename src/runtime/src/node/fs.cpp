@@ -2110,12 +2110,19 @@ extern "C" double ts_fs_filehandle_get_fd(TsValue* handle) {
     if (handle->type != ValueType::OBJECT_PTR) {
         return -1;
     }
-    TsValue key;
-    key.type = ValueType::STRING_PTR;
-    key.ptr_val = ts_string_create("fd");
-    TsValue* val = ts_map_get(handle->ptr_val, &key);
-    if (val && (val->type == ValueType::NUMBER_DBL || val->type == ValueType::NUMBER_INT)) {
-        return val->type == ValueType::NUMBER_DBL ? val->d_val : (double)val->i_val;
+    TsString* keyStr = (TsString*)ts_string_create("fd");
+    // Use scalar helpers directly
+    uint64_t hash = (uint64_t)keyStr; // Use pointer as hash
+    int64_t bucket = __ts_map_find_bucket(handle->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)keyStr);
+    if (bucket >= 0) {
+        uint8_t val_type;
+        int64_t val_union;
+        __ts_map_get_value_at(handle->ptr_val, bucket, &val_type, &val_union);
+        if (val_type == (uint8_t)ValueType::NUMBER_DBL) {
+            return *(double*)&val_union;
+        } else if (val_type == (uint8_t)ValueType::NUMBER_INT) {
+            return (double)val_union;
+        }
     }
     return -1;
 }

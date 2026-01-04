@@ -740,15 +740,20 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             visit(elem->expression.get());
             llvm::Value* obj = lastValue;
             emitNullCheckForExpression(elem->expression.get(), obj);
+            
+            // Unbox object (might be boxed if loaded from global)
+            if (obj->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+            }
+            
             visit(elem->argumentExpression.get());
             llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
-            
-            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setFt);
-            
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            
+            // Use inline map set operations
+            emitInlineMapSet(obj, key, boxedVal);
             lastValue = val;
             return;
         }
@@ -911,19 +916,12 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         
         index = castValue(index, llvm::Type::getInt64Ty(*context));
         
-        llvm::Value* storeVal = val;
-        if (storeVal->getType()->isDoubleTy()) {
-            storeVal = builder->CreateBitCast(storeVal, llvm::Type::getInt64Ty(*context));
-        } else if (storeVal->getType()->isPointerTy()) {
-            storeVal = builder->CreatePtrToInt(storeVal, llvm::Type::getInt64Ty(*context));
-        }
-
-        std::string funcName = isSafe ? "ts_array_set_unchecked" : "ts_array_set";
-        llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee setFn = module->getOrInsertFunction(funcName, setFt);
-                
-        createCall(setFt, setFn.getCallee(), { arr, index, storeVal });
+        // Box the value for inline array set
+        llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+        
+        // Use inline IR operations to avoid Windows x64 ABI issues
+        // emitInlineArraySet calls __ts_array_set_inline with scalar parameters
+        emitInlineArraySet(arr, index, boxedVal);
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
         // For JavaScript slow-path: null inferredType or TypeKind::Any means dynamic object
         bool exprIsAny = !prop->expression->inferredType || prop->expression->inferredType->kind == TypeKind::Any;
@@ -937,12 +935,10 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
             key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
-            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_prop", setFt);
-            
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            
+            // Use map operations directly (objects ARE maps internally)
+            emitInlineMapSet(obj, key, boxedVal);
             lastValue = val;
             return;
         }
@@ -969,16 +965,24 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             visit(prop->expression.get());
             llvm::Value* obj = lastValue;
             
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
+            // The value might be boxed (e.g., loaded from a global) but not tracked
+            // in boxedValues. ts_value_get_object is idempotent for raw pointers.
+            if (obj->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+            }
+            
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
             llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(prop->name) });
-            
-            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setFt);
+            llvm::Value* keyBoxed = boxValue(key, std::make_shared<Type>(TypeKind::String));
             
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            
+            // Use map operations directly (objects ARE maps internally)
+            emitInlineMapSet(obj, keyBoxed, boxedVal);
             lastValue = val;
             return;
         }

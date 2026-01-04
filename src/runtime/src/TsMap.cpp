@@ -325,12 +325,26 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
 }
 
 TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
-    ts_map_set(context, key, value);
+    // Use scalar helper directly
+    uint64_t hash = (uint64_t)key->i_val; // Use value as hash
+    __ts_map_set_at(context, hash, (uint8_t)key->type, key->i_val, (uint8_t)value->type, value->i_val);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
-    return ts_map_get(context, key);
+    // Use scalar helpers directly
+    uint64_t hash = (uint64_t)key->i_val; // Use value as hash for now
+    int64_t bucket = __ts_map_find_bucket(context, hash, (uint8_t)key->type, key->i_val);
+    if (bucket < 0) {
+        return ts_value_make_undefined();
+    }
+    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
+    uint8_t result_type;
+    int64_t result_val;
+    __ts_map_get_value_at(context, bucket, &result_type, &result_val);
+    result->type = (ValueType)result_type;
+    result->i_val = result_val;
+    return result;
 }
 
 TsValue* ts_map_has_wrapper(void* context, TsValue* key) {

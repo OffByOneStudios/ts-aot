@@ -1929,10 +1929,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          visit(node->arguments[1].get());
          llvm::Value* value = boxValue(lastValue, node->arguments[1]->inferredType);
          
-         llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-         llvm::FunctionCallee fn = getRuntimeFunction("ts_map_set", setFt);
-         createCall(setFt, fn.getCallee(), { map, key, value });
+         // Use inline map set operation
+         emitInlineMapSet(map, key, value);
          lastValue = map;
          return true;
     } else if (prop->name == "get" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
@@ -1950,13 +1948,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          visit(node->arguments[0].get());
          llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
          
-         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
-                 { builder->getPtrTy(), builder->getPtrTy() }, false);
-         llvm::FunctionCallee fn = getRuntimeFunction("ts_map_get", getFt);
-         llvm::Value* boxedResult = createCall(getFt, fn.getCallee(), { map, key });
+         // Use inline map get operation
+         llvm::Value* boxedResult = emitInlineMapGet(map, key);
          
-         // ts_map_get returns a boxed TsValue*, unbox based on the call expression's inferred type
-         boxedValues.insert(boxedResult);
+         // emitInlineMapGet returns boxed TsValue* on stack, unbox based on call expression's inferred type
          lastValue = unboxValue(boxedResult, node->inferredType);
          return true;
     } else if (prop->name == "has" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
