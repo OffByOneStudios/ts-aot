@@ -98,6 +98,7 @@ TsSet* TsSet::Create() {
 }
 
 TsSet::TsSet() {
+    TsObject::magic = MAGIC;  // Set base class magic for type detection
     void* mem = ts_alloc(sizeof(SetType));
     impl = new(mem) SetType();
 }

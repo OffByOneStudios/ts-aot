@@ -1,10 +1,5 @@
-const m = new Map();
-console.log("Created map");
+﻿const m = new Map();
 m.set("a", 1);
-console.log("Set a=1, size:", m.size);
 m.set(2, "b");
-console.log("Set 2=b, size:", m.size);
-const big = BigInt(3);
-console.log("Created BigInt(3):", big);
-m.set(big, "c");
-console.log("Set 3n=c, size:", m.size);
+m.set(BigInt(3), "c");
+console.log("Map size (should be 3):", m.size);
