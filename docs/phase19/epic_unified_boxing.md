@@ -197,8 +197,10 @@ Standardize all runtime APIs to use TsValue consistently.
 - [x] 5.6 Add codegen helpers for `_v` variants
   - Added: `emitObjectGetPropV`, `emitMapGetV`, `emitArrayGetV` to IRGenerator
   - Registered `_v` APIs in BoxingPolicy
-- [ ] 5.7 Deprecate old pointer-based APIs with warnings (Phase 3)
-- [ ] 5.8 Remove deprecated APIs after full migration (Phase 4)
+
+#### Deferred (Future Phases)
+- [ ] 5.7 Deprecate old pointer-based APIs with warnings *(deferred to Phase 3)*
+- [ ] 5.8 Remove deprecated APIs after full migration *(deferred to Phase 4)*
 
 ### Milestone 6: Validation 🔄 IN PROGRESS
 Comprehensive testing to ensure no regressions.
