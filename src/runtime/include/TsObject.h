@@ -142,7 +142,10 @@ extern "C" {
     TsValue* ts_value_gte(TsValue* a, TsValue* b);
     
     // Slow path property access (pointer-based)
+    // DEPRECATED: Use _v variants (pass TsValue by value) for better performance
+    [[deprecated("Use ts_object_get_prop_v instead - pass TsValue by value")]]
     TsValue* ts_object_get_prop(TsValue* obj, TsValue* key);
+    [[deprecated("Use ts_object_set_prop_v instead - pass TsValue by value")]]
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value);
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
     TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index);

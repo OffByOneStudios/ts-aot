@@ -200,8 +200,12 @@ Standardize all runtime APIs to use TsValue consistently.
   - Registered `_v` APIs in BoxingPolicy
 
 #### Deferred (Future Phases)
-- [ ] 5.7 Deprecate old pointer-based APIs with warnings *(deferred to Phase 3)*
-- [ ] 5.8 Remove deprecated APIs after full migration *(deferred to Phase 4)*
+- [x] 5.7 Deprecate old pointer-based APIs with `[[deprecated]]` attribute
+  - Added to: `ts_map_get`, `ts_map_set`, `ts_map_has`, `ts_map_delete` (TsMap.h)
+  - Added to: `ts_object_get_prop`, `ts_object_set_prop` (TsObject.h)
+  - Added to: `ts_array_get`, `ts_array_set` (TsArray.h)
+- [ ] 5.8 Migrate all codegen call sites to `_v` APIs *(Phase 4 - 14 call sites across 5 files)*
+- [ ] 5.9 Remove deprecated APIs after full migration *(Phase 5)*
 
 ### Milestone 6: Validation ✅ COMPLETE
 Comprehensive testing to ensure no regressions.
