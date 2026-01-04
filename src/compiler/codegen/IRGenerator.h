@@ -68,7 +68,19 @@ private:
     llvm::Value* emitInlineUnbox(llvm::Value* boxedVal);
     llvm::Value* emitTypeCheck(llvm::Value* boxedVal, uint8_t expectedType);
     
-    // Value-passing API helpers (_v variants) - avoid heap allocation for returns
+    // Inline IR operations - scalar-based helpers to avoid struct passing
+    // These generate LLVM IR that calls scalar helpers (__ts_map_find_bucket, etc.)
+    llvm::Value* emitLoadTsValueType(llvm::Value* boxedPtr);      // Load type field as i8
+    llvm::Value* emitLoadTsValueUnion(llvm::Value* boxedPtr);     // Load union field as i64
+    void emitStoreTsValueFields(llvm::Value* boxedPtr, llvm::Value* type, llvm::Value* value);
+    llvm::Value* emitInlineMapGet(llvm::Value* rawMap, llvm::Value* keyBoxed);
+    void emitInlineMapSet(llvm::Value* rawMap, llvm::Value* keyBoxed, llvm::Value* valBoxed);
+    llvm::Value* emitInlineArrayGet(llvm::Value* rawArr, llvm::Value* index);
+    void emitInlineArraySet(llvm::Value* rawArr, llvm::Value* index, llvm::Value* valBoxed);
+    llvm::Value* emitInlineObjectGetProp(llvm::Value* objBoxed, llvm::Value* keyBoxed);
+    void emitInlineObjectSetProp(llvm::Value* objBoxed, llvm::Value* keyBoxed, llvm::Value* valBoxed);
+    
+    // Value-passing API helpers (_v variants) - DEPRECATED, use inline ops above
     llvm::Value* emitObjectGetPropV(llvm::Value* objBoxed, llvm::Value* keyBoxed);
     llvm::Value* emitMapGetV(llvm::Value* rawMap, llvm::Value* keyBoxed);
     llvm::Value* emitArrayGetV(llvm::Value* rawArr, llvm::Value* index);
