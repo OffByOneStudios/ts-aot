@@ -384,5 +384,76 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
     return ts_value_make_undefined();
 }
 
+// ============================================================
+// Inline IR Helpers - Scalar-based API to avoid struct passing
+// These functions take TsValue fields separately (type as i8, value as i64)
+// to avoid Windows x64 ABI issues with 16-byte struct passing
+// ============================================================
+
+// Helper: Build TsValue from scalar fields
+static TsValue __ts_value_from_scalars(uint8_t type, int64_t value) {
+    TsValue v;
+    v.type = (ValueType)type;
+    // Union interpretation: int64 can hold pointer, int, or double bits
+    v.i_val = value;
+    return v;
+}
+
+// Find bucket index for given key, or -1 if not found
+// Returns: bucket index (>= 0) if found, -1 if not found
+int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val) {
+    if (!map) return -1;
+    
+    TsMap* tsmap = (TsMap*)map;
+    MapType* impl = (MapType*)tsmap->impl;
+    
+    TsValue key = __ts_value_from_scalars(key_type, key_val);
+    
+    auto it = impl->find(key);
+    if (it == impl->end()) {
+        return -1;
+    }
+    
+    // Return bucket index (distance from begin)
+    return std::distance(impl->begin(), it);
+}
+
+// Get value at bucket index via out-parameters
+// Avoids returning TsValue struct (Windows x64 ABI issue)
+void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value) {
+    if (!map || bucket_idx < 0) {
+        *out_type = (uint8_t)ValueType::UNDEFINED;
+        *out_value = 0;
+        return;
+    }
+    
+    TsMap* tsmap = (TsMap*)map;
+    MapType* impl = (MapType*)tsmap->impl;
+    
+    if (bucket_idx >= (int64_t)impl->size()) {
+        *out_type = (uint8_t)ValueType::UNDEFINED;
+        *out_value = 0;
+        return;
+    }
+    
+    auto it = impl->begin();
+    std::advance(it, bucket_idx);
+    
+    *out_type = (uint8_t)it->second.type;
+    *out_value = it->second.i_val;
+}
+
+// Set value at key (insert or update)
+void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val,
+                     uint8_t val_type, int64_t val_val) {
+    if (!map) return;
+    
+    TsMap* tsmap = (TsMap*)map;
+    TsValue key = __ts_value_from_scalars(key_type, key_val);
+    TsValue val = __ts_value_from_scalars(val_type, val_val);
+    
+    tsmap->Set(key, val);
+}
+
 }
 

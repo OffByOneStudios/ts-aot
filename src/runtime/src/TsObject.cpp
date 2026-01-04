@@ -2005,4 +2005,51 @@ TsValue* ts_value_make_int(int64_t i) {
         
         return ts_value_make_undefined();
     }
+    
+    // ============================================================
+    // Inline IR Helpers - Scalar-based API to avoid struct passing
+    // ============================================================
+    
+    // Get object's internal map pointer (TsMap::impl)
+    void* __ts_object_get_map(void* obj) {
+        if (!obj) return nullptr;
+        
+        TsValue* val = (TsValue*)obj;
+        if (val->type == ValueType::OBJECT_PTR) {
+            TsMap* map = (TsMap*)val->ptr_val;
+            if (map) {
+                return map->impl;  // Return the std::unordered_map pointer
+            }
+        }
+        return nullptr;
+    }
+    
+    // Convert value to property key (for number -> string coercion)
+    void* __ts_value_to_property_key(uint8_t type, int64_t value) {
+        ValueType vt = (ValueType)type;
+        
+        if (vt == ValueType::STRING_PTR) {
+            // Already a string
+            return (void*)value;
+        }
+        
+        if (vt == ValueType::NUMBER_INT) {
+            // Convert int to string
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%lld", (long long)value);
+            return TsString::Create(buf);
+        }
+        
+        if (vt == ValueType::NUMBER_DBL) {
+            // Convert double to string (value holds the bits)
+            double d;
+            memcpy(&d, &value, sizeof(double));
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%.15g", d);
+            return TsString::Create(buf);
+        }
+        
+        // For other types, try to use toString or return null
+        return nullptr;
+    }
 }

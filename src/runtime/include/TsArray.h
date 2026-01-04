@@ -97,4 +97,13 @@ extern "C" {
     struct TaggedValue* ts_array_find(void* arr, void* callback, void* thisArg);
     int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg);
     bool ts_array_is_array(void* value);
+    
+    // Value-based API variants
+    void ts_array_set_v(void* arr, int64_t index, TsValue value);
+    TsValue ts_array_get_v(void* arr, int64_t index);
+    
+    // Inline IR helpers - scalar-based API to avoid struct passing
+    void __ts_array_get_inline(void* arr, int64_t index, uint8_t* out_type, int64_t* out_value);
+    void __ts_array_set_inline(void* arr, int64_t index, uint8_t val_type, int64_t val_value);
+    int64_t __ts_array_length(void* arr);
 }

@@ -21,12 +21,13 @@ public:
     void* GetEntries();
     void ForEach(void* callback, void* thisArg = nullptr);
     TsMap* CopyExcluding(std::vector<TsString*>& excluded);
+    
+    void* impl; // Pointer to std::unordered_map - public for inline IR helpers
 
 protected:
     TsMap();
 private:
     uint32_t magic = MAGIC;
-    void* impl; // Pointer to std::unordered_map
 };
 
 extern "C" {
@@ -55,4 +56,11 @@ extern "C" {
     TsValue ts_map_get_v(void* map, TsValue key);
     bool ts_map_has_v(void* map, TsValue key);
     bool ts_map_delete_v(void* map, TsValue key);
+    
+    // Inline IR helpers - scalar-based API to avoid struct passing
+    // These take TsValue fields separately to avoid Windows x64 ABI issues
+    int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val);
+    void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value);
+    void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val,
+                         uint8_t val_type, int64_t val_val);
 }
