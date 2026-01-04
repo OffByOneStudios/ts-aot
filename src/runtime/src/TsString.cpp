@@ -8,13 +8,27 @@
 #include <new>
 #include <string>
 #include <cstring>
+#include <unordered_map>
+
+// CRITICAL FIX: Cache for common numeric strings (0-999)
+// Lodash does thousands of numeric property accesses which were allocating new strings each time
+static std::unordered_map<int64_t, TsString*> numericStringCache;
+static const int MAX_CACHED_INT = 9999;  // Expanded from 999
+static const int MIN_CACHED_INT = -100;  // Cache negative numbers too
+
+// OPTIMIZATION: Global string interning pool
+// Caches ALL strings to eliminate duplicate allocations during property access
+static std::unordered_map<std::string, TsString*> globalStringCache;
+static const size_t MAX_INTERN_SIZE = 256; // Only intern strings <= 256 chars
+static const size_t MAX_CACHE_SIZE = 10000; // Prevent unbounded growth
 
 TsString* TsString::Create(const char* utf8Str) {
     if (!utf8Str) utf8Str = "";
     size_t len = std::strlen(utf8Str);
     
+    // Use inline buffer for ASCII strings < 64 bytes (covers most property names)
     bool isAscii = true;
-    if (len < 16) {
+    if (len < 64) {
         for (size_t i = 0; i < len; ++i) {
             if ((unsigned char)utf8Str[i] > 127) {
                 isAscii = false;
@@ -33,12 +47,40 @@ TsString* TsString::Create(const char* utf8Str) {
     }
 }
 
+TsString* TsString::GetInterned(const char* utf8Str) {
+    if (!utf8Str) return Create(""); // Empty string fallback
+    
+    size_t len = std::strlen(utf8Str);
+    
+    // Don't intern very large strings
+    if (len > MAX_INTERN_SIZE) {
+        return Create(utf8Str);
+    }
+    
+    // Check cache
+    std::string key(utf8Str, len);
+    auto it = globalStringCache.find(key);
+    if (it != globalStringCache.end()) {
+        return it->second; // Cache hit!
+    }
+    
+    // Cache miss - create new string
+    TsString* str = Create(utf8Str);
+    
+    // Add to cache if not too large
+    if (globalStringCache.size() < MAX_CACHE_SIZE) {
+        globalStringCache[key] = str;
+    }
+    
+    return str;
+}
+
 TsString::TsString(const char* utf8Str, uint32_t len) {
     magic = MAGIC;
     isSmall = true;
     length = len;
     std::memcpy(data.inlineBuffer, utf8Str, len);
-    if (len < 16) data.inlineBuffer[len] = '\0';
+    if (len < 64) data.inlineBuffer[len] = '\0';
 }
 
 TsString::TsString(const char* utf8Str) {
@@ -98,23 +140,59 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
 }
 
 TsString* TsString::FromInt(int64_t value) {
+    // Check cache for common values (0-999)
+    if (value >= MIN_CACHED_INT && value <= MAX_CACHED_INT) {
+        auto it = numericStringCache.find(value);
+        if (it != numericStringCache.end()) {
+            return it->second;
+        }
+        
+        // Not in cache, create and cache it
+        char buf[32];
+        int len = std::snprintf(buf, sizeof(buf), "%lld", value);
+        TsString* str = Create(buf);
+        numericStringCache[value] = str;
+        return str;
+    }
+    
+    // Outside cache range, create normally
     char buf[32];
     int len = std::snprintf(buf, sizeof(buf), "%lld", value);
     return Create(buf);
 }
 
 TsString* TsString::FromBool(bool value) {
-    return Create(value ? "true" : "false");
+    return GetInterned(value ? "true" : "false");
 }
 
 TsString* TsString::FromDouble(double value) {
-    if (std::isnan(value)) return Create("NaN");
-    if (std::isinf(value)) return Create(value < 0 ? "-Infinity" : "Infinity");
+    if (std::isnan(value)) return GetInterned("NaN");
+    if (std::isinf(value)) return GetInterned(value < 0 ? "-Infinity" : "Infinity");
+    
+    // If it's an integer, use FromInt (which has better caching)
+    if (std::floor(value) == value && value >= MIN_CACHED_INT && value <= MAX_CACHED_INT) {
+        return FromInt((int64_t)value);
+    }
+
+    // Cache common non-integer doubles
+    static std::unordered_map<double, TsString*> doubleCache;
+    static const size_t MAX_DOUBLE_CACHE = 1000;
+    
+    auto it = doubleCache.find(value);
+    if (it != doubleCache.end()) {
+        return it->second;
+    }
 
     char buf[64];
-    // Use snprintf to avoid std::string allocation
     int len = std::snprintf(buf, sizeof(buf), "%g", value);
-    return Create(buf);
+    TsString* str = Create(buf);
+    
+    // Cache if not too large
+    if (doubleCache.size() < MAX_DOUBLE_CACHE) {
+        doubleCache[value] = str;
+    }
+    
+    return str;
 }
 
 int64_t TsString::Length() {
@@ -730,7 +808,7 @@ extern "C" {
     }
 
     void* ts_string_from_value(TsValue* val) {
-        if (!val) return TsString::Create("undefined");
+        if (!val) return TsString::GetInterned("undefined");
         
         // Check for raw TsString
         uint32_t magic = *(uint32_t*)val;
@@ -739,15 +817,15 @@ extern "C" {
         }
 
         switch (val->type) {
-            case ValueType::UNDEFINED: return TsString::Create("undefined");
+            case ValueType::UNDEFINED: return TsString::GetInterned("undefined");
             case ValueType::NUMBER_INT: return TsString::FromInt(val->i_val);
             case ValueType::NUMBER_DBL: return TsString::FromDouble(val->d_val);
             case ValueType::BOOLEAN: return TsString::FromBool(val->b_val);
             case ValueType::STRING_PTR: return val->ptr_val;
-            case ValueType::OBJECT_PTR: return TsString::Create("[object Object]");
-            case ValueType::ARRAY_PTR: return TsString::Create("[object Array]");
-            case ValueType::PROMISE_PTR: return TsString::Create("[object Promise]");
-            default: return TsString::Create("unknown");
+            case ValueType::OBJECT_PTR: return TsString::GetInterned("[object Object]");
+            case ValueType::ARRAY_PTR: return TsString::GetInterned("[object Array]");
+            case ValueType::PROMISE_PTR: return TsString::GetInterned("[object Promise]");
+            default: return TsString::GetInterned("unknown");
         }
     }
 }

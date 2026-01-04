@@ -316,15 +316,38 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* obj = lastValue;
         emitNullCheckForExpression(node->expression.get(), obj);
         visit(node->argumentExpression.get());
-        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        llvm::Value* key = lastValue;
+        
+        // CRITICAL: The key might already be boxed (e.g., from for-in loop iteration)
+        // OR it might be a raw TsString*. We need to ensure it's always boxed for ts_map_get.
+        // 
+        // Problem: boxedValues doesn't track values loaded from allocas, so we can't rely on it.
+        // Solution: Always unbox first (idempotent if already unboxed), then box.
+        //
+        // For string keys: unbox TsValue* → TsString*, then box TsString* → TsValue*
+        if (node->argumentExpression->inferredType && node->argumentExpression->inferredType->kind == TypeKind::String) {
+            // Unbox if it's a TsValue* wrapping a TsString*
+            // ts_value_get_string returns TsString* (idempotent if key is already TsString*)
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+            llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { key });
+            
+            // Now box the TsString* to TsValue*
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee boxFn = getRuntimeFunction("ts_value_make_string", boxFt);
+            key = createCall(boxFt, boxFn.getCallee(), { rawKey });
+            boxedValues.insert(key);
+        }
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
         
-        llvm::Value* res = createCall(getFt, getFn.getCallee(), { obj, key });
+        // unboxValue now always unboxes Object types (safe even if already unboxed)
+        llvm::Value* rawObj = unboxValue(obj, node->expression->inferredType);
+        llvm::Value* res = createCall(getFt, getFn.getCallee(), { rawObj, key });
         // ts_map_get always returns boxed TsValue*
         boxedValues.insert(res);
-        lastValue = unboxValue(res, std::make_shared<Type>(TypeKind::Any));
+        lastValue = res;
         return;
     }
 

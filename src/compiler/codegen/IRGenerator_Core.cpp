@@ -1857,7 +1857,18 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
     // If it's not a pointer, it's already unboxed (primitive)
     if (!val->getType()->isPointerTy()) return val;
 
-    // If it's a pointer but not in boxedValues, it's already unboxed (raw pointer)
+    // For Object/Array/Map/Set/Tuple/BigInt/Symbol types, ALWAYS unbox
+    // These can be loaded from globals/allocas that store boxed values
+    // ts_value_get_object is safe to call even if already unboxed
+    if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
+        type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
+        type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
+        return createCall(unboxFt, unboxFn.getCallee(), { val });
+    }
+
+    // For primitive types, only unbox if tracked in boxedValues
     if (!boxedValues.count(val)) return val;
 
     if (type->kind == TypeKind::Int) {
@@ -1886,12 +1897,6 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
             return builder->CreateLoad(classStruct, objPtr);
         }
-        return createCall(unboxFt, unboxFn.getCallee(), { val });
-    } else if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
-               type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
-               type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
-        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Void) {
         return nullptr;
@@ -1997,8 +2002,9 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         closureContextType->setBody(contextFields);
         
         // Allocate and populate the closure context (in the OUTER function)
+        // Use ts_pool_alloc for faster closure allocation from size-class pools
         llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_pool_alloc", allocFt);
         uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
         closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
         

@@ -1,1 +1,1 @@
-console.log("Hello from ts-aot!");
+﻿console.log("Hello");

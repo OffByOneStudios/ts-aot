@@ -8,6 +8,9 @@ public:
 
     // Factory method to create a new TsString on the GC heap
     static TsString* Create(const char* utf8Str);
+    
+    // Factory method with string interning (cache shared strings)
+    static TsString* GetInterned(const char* utf8Str);
 
     // Get UTF-8 representation (cached)
     const char* ToUtf8();
@@ -58,7 +61,7 @@ private:
             void* impl;       // Pointer to icu::UnicodeString
             char* utf8Buffer; // Cached UTF-8 buffer
         } heap;
-        char inlineBuffer[16];
+        char inlineBuffer[64];  // Increased from 16 to handle most property names
     } data;
 };
 

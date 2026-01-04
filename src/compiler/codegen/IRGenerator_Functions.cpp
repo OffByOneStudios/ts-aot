@@ -859,8 +859,9 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
         closureContextType->setBody(contextFields);
         
         // Allocate and populate the closure context (in the OUTER function)
+        // Use ts_pool_alloc for faster closure allocation from size-class pools
         llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_pool_alloc", allocFt);
         uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
         closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
         
@@ -1199,8 +1200,9 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         closureContextType->setBody(contextFields);
         
         // Allocate and populate the closure context (in the OUTER function)
+        // Use ts_pool_alloc for faster closure allocation from size-class pools
         llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_pool_alloc", allocFt);
         uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
         closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
         
