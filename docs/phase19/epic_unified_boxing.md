@@ -204,8 +204,13 @@ Standardize all runtime APIs to use TsValue consistently.
   - Added to: `ts_map_get`, `ts_map_set`, `ts_map_has`, `ts_map_delete` (TsMap.h)
   - Added to: `ts_object_get_prop`, `ts_object_set_prop` (TsObject.h)
   - Added to: `ts_array_get`, `ts_array_set` (TsArray.h)
-- [ ] 5.8 Migrate all codegen call sites to `_v` APIs *(Phase 4 - 14 call sites across 5 files)*
-- [ ] 5.9 Remove deprecated APIs after full migration *(Phase 5)*
+- [ ] 5.8 Migrate all codegen call sites to `_v` APIs **BLOCKED: Windows x64 ABI Issue**
+  - **Root Cause:** Windows x64 ABI passes structs >8 bytes by implicit pointer (sret)
+  - **Attempted Fix:** Added `win64cc` calling convention - still crashes
+  - **Next Steps:** Either (A) use `sret` attribute properly, or (B) change runtime API to use `const TsValue*`
+  - **Impact:** Migration attempted but reverted due to runtime crashes
+  - **Status:** Blocked pending further investigation of LLVM/MSVC ABI interop
+- [ ] 5.9 Remove deprecated APIs after full migration *(Phase 5 - depends on 5.8)*
 
 ### Milestone 6: Validation ✅ COMPLETE
 Comprehensive testing to ensure no regressions.
@@ -274,6 +279,22 @@ Re-enabled Boehm GC after debugging with pool allocator.
 
 ### Risk 3: Performance regression in tight loops
 **Mitigation:** Benchmark critical paths; inline boxing should be faster than current heap allocation.
+
+### Risk 4: Windows x64 ABI mismatch for struct-by-value
+**Issue:** Windows x64 ABI passes structs >8 bytes (TsValue is 16 bytes) by hidden pointer (sret calling convention), not by value in registers.
+**Impact:** `_v` APIs that return `TsValue` by value cause runtime crashes when LLVM-generated code calls MSVC-compiled runtime.
+**Attempted Solutions:**
+1. Added `win64cc` calling convention to LLVM function calls - still crashes
+2. Considered `sret` attribute but requires reworking all return types
+**Current Status:** 
+- The `_v` APIs exist in runtime but are not used by codegen
+- Old pointer-based APIs still work correctly
+- Migration blocked pending proper sret/ABI handling
+**Possible Solutions:**
+1. Use `sret` attribute: Change LLVM IR to `void @func(TsValue* sret, ...)` and C++ to return via out-parameter
+2. Change API to `const TsValue*`: Defeats the by-value optimization purpose but guarantees ABI compatibility
+3. Use inline LLVM IR: Implement `_v` operations entirely in LLVM codegen without C++ calls
+**Recommendation:** Option 3 (inline IR) aligns with original inline boxing goal and avoids ABI issues entirely.
 
 ---
 
