@@ -33,16 +33,6 @@ private:
 extern "C" {
     void* ts_map_create();
     
-    // DEPRECATED: Use _v variants (pass TsValue by value) for better performance
-    [[deprecated("Use ts_map_set_v instead - pass TsValue by value")]]
-    void ts_map_set(void* map, TsValue* key, TsValue* value);
-    [[deprecated("Use ts_map_get_v instead - pass TsValue by value")]]
-    TsValue* ts_map_get(void* map, TsValue* key);
-    [[deprecated("Use ts_map_has_v instead - pass TsValue by value")]]
-    bool ts_map_has(void* map, TsValue* key);
-    [[deprecated("Use ts_map_delete_v instead - pass TsValue by value")]]
-    bool ts_map_delete(void* map, TsValue* key);
-    
     void ts_map_clear(void* map);
     int64_t ts_map_size(void* map);
     void* ts_map_keys(void* map);

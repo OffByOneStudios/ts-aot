@@ -238,7 +238,13 @@ Standardize all runtime APIs to use TsValue consistently.
     - ⚠️ Some tests have pre-existing compilation failures (for_in_test, for_of_test, lodash)
   - **Status:** Migration complete, all collection operations use inline IR, no ABI issues
   - **Previous Approach:** `_v` APIs abandoned due to Windows x64 struct-by-value ABI mismatch
-- [ ] 5.9 Remove deprecated APIs after full migration *(Phase 5 - depends on 5.8 validation)*
+- [x] 5.9 Remove deprecated APIs after full migration *(Phase 5 - depends on 5.8 validation)*
+  - ✅ Removed `ts_map_get`, `ts_map_set`, `ts_array_get`, `ts_array_set`, `ts_object_get_prop`, `ts_object_set_prop` function definitions
+  - ✅ Removed `[[deprecated]]` declarations from headers (TsMap.h, TsArray.h, TsObject.h)
+  - ✅ Fixed internal usages (ts_object_get_dynamic, require() exports access) to use inline map operations
+  - ✅ Build verified - no compilation errors
+  - ✅ test_inline_ops.exe passing after cleanup
+  - **Note:** `_v` APIs retained - still used internally by runtime
 
 ### Milestone 6: Validation ✅ COMPLETE
 Comprehensive testing to ensure no regressions from inline IR migration.
