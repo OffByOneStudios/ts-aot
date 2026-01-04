@@ -109,6 +109,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Value comparison functions - compare boxed values
     // =========================================================================
     {"ts_value_strict_eq",  {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_strict_eq_bool", {true, true}},     // (TsValue*, TsValue*) -> bool
     {"ts_value_strict_eq_wrapper", {true, true}},  // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_add",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_sub",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
@@ -375,6 +376,7 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_value_box_any",
     "ts_value_eq",
     "ts_value_strict_eq",
+    "ts_value_strict_eq_bool",
     "ts_value_strict_eq_wrapper",
     "ts_value_get_element",
     "ts_value_get_property",
