@@ -10,6 +10,10 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
 
+    if (prop->expression->inferredType) {
+        SPDLOG_WARN("Member call: {}, prop->expression->inferredType->kind = {}",  prop->name, static_cast<int>(prop->expression->inferredType->kind));
+    }
+
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
     }
@@ -201,12 +205,83 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         return true;
     }
 
+    if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {
+        std::string methodName = prop->name;
+        
+        SPDLOG_WARN("=== Map method call: {} ===", methodName);
+        
+        visit(prop->expression.get());
+        llvm::Value* mapObj = lastValue;
+        
+        emitNullCheckForExpression(prop->expression.get(), mapObj);
+
+        if (methodName == "set") {
+            // Use inline IR operations to avoid Windows x64 ABI issues
+            SPDLOG_WARN("=== Using emitInlineMapSet ===");
+            visit(node->arguments[0].get());
+            llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+            
+            visit(node->arguments[1].get());
+            llvm::Value* val = boxValue(lastValue, node->arguments[1]->inferredType);
+
+            emitInlineMapSet(mapObj, key, val);
+            lastValue = mapObj; // Map.set returns the map itself
+            return true;
+        } else if (methodName == "get") {
+            // Use inline IR operations to avoid Windows x64 ABI issues
+            SPDLOG_WARN("=== Using emitInlineMapGet ===");
+
+            visit(node->arguments[0].get());
+            llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+
+            // emitInlineMapGet returns a boxed TsValue* on the stack
+            llvm::Value* boxedVal = emitInlineMapGet(mapObj, key);
+            
+            // boxedVal is already marked as boxed by emitInlineMapGet
+            
+            if (node->inferredType) {
+                lastValue = unboxValue(boxedVal, node->inferredType);
+            } else {
+                lastValue = boxedVal;
+            }
+            return true;
+        } else if (methodName == "has") {
+            // bool ts_map_has(void* map, TsValue* key)
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_map_has", ft);
+
+            visit(node->arguments[0].get());
+            llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+
+            lastValue = createCall(ft, fn.getCallee(), { mapObj, key });
+            return true;
+        } else if (methodName == "delete") {
+            // bool ts_map_delete(void* map, TsValue* key)
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_map_delete", ft);
+
+            visit(node->arguments[0].get());
+            llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+
+            lastValue = createCall(ft, fn.getCallee(), { mapObj, key });
+            return true;
+        } else if (methodName == "clear") {
+            // void ts_map_clear(void* map)
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_map_clear", ft);
+
+            createCall(ft, fn.getCallee(), { mapObj });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+    }
+
     if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
         std::string className = classType->name;
         std::string methodName = prop->name;
         
-        SPDLOG_DEBUG("Method call on class: {} method: {}", className, methodName);
+        SPDLOG_WARN("Method call on class: {} method: {}", className, methodName);
         
         if (className == "RegExp") {
             // ... existing RegExp code ...
@@ -333,40 +408,35 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                 return true;
             }
         } else if (className == "Map") {
-            SPDLOG_DEBUG("Generating Map method: {} for object of class: {}", methodName, className);
+            SPDLOG_WARN("=== FOUND MAP METHOD: {} ===", methodName);
             visit(prop->expression.get());
             llvm::Value* mapObj = lastValue;
             
             emitNullCheckForExpression(prop->expression.get(), mapObj);
 
             if (methodName == "set") {
-                // void ts_map_set(void* map, TsValue* key, TsValue* value)
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_set", ft);
-
+                // Use inline IR operations to avoid Windows x64 ABI issues
+                SPDLOG_WARN("=== Using emitInlineMapSet ===");
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
                 
                 visit(node->arguments[1].get());
                 llvm::Value* val = boxValue(lastValue, node->arguments[1]->inferredType);
 
-                createCall(ft, fn.getCallee(), { mapObj, key, val });
+                emitInlineMapSet(mapObj, key, val);
                 lastValue = mapObj; // Map.set returns the map itself
                 return true;
             } else if (methodName == "get") {
-                // TsValue* ts_map_get(void* map, TsValue* key)
+                // Use inline IR operations to avoid Windows x64 ABI issues
                 SPDLOG_INFO("Map.get (Member): node->inferredType = {}", node->inferredType ? std::to_string(static_cast<int>(node->inferredType->kind)) : "null");
-                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_get", ft);
 
                 visit(node->arguments[0].get());
                 llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
 
-                llvm::Value* boxedVal = createCall(ft, fn.getCallee(), { mapObj, key });
+                // emitInlineMapGet returns a boxed TsValue* on the stack
+                llvm::Value* boxedVal = emitInlineMapGet(mapObj, key);
                 
-                // ts_map_get always returns a boxed TsValue*, so mark it as boxed
-                // so that unboxValue will properly unbox it
-                boxedValues.insert(boxedVal);
+                // boxedVal is already marked as boxed by emitInlineMapGet
                 
                 if (node->inferredType) {
                     lastValue = unboxValue(boxedVal, node->inferredType);

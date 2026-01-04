@@ -2719,4 +2719,184 @@ void IRGenerator::visitExportAssignment(ast::ExportAssignment* node) {
     visit(node->expression.get());
 }
 
+// ============================================================================
+// Inline IR Operations - Scalar-based helpers to avoid struct passing
+// These generate LLVM IR that calls scalar helpers to avoid Windows x64 ABI issues
+// ============================================================================
+
+llvm::Value* IRGenerator::emitLoadTsValueType(llvm::Value* boxedPtr) {
+    initTsValueType();
+    llvm::Value* typePtr = builder->CreateStructGEP(tsValueType, boxedPtr, 0, "typePtr");
+    return builder->CreateLoad(builder->getInt8Ty(), typePtr, "type");
+}
+
+llvm::Value* IRGenerator::emitLoadTsValueUnion(llvm::Value* boxedPtr) {
+    initTsValueType();
+    // Union is at field index 2 (after type and padding)
+    llvm::Value* unionPtr = builder->CreateStructGEP(tsValueType, boxedPtr, 2, "unionPtr");
+    return builder->CreateLoad(builder->getInt64Ty(), unionPtr, "unionVal");
+}
+
+void IRGenerator::emitStoreTsValueFields(llvm::Value* boxedPtr, llvm::Value* type, llvm::Value* value) {
+    initTsValueType();
+    llvm::Value* typePtr = builder->CreateStructGEP(tsValueType, boxedPtr, 0);
+    builder->CreateStore(type, typePtr);
+    llvm::Value* unionPtr = builder->CreateStructGEP(tsValueType, boxedPtr, 2);
+    builder->CreateStore(value, unionPtr);
+}
+
+llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* keyBoxed) {
+    initTsValueType();
+    
+    // Allocate result on stack
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "mapGetResult");
+    
+    // Load key fields
+    llvm::Value* keyType = emitLoadTsValueType(keyBoxed);
+    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxed);
+    
+    // Compute hash (simplified - just use keyVal for now, strings need special handling)
+    llvm::Value* keyHash = keyVal;  // TODO: proper hash for strings
+    
+    // Call __ts_map_find_bucket(map, hash, key_type, key_val) -> i64
+    llvm::FunctionType* findFt = llvm::FunctionType::get(
+        builder->getInt64Ty(),
+        { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt8Ty(), builder->getInt64Ty() },
+        false);
+    llvm::FunctionCallee findFn = getRuntimeFunction("__ts_map_find_bucket", findFt);
+    llvm::Value* bucketIdx = createCall(findFt, findFn.getCallee(), { rawMap, keyHash, keyType, keyVal });
+    
+    // Check if found (idx >= 0)
+    llvm::Value* notFound = builder->CreateICmpSLT(bucketIdx, builder->getInt64(0), "notFound");
+    
+    // Branch: found vs not-found
+    llvm::BasicBlock* foundBB = llvm::BasicBlock::Create(*context, "map.found", currentFunc);
+    llvm::BasicBlock* notFoundBB = llvm::BasicBlock::Create(*context, "map.notfound", currentFunc);
+    llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(*context, "map.done", currentFunc);
+    
+    builder->CreateCondBr(notFound, notFoundBB, foundBB);
+    
+    // Found: call __ts_map_get_value_at
+    builder->SetInsertPoint(foundBB);
+    llvm::Value* outType = builder->CreateAlloca(builder->getInt8Ty());
+    llvm::Value* outVal = builder->CreateAlloca(builder->getInt64Ty());
+    llvm::FunctionType* getValFt = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context),
+        { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy(), builder->getPtrTy() },
+        false);
+    llvm::FunctionCallee getValFn = getRuntimeFunction("__ts_map_get_value_at", getValFt);
+    createCall(getValFt, getValFn.getCallee(), { rawMap, bucketIdx, outType, outVal });
+    
+    emitStoreTsValueFields(result,
+                          builder->CreateLoad(builder->getInt8Ty(), outType),
+                          builder->CreateLoad(builder->getInt64Ty(), outVal));
+    builder->CreateBr(doneBB);
+    
+    // Not found: store undefined
+    builder->SetInsertPoint(notFoundBB);
+    emitStoreTsValueFields(result, builder->getInt8(0), builder->getInt64(0));  // UNDEFINED
+    builder->CreateBr(doneBB);
+    
+    // Done
+    builder->SetInsertPoint(doneBB);
+    boxedValues.insert(result);
+    return result;
+}
+
+void IRGenerator::emitInlineMapSet(llvm::Value* rawMap, llvm::Value* keyBoxed, llvm::Value* valBoxed) {
+    initTsValueType();
+    
+    // Load key and value fields
+    llvm::Value* keyType = emitLoadTsValueType(keyBoxed);
+    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxed);
+    llvm::Value* valType = emitLoadTsValueType(valBoxed);
+    llvm::Value* valVal = emitLoadTsValueUnion(valBoxed);
+    
+    // Compute hash
+    llvm::Value* keyHash = keyVal;  // TODO: proper hash
+    
+    // Call __ts_map_set_at(map, hash, key_type, key_val, val_type, val_val)
+    llvm::FunctionType* setFt = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context),
+        { builder->getPtrTy(), builder->getInt64Ty(),
+          builder->getInt8Ty(), builder->getInt64Ty(),
+          builder->getInt8Ty(), builder->getInt64Ty() },
+        false);
+    llvm::FunctionCallee setFn = getRuntimeFunction("__ts_map_set_at", setFt);
+    createCall(setFt, setFn.getCallee(), { rawMap, keyHash, keyType, keyVal, valType, valVal });
+}
+
+llvm::Value* IRGenerator::emitInlineArrayGet(llvm::Value* rawArr, llvm::Value* index) {
+    initTsValueType();
+    
+    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+    llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
+    llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "arrayGetResult");
+    
+    llvm::Value* outType = builder->CreateAlloca(builder->getInt8Ty());
+    llvm::Value* outVal = builder->CreateAlloca(builder->getInt64Ty());
+    
+    // Call __ts_array_get_inline(arr, index, out_type, out_val)
+    llvm::FunctionType* ft = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context),
+        { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy(), builder->getPtrTy() },
+        false);
+    llvm::FunctionCallee fn = getRuntimeFunction("__ts_array_get_inline", ft);
+    createCall(ft, fn.getCallee(), { rawArr, index, outType, outVal });
+    
+    emitStoreTsValueFields(result,
+                          builder->CreateLoad(builder->getInt8Ty(), outType),
+                          builder->CreateLoad(builder->getInt64Ty(), outVal));
+    boxedValues.insert(result);
+    return result;
+}
+
+void IRGenerator::emitInlineArraySet(llvm::Value* rawArr, llvm::Value* index, llvm::Value* valBoxed) {
+    initTsValueType();
+    
+    llvm::Value* valType = emitLoadTsValueType(valBoxed);
+    llvm::Value* valVal = emitLoadTsValueUnion(valBoxed);
+    
+    // Call __ts_array_set_inline(arr, index, val_type, val_val)
+    llvm::FunctionType* ft = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*context),
+        { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt8Ty(), builder->getInt64Ty() },
+        false);
+    llvm::FunctionCallee fn = getRuntimeFunction("__ts_array_set_inline", ft);
+    createCall(ft, fn.getCallee(), { rawArr, index, valType, valVal });
+}
+
+llvm::Value* IRGenerator::emitInlineObjectGetProp(llvm::Value* objBoxed, llvm::Value* keyBoxed) {
+    initTsValueType();
+    
+    // For objects, delegate to map operations after getting the internal map
+    // Call __ts_object_get_map(obj) -> void*
+    llvm::FunctionType* getMapFt = llvm::FunctionType::get(
+        builder->getPtrTy(),
+        { builder->getPtrTy() },
+        false);
+    llvm::FunctionCallee getMapFn = getRuntimeFunction("__ts_object_get_map", getMapFt);
+    llvm::Value* mapImpl = createCall(getMapFt, getMapFn.getCallee(), { objBoxed });
+    
+    // Now use map operations on the impl pointer
+    return emitInlineMapGet(mapImpl, keyBoxed);
+}
+
+void IRGenerator::emitInlineObjectSetProp(llvm::Value* objBoxed, llvm::Value* keyBoxed, llvm::Value* valBoxed) {
+    initTsValueType();
+    
+    // Get internal map
+    llvm::FunctionType* getMapFt = llvm::FunctionType::get(
+        builder->getPtrTy(),
+        { builder->getPtrTy() },
+        false);
+    llvm::FunctionCallee getMapFn = getRuntimeFunction("__ts_object_get_map", getMapFt);
+    llvm::Value* mapImpl = createCall(getMapFt, getMapFn.getCallee(), { objBoxed });
+    
+    // Delegate to map set
+    emitInlineMapSet(mapImpl, keyBoxed, valBoxed);
+}
+
 } // namespace ts
