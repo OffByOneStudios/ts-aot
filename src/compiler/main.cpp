@@ -70,9 +70,13 @@ int main(int argc, char** argv) {
         if (logLevel == "trace") spdlog::set_level(spdlog::level::trace);
         else if (logLevel == "debug") spdlog::set_level(spdlog::level::debug);
         else if (logLevel == "info") spdlog::set_level(spdlog::level::info);
-        else if (logLevel == "warn") spdlog::set_level(spdlog::level::warn);
+        else if (logLevel == "warn" || logLevel == "warning") spdlog::set_level(spdlog::level::warn);
         else if (logLevel == "error") spdlog::set_level(spdlog::level::err);
         else if (logLevel == "off") spdlog::set_level(spdlog::level::off);
+        else {
+            // Default to warn if unknown level
+            spdlog::set_level(spdlog::level::warn);
+        }
 
         if (result.count("help")) {
             std::cout << options.help() << std::endl;

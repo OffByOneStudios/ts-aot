@@ -572,10 +572,8 @@ TsValue* ts_value_make_int(int64_t i) {
             k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::Create(keyStr);
             TsValue val = map->Get(k);
-            printf("[ts_object_get_property] TsMap::Get(%s) returned type=%d\n", keyStr, (int)val.type);
             if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
                 uint32_t valMagic = *(uint32_t*)val.ptr_val;
-                printf("[ts_object_get_property] Retrieved value ptr_val=%p, magic=%08X (FUNC=46554E43, MAPS=4D415053)\n", val.ptr_val, valMagic);
             }
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
@@ -1322,18 +1320,8 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
 
         TsString* keyStrDbg = (TsString*)ts_value_get_string(key);
-        const char* keyNameDbg = keyStrDbg ? keyStrDbg->ToUtf8() : "<null>";
-        printf("[ts_object_set_prop] rawObj=%p, key=%s, magic0=%08X, magic16=%08X, magic20=%08X, magic24=%08X\n",
-               rawObj, keyNameDbg, magic0, magic16, magic20, magic24);
-        
-        // Debug: special log for exports key
-        if (keyStrDbg && strcmp(keyNameDbg, "exports") == 0) {
-            printf("[ts_object_set_prop] SETTING EXPORTS! value=%p, value->type=%d\n", value, (int)value->type);
-        }
-
         // Check for TsFunction (can have properties like _.chunk)
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
-            printf("[ts_object_set_prop] Detected TsFunction, adding property %s\n", keyNameDbg);
             TsFunction* func = (TsFunction*)rawObj;
             if (!func->properties) {
                 func->properties = TsMap::Create();
@@ -1344,11 +1332,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if it's a map
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
-            printf("[ts_object_set_prop] Calling TsMap::Set: map=%p, key=%p, value=%p\n", rawObj, key, value);
             TsMap* map = (TsMap*)rawObj;
-            printf("[ts_object_set_prop] Before Set: *key type=%d, *value type=%d\n", (int)key->type, (int)value->type);
             map->Set(*key, *value);
-            printf("[ts_object_set_prop] After Set\n");
             return value;
         }
 

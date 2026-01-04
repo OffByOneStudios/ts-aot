@@ -107,19 +107,6 @@ TsMap::TsMap() {
 }
 
 void TsMap::Set(TsValue key, TsValue value) {
-    // Debug: check key validity
-    printf("[TsMap::Set] key.type=%d, key.ptr_val=%p, value.type=%d, value.ptr_val=%p\n",
-           (int)key.type, key.ptr_val, (int)value.type, value.ptr_val);
-    
-    // If key is string, verify it's not corrupted
-    if (key.type == ValueType::STRING_PTR && key.ptr_val) {
-        uint32_t magic = *(uint32_t*)key.ptr_val;
-        printf("[TsMap::Set] key string magic=%08X (expected STRG=53545247)\n", magic);
-        if (magic != 0x53545247) {
-            printf("[TsMap::Set] ERROR: Key is not a valid TsString! magic=%08X\n", magic);
-        }
-    }
-    
     ((MapType*)impl)->insert_or_assign(key, value);
 }
 
