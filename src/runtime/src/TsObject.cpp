@@ -312,24 +312,24 @@ TsValue* ts_value_make_int(int64_t i) {
     void* ts_value_get_string(TsValue* v) {
         if (!v) return nullptr;
 
-#ifdef _MSC_VER
-        __try {
-#endif
-            // Check for raw TsString
-            uint32_t magic = *(uint32_t*)v;
-            if (magic == 0x53545247) { // TsString::MAGIC
-                return v;
-            }
-#ifdef _MSC_VER
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            return nullptr;
+        // Check type field first - if valid TsValue type, use it directly
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper TsValue
+            if (v->type == ValueType::STRING_PTR) return v->ptr_val;
+            // Not a string - try to convert
+            return ts_string_from_value(v);
         }
-#endif
 
-        if (v->type == ValueType::STRING_PTR) return v->ptr_val;
-        
-        // If it's not a string, try to convert it (makes unboxing more robust)
-        return ts_string_from_value(v);
+        // Type > 10 means this might be a raw TsString* pointer
+        // Check for TsString magic (no exception handler needed - if it crashes, it's a bug)
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x53545247) { // TsString::MAGIC
+            return v;
+        }
+
+        // Unknown pointer type - cannot extract string
+        return nullptr;
     }
 
     void* ts_value_get_object(TsValue* v) {
@@ -337,33 +337,52 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-#ifdef _MSC_VER
-        __try {
-#endif
-            // Check for raw pointers
-            uint32_t magic = *(uint32_t*)v;
-            if (magic == 0x41525259) { // TsArray::MAGIC
-                return v;
+        // Check type field first - if valid TsValue type (0-10), use it directly
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper TsValue
+            if (v->type == ValueType::OBJECT_PTR || 
+                v->type == ValueType::ARRAY_PTR || 
+                v->type == ValueType::PROMISE_PTR ||
+                v->type == ValueType::FUNCTION_PTR) {
+                return v->ptr_val;
             }
-            if (magic == 0x4D415053) { // TsMap::MAGIC
-                return v;
-            }
-
-            // Check for objects with vtable (magic at offset 8)
-            uint32_t magic8 = *(uint32_t*)((char*)v + 8);
-            if (magic8 == 0x42554646) { // TsBuffer::MAGIC
-                return v;
-            }
-#ifdef _MSC_VER
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
             return nullptr;
         }
-#endif
 
-        if (v->type == ValueType::OBJECT_PTR || v->type == ValueType::ARRAY_PTR || v->type == ValueType::PROMISE_PTR) {
-            return v->ptr_val;
+        // Type > 10 means this might be a raw pointer (TsArray*, TsMap*, etc.)
+        // Check magic numbers to identify the type
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            return v;
         }
-        return nullptr;
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            return v;
+        }
+        if (magic == 0x53455453) { // TsSet::MAGIC
+            return v;
+        }
+        if (magic == 0x53545247) { // TsString::MAGIC - not an object
+            return nullptr;
+        }
+
+        // Check for objects with vtable (magic at offset 8)
+        uint32_t magic8 = *(uint32_t*)((char*)v + 8);
+        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
+            return v;
+        }
+        if (magic8 == 0x4D415053) { // TsMap::MAGIC at offset 8
+            return v;
+        }
+
+        // Check offset 16 (some objects have magic there due to virtual inheritance)
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        if (magic16 == 0x4D415053 || magic16 == 0x46554E43) {
+            return v;
+        }
+
+        // Unknown - assume it's an object pointer
+        return v;
     }
 
     // Strict equality comparison for boxed values (implements === semantics)
@@ -1262,39 +1281,48 @@ TsValue* ts_value_make_int(int64_t i) {
     TsString* ts_value_typeof(TsValue* v) {
         if (!v) return TsString::Create("undefined");
 
-#ifdef _MSC_VER
-        __try {
-#endif
-            // Check for raw TsString
-            uint32_t magic = *(uint32_t*)v;
-            if (magic == 0x53545247) return TsString::Create("string");
-#ifdef _MSC_VER
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            return TsString::Create("undefined");
-        }
-#endif
-
-        switch (v->type) {
-            case ValueType::UNDEFINED: return TsString::Create("undefined");
-            case ValueType::NUMBER_INT:
-            case ValueType::NUMBER_DBL: return TsString::Create("number");
-            case ValueType::BOOLEAN: return TsString::Create("boolean");
-            case ValueType::STRING_PTR: return TsString::Create("string");
-            case ValueType::FUNCTION_PTR: return TsString::Create("function");
-            case ValueType::OBJECT_PTR: {
-                if (!v->ptr_val) return TsString::Create("object");
-                // Check if it's a function (legacy magic number support)
-                uint32_t magic = *(uint32_t*)v->ptr_val;
-                uint32_t magic8 = *(uint32_t*)((char*)v->ptr_val + 8);
-                uint32_t magic16 = *(uint32_t*)((char*)v->ptr_val + 16);
-                uint32_t magic24 = *(uint32_t*)((char*)v->ptr_val + 24);
-                if (magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43) 
-                    return TsString::Create("function");
-                return TsString::Create("object");
+        // Check type field first - if in valid range (0-10), trust it
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper TsValue - use the type field directly
+            switch (v->type) {
+                case ValueType::UNDEFINED: return TsString::Create("undefined");
+                case ValueType::NUMBER_INT:
+                case ValueType::NUMBER_DBL: return TsString::Create("number");
+                case ValueType::BOOLEAN: return TsString::Create("boolean");
+                case ValueType::STRING_PTR: return TsString::Create("string");
+                case ValueType::FUNCTION_PTR: return TsString::Create("function");
+                case ValueType::OBJECT_PTR: {
+                    if (!v->ptr_val) return TsString::Create("object");
+                    // Check if ptr_val points to a TsFunction (for backwards compatibility)
+                    TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)v->ptr_val);
+                    if (func) return TsString::Create("function");
+                    return TsString::Create("object");
+                }
+                case ValueType::ARRAY_PTR: return TsString::Create("object");
+                case ValueType::BIGINT_PTR: return TsString::Create("bigint");
+                case ValueType::SYMBOL_PTR: return TsString::Create("symbol");
+                default: return TsString::Create("object");
             }
-            case ValueType::ARRAY_PTR: return TsString::Create("object");
-            default: return TsString::Create("object");
         }
+
+        // Type > 10 means this is a raw pointer - check magic numbers
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x53545247) return TsString::Create("string"); // TsString::MAGIC
+        if (magic == 0x41525259) return TsString::Create("object"); // TsArray::MAGIC
+        if (magic == 0x4D415053) return TsString::Create("object"); // TsMap::MAGIC
+        if (magic == 0x53455453) return TsString::Create("object"); // TsSet::MAGIC
+        if (magic == 0x46554E43) return TsString::Create("function"); // TsFunction::MAGIC
+
+        // Check other offsets for magic (virtual inheritance may shift it)
+        uint32_t magic8 = *(uint32_t*)((char*)v + 8);
+        if (magic8 == 0x46554E43) return TsString::Create("function");
+        
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        if (magic16 == 0x46554E43) return TsString::Create("function");
+
+        // Default to object for unknown raw pointers
+        return TsString::Create("object");
     }
 
     TsValue* ts_object_get_prop(TsValue* obj, TsValue* key) {
