@@ -573,7 +573,9 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
             llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
             createCall(pushFt, pushFn.getCallee(), { keys, tsStr });
         }
-    } else if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+    } else {
+        // For Any, Function, or any other type - use ts_object_keys with proper boxing
+        // This handles all dynamic types correctly including functions
         llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
         llvm::FunctionType* keysFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee keysFn = getRuntimeFunction("ts_object_keys", keysFt);
@@ -582,10 +584,6 @@ void IRGenerator::visitForInStatement(ast::ForInStatement* node) {
         llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
         keys = createCall(getObjFt, getObjFn.getCallee(), { boxedKeys });
-    } else {
-        llvm::FunctionType* keysFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), { llvm::PointerType::getUnqual(*context) }, false);
-        llvm::FunctionCallee keysFn = getRuntimeFunction("ts_map_keys", keysFt);
-        keys = createCall(keysFt, keysFn.getCallee(), { obj });
     }
     builder->CreateStore(keys, keysVar);
 
