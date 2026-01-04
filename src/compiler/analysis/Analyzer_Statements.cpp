@@ -42,13 +42,17 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
                     declareBindingPattern(node->name.get(), type);
                 }
             } else if (!isJavaScript) {
-                // Type annotation is present - use the declared type for the initializer
-                // This is important for empty arrays like `const arr: Set<T>[] = []`
-                node->initializer->inferredType = type;
-                
-                // Check assignability
+                // Type annotation is present - check assignability
                 if (!lastType->isAssignableTo(type)) {
                     reportError(fmt::format("Type {} is not assignable to type {}", lastType->toString(), type->toString()));
+                }
+                
+                // Only override initializer's inferredType when the declared type provides
+                // more specific information (e.g., `const arr: Set<T>[] = []`).
+                // Do NOT override when the declared type is Any - this would lose the
+                // original type info (e.g., function reference → undefined in codegen).
+                if (type->kind != TypeKind::Any) {
+                    node->initializer->inferredType = type;
                 }
             }
         }
