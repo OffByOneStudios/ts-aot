@@ -1004,7 +1004,8 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     // accidentally branch to blocks from an enclosing function.
     currentBreakBB = nullptr;
     currentContinueBB = nullptr;
-    currentReturnBB = llvm::BasicBlock::Create(*context, "return", function);
+    // Create return block but DON'T add it to function yet - only insert if it gets used
+    currentReturnBB = llvm::BasicBlock::Create(*context, "return");
     currentShouldReturnAlloca = createEntryBlockAlloca(function, "shouldReturn", builder->getInt1Ty());
     builder->CreateStore(builder->getInt1(false), currentShouldReturnAlloca);
     currentShouldBreakAlloca = createEntryBlockAlloca(function, "shouldBreak", builder->getInt1Ty());
@@ -1089,16 +1090,28 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     } else {
         llvm::BasicBlock* currentBB = builder->GetInsertBlock();
         if (currentBB && !currentBB->getTerminator()) {
+            // Need to use the return block - insert it into function now
+            if (!currentReturnBB->getParent()) {
+                currentReturnBB->insertInto(function);
+            }
             builder->CreateBr(currentReturnBB);
         }
 
-        // Emit unified return block if it has predecessors
-        if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
-            currentReturnBB->eraseFromParent();
+        // Emit unified return block if it was actually used (has predecessors)
+        if (currentReturnBB->getParent()) {
+            // Block was inserted, so check if it has predecessors
+            if (llvm::pred_begin(currentReturnBB) == llvm::pred_end(currentReturnBB)) {
+                // No predecessors - remove it
+                currentReturnBB->eraseFromParent();
+            } else {
+                // Has predecessors - add terminator
+                builder->SetInsertPoint(currentReturnBB);
+                llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
+                builder->CreateRet(retVal);
+            }
         } else {
-            builder->SetInsertPoint(currentReturnBB);
-            llvm::Value* retVal = builder->CreateLoad(builder->getPtrTy(), currentReturnValueAlloca);
-            builder->CreateRet(retVal);
+            // Block was never inserted - delete the unused object
+            delete currentReturnBB;
         }
     }
     
