@@ -272,8 +272,6 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = new (mem) TsFunction(funcPtr, context, FunctionType::NATIVE);
         // Explicitly set magic using member access instead of offset calculation
         func->magic = TsFunction::MAGIC;
-        printf("[ts_value_make_native_function] After setting: func=%p, func->magic=%08X (expected %08X)\n", 
-               func, func->magic, TsFunction::MAGIC);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::OBJECT_PTR;
         v->ptr_val = func;
@@ -519,11 +517,33 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_undefined();
     }
 
+    // Forward declarations for prototype methods
+    static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
+    static TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
+    static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
+    static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
+
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
-        printf("[ts_object_get_property] obj=%p, keyStr=%s\n", obj, keyStr);
         if (!obj) {
-            printf("[ts_object_get_property] obj is NULL\n");
             return ts_value_make_undefined();
+        }
+        
+        // Try to detect TsValue* at the start
+        // TsValue has type enum (0-10) at offset 0, then padding, then value at offset 8
+        // Real object pointers have vtable at offset 0 which is a large address
+        // Check if first byte is a valid ValueType and if the "ptr_val" (at offset 8) looks reasonable
+        uint8_t firstByte = *(uint8_t*)obj;
+        if (firstByte <= 10) {  // Could be a valid ValueType
+            TsValue* maybeVal = (TsValue*)obj;
+            // Additional check: for UNDEFINED, ptr_val should be null/zero
+            if (maybeVal->type == ValueType::UNDEFINED) {
+                return ts_value_make_undefined();
+            }
+            // For object types, unwrap if ptr_val is valid (non-zero)
+            if ((maybeVal->type == ValueType::OBJECT_PTR || maybeVal->type == ValueType::ARRAY_PTR || 
+                 maybeVal->type == ValueType::PROMISE_PTR) && maybeVal->ptr_val) {
+                obj = maybeVal->ptr_val;
+            }
         }
         
         // IMPORTANT: Check magic FIRST before any dynamic_cast!
@@ -535,11 +555,8 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
 
-        printf("[ts_object_get_property] magics: 0=%08X, 8=%08X, 16=%08X, 20=%08X, 24=%08X\n", magic0, magic8, magic16, magic20, magic24);
-
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
         if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
-            printf("[ts_object_get_property] Detected TsRegExp\n");
             TsRegExp* re = (TsRegExp*)obj;
             if (strcmp(keyStr, "source") == 0) {
                 return ts_value_make_string(re->GetSource());
@@ -615,7 +632,6 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check for TsFunction (magic at offset 16 typically) - functions can have properties like _.chunk
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
-            printf("[ts_object_get_property] Detected TsFunction, checking properties\n");
             TsFunction* func = (TsFunction*)obj;
             if (func->properties) {
                 TsValue k;
@@ -628,6 +644,52 @@ TsValue* ts_value_make_int(int64_t i) {
                     return res;
                 }
             }
+            
+            // Handle .prototype specially - every JS function should have one
+            // Create it lazily if it doesn't exist
+            if (strcmp(keyStr, "prototype") == 0) {
+                if (!func->properties) {
+                    func->properties = TsMap::Create();
+                }
+                TsValue protoKey;
+                protoKey.type = ValueType::STRING_PTR;
+                protoKey.ptr_val = TsString::Create("prototype");
+                
+                // Check if we already have it
+                TsValue existing = func->properties->Get(protoKey);
+                if (existing.type != ValueType::UNDEFINED) {
+                    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                    *res = existing;
+                    return res;
+                }
+                
+                // Create a new empty object as the prototype
+                TsMap* proto = TsMap::Create();
+                TsValue* protoVal = ts_value_make_object(proto);
+                func->properties->Set(protoKey, *protoVal);
+                return protoVal;
+            }
+            
+            // Handle .length specially - return 0 if not set
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(0);
+            }
+            
+            // Handle .name specially - return empty string if not set
+            if (strcmp(keyStr, "name") == 0) {
+                return ts_value_make_string(TsString::Create(""));
+            }
+            
+            // Handle Function.prototype methods directly on the function
+            if (strcmp(keyStr, "toString") == 0) {
+                return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
+            }
+            if (strcmp(keyStr, "call") == 0 || strcmp(keyStr, "apply") == 0 || strcmp(keyStr, "bind") == 0) {
+                // These are complex - for now return a stub that does nothing useful
+                // Real implementation would need proper call/apply/bind semantics
+                return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
+            }
+            
             return ts_value_make_undefined();
         }
 
@@ -639,11 +701,9 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic0 != 0x52454758 && magic0 != 0x41525259 && magic0 != 0x53545247 &&
             magic0 != 0x42554646 && magic0 != 0x4D415053) {
             // Might be a polymorphic TsObject - try dynamic_cast carefully
-            printf("[ts_object_get_property] Trying dynamic_cast for TsIncomingMessage...\n");
             try {
                 TsObject* tsObj = (TsObject*)obj;
                 TsIncomingMessage* incomingMsg = dynamic_cast<TsIncomingMessage*>(tsObj);
-                printf("[ts_object_get_property] dynamic_cast result: %p\n", incomingMsg);
                 if (incomingMsg) {
                     if (strcmp(keyStr, "statusCode") == 0) {
                         return ts_value_make_int(incomingMsg->statusCode);
@@ -660,7 +720,6 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             } catch (...) {
                 // dynamic_cast failed - not a polymorphic type
-                printf("[ts_object_get_property] dynamic_cast threw exception\n");
             }
         }
 
@@ -751,7 +810,6 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if this is actually a TsFunction (has FUNC magic)
         TsFunction* func = (TsFunction*)ptr;
         if (func->magic != TsFunction::MAGIC) {
-            printf("[ts_call_1] ERROR: Attempted to call non-function object (magic=%08X)\n", func->magic);
             return ts_value_make_undefined();
         }
         if (func->type == FunctionType::NATIVE) {
@@ -891,27 +949,20 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
-        printf("[ts_function_call_with_this] boxedFunc=%p, thisArg=%p, argc=%d\n", boxedFunc, thisArg, argc);
         TsFunction* func = ts_extract_function(boxedFunc);
-        printf("[ts_function_call_with_this] func=%p\n", func);
         if (!func) {
-            printf("[ts_function_call_with_this] func is NULL or not a function\n");
             return ts_value_make_undefined();
         }
 
         // Preserve the captured context and only override when the function has none.
         void* savedCtx = func->context;
         bool patchedCtx = false;
-        printf("[ts_function_call_with_this] func->context=%p, thisArg=%p\n", func->context, thisArg);
         if (!func->context) {
-            printf("[ts_function_call_with_this] Patching context with thisArg\n");
             func->context = thisArg;
             patchedCtx = true;
         }
 
-        printf("[ts_function_call_with_this] About to call ts_function_call\n");
         TsValue* result = ts_function_call(boxedFunc, argc, argv);
-        printf("[ts_function_call_with_this] ts_function_call returned\n");
 
         if (patchedCtx) {
             func->context = savedCtx;
@@ -1287,15 +1338,11 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
-        printf("[ts_object_set_prop] ENTRY: obj=%p, key=%p, value=%p\n", obj, key, value);
         if (!obj || !key || !value) {
-            printf("[ts_object_set_prop] NULL parameter detected\n");
             return value;
         }
         
-        printf("[ts_object_set_prop] About to call ts_value_get_object\n");
         void* rawObj = ts_value_get_object(obj);
-        printf("[ts_object_set_prop] ts_value_get_object returned: %p\n", rawObj);
         if (!rawObj) return value;
 
         // If key is a number, try array access
@@ -1491,6 +1538,37 @@ TsValue* ts_value_make_int(int64_t i) {
     extern "C" TsValue* global = nullptr;
     extern "C" TsValue* parseInt = nullptr;
     extern "C" TsValue* parseFloat = nullptr;
+    
+    // Prototype method implementations
+    
+    // Function.prototype.toString - returns "[native code]" for compiled functions
+    static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(TsString::Create("function() { [native code] }"));
+    }
+    
+    // Object.prototype.hasOwnProperty(key)
+    static TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv) {
+        if (argc < 1 || !argv[0]) {
+            return ts_value_make_bool(false);
+        }
+        // 'this' is passed as context for method calls
+        // For now, return false - proper implementation would check the object
+        return ts_value_make_bool(false);
+    }
+    
+    // Object.prototype.toString() - returns "[object Object]"
+    static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(TsString::Create("[object Object]"));
+    }
+    
+    // Object.prototype.valueOf() - returns the object itself
+    static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv) {
+        // Return the context (this) if available, otherwise undefined
+        if (ctx) {
+            return ts_value_make_object(ctx);
+        }
+        return ts_value_make_undefined();
+    }
 
     // Object constructor function - converts value to object
     static TsValue* ts_object_constructor_native(void* ctx, int argc, TsValue** argv) {
@@ -1530,32 +1608,63 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(arr);
     }
 
+    // isNaN(value) - returns true if value is NaN
+    TsValue* ts_isNaN_native(int argc, TsValue** argv, void* context) {
+        if (argc < 1 || !argv[0]) {
+            return ts_value_make_bool(true); // undefined is NaN
+        }
+        TsValue* val = argv[0];
+        double d = 0.0;
+        if (val->type == ValueType::NUMBER_DBL) {
+            d = val->d_val;
+        } else if (val->type == ValueType::NUMBER_INT) {
+            return ts_value_make_bool(false); // integers are never NaN
+        } else if (val->type == ValueType::STRING_PTR) {
+            // Try to parse string as number
+            TsString* str = (TsString*)val->ptr_val;
+            if (!str || str->Length() == 0) {
+                return ts_value_make_bool(true);
+            }
+            // For simplicity, assume non-numeric strings are NaN
+            return ts_value_make_bool(true);
+        } else {
+            return ts_value_make_bool(true);
+        }
+        return ts_value_make_bool(std::isnan(d));
+    }
+
+    // isFinite(value) - returns true if value is finite
+    TsValue* ts_isFinite_native(int argc, TsValue** argv, void* context) {
+        if (argc < 1 || !argv[0]) {
+            return ts_value_make_bool(false); // undefined is not finite
+        }
+        TsValue* val = argv[0];
+        double d = 0.0;
+        if (val->type == ValueType::NUMBER_DBL) {
+            d = val->d_val;
+        } else if (val->type == ValueType::NUMBER_INT) {
+            return ts_value_make_bool(true); // integers are always finite
+        } else {
+            return ts_value_make_bool(false);
+        }
+        return ts_value_make_bool(std::isfinite(d));
+    }
+
     void ts_runtime_init() {
         // Initialize Object global - make it callable
-        printf("[ts_runtime_init] Creating Object constructor...\n");
         TsValue* objectConstructor = ts_value_make_native_function((void*)ts_object_constructor_native, nullptr);
-        printf("[ts_runtime_init] Object constructor created: %p\n", objectConstructor);
         
         // Get the TsFunction so we can add static methods as properties
         TsFunction* objectFunc = (TsFunction*)objectConstructor->ptr_val;
-        printf("[ts_runtime_init] BEFORE properties: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         if (!objectFunc->properties) {
             objectFunc->properties = TsMap::Create();
         }
-        printf("[ts_runtime_init] AFTER creating properties map: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
         objectFunc->properties->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
-        printf("[ts_runtime_init] AFTER Set(keys): objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         
         Object = objectConstructor;
-        printf("[ts_runtime_init] AFTER Object assignment: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
-        printf("[ts_runtime_init] Set Object global: Object=%p, type=%d, ptr_val=%p\n", Object, (int)Object->type, Object->ptr_val);
-        if (Object->ptr_val) {
-            uint32_t magic = *((uint32_t*)((char*)Object->ptr_val + 8));  // magic is at offset 8 after vtable
-            printf("[ts_runtime_init] Object->ptr_val magic at offset+8=%08X (expected FUNC=46554E43)\n", magic);
-        }
 
         // Initialize console
         TsMap* consoleMap = TsMap::Create();
@@ -1608,24 +1717,113 @@ TsValue* ts_value_make_int(int64_t i) {
         parseInt = ts_value_make_native_function((void*)ts_parseInt_native, nullptr);
         parseFloat = ts_value_make_native_function((void*)ts_parseFloat_native, nullptr);
 
-        // Node-like global object (minimal)
+        // Node-like global object (minimal) - lodash needs many constructors
         TsMap* globalMap = TsMap::Create();
-        TsValue objectKey; objectKey.type = ValueType::STRING_PTR; objectKey.ptr_val = TsString::Create("Object");
-        TsValue parseIntKey; parseIntKey.type = ValueType::STRING_PTR; parseIntKey.ptr_val = TsString::Create("parseInt");
-        TsValue parseFloatKey; parseFloatKey.type = ValueType::STRING_PTR; parseFloatKey.ptr_val = TsString::Create("parseFloat");
-        TsValue globalKey; globalKey.type = ValueType::STRING_PTR; globalKey.ptr_val = TsString::Create("global");
-        TsValue processKey; processKey.type = ValueType::STRING_PTR; processKey.ptr_val = TsString::Create("process");
-        TsValue bufferKey; bufferKey.type = ValueType::STRING_PTR; bufferKey.ptr_val = TsString::Create("Buffer");
-
-        if (Object) globalMap->Set(objectKey, *Object);
-        if (parseInt) globalMap->Set(parseIntKey, *parseInt);
-        if (parseFloat) globalMap->Set(parseFloatKey, *parseFloat);
-        if (process) globalMap->Set(processKey, *process);
-        if (Buffer) globalMap->Set(bufferKey, *Buffer);
+        
+        // Helper to create a key
+        auto makeKey = [](const char* name) {
+            TsValue k;
+            k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::Create(name);
+            return k;
+        };
+        
+        // Add all built-in constructors that lodash expects
+        if (Object) globalMap->Set(makeKey("Object"), *Object);
+        if (Array) globalMap->Set(makeKey("Array"), *Array);
+        if (Math) globalMap->Set(makeKey("Math"), *Math);
+        if (parseInt) globalMap->Set(makeKey("parseInt"), *parseInt);
+        if (parseFloat) globalMap->Set(makeKey("parseFloat"), *parseFloat);
+        if (process) globalMap->Set(makeKey("process"), *process);
+        if (Buffer) globalMap->Set(makeKey("Buffer"), *Buffer);
+        if (JSON) globalMap->Set(makeKey("JSON"), *JSON);
+        
+        // Create stub constructors for types that lodash checks but we don't fully implement
+        // These need .prototype property with proper methods to avoid issues
+        auto makeConstructorWithPrototype = [&](const char* name, bool isFunction = false) -> TsValue* {
+            // Create a function that acts as a constructor
+            TsValue* ctor = ts_value_make_native_function((void*)ts_object_constructor_native, nullptr);
+            TsFunction* func = (TsFunction*)ctor->ptr_val;
+            if (!func->properties) {
+                func->properties = TsMap::Create();
+            }
+            
+            // Create prototype object with methods
+            TsMap* protoMap = TsMap::Create();
+            
+            // Add toString method
+            TsValue toStringKey = makeKey("toString");
+            if (isFunction) {
+                protoMap->Set(toStringKey, *ts_value_make_native_function((void*)ts_function_toString_native, nullptr));
+            } else {
+                protoMap->Set(toStringKey, *ts_value_make_native_function((void*)ts_object_toString_native, nullptr));
+            }
+            
+            // Add valueOf method
+            protoMap->Set(makeKey("valueOf"), *ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr));
+            
+            // Add hasOwnProperty for Object-like prototypes
+            protoMap->Set(makeKey("hasOwnProperty"), *ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr));
+            
+            // Add .prototype property
+            TsValue protoKey;
+            protoKey.type = ValueType::STRING_PTR;
+            protoKey.ptr_val = TsString::Create("prototype");
+            func->properties->Set(protoKey, *ts_value_make_object(protoMap));
+            return ctor;
+        };
+        
+        // These constructors are accessed in lodash for .prototype
+        TsValue* Function = makeConstructorWithPrototype("Function", true);  // isFunction=true for Function
+        TsValue* String = makeConstructorWithPrototype("String");  
+        TsValue* Date = makeConstructorWithPrototype("Date");
+        TsValue* RegExp = makeConstructorWithPrototype("RegExp");
+        TsValue* Error = makeConstructorWithPrototype("Error");
+        TsValue* TypeError = makeConstructorWithPrototype("TypeError");
+        TsValue* Symbol = makeConstructorWithPrototype("Symbol");
+        TsValue* Map = makeConstructorWithPrototype("Map");
+        TsValue* Set = makeConstructorWithPrototype("Set");
+        TsValue* WeakMap = makeConstructorWithPrototype("WeakMap");
+        TsValue* Promise = makeConstructorWithPrototype("Promise");
+        
+        globalMap->Set(makeKey("Function"), *Function);
+        globalMap->Set(makeKey("String"), *String);
+        globalMap->Set(makeKey("Date"), *Date);
+        globalMap->Set(makeKey("RegExp"), *RegExp);
+        globalMap->Set(makeKey("Error"), *Error);
+        globalMap->Set(makeKey("TypeError"), *TypeError);
+        globalMap->Set(makeKey("Symbol"), *Symbol);
+        globalMap->Set(makeKey("Map"), *Map);
+        globalMap->Set(makeKey("Set"), *Set);
+        globalMap->Set(makeKey("WeakMap"), *WeakMap);
+        globalMap->Set(makeKey("Promise"), *Promise);
+        
+        // Also add prototype to Array and Object with proper methods
+        TsValue protoKey = makeKey("prototype");
+        
+        // Create Object.prototype with methods
+        TsMap* objectProtoMap = TsMap::Create();
+        objectProtoMap->Set(makeKey("toString"), *ts_value_make_native_function((void*)ts_object_toString_native, nullptr));
+        objectProtoMap->Set(makeKey("valueOf"), *ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr));
+        objectProtoMap->Set(makeKey("hasOwnProperty"), *ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr));
+        objectFunc->properties->Set(protoKey, *ts_value_make_object(objectProtoMap));
+        
+        // Create Array.prototype with methods
+        TsMap* arrayProtoMap = TsMap::Create();
+        arrayProtoMap->Set(makeKey("toString"), *ts_value_make_native_function((void*)ts_object_toString_native, nullptr));
+        arrayProtoMap->Set(makeKey("valueOf"), *ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr));
+        arrayFunc->properties->Set(protoKey, *ts_value_make_object(arrayProtoMap));
+        
+        // Misc global values
+        globalMap->Set(makeKey("undefined"), *ts_value_make_undefined());
+        globalMap->Set(makeKey("NaN"), *ts_value_make_double(std::numeric_limits<double>::quiet_NaN()));
+        globalMap->Set(makeKey("Infinity"), *ts_value_make_double(std::numeric_limits<double>::infinity()));
+        globalMap->Set(makeKey("isNaN"), *ts_value_make_native_function((void*)ts_isNaN_native, nullptr));
+        globalMap->Set(makeKey("isFinite"), *ts_value_make_native_function((void*)ts_isFinite_native, nullptr));
 
         global = ts_value_make_object(globalMap);
         // global.global === global
-        globalMap->Set(globalKey, *global);
+        globalMap->Set(makeKey("global"), *global);
     }
 
     void ts_module_register(TsValue* path, TsValue* exports) {
@@ -1633,8 +1831,6 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* s = (TsString*)path->ptr_val;
         std::string pathStr = s->ToUtf8();
 
-        fprintf(stderr, "[ts-aot] ts_module_register: %s\n", pathStr.c_str());
-        fflush(stderr);
         g_module_cache[pathStr] = exports;
     }
 
@@ -1654,9 +1850,6 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* s = (TsString*)specifier->ptr_val;
         std::string spec = s->ToUtf8();
 
-        fprintf(stderr, "[ts-aot] ts_require: %s (referrer=%s)\n", spec.c_str(), referrerPath ? referrerPath : "<null>");
-        fflush(stderr);
-        
         try {
             fs::path resolved;
             std::string absPath;
@@ -1673,18 +1866,11 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (absPath.empty()) {
-                fprintf(stderr, "[ts-aot] ts_require: resolve failed for %s\n", spec.c_str());
-                fflush(stderr);
                 return ts_value_make_undefined();
             }
 
-            fprintf(stderr, "[ts-aot] ts_require: resolved %s -> %s\n", spec.c_str(), absPath.c_str());
-            fflush(stderr);
-
             TsValue* moduleObj = ts_module_get(absPath.c_str());
             if (moduleObj) {
-                fprintf(stderr, "[ts-aot] ts_require: cache hit %s\n", absPath.c_str());
-                fflush(stderr);
                 // CommonJS: return module.exports
                 if (moduleObj->type == ValueType::OBJECT_PTR) {
                     TsValue* exports = ts_object_get_prop(moduleObj, ts_value_make_string(TsString::Create("exports")));
