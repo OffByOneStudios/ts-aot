@@ -141,7 +141,7 @@ extern "C" {
     TsValue* ts_value_lte(TsValue* a, TsValue* b);
     TsValue* ts_value_gte(TsValue* a, TsValue* b);
     
-    // Slow path property access
+    // Slow path property access (pointer-based)
     TsValue* ts_object_get_prop(TsValue* obj, TsValue* key);
     TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value);
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
@@ -149,6 +149,10 @@ extern "C" {
     void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
+    
+    // Value-passing variants - avoid heap allocation (16 bytes, 2 registers)
+    TsValue ts_object_get_prop_v(TsValue obj, TsValue key);
+    TsValue ts_object_set_prop_v(TsValue obj, TsValue key, TsValue value);
     
     // Type info
     TsString* ts_value_typeof(TsValue* v);

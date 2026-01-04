@@ -41,4 +41,11 @@ extern "C" {
     void* ts_map_values(void* map);
     void* ts_map_entries(void* map);
     void ts_map_forEach(void* map, void* callback, void* thisArg);
+    
+    // Value-based API variants - avoid heap allocation
+    // Pass TsValue by value instead of TsValue* for better performance
+    void ts_map_set_v(void* map, TsValue key, TsValue value);
+    TsValue ts_map_get_v(void* map, TsValue key);
+    bool ts_map_has_v(void* map, TsValue key);
+    bool ts_map_delete_v(void* map, TsValue key);
 }

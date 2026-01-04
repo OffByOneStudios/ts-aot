@@ -69,6 +69,10 @@ extern "C" {
     void* ts_array_get_unchecked(void* arr, int64_t index);
     void ts_array_set(void* arr, int64_t index, void* value);
     void ts_array_set_unchecked(void* arr, int64_t index, void* value);
+    
+    // Value-based API variants - avoid heap allocation
+    TsValue ts_array_get_v(void* arr, int64_t index);
+    void ts_array_set_v(void* arr, int64_t index, TsValue value);
     int64_t ts_array_length(void* arr);
     void ts_array_sort(void* arr);
     void ts_array_sort_with_comparator(void* arr, void* comparator);
