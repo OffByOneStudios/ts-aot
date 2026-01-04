@@ -182,9 +182,7 @@ void* TsMap::GetEntries() {
 
 void TsMap::ForEach(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return;
-    TsFunction* func = (TsFunction*)cbVal->ptr_val;
-    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*, void*))func->funcPtr;
+    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
     MapType* map = (MapType*)impl;
     for (auto const& [key, val] : *map) {
@@ -193,7 +191,7 @@ void TsMap::ForEach(void* callback, void* thisArg) {
         TsValue* k = (TsValue*)ts_alloc(sizeof(TsValue));
         *k = key;
         TsValue* m = ts_value_make_object(this);
-        fp(v, k, m, func->context);
+        ts_call_3(cbVal, v, k, m);
     }
 }
 

@@ -450,6 +450,50 @@ Re-enabled Boehm GC after debugging with pool allocator.
 - Double boxing when passing Object to any parameter (FIXED: 2026-01-04)
 - Prefix increment/decrement codegen (FIXED: 2026-01-04)
 - Memory pressure during lodash load (PARTIALLY FIXED: pool allocator)
+- **Lambda terminator bug** (FIXED: 2026-01-04) - Expression-body arrows left unreachable basic blocks with no terminator
+- **BUG: Array.map lambda callback crash** (FIXED: 2026-01-04) - Multiple issues fixed:
+  1. Callback type check used OBJECT_PTR instead of FUNCTION_PTR
+  2. Callback invocation didn't pass context parameter (used ts_call_3)
+  3. Array printing treated raw int64 values as TsValue pointers
+
+### Lambda Callback Crash Details (RESOLVED)
+
+**Symptom:** `arr.map(x => x * 2)` compiles successfully but crashes at runtime with access violation 0xc0000005.
+
+**Test Case:** [examples/test_lambda_minimal.ts](../../examples/test_lambda_minimal.ts)
+```typescript
+const arr = [1, 2, 3];
+const result = arr.map(x => x * 2);
+console.log(result);
+```
+
+**Crash Location:**
+- Exception: Access violation (0xc0000005) 
+- Instruction: `mov rax,qword ptr [rcx+10h]`
+- Failure: `ds:00000000'00000010=????????????????` (null pointer + offset)
+
+**Debug Output:** [debug_analysis.txt](../../debug_analysis.txt)
+
+**Analysis:**
+- Lambda IR generation is correct (proper terminators present)
+- Crash occurs during `ts_array_map` execution, not in lambda definition
+- Null pointer dereference suggests invalid context or lambda pointer passed to callback
+- May be related to boxing/unboxing of function pointers or closure context
+
+**Status:** FIXED
+
+**Root Causes Identified:**
+1. **Type check error:** Array callback methods (Map, Filter, Reduce, etc.) checked for `OBJECT_PTR` instead of `FUNCTION_PTR`
+2. **Missing context parameter:** Runtime called lambda with wrong signature - used `fp(v, idx, arr)` instead of going through `ts_call_3` which passes context
+3. **Array print ambiguity:** Print code treated raw int64 element values as TsValue pointers
+
+**Fix Applied:**
+- Changed all callback type checks from `OBJECT_PTR` to `FUNCTION_PTR` in TsArray.cpp, TsMap.cpp, TsSet.cpp
+- Changed all callback invocations to use `ts_call_3`/`ts_call_4` which properly pass function context
+- Changed Map to store TsValue* pointers instead of raw int64 values
+- Updated array printing in Primitives.cpp to handle both raw integers and TsValue pointers
+
+**Severity:** HIGH - Blocks all lambda callback usage (Array.map, Array.filter, Array.reduce, etc.)
 
 ---
 
