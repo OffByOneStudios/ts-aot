@@ -122,7 +122,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_gte",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
 
     // Slow path property access
-    {"ts_object_get_prop",  {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_object_get_dynamic", {true, true}},      // (TsValue*, TsValue*) -> TsValue*
     {"ts_object_set_prop",  {true, true, true}},   // (TsValue*, TsValue*, TsValue*) -> TsValue*
     {"ts_object_get_dynamic", {true, true}},       // (TsValue*, TsValue*) -> TsValue*
     {"ts_array_get_dynamic", {true, true}},        // (TsValue*, TsValue*) -> TsValue*
@@ -195,7 +195,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_length",       {true}},             // (TsValue*) -> int
     {"ts_value_to_bool",      {true}},             // (TsValue*) -> bool
     {"ts_value_typeof",       {true}},             // (TsValue*) -> TsString*
-    {"ts_object_get_prop",    {true, true}},       // (obj, key) -> TsValue*
+    {"ts_object_get_dynamic",  {true, true}},     // (obj, key) -> TsValue*
     {"ts_object_get_property", {false, false}},    // (obj, key) -> TsValue*
     {"ts_object_set_prop",    {true, true, true}}, // (obj, key, value) -> TsValue*
     {"ts_object_has_prop",    {true, true}},       // (obj, key) -> bool

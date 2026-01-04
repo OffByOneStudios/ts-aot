@@ -304,7 +304,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
         
         lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
         boxedValues.insert(lastValue);
@@ -702,7 +702,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
         
         lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
         boxedValues.insert(lastValue);
@@ -1202,7 +1202,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_prop", getFt);
+        llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
         
         lastValue = createCall(getFt, getFn.getCallee(), { funcVal, key });
         boxedValues.insert(lastValue);
