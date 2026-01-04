@@ -139,9 +139,7 @@ void* TsSet::GetValues() {
 
 void TsSet::ForEach(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::OBJECT_PTR) return;
-    TsFunction* func = (TsFunction*)cbVal->ptr_val;
-    auto fp = (TsValue* (*)(TsValue*, TsValue*, TsValue*, void*))func->funcPtr;
+    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
     SetType* set = (SetType*)impl;
     for (auto const& val : *set) {
@@ -150,7 +148,7 @@ void TsSet::ForEach(void* callback, void* thisArg) {
         TsValue* v2 = (TsValue*)ts_alloc(sizeof(TsValue));
         *v2 = val;
         TsValue* s = ts_value_make_object(this);
-        fp(v1, v2, s, func->context);
+        ts_call_3(cbVal, v1, v2, s);
     }
 }
 

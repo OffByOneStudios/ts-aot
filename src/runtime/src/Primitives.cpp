@@ -11,6 +11,7 @@
 #include <map>
 #include <string>
 #include <cstdlib>
+#include <windows.h>
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 
@@ -137,26 +138,38 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
         int64_t len = arr->Length();
         std::printf("[ ");
         for (int64_t i = 0; i < len; i++) {
-            void* elem = (void*)arr->Get(i);
+            int64_t rawElem = arr->Get(i);
             if (i > 0) std::printf(", ");
-            if (elem) {
-                TsValue* elemVal = (TsValue*)elem;
-                if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
-                    std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
-                } else if (elemVal->type == ValueType::NUMBER_INT) {
-                    std::printf("%lld", elemVal->i_val);
-                } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                    std::printf("%f", elemVal->d_val);
-                } else {
-                    uint32_t elemMagic = *(uint32_t*)elem;
-                    if (elemMagic == 0x53545247) {
-                        std::printf("'%s'", ((TsString*)elem)->ToUtf8());
-                    } else {
-                        std::printf("[object Object]");
-                    }
-                }
-            } else {
+            
+            // Check if this looks like a raw integer (small value) or a pointer
+            if (rawElem == 0) {
                 std::printf("undefined");
+            } else if (rawElem > 0 && rawElem <= 0xFFFFFFFF) {
+                // Small positive value - treat as integer
+                std::printf("%lld", rawElem);
+            } else {
+                // Large value or negative - likely a pointer, try to access
+                void* elem = (void*)rawElem;
+                __try {
+                    TsValue* elemVal = (TsValue*)elem;
+                    if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
+                        std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                    } else if (elemVal->type == ValueType::NUMBER_INT) {
+                        std::printf("%lld", elemVal->i_val);
+                    } else if (elemVal->type == ValueType::NUMBER_DBL) {
+                        std::printf("%f", elemVal->d_val);
+                    } else {
+                        uint32_t elemMagic = *(uint32_t*)elem;
+                        if (elemMagic == 0x53545247) {
+                            std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                        } else {
+                            std::printf("[object Object]");
+                        }
+                    }
+                } __except(EXCEPTION_EXECUTE_HANDLER) {
+                    // Not a valid pointer, treat as integer
+                    std::printf("%lld", rawElem);
+                }
             }
         }
         std::printf(" ]");
@@ -191,9 +204,43 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
             int64_t len = arr->Length();
             std::printf("[ ");
             for (int64_t i = 0; i < len; i++) {
-                void* elem = (void*)arr->Get(i);
+                int64_t rawElem = arr->Get(i);
                 if (i > 0) std::printf(", ");
-                if (elem) {
+                
+                // Check if this looks like a raw integer (small value) or a pointer
+                // Pointers on Windows x64 are typically > 0x10000 and have high bits set
+                if (rawElem == 0) {
+                    std::printf("undefined");
+                } else if (rawElem > 0 && rawElem <= 0xFFFFFFFF) {
+                    // Small positive value - treat as integer
+                    std::printf("%lld", rawElem);
+                } else if (rawElem < 0) {
+                    // Could be negative number or pointer
+                    // Try to detect if it's a valid pointer
+                    void* elem = (void*)rawElem;
+                    __try {
+                        TsValue* elemVal = (TsValue*)elem;
+                        if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
+                            std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                        } else if (elemVal->type == ValueType::NUMBER_INT) {
+                            std::printf("%lld", elemVal->i_val);
+                        } else if (elemVal->type == ValueType::NUMBER_DBL) {
+                            std::printf("%f", elemVal->d_val);
+                        } else {
+                            uint32_t elemMagic = *(uint32_t*)elem;
+                            if (elemMagic == 0x53545247) {
+                                std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                            } else {
+                                std::printf("[object Object]");
+                            }
+                        }
+                    } __except(EXCEPTION_EXECUTE_HANDLER) {
+                        // Not a valid pointer, treat as negative integer
+                        std::printf("%lld", rawElem);
+                    }
+                } else {
+                    // Large positive value - likely a pointer
+                    void* elem = (void*)rawElem;
                     TsValue* elemVal = (TsValue*)elem;
                     if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
                         std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
@@ -209,8 +256,6 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
                             std::printf("[object Object]");
                         }
                     }
-                } else {
-                    std::printf("undefined");
                 }
             }
             std::printf(" ]");
