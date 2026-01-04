@@ -95,6 +95,38 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         node->callee->inferredType = std::make_shared<Type>(TypeKind::Any);
     }
 
+    // Handle IIFE (Immediately Invoked Function Expression): (function() {...})()
+    // Callee is a FunctionExpression or ArrowFunction, not an Identifier
+    if (dynamic_cast<ast::FunctionExpression*>(node->callee.get()) || 
+        dynamic_cast<ast::ArrowFunction*>(node->callee.get())) {
+        
+        // Visit the function expression to generate it and get the boxed function
+        visit(node->callee.get());
+        llvm::Value* funcValue = lastValue;
+        
+        // Call using ts_call_N runtime function
+        std::vector<llvm::Value*> args;
+        args.push_back(funcValue);  // The boxed function
+        
+        std::vector<llvm::Type*> paramTypes;
+        paramTypes.push_back(builder->getPtrTy());
+        
+        for (auto& arg : node->arguments) {
+            visit(arg.get());
+            args.push_back(boxValue(lastValue, arg->inferredType));
+            paramTypes.push_back(builder->getPtrTy());
+        }
+        
+        std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+        llvm::FunctionCallee fn = getRuntimeFunction(fnName, ft);
+        
+        lastValue = createCall(ft, fn.getCallee(), args);
+        boxedValues.insert(lastValue);
+        lastValue = unboxValue(lastValue, node->inferredType);
+        return;
+    }
+
     if (node->isComptime) {
         SPDLOG_DEBUG("Handling comptime call");
         if (node->arguments.size() > 0) {

@@ -646,14 +646,18 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         symbols.defineType(tp->name, tpType);
     }
 
-    if (!node->returnType.empty()) {
+    // Return type will be inferred after visiting body if not explicitly specified
+    bool needsReturnTypeInference = node->returnType.empty();
+    if (!needsReturnTypeInference) {
         funcType->returnType = parseType(node->returnType, symbols);
     } else {
+        // Start with void, will be updated by return statements
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
     if (currentModuleType == ModuleType::UntypedJavaScript) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Any);
+        needsReturnTypeInference = false;
     }
 
     if (node->isGenerator) {
@@ -714,11 +718,53 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         declareBindingPattern(node->parameters[i]->name.get(), funcType->paramTypes[i]);
     }
 
+    // Track the inferred return type from return statements
+    std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
+
     functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
+        // Infer return type from return statements
+        if (needsReturnTypeInference && stmt->getKind() == "ReturnStatement") {
+            if (lastType) {
+                inferredReturnType = lastType;
+            }
+        }
     }
     functionDepth--;
+
+    // Update function return type if inferred
+    if (needsReturnTypeInference && inferredReturnType->kind != TypeKind::Void) {
+        funcType->returnType = inferredReturnType;
+        
+        // Handle async wrapping for inferred return type
+        if (node->isAsync) {
+            bool isPromise = false;
+            if (funcType->returnType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(funcType->returnType);
+                if (cls->name == "Promise" || cls->name.substr(0, 8) == "Promise_") isPromise = true;
+            }
+            
+            if (!isPromise) {
+                auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+                
+                std::string mangledName = "Promise_" + funcType->returnType->toString();
+                std::replace_if(mangledName.begin(), mangledName.end(), [](char c) {
+                    return !std::isalnum(c);
+                }, '_');
+
+                auto wrapped = std::make_shared<ClassType>(mangledName);
+                wrapped->methods = promiseClass->methods;
+                wrapped->staticMethods = promiseClass->staticMethods;
+                wrapped->typeArguments = { funcType->returnType };
+                funcType->returnType = wrapped;
+
+                if (!symbols.lookupType(mangledName)) {
+                    symbols.defineGlobalType(mangledName, wrapped);
+                }
+            }
+        }
+    }
     
     symbols.exitScope();
     
