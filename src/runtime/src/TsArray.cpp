@@ -395,10 +395,6 @@ extern "C" {
         return (void*)((TsArray*)arr)->Shift();
     }
 
-    void* ts_array_get(void* arr, int64_t index) {
-        return (void*)((TsArray*)arr)->Get(index);
-    }
-
     TsValue* ts_array_get_as_value(void* arr, int64_t index) {
         if (!arr) {
             // printf("ts_array_get_as_value: arr is null\n");
@@ -478,10 +474,6 @@ extern "C" {
 
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         return (void*)((TsArray*)arr)->GetUnchecked(index);
-    }
-
-    void ts_array_set(void* arr, int64_t index, void* value) {
-        ((TsArray*)arr)->Set(index, (int64_t)value);
     }
 
     void ts_array_set_unchecked(void* arr, int64_t index, void* value) {

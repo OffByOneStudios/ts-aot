@@ -1102,7 +1102,10 @@ TsValue* ts_value_make_int(int64_t i) {
         
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_map_has(rawPtr, prop);
+            TsValue propVal;
+            propVal.type = ValueType::STRING_PTR;
+            propVal.ptr_val = prop;
+            return ts_map_has_v(rawPtr, propVal);
         }
         
         return false;
@@ -1325,30 +1328,21 @@ TsValue* ts_value_make_int(int64_t i) {
         return TsString::Create("object");
     }
 
-    TsValue* ts_object_get_prop(TsValue* obj, TsValue* key) {
-        if (!obj || !key) return ts_value_make_undefined();
-        
-        // If key is a number, try array access
-        if (key->type == ValueType::NUMBER_INT || key->type == ValueType::NUMBER_DBL) {
-            int64_t idx = (key->type == ValueType::NUMBER_INT) ? key->i_val : (int64_t)key->d_val;
-            void* rawObj = ts_value_get_object(obj);
-            if (rawObj) {
-                uint32_t magic = *(uint32_t*)rawObj;
-                if (magic == 0x41525259) { // TsArray::MAGIC
-                    return ts_array_get_as_value(rawObj, idx);
-                }
-            }
-        }
-        
-        // Coerce key to string
-        TsString* keyStr = (TsString*)ts_value_get_string(key);
-        if (!keyStr) return ts_value_make_undefined();
-        
-        return ts_value_get_property(obj, (void*)keyStr);
-    }
-
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
-        return ts_object_get_prop(obj, key);
+        if (!obj || !key) return ts_value_make_undefined();
+        void* rawObj = ts_value_get_object(obj);
+        if (!rawObj) return ts_value_make_undefined();
+        
+        // Use inline map operations
+        uint64_t hash = (uint64_t)key;
+        int64_t bucket = __ts_map_find_bucket(rawObj, hash, (uint8_t)key->type, key->i_val);
+        if (bucket < 0) return ts_value_make_undefined();
+        
+        TsValue result;
+        __ts_map_get_value_at(rawObj, bucket, reinterpret_cast<uint8_t*>(&result.type), &result.i_val);
+        TsValue* heapResult = (TsValue*)ts_alloc(sizeof(TsValue));
+        *heapResult = result;
+        return heapResult;
     }
 
     TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index) {
@@ -1368,56 +1362,6 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x41525259) { // TsArray::MAGIC
             ((TsArray*)rawArr)->Set(idx, (int64_t)value);
         }
-    }
-
-    TsValue* ts_object_set_prop(TsValue* obj, TsValue* key, TsValue* value) {
-        if (!obj || !key || !value) {
-            return value;
-        }
-        
-        void* rawObj = ts_value_get_object(obj);
-        if (!rawObj) return value;
-
-        // If key is a number, try array access
-        if (key->type == ValueType::NUMBER_INT || key->type == ValueType::NUMBER_DBL) {
-            int64_t idx = (key->type == ValueType::NUMBER_INT) ? key->i_val : (int64_t)key->d_val;
-            uint32_t magic = *(uint32_t*)rawObj;
-            if (magic == 0x41525259) { // TsArray::MAGIC
-                TsArray* arr = (TsArray*)rawObj;
-                arr->Set(idx, (int64_t)value);
-                return value;
-            }
-        }
-
-        // Coerce key to string
-        TsString* keyStr = (TsString*)ts_value_get_string(key);
-        if (!keyStr) return value;
-
-        // Check multiple magic offsets for TsMap
-        uint32_t magic0 = *(uint32_t*)rawObj;
-        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-
-        TsString* keyStrDbg = (TsString*)ts_value_get_string(key);
-        // Check for TsFunction (can have properties like _.chunk)
-        if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
-            TsFunction* func = (TsFunction*)rawObj;
-            if (!func->properties) {
-                func->properties = TsMap::Create();
-            }
-            func->properties->Set(*key, *value);
-            return value;
-        }
-
-        // Check if it's a map
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
-            TsMap* map = (TsMap*)rawObj;
-            map->Set(*key, *value);
-            return value;
-        }
-
-        return value;
     }
 
     // ============================================================
@@ -1992,9 +1936,18 @@ TsValue* ts_value_make_int(int64_t i) {
             if (moduleObj) {
                 // CommonJS: return module.exports
                 if (moduleObj->type == ValueType::OBJECT_PTR) {
-                    TsValue* exports = ts_object_get_prop(moduleObj, ts_value_make_string(TsString::Create("exports")));
-                    if (exports && exports->type != ValueType::UNDEFINED) {
-                        return exports;
+                    // Use inline map operations to get "exports" property
+                    TsString* exportsStr = TsString::Create("exports");
+                    uint64_t hash = (uint64_t)exportsStr;
+                    int64_t bucket = __ts_map_find_bucket(moduleObj->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)exportsStr);
+                    if (bucket >= 0) {
+                        TsValue result;
+                        __ts_map_get_value_at(moduleObj->ptr_val, bucket, reinterpret_cast<uint8_t*>(&result.type), &result.i_val);
+                        if (result.type != ValueType::UNDEFINED) {
+                            TsValue* exports = (TsValue*)ts_alloc(sizeof(TsValue));
+                            *exports = result;
+                            return exports;
+                        }
                     }
                 }
                 return moduleObj;
