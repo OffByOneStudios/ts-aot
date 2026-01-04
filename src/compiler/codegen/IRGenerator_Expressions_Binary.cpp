@@ -358,7 +358,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                 }
             } else {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq_bool", ft);
                 lastValue = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
             }
             return;
@@ -403,7 +403,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                 lastValue = builder->CreateNot(eq);
             } else {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq", ft);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_value_strict_eq_bool", ft);
                 llvm::Value* eq = createCall(ft, fn.getCallee(), { boxedLeft, boxedRight });
                 lastValue = builder->CreateNot(eq);
             }
@@ -582,11 +582,24 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
 
     builder->CreateCondBr(cond, thenBB, elseBB);
 
+    // Check if both branches have the same concrete type - if so, don't box
+    bool sameType = false;
+    if (node->whenTrue->inferredType && node->whenFalse->inferredType) {
+        sameType = (node->whenTrue->inferredType->kind == node->whenFalse->inferredType->kind);
+    }
+    
+    // Only avoid boxing for these concrete types that don't need boxing to be merged:
+    bool avoidBoxing = sameType && node->whenTrue->inferredType && 
+        (node->whenTrue->inferredType->kind == TypeKind::String ||
+         node->whenTrue->inferredType->kind == TypeKind::Int ||
+         node->whenTrue->inferredType->kind == TypeKind::Double ||
+         node->whenTrue->inferredType->kind == TypeKind::Boolean);
+
     // Then
     builder->SetInsertPoint(thenBB);
     visit(node->whenTrue.get());
     llvm::Value* thenVal = lastValue;
-    if (thenVal) {
+    if (thenVal && !avoidBoxing) {
         thenVal = boxValue(thenVal, node->whenTrue->inferredType);
     }
     thenBB = builder->GetInsertBlock();
@@ -597,7 +610,7 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
     builder->SetInsertPoint(elseBB);
     visit(node->whenFalse.get());
     llvm::Value* elseVal = lastValue;
-    if (elseVal) {
+    if (elseVal && !avoidBoxing) {
         elseVal = boxValue(elseVal, node->whenFalse->inferredType);
     }
     elseBB = builder->GetInsertBlock();
@@ -608,17 +621,25 @@ void IRGenerator::visitConditionalExpression(ast::ConditionalExpression* node) {
     builder->SetInsertPoint(mergeBB);
 
     if (thenVal && elseVal) {
-        // Always return a boxed (TsValue*) result to match JS semantics and
-        // ensure incoming values are defined in their originating blocks.
+        // Determine the LLVM type for the PHI node
+        llvm::Type* phiType = builder->getPtrTy(); // Default to pointer
+        if (avoidBoxing) {
+            phiType = thenVal->getType(); // Use the unboxed type
+        }
+        
         llvm::PHINode* phi = nullptr;
         if (mergeBB->empty()) {
-            phi = builder->CreatePHI(builder->getPtrTy(), 2, "condtmp");
+            phi = builder->CreatePHI(phiType, 2, "condtmp");
         } else {
-            phi = llvm::PHINode::Create(builder->getPtrTy(), 2, "condtmp", &mergeBB->front());
+            phi = llvm::PHINode::Create(phiType, 2, "condtmp", &mergeBB->front());
         }
         phi->addIncoming(thenVal, thenBB);
         phi->addIncoming(elseVal, elseBB);
-        boxedValues.insert(phi);
+        
+        // Only mark as boxed if we actually boxed
+        if (!avoidBoxing) {
+            boxedValues.insert(phi);
+        }
         lastValue = phi;
     } else {
         lastValue = nullptr;
