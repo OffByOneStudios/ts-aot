@@ -200,6 +200,9 @@ private:
     
     // JavaScript function hoisting - pre-register function declarations before body execution
     void hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn);
+    
+    // JavaScript variable hoisting - pre-register var declarations for closure capture
+    void hoistVariableDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn);
 
     struct CapturedVariable {
         std::string name;
