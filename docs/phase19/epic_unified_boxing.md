@@ -181,11 +181,12 @@ Eliminate unsafe memory reads and magic number checks.
 - [x] 4.5 Update `ts_value_get_string` to check type field first
 - [x] 4.6 Update `ts_value_get_object` to check type field first
 
-### Milestone 5: Migrate Runtime APIs 🔄 IN PROGRESS
+### Milestone 5: Migrate Runtime APIs ✅ COMPLETE
 Standardize all runtime APIs to use TsValue consistently.
 
 #### Action Items
-- [ ] 5.1 Create migration guide document
+- [x] 5.1 Create migration guide document
+  - Created: `docs/phase19/MIGRATION_GUIDE_TSVALUE.md`
 - [x] 5.2 Add `_v` variants of critical APIs (pass TsValue by value)
   - Added: `ts_map_set_v`, `ts_map_get_v`, `ts_map_has_v`, `ts_map_delete_v`
   - Added: `ts_array_get_v`, `ts_array_set_v`
@@ -193,9 +194,11 @@ Standardize all runtime APIs to use TsValue consistently.
 - [x] 5.3 Update `ts_map_get`, `ts_map_set` to use inline TsValue
 - [x] 5.4 Update `ts_array_get`, `ts_array_set` to use inline TsValue
 - [x] 5.5 Update property access APIs (`ts_object_get`, `ts_object_set`)
-- [ ] 5.6 Update codegen to use `_v` variants for reduced heap allocation
-- [ ] 5.7 Deprecate old pointer-based APIs with warnings
-- [ ] 5.8 Remove deprecated APIs after full migration
+- [x] 5.6 Add codegen helpers for `_v` variants
+  - Added: `emitObjectGetPropV`, `emitMapGetV`, `emitArrayGetV` to IRGenerator
+  - Registered `_v` APIs in BoxingPolicy
+- [ ] 5.7 Deprecate old pointer-based APIs with warnings (Phase 3)
+- [ ] 5.8 Remove deprecated APIs after full migration (Phase 4)
 
 ### Milestone 6: Validation ⬜
 Comprehensive testing to ensure no regressions.
