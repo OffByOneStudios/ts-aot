@@ -235,6 +235,7 @@ void ts_map_set(void* map, TsValue* key, TsValue* value) {
 
 TsValue* ts_map_get(void* map, TsValue* key) {
     if (!map || !key) return nullptr;
+    
     TsValue res = ((TsMap*)map)->Get(*key);
     TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
     *v = res;

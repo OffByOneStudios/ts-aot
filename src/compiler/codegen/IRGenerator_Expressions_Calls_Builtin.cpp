@@ -490,12 +490,14 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         funcName = isError ? "ts_console_error_bool" : "ts_console_log_bool";
                         paramType = llvm::Type::getInt1Ty(*context);
                     } else if (argType->isPointerTy()) {
-                        // If it's a pointer, it could be a TsString* or a TsValue*
-                        // For now, assume it's a TsValue* and use ts_console_log_value
-                        // unless we know for sure it's a string.
-                        if (node->arguments[i]->inferredType && node->arguments[i]->inferredType->kind == TypeKind::String) {
+                        // If it's in boxedValues, it's a TsValue* - use ts_console_log_value
+                        // Otherwise check the inferred type
+                        if (boxedValues.count(arg)) {
+                            funcName = isError ? "ts_console_error_value" : "ts_console_log_value";
+                        } else if (node->arguments[i]->inferredType && node->arguments[i]->inferredType->kind == TypeKind::String) {
                             funcName = isError ? "ts_console_error" : "ts_console_log";
                         } else {
+                            // Unknown pointer type - box it and use ts_console_log_value
                             funcName = isError ? "ts_console_error_value" : "ts_console_log_value";
                             arg = boxValue(arg, node->arguments[i]->inferredType);
                         }

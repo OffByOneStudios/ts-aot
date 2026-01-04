@@ -152,6 +152,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Memory allocation - raw pointers
     // =========================================================================
     {"ts_alloc",        {false}},                  // (size_t) -> void*
+    {"ts_pool_alloc",   {false}},                  // (size_t) -> void* - pooled allocation
     {"ts_gc_init",      {}},                       // ()
     {"ts_new",          {false}},                  // (size_t) -> void*
     {"ts_panic",        {false}},                  // (const char*) -> void

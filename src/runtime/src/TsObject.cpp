@@ -12,6 +12,7 @@
 #include "TsRegExp.h"
 #include "GC.h"
 #include "TsRuntime.h"
+#include "MemoryTracker.h"
 #include <new>
 #include <cstdio>
 #include <iostream>
@@ -36,9 +37,25 @@ extern "C" {
     double ts_value_get_double(TsValue* v);
     int64_t ts_value_get_int(TsValue* v);
     bool ts_value_to_bool(TsValue* v);
+    
+    // Forward declaration for TsArray.cpp
+    TsValue* ts_array_get_as_value(void* arr, int64_t index);
 }
 
 static std::unordered_map<std::string, TsValue*> g_module_cache;
+
+// CRITICAL FIX: Property access return value pool
+// Allocating a new TsValue* for every property read causes massive memory leak
+// Use thread-local pool of 8 slots to avoid allocation while supporting nested access
+thread_local static TsValue g_property_return_pool[8];
+thread_local static int g_property_return_index = 0;
+
+static inline TsValue* ts_property_return_value(const TsValue& val) {
+    TsValue* slot = &g_property_return_pool[g_property_return_index];
+    g_property_return_index = (g_property_return_index + 1) % 8;
+    *slot = val;
+    return slot;
+}
 
 // Internal helpers (no C linkage needed).
 static std::string finalize_module_path(const fs::path& base) {
@@ -493,7 +510,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check magics
         uint32_t magic0 = *(uint32_t*)rawPtr;
         if (magic0 == 0x41525259) { // TsArray::MAGIC
-            return ts_array_get(rawPtr, index);
+            // Use ts_array_get_as_value to properly handle specialized arrays
+            // This boxes integers/doubles from specialized arrays into TsValue*
+            return ts_array_get_as_value(rawPtr, index);
         }
 
         uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
@@ -587,14 +606,12 @@ TsValue* ts_value_make_int(int64_t i) {
             TsMap* map = (TsMap*)obj;
             TsValue k;
             k.type = ValueType::STRING_PTR;
-            k.ptr_val = TsString::Create(keyStr);
+            k.ptr_val = TsString::GetInterned(keyStr);
             TsValue val = map->Get(k);
             if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
                 uint32_t valMagic = *(uint32_t*)val.ptr_val;
             }
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            *res = val;
-            return res;
+            return ts_property_return_value(val);
         }
 
         // 2. Fallback to magic-based checks for built-ins
@@ -618,11 +635,9 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
             struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
             TsMap* map = ((FakeHeaders*)obj)->map;
-            TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(keyStr);
+            TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned(keyStr);
             TsValue val = map->Get(k);
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            *res = val;
-            return res;
+            return ts_property_return_value(val);
         }
         if (magic8 == 0x45564E54 || magic16 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
             if (strcmp(keyStr, "on") == 0) {
@@ -636,12 +651,10 @@ TsValue* ts_value_make_int(int64_t i) {
             if (func->properties) {
                 TsValue k;
                 k.type = ValueType::STRING_PTR;
-                k.ptr_val = TsString::Create(keyStr);
+                k.ptr_val = TsString::GetInterned(keyStr);
                 TsValue val = func->properties->Get(k);
                 if (val.type != ValueType::UNDEFINED) {
-                    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                    *res = val;
-                    return res;
+                    return ts_property_return_value(val);
                 }
             }
             
@@ -653,14 +666,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 TsValue protoKey;
                 protoKey.type = ValueType::STRING_PTR;
-                protoKey.ptr_val = TsString::Create("prototype");
+                protoKey.ptr_val = TsString::GetInterned("prototype");
                 
                 // Check if we already have it
                 TsValue existing = func->properties->Get(protoKey);
                 if (existing.type != ValueType::UNDEFINED) {
-                    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                    *res = existing;
-                    return res;
+                    return ts_property_return_value(existing);
                 }
                 
                 // Create a new empty object as the prototype

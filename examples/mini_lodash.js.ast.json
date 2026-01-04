@@ -1,0 +1,1126 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "ParenthesizedExpression",
+        "expression": {
+          "kind": "FunctionExpression",
+          "name": null,
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "returnType": "",
+          "parameters": [],
+          "body": [
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "undefined",
+                "line": 12,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": null,
+              "line": 12,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "VERSION",
+                "line": 15,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "StringLiteral",
+                "value": "4.17.21",
+                "line": 15,
+                "column": 17
+              },
+              "line": 15,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "LARGE_ARRAY_SIZE",
+                "line": 18,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "NumericLiteral",
+                "value": 200,
+                "line": 18,
+                "column": 26
+              },
+              "line": 18,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "CORE_ERROR_TEXT",
+                    "line": 21,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "Unsupported core-js use. Try https://npms.io/search?q=ponyfill.",
+                    "line": 21,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "FUNC_ERROR_TEXT",
+                    "line": 22,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "Expected a function",
+                    "line": 22,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "INVALID_TEMPL_VAR_ERROR_TEXT",
+                    "line": 23,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "Invalid `variable` option passed into `_.template`",
+                    "line": 23,
+                    "column": 38
+                  }
+                }
+              ],
+              "line": 21,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "HASH_UNDEFINED",
+                "line": 26,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "StringLiteral",
+                "value": "__lodash_hash_undefined__",
+                "line": 26,
+                "column": 24
+              },
+              "line": 26,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "MAX_MEMOIZE_SIZE",
+                "line": 29,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "NumericLiteral",
+                "value": 500,
+                "line": 29,
+                "column": 26
+              },
+              "line": 29,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "PLACEHOLDER",
+                "line": 32,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "StringLiteral",
+                "value": "__lodash_placeholder__",
+                "line": 32,
+                "column": 21
+              },
+              "line": 32,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "CLONE_DEEP_FLAG",
+                    "line": 35,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 1,
+                    "line": 35,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "CLONE_FLAT_FLAG",
+                    "line": 36,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 2,
+                    "line": 36,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "CLONE_SYMBOLS_FLAG",
+                    "line": 37,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 4,
+                    "line": 37,
+                    "column": 28
+                  }
+                }
+              ],
+              "line": 35,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "COMPARE_PARTIAL_FLAG",
+                    "line": 40,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 1,
+                    "line": 40,
+                    "column": 30
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "COMPARE_UNORDERED_FLAG",
+                    "line": 41,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 2,
+                    "line": 41,
+                    "column": 32
+                  }
+                }
+              ],
+              "line": 40,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_BIND_FLAG",
+                    "line": 44,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 1,
+                    "line": 44,
+                    "column": 24
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_BIND_KEY_FLAG",
+                    "line": 45,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 2,
+                    "line": 45,
+                    "column": 28
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_CURRY_BOUND_FLAG",
+                    "line": 46,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 4,
+                    "line": 46,
+                    "column": 31
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_CURRY_FLAG",
+                    "line": 47,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 8,
+                    "line": 47,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_CURRY_RIGHT_FLAG",
+                    "line": 48,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 16,
+                    "line": 48,
+                    "column": 31
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_PARTIAL_FLAG",
+                    "line": 49,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 32,
+                    "line": 49,
+                    "column": 27
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_PARTIAL_RIGHT_FLAG",
+                    "line": 50,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 64,
+                    "line": 50,
+                    "column": 33
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_ARY_FLAG",
+                    "line": 51,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 128,
+                    "line": 51,
+                    "column": 23
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_REARG_FLAG",
+                    "line": 52,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 256,
+                    "line": 52,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "WRAP_FLIP_FLAG",
+                    "line": 53,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 512,
+                    "line": 53,
+                    "column": 24
+                  }
+                }
+              ],
+              "line": 44,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "DEFAULT_TRUNC_LENGTH",
+                    "line": 56,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 30,
+                    "line": 56,
+                    "column": 30
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "DEFAULT_TRUNC_OMISSION",
+                    "line": 57,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "...",
+                    "line": 57,
+                    "column": 32
+                  }
+                }
+              ],
+              "line": 56,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "HOT_COUNT",
+                    "line": 60,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 800,
+                    "line": 60,
+                    "column": 19
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "HOT_SPAN",
+                    "line": 61,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 16,
+                    "line": 61,
+                    "column": 18
+                  }
+                }
+              ],
+              "line": 60,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "LAZY_FILTER_FLAG",
+                    "line": 64,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 1,
+                    "line": 64,
+                    "column": 26
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "LAZY_MAP_FLAG",
+                    "line": 65,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 2,
+                    "line": 65,
+                    "column": 23
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "LAZY_WHILE_FLAG",
+                    "line": 66,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 3,
+                    "line": 66,
+                    "column": 25
+                  }
+                }
+              ],
+              "line": 64,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "INFINITY",
+                    "line": 69,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "BinaryExpression",
+                    "operator": "/",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 69,
+                      "column": 18
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0,
+                      "line": 69,
+                      "column": 22
+                    },
+                    "line": 69,
+                    "column": 18
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "MAX_SAFE_INTEGER",
+                    "line": 70,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 9007199254740991,
+                    "line": 70,
+                    "column": 26
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "MAX_INTEGER",
+                    "line": 71,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 1.7976931348623157e+308,
+                    "line": 71,
+                    "column": 21
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "NAN",
+                    "line": 72,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "BinaryExpression",
+                    "operator": "/",
+                    "left": {
+                      "kind": "NumericLiteral",
+                      "value": 0,
+                      "line": 72,
+                      "column": 13
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 0,
+                      "line": 72,
+                      "column": 17
+                    },
+                    "line": 72,
+                    "column": 13
+                  }
+                }
+              ],
+              "line": 69,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "MAX_ARRAY_LENGTH",
+                    "line": 75,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "NumericLiteral",
+                    "value": 4294967295,
+                    "line": 75,
+                    "column": 26
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "MAX_ARRAY_INDEX",
+                    "line": 76,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "BinaryExpression",
+                    "operator": "-",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "MAX_ARRAY_LENGTH",
+                      "line": 76,
+                      "column": 25
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 76,
+                      "column": 44
+                    },
+                    "line": 76,
+                    "column": 25
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "HALF_MAX_ARRAY_LENGTH",
+                    "line": 77,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "BinaryExpression",
+                    "operator": ">>>",
+                    "left": {
+                      "kind": "Identifier",
+                      "name": "MAX_ARRAY_LENGTH",
+                      "line": 77,
+                      "column": 31
+                    },
+                    "right": {
+                      "kind": "NumericLiteral",
+                      "value": 1,
+                      "line": 77,
+                      "column": 52
+                    },
+                    "line": 77,
+                    "column": 31
+                  }
+                }
+              ],
+              "line": 75,
+              "column": 3
+            },
+            {
+              "kind": "VariableDeclaration",
+              "name": {
+                "kind": "Identifier",
+                "name": "wrapFlags",
+                "line": 80,
+                "column": 7
+              },
+              "isExported": false,
+              "type": "",
+              "initializer": {
+                "kind": "ArrayLiteralExpression",
+                "elements": [
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "ary",
+                        "line": 81,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_ARY_FLAG",
+                        "line": 81,
+                        "column": 13
+                      }
+                    ],
+                    "line": 81,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "bind",
+                        "line": 82,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_BIND_FLAG",
+                        "line": 82,
+                        "column": 14
+                      }
+                    ],
+                    "line": 82,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "bindKey",
+                        "line": 83,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_BIND_KEY_FLAG",
+                        "line": 83,
+                        "column": 17
+                      }
+                    ],
+                    "line": 83,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "curry",
+                        "line": 84,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_CURRY_FLAG",
+                        "line": 84,
+                        "column": 15
+                      }
+                    ],
+                    "line": 84,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "curryRight",
+                        "line": 85,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_CURRY_RIGHT_FLAG",
+                        "line": 85,
+                        "column": 20
+                      }
+                    ],
+                    "line": 85,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "flip",
+                        "line": 86,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_FLIP_FLAG",
+                        "line": 86,
+                        "column": 14
+                      }
+                    ],
+                    "line": 86,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "partial",
+                        "line": 87,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_PARTIAL_FLAG",
+                        "line": 87,
+                        "column": 17
+                      }
+                    ],
+                    "line": 87,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "partialRight",
+                        "line": 88,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_PARTIAL_RIGHT_FLAG",
+                        "line": 88,
+                        "column": 22
+                      }
+                    ],
+                    "line": 88,
+                    "column": 5
+                  },
+                  {
+                    "kind": "ArrayLiteralExpression",
+                    "elements": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "rearg",
+                        "line": 89,
+                        "column": 6
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "WRAP_REARG_FLAG",
+                        "line": 89,
+                        "column": 15
+                      }
+                    ],
+                    "line": 89,
+                    "column": 5
+                  }
+                ],
+                "line": 80,
+                "column": 19
+              },
+              "line": 80,
+              "column": 3
+            },
+            {
+              "kind": "MultipleVariableDeclarations",
+              "declarations": [
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "argsTag",
+                    "line": 93,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Arguments]",
+                    "line": 93,
+                    "column": 17
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "arrayTag",
+                    "line": 94,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Array]",
+                    "line": 94,
+                    "column": 18
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "asyncTag",
+                    "line": 95,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object AsyncFunction]",
+                    "line": 95,
+                    "column": 18
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "boolTag",
+                    "line": 96,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Boolean]",
+                    "line": 96,
+                    "column": 17
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "dateTag",
+                    "line": 97,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Date]",
+                    "line": 97,
+                    "column": 17
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "domExcTag",
+                    "line": 98,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object DOMException]",
+                    "line": 98,
+                    "column": 19
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "errorTag",
+                    "line": 99,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Error]",
+                    "line": 99,
+                    "column": 18
+                  }
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "funcTag",
+                    "line": 100,
+                    "column": 7
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "StringLiteral",
+                    "value": "[object Function]",
+                    "line": 100,
+                    "column": 17
+                  }
+                }
+              ],
+              "line": 93,
+              "column": 3
+            }
+          ],
+          "line": 9,
+          "column": 3
+        },
+        "line": 9,
+        "column": 2
+      },
+      "line": 9,
+      "column": 2
+    }
+  ]
+}
