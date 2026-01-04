@@ -118,11 +118,9 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         llvm::FunctionCallee arrayCreateFn = getRuntimeFunction("ts_array_create_sized", arrayCreateFt);
         llvm::Value* array = createCall(arrayCreateFt, arrayCreateFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), args.size()) });
 
-        llvm::FunctionType* arraySetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), builder->getPtrTy() }, false);
-        llvm::FunctionCallee arraySetFn = getRuntimeFunction("ts_array_set", arraySetFt);
-
         for (size_t i = 0; i < args.size(); ++i) {
-            createCall(arraySetFt, arraySetFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i] });
+            // Use inline array set operation
+            emitInlineArraySet(array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i]);
         }
 
         if (platform != 0) {
@@ -146,11 +144,9 @@ bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAc
         llvm::FunctionCallee arrayCreateFn = getRuntimeFunction("ts_array_create_sized", arrayCreateFt);
         llvm::Value* array = createCall(arrayCreateFt, arrayCreateFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), args.size()) });
 
-        llvm::FunctionType* arraySetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), builder->getPtrTy() }, false);
-        llvm::FunctionCallee arraySetFn = getRuntimeFunction("ts_array_set", arraySetFt);
-
         for (size_t i = 0; i < args.size(); ++i) {
-            createCall(arraySetFt, arraySetFn.getCallee(), { array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i] });
+            // Use inline array set operation
+            emitInlineArraySet(array, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i), args[i]);
         }
 
         if (platform != 0) {

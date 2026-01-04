@@ -887,10 +887,8 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                             llvm::Value* gepPtr = builder->CreateGEP(elemLLVMType, elemPtr, { idx }, "spread_elem_ptr");
                             elemVal = builder->CreateLoad(elemLLVMType, gepPtr, "spread_elem");
                         } else {
-                            // Use ts_array_get for other types
-                            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-                            llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get", getFt);
-                            elemVal = createCall(getFt, getFn.getCallee(), { arrVal, idx });
+                            // Use inline array get for other types
+                            elemVal = emitInlineArrayGet(arrVal, idx);
                         }
                         
                         args.push_back(elemVal);

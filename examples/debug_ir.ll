@@ -20,6 +20,7 @@ target triple = "x86_64-pc-windows-msvc"
 %URLSearchParams = type { ptr, i64 }
 %URL = type { ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr }
 %Response = type { ptr, i1, i64, ptr }
+%TsValue = type { i8, [7 x i8], i64 }
 
 @Array = external global ptr
 @Buffer = external global ptr
@@ -31,8 +32,8 @@ target triple = "x86_64-pc-windows-msvc"
 @parseFloat = external global ptr
 @parseInt = external global ptr
 @process = external global ptr
-@_ = global ptr null
 @TextEncoder = global ptr null
+@r = global double 0.000000e+00
 @null = global ptr null
 @undefined = global ptr null
 @Symbol = global ptr null
@@ -83,26 +84,11 @@ target triple = "x86_64-pc-windows-msvc"
 @25 = private unnamed_addr constant [11 x i8] c"statusText\00", align 1
 @Response_VTable_Global = constant %Response_VTable { ptr null, ptr @Response_get_property, ptr @Response_json, ptr @Response_text }, !type !9
 @26 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@27 = private unnamed_addr constant [7 x i8] c"lodash\00", align 1
-@28 = private unnamed_addr constant [62 x i8] c"e:\\src\\github.com\\cgrinker\\ts-aoc\\examples\\lodash_npm_test.ts\00", align 1
+@27 = private unnamed_addr constant [10 x i8] c"foo(5) = \00", align 1
+@28 = private unnamed_addr constant [9 x i8] c"Direct: \00", align 1
 @29 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 @30 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@31 = private unnamed_addr constant [62 x i8] c"e:\\src\\github.com\\cgrinker\\ts-aoc\\examples\\lodash_npm_test.ts\00", align 1
-@32 = private unnamed_addr constant [81 x i8] c"module_init_begin: e:\\src\\github.com\\cgrinker\\ts-aoc\\examples\\lodash_npm_test.ts\00", align 1
-@33 = private unnamed_addr constant [79 x i8] c"module_init_end: e:\\src\\github.com\\cgrinker\\ts-aoc\\examples\\lodash_npm_test.ts\00", align 1
-@34 = private unnamed_addr constant [6 x i8] c"chunk\00", align 1
-@35 = private unnamed_addr constant [7 x i8] c"chunk:\00", align 1
-@36 = private unnamed_addr constant [6 x i8] c"merge\00", align 1
-@37 = private unnamed_addr constant [2 x i8] c"a\00", align 1
-@38 = private unnamed_addr constant [2 x i8] c"x\00", align 1
-@39 = private unnamed_addr constant [7 x i8] c"nested\00", align 1
-@40 = private unnamed_addr constant [2 x i8] c"b\00", align 1
-@41 = private unnamed_addr constant [2 x i8] c"y\00", align 1
-@42 = private unnamed_addr constant [7 x i8] c"nested\00", align 1
-@43 = private unnamed_addr constant [7 x i8] c"merge:\00", align 1
-@44 = private unnamed_addr constant [8 x i8] c"shuffle\00", align 1
-@45 = private unnamed_addr constant [16 x i8] c"shuffle length:\00", align 1
-@46 = private unnamed_addr constant [7 x i8] c"length\00", align 1
+@31 = private unnamed_addr constant [62 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\examples\\basic_func_test.ts\00", align 1
 
 declare i8 @ts_typed_array_get_u8(ptr, i64)
 
@@ -528,7 +514,7 @@ declare ptr @Response_json(ptr, ptr) #0
 
 declare ptr @Response_text(ptr, ptr) #0
 
-define ptr @__module_init_1841422227439969958_any(ptr %context, ptr %module) #0 !type !14 {
+define ptr @__module_init_8323136877264956964_any(ptr %context, ptr %module) #0 !type !14 {
 entry:
   %exports = alloca ptr, align 8
   %module1 = alloca ptr, align 8
@@ -544,26 +530,32 @@ entry:
   store ptr null, ptr %returnValue, align 8
   store ptr %module, ptr %module1, align 8
   %module2 = load ptr, ptr %module1, align 8
-  %0 = call ptr @ts_value_box_any(ptr %module2)
-  %1 = call ptr @ts_string_create(ptr @26)
-  %2 = call ptr @ts_value_make_string(ptr %1)
-  %3 = call ptr @ts_object_get_prop(ptr %0, ptr %2)
-  store ptr %3, ptr %exports, align 8
+  %0 = call ptr @ts_string_create(ptr @26)
+  %1 = call ptr @ts_value_make_string(ptr %0)
+  %2 = call ptr @ts_object_get_prop(ptr %module2, ptr %1)
+  store ptr %2, ptr %exports, align 8
+  %3 = call i64 @foo_int(ptr null, i64 5)
+  %itod = sitofp i64 %3 to double
+  store double %itod, ptr @r, align 8
   %4 = call ptr @ts_string_create(ptr @27)
-  %5 = call ptr @ts_value_make_string(ptr %4)
-  %6 = call ptr @ts_require(ptr %5, ptr @28)
-  store ptr %6, ptr @_, align 8
-  call void @__ts_main(ptr null)
+  %r = load double, ptr @r, align 8
+  %5 = call ptr @ts_string_from_double(double %r)
+  %6 = call ptr @ts_string_concat(ptr %4, ptr %5)
+  call void @ts_console_log(ptr %6)
+  %7 = call ptr @ts_string_create(ptr @28)
+  %8 = call i64 @foo_int(ptr null, i64 5)
+  %9 = call ptr @ts_string_from_int(i64 %8)
+  %10 = call ptr @ts_string_concat(ptr %7, ptr %9)
+  call void @ts_console_log(ptr %10)
   %module3 = load ptr, ptr %module1, align 8
-  %7 = call ptr @ts_value_box_any(ptr %module3)
-  %8 = call ptr @ts_string_create(ptr @29)
-  %9 = call ptr @ts_value_make_string(ptr %8)
-  %10 = call ptr @ts_object_get_prop(ptr %7, ptr %9)
-  ret ptr %10
+  %11 = call ptr @ts_string_create(ptr @29)
+  %12 = call ptr @ts_value_make_string(ptr %11)
+  %13 = call ptr @ts_object_get_prop(ptr %module3, ptr %12)
+  ret ptr %13
 
 return:                                           ; preds = %dead
-  %11 = load ptr, ptr %returnValue, align 8
-  ret ptr %11
+  %14 = load ptr, ptr %returnValue, align 8
+  ret ptr %14
 
 dead:                                             ; No predecessors!
   br label %return
@@ -588,37 +580,40 @@ entry:
   %2 = call ptr @ts_value_make_object(ptr %1)
   %3 = call ptr @ts_string_create(ptr @30)
   %4 = call ptr @ts_value_make_string(ptr %3)
-  call void @ts_map_set(ptr %0, ptr %4, ptr %2)
+  %typePtr = getelementptr inbounds %TsValue, ptr %4, i32 0, i32 0
+  %type = load i8, ptr %typePtr, align 1
+  %unionPtr = getelementptr inbounds %TsValue, ptr %4, i32 0, i32 2
+  %unionVal = load i64, ptr %unionPtr, align 8
+  %typePtr1 = getelementptr inbounds %TsValue, ptr %2, i32 0, i32 0
+  %type2 = load i8, ptr %typePtr1, align 1
+  %unionPtr3 = getelementptr inbounds %TsValue, ptr %2, i32 0, i32 2
+  %unionVal4 = load i64, ptr %unionPtr3, align 8
+  call void @__ts_map_set_at(ptr %0, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
   %5 = call ptr @ts_value_make_object(ptr %0)
   store ptr %5, ptr %__module_obj_0, align 8
   %6 = call ptr @ts_string_create(ptr @31)
   %7 = call ptr @ts_value_make_string(ptr %6)
-  %__module_obj_01 = load ptr, ptr %__module_obj_0, align 8
-  call void @ts_module_register(ptr %7, ptr %__module_obj_01)
-  %8 = call ptr @ts_string_create(ptr @32)
-  call void @ts_console_log(ptr %8)
-  %__module_obj_02 = load ptr, ptr %__module_obj_0, align 8
-  %9 = call ptr @__module_init_1841422227439969958_any(ptr null, ptr %__module_obj_02)
-  store ptr %9, ptr %__module_res_0, align 8
-  %10 = call ptr @ts_string_create(ptr @33)
-  call void @ts_console_log(ptr %10)
-  %__module_res_03 = load ptr, ptr %__module_res_0, align 8
-  %11 = call ptr @ts_value_box_any(ptr %__module_res_03)
-  ret ptr %11
+  %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
+  call void @ts_module_register(ptr %7, ptr %__module_obj_05)
+  %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
+  %8 = call ptr @__module_init_8323136877264956964_any(ptr null, ptr %__module_obj_06)
+  store ptr %8, ptr %__module_res_0, align 8
+  %__module_res_07 = load ptr, ptr %__module_res_0, align 8
+  %9 = call ptr @ts_value_box_any(ptr %__module_res_07)
+  ret ptr %9
 
 return:                                           ; preds = %dead
-  %12 = load ptr, ptr %returnValue, align 8
-  ret ptr %12
+  %10 = load ptr, ptr %returnValue, align 8
+  ret ptr %10
 
 dead:                                             ; No predecessors!
   br label %return
 }
 
-define void @__ts_main(ptr %context) #0 !type !16 {
+define double @foo_dbl(ptr %context, double %a) #0 !type !16 {
 entry:
-  %shuffled = alloca ptr, align 8
-  %merged = alloca ptr, align 8
-  %chunked = alloca ptr, align 8
+  %a1 = alloca double, align 8
+  %returnValue = alloca double, align 8
   %continueTarget = alloca ptr, align 8
   %breakTarget = alloca ptr, align 8
   %shouldContinue = alloca i1, align 1
@@ -627,132 +622,61 @@ entry:
   store i1 false, ptr %shouldReturn, align 1
   store i1 false, ptr %shouldBreak, align 1
   store i1 false, ptr %shouldContinue, align 1
-  %_ = load ptr, ptr @_, align 8
-  %0 = call ptr @ts_value_box_any(ptr %_)
-  %1 = call ptr @ts_string_create(ptr @34)
-  %2 = call ptr @ts_value_make_string(ptr %1)
-  %3 = call ptr @ts_object_get_prop(ptr %0, ptr %2)
-  %4 = call ptr @ts_array_create_specialized(i64 5, i64 8, i1 false)
-  %5 = call ptr @ts_array_get_elements_ptr(ptr %4)
-  %6 = getelementptr i64, ptr %5, i64 0
-  store i64 1, ptr %6, align 8
-  %7 = getelementptr i64, ptr %5, i64 1
-  store i64 2, ptr %7, align 8
-  %8 = getelementptr i64, ptr %5, i64 2
-  store i64 3, ptr %8, align 8
-  %9 = getelementptr i64, ptr %5, i64 3
-  store i64 4, ptr %9, align 8
-  %10 = getelementptr i64, ptr %5, i64 4
-  store i64 5, ptr %10, align 8
-  %11 = call ptr @ts_value_make_array(ptr %4)
-  %12 = call ptr @ts_value_make_int(i64 2)
-  %13 = call ptr @ts_call_2(ptr %3, ptr %11, ptr %12)
-  store ptr %13, ptr %chunked, align 8
-  %14 = call ptr @ts_string_create(ptr @35)
-  call void @ts_console_log(ptr %14)
-  %chunked1 = load ptr, ptr %chunked, align 8
-  %15 = call ptr @ts_json_stringify(ptr %chunked1, ptr null, ptr null)
-  call void @ts_console_log(ptr %15)
-  %_2 = load ptr, ptr @_, align 8
-  %16 = call ptr @ts_value_box_any(ptr %_2)
-  %17 = call ptr @ts_string_create(ptr @36)
-  %18 = call ptr @ts_value_make_string(ptr %17)
-  %19 = call ptr @ts_object_get_prop(ptr %16, ptr %18)
-  %20 = call ptr @ts_map_create()
-  %21 = call ptr @ts_value_make_int(i64 1)
-  %22 = call ptr @ts_string_create(ptr @37)
-  %23 = call ptr @ts_value_make_string(ptr %22)
-  call void @ts_map_set(ptr %20, ptr %23, ptr %21)
-  %24 = call ptr @ts_map_create()
-  %25 = call ptr @ts_value_make_int(i64 1)
-  %26 = call ptr @ts_string_create(ptr @38)
-  %27 = call ptr @ts_value_make_string(ptr %26)
-  call void @ts_map_set(ptr %24, ptr %27, ptr %25)
-  %28 = call ptr @ts_value_make_object(ptr %24)
-  %29 = call ptr @ts_string_create(ptr @39)
-  %30 = call ptr @ts_value_make_string(ptr %29)
-  call void @ts_map_set(ptr %20, ptr %30, ptr %28)
-  %31 = call ptr @ts_value_make_object(ptr %20)
-  %32 = call ptr @ts_map_create()
-  %33 = call ptr @ts_value_make_int(i64 2)
-  %34 = call ptr @ts_string_create(ptr @40)
-  %35 = call ptr @ts_value_make_string(ptr %34)
-  call void @ts_map_set(ptr %32, ptr %35, ptr %33)
-  %36 = call ptr @ts_map_create()
-  %37 = call ptr @ts_value_make_int(i64 3)
-  %38 = call ptr @ts_string_create(ptr @41)
-  %39 = call ptr @ts_value_make_string(ptr %38)
-  call void @ts_map_set(ptr %36, ptr %39, ptr %37)
-  %40 = call ptr @ts_value_make_object(ptr %36)
-  %41 = call ptr @ts_string_create(ptr @42)
-  %42 = call ptr @ts_value_make_string(ptr %41)
-  call void @ts_map_set(ptr %32, ptr %42, ptr %40)
-  %43 = call ptr @ts_value_make_object(ptr %32)
-  %44 = call ptr @ts_call_2(ptr %19, ptr %31, ptr %43)
-  store ptr %44, ptr %merged, align 8
-  %45 = call ptr @ts_string_create(ptr @43)
-  call void @ts_console_log(ptr %45)
-  %merged3 = load ptr, ptr %merged, align 8
-  %46 = call ptr @ts_json_stringify(ptr %merged3, ptr null, ptr null)
-  call void @ts_console_log(ptr %46)
-  %_4 = load ptr, ptr @_, align 8
-  %47 = call ptr @ts_value_box_any(ptr %_4)
-  %48 = call ptr @ts_string_create(ptr @44)
-  %49 = call ptr @ts_value_make_string(ptr %48)
-  %50 = call ptr @ts_object_get_prop(ptr %47, ptr %49)
-  %51 = call ptr @ts_array_create_specialized(i64 5, i64 8, i1 false)
-  %52 = call ptr @ts_array_get_elements_ptr(ptr %51)
-  %53 = getelementptr i64, ptr %52, i64 0
-  store i64 10, ptr %53, align 8
-  %54 = getelementptr i64, ptr %52, i64 1
-  store i64 20, ptr %54, align 8
-  %55 = getelementptr i64, ptr %52, i64 2
-  store i64 30, ptr %55, align 8
-  %56 = getelementptr i64, ptr %52, i64 3
-  store i64 40, ptr %56, align 8
-  %57 = getelementptr i64, ptr %52, i64 4
-  store i64 50, ptr %57, align 8
-  %58 = call ptr @ts_value_make_array(ptr %51)
-  %59 = call ptr @ts_call_1(ptr %50, ptr %58)
-  store ptr %59, ptr %shuffled, align 8
-  %60 = call ptr @ts_string_create(ptr @45)
-  call void @ts_console_log(ptr %60)
-  %shuffled5 = load ptr, ptr %shuffled, align 8
-  %61 = call ptr @ts_string_create(ptr @46)
-  %62 = call ptr @ts_value_make_string(ptr %61)
-  %63 = call ptr @ts_object_get_prop(ptr %shuffled5, ptr %62)
-  call void @ts_console_log_value(ptr %63)
-  br label %return
+  store double 0.000000e+00, ptr %returnValue, align 8
+  store double %a, ptr %a1, align 8
+  %a2 = load double, ptr %a1, align 8
+  %addtmp = fadd fast double %a2, 1.000000e+00
+  ret double %addtmp
 
-return:                                           ; preds = %entry
-  ret void
+return:                                           ; preds = %dead
+  %0 = load double, ptr %returnValue, align 8
+  ret double %0
+
+dead:                                             ; No predecessors!
+  br label %return
+}
+
+define i64 @foo_int(ptr %context, i64 %a) #0 !type !17 {
+entry:
+  %a1 = alloca i64, align 8
+  %returnValue = alloca i64, align 8
+  %continueTarget = alloca ptr, align 8
+  %breakTarget = alloca ptr, align 8
+  %shouldContinue = alloca i1, align 1
+  %shouldBreak = alloca i1, align 1
+  %shouldReturn = alloca i1, align 1
+  store i1 false, ptr %shouldReturn, align 1
+  store i1 false, ptr %shouldBreak, align 1
+  store i1 false, ptr %shouldContinue, align 1
+  store i64 0, ptr %returnValue, align 8
+  store i64 %a, ptr %a1, align 8
+  %a2 = load i64, ptr %a1, align 8
+  %addtmp = add i64 %a2, 1
+  ret i64 %addtmp
+
+return:                                           ; preds = %dead
+  %0 = load i64, ptr %returnValue, align 8
+  ret i64 %0
+
+dead:                                             ; No predecessors!
+  br label %return
 }
 
 declare ptr @ts_object_get_prop(ptr, ptr)
 
-declare ptr @ts_require(ptr, ptr)
+declare ptr @ts_string_from_double(double)
 
-declare ptr @ts_map_create()
-
-declare void @ts_map_set(ptr, ptr, ptr)
-
-declare void @ts_module_register(ptr, ptr)
+declare ptr @ts_string_concat(ptr, ptr)
 
 declare void @ts_console_log(ptr)
 
-declare ptr @ts_array_create_specialized(i64, i64, i1)
+declare ptr @ts_string_from_int(i64)
 
-declare ptr @ts_array_get_elements_ptr(ptr)
+declare ptr @ts_map_create()
 
-declare ptr @ts_value_make_array(ptr)
+declare void @__ts_map_set_at(ptr, i64, i8, i64, i8, i64)
 
-declare ptr @ts_call_2(ptr, ptr, ptr)
-
-declare ptr @ts_json_stringify(ptr, ptr, ptr)
-
-declare ptr @ts_call_1(ptr, ptr)
-
-declare void @ts_console_log_value(ptr)
+declare void @ts_module_register(ptr, ptr)
 
 declare i32 @ts_main(i32, ptr, ptr) #0
 
@@ -780,6 +704,7 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !11 = !{!"/DEFAULTLIB:libcmt.lib"}
 !12 = !{!"/NODEFAULTLIB:libcmtd.lib"}
 !13 = !{!"/FAILIFMISMATCH:\22RuntimeLibrary=MT_StaticRelease\22"}
-!14 = !{i64 0, !"__module_init_1841422227439969958_any"}
+!14 = !{i64 0, !"__module_init_8323136877264956964_any"}
 !15 = !{i64 0, !"user_main"}
-!16 = !{i64 0, !"__ts_main"}
+!16 = !{i64 0, !"foo_dbl"}
+!17 = !{i64 0, !"foo_int"}

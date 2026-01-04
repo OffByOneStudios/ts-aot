@@ -991,10 +991,6 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
     llvm::Value* map = createCall(createMapFt, createFn.getCallee(), {});
     nonNullValues.insert(map);
 
-    llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-    llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setMapFt);
-
     llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
     llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
 
@@ -1024,14 +1020,17 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             }
             
             llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
-            createCall(setMapFt, setFn.getCallee(), { map, boxedKey, boxedVal });
+            // Use inline map set operation
+            emitInlineMapSet(map, boxedKey, boxedVal);
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
             auto it = namedValues.find(spa->name);
             if (it != namedValues.end()) {
                 llvm::Value* val = it->second;
                 llvm::Value* boxedVal = boxValue(val, nullptr); 
                 llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(spa->name) });
-                createCall(setMapFt, setFn.getCallee(), { map, keyStr, boxedVal });
+                llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+                // Use inline map set operation
+                emitInlineMapSet(map, boxedKey, boxedVal);
             }
         } else if (auto method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
             visitMethodDefinition(method);
@@ -1046,7 +1045,9 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             }
             
             if (keyStr && val) {
-                createCall(setMapFt, setFn.getCallee(), { map, keyStr, val });
+                llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+                // Use inline map set operation
+                emitInlineMapSet(map, boxedKey, val);
             }
         } else if (auto spread = dynamic_cast<ast::SpreadElement*>(prop.get())) {
             visit(spread->expression.get());

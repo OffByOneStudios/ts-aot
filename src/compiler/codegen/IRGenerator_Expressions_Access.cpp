@@ -319,33 +319,22 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         llvm::Value* key = lastValue;
         
         // CRITICAL: The key might already be boxed (e.g., from for-in loop iteration)
-        // OR it might be a raw TsString*. We need to ensure it's always boxed for ts_map_get.
-        // 
-        // Problem: boxedValues doesn't track values loaded from allocas, so we can't rely on it.
-        // Solution: Always unbox first (idempotent if already unboxed), then inline box.
-        //
-        // For string keys: unbox TsValue* → TsString*, then inline box TsString* → TsValue*
-        // Using inline boxing avoids heap allocation - TsValue is stack-allocated.
-        if (node->argumentExpression->inferredType && node->argumentExpression->inferredType->kind == TypeKind::String) {
-            // Unbox if it's a TsValue* wrapping a TsString*
-            // ts_value_get_string returns TsString* (idempotent if key is already TsString*)
-            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
-            llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { key });
-            
-            // INLINE BOXING: Stack-allocate TsValue instead of heap-allocating via ts_value_make_string
-            // ValueType::STRING_PTR = 4
-            key = emitInlineBox(rawKey, 4);
+        // OR it might be a raw TsString*. We need to ensure it's always boxed.
+        auto keyType = node->argumentExpression->inferredType;
+        key = boxValue(key, keyType);
+        
+        // Unbox object (might be boxed if loaded from global)
+        llvm::Value* rawObj = unboxValue(obj, node->expression->inferredType);
+        
+        // Unbox again to handle boxed values from globals
+        if (rawObj->getType()->isPointerTy()) {
+            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+            rawObj = createCall(getObjFt, getObjFn.getCallee(), { rawObj });
         }
         
-        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
-        
-        // unboxValue now always unboxes Object types (safe even if already unboxed)
-        llvm::Value* rawObj = unboxValue(obj, node->expression->inferredType);
-        llvm::Value* res = createCall(getFt, getFn.getCallee(), { rawObj, key });
-        // ts_map_get always returns boxed TsValue*
-        boxedValues.insert(res);
+        // Use inline map operations (objects ARE maps internally)
+        llvm::Value* res = emitInlineMapGet(rawObj, key);
         lastValue = res;
         return;
     }
@@ -358,29 +347,15 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         visit(node->argumentExpression.get());
         llvm::Value* key = lastValue;
         
-        // For Map element access, box the key using inline boxing for pointer types
-        // to avoid heap allocation overhead
+        // Box the key for map access
         auto keyType = node->argumentExpression->inferredType;
-        if (keyType && keyType->kind == TypeKind::String && key->getType()->isPointerTy()) {
-            // String key - use inline boxing (most common case)
-            // First unbox in case it's already a TsValue*, then inline box
-            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
-            llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { key });
-            key = emitInlineBox(rawKey, 4);  // ValueType::STRING_PTR = 4
-        } else {
-            // Non-string key - use boxValue (handles int, double, etc.)
-            key = boxValue(key, keyType);
-        }
+        key = boxValue(key, keyType);
         
-        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
-        
-        // ts_map_get expects the raw TsMap*
+        // Unbox the map value
         llvm::Value* rawMap = unboxValue(mapVal, node->expression->inferredType);
-        llvm::Value* res = createCall(getFt, getFn.getCallee(), { rawMap, key });
-        // ts_map_get always returns boxed TsValue*
-        boxedValues.insert(res);
+        
+        // Use inline map operations
+        llvm::Value* res = emitInlineMapGet(rawMap, key);
         lastValue = res;
         return;
     }
@@ -646,16 +621,10 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         // Safe access
     }
 
-    // Use ts_array_get_as_value which properly handles specialized arrays
-    // and returns a boxed TsValue* for int/double specialized arrays
-    std::string funcName = "ts_array_get_as_value";
-    llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
-            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-    llvm::FunctionCallee getFn = module->getOrInsertFunction(funcName, getFt);
-            
-    llvm::Value* val = createCall(getFt, getFn.getCallee(), { arr, index });
-    // ts_array_get_as_value returns boxed TsValue* - mark it so unboxValue works correctly
-    boxedValues.insert(val);
+    // Use inline IR operations to avoid Windows x64 ABI issues
+    // emitInlineArrayGet calls __ts_array_get_inline with scalar parameters
+    llvm::Value* val = emitInlineArrayGet(arr, index);
+    // emitInlineArrayGet returns boxed TsValue* on stack - already marked as boxed
 
     std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Array) {
@@ -768,13 +737,10 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
         
         key = boxValue(key, std::make_shared<Type>(TypeKind::String));
-
-        llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
         
-        llvm::Value* res = createCall(getFt, getFn.getCallee(), { unboxValue(mapVal, node->expression->inferredType), key });
-        // ts_map_get always returns boxed TsValue*
-        boxedValues.insert(res);
+        // Unbox map and use inline operations
+        llvm::Value* rawMap = unboxValue(mapVal, node->expression->inferredType);
+        llvm::Value* res = emitInlineMapGet(rawMap, key);
         lastValue = res;
         return;
     }
@@ -1444,13 +1410,16 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             }
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
+            // For typed objects, objPtr is already the raw TsMap* - use it directly for map operations
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+            llvm::Value* keyStrPtr = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            llvm::Value* keyBoxed = boxValue(keyStrPtr, std::make_shared<Type>(TypeKind::String));
             
-            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_property", getFt);
-            
-            lastValue = createCall(getFt, getFn.getCallee(), { objPtr, keyStr });
-            boxedValues.insert(lastValue);
+            // Use map operations directly on the TsMap* (objects ARE maps internally)
+            lastValue = emitInlineMapGet(objPtr, keyBoxed);
+            // emitInlineMapGet returns boxed TsValue* on stack - already marked as boxed
             
             // Find the field type to unbox correctly
             std::shared_ptr<Type> fieldType = std::make_shared<Type>(TypeKind::Any);
@@ -1470,17 +1439,15 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             llvm::Value* objPtr = lastValue;
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
+            // Use inline IR operations for any-typed object property access
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
             llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
             llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
+            llvm::Value* propNameBoxed = boxValue(propName, std::make_shared<Type>(TypeKind::String));
             
-            llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), 
-                    { builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_value_get_property", getPropFt);
-            
-            lastValue = createCall(getPropFt, getPropFn.getCallee(), { objPtr, propName });
-            boxedValues.insert(lastValue);
+            lastValue = emitInlineObjectGetProp(objPtr, propNameBoxed);
+            // emitInlineObjectGetProp returns boxed TsValue* - already marked as boxed
             return;
         }
         

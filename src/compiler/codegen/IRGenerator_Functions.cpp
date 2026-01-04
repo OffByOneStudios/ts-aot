@@ -1930,10 +1930,6 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
         llvm::FunctionCallee createMapFn = getRuntimeFunction("ts_map_create", createMapFt);
         llvm::Value* map = createCall(createMapFt, createMapFn.getCallee(), {});
         
-        llvm::FunctionType* setMapFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee setFn = getRuntimeFunction("ts_map_set", setMapFt);
-        
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
         
@@ -1941,7 +1937,8 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
             llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(key) });
             llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
             llvm::Value* boxedVal = generateJsonValue(val);
-            createCall(setMapFt, setFn.getCallee(), { map, boxedKey, boxedVal });
+            // Use inline map set operation
+            emitInlineMapSet(map, boxedKey, boxedVal);
         }
         
         return boxValue(map, std::make_shared<Type>(TypeKind::Object));
