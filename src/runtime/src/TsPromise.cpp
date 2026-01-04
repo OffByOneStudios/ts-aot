@@ -274,7 +274,6 @@ void ts_promise_settle_microtask(void* data) {
     TsPromise* promise = task->promise;
 
     if (promise->state == PromiseState::Rejected && !promise->handled) {
-        printf("Unhandled Promise Rejection: ");
         ts_console_log_value(&promise->value);
     }
 
