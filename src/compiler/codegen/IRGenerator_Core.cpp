@@ -1382,8 +1382,9 @@ public:
     // Nested arrow functions create a new scope - don't descend
     void visitArrowFunction(ast::ArrowFunction* node) override {
         // We should still collect free variables from nested arrow functions
-        // but they're in a new scope, so we don't add their parameters
-        std::set<std::string> nestedScope = localScope;
+        // The nested function's local scope starts with ONLY its parameters,
+        // NOT the enclosing scope's variables (those are what we want to capture!)
+        std::set<std::string> nestedScope;
         for (auto& param : node->parameters) {
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 nestedScope.insert(id->name);
@@ -1393,8 +1394,10 @@ public:
         if (node->body) {
             node->body->accept(&nestedCollector);
         }
-        // Merge referenced names (excluding nested locals)
+        // Merge referenced names - any variable not local to the nested function
+        // becomes a reference for the outer function (we want to capture it)
         for (const auto& name : nestedCollector.referencedNames) {
+            // If it's not local to THIS scope either, it's a free variable
             if (!localScope.count(name)) {
                 referencedNames.insert(name);
             }
@@ -1402,8 +1405,8 @@ public:
     }
     
     void visitFunctionExpression(ast::FunctionExpression* node) override {
-        // Similar to arrow function
-        std::set<std::string> nestedScope = localScope;
+        // Similar to arrow function - nested function starts with only its parameters
+        std::set<std::string> nestedScope;
         for (auto& param : node->parameters) {
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 nestedScope.insert(id->name);
@@ -1965,6 +1968,75 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     
     llvm::BasicBlock* oldBB = builder->GetInsertBlock();
     
+    // === CLOSURE CAPTURE: Collect free variables BEFORE clearing namedValues ===
+    std::set<std::string> paramNames;
+    for (auto& param : node->parameters) {
+        if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramNames.insert(id->name);
+        }
+    }
+    
+    std::vector<CapturedVariable> capturedVars;
+    for (auto& stmt : node->body) {
+        collectFreeVariables(stmt.get(), paramNames, capturedVars);
+    }
+    
+    // Create closure context struct type (if we have captures)
+    llvm::StructType* closureContextType = nullptr;
+    llvm::Value* closureContext = nullptr;
+    std::map<std::string, int> capturedVarIndices;
+    
+    std::set<std::string> capturedCellVarNames;
+    if (!capturedVars.empty()) {
+        std::vector<llvm::Type*> contextFields;
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            contextFields.push_back(builder->getPtrTy());
+            capturedVarIndices[capturedVars[i].name] = static_cast<int>(i);
+        }
+        closureContextType = llvm::StructType::create(*context, funcName + "_closure");
+        closureContextType->setBody(contextFields);
+        
+        // Allocate and populate the closure context (in the OUTER function)
+        llvm::FunctionType* allocFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee allocFn = getRuntimeFunction("ts_alloc", allocFt);
+        uint64_t contextSize = module->getDataLayout().getTypeAllocSize(closureContextType);
+        closureContext = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), contextSize) });
+        
+        // Store captured values into the context struct
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, closureContext, static_cast<unsigned>(i));
+            
+            // Check if this is a cell variable
+            if (cellVariables.count(capturedVars[i].name)) {
+                llvm::Value* cellPtr = builder->CreateLoad(builder->getPtrTy(), capturedVars[i].value);
+                builder->CreateStore(cellPtr, fieldPtr);
+                capturedCellVarNames.insert(capturedVars[i].name);
+                SPDLOG_INFO("FunctionDecl: Captured cell variable {} at index {}", capturedVars[i].name, i);
+                continue;
+            }
+            
+            llvm::Type* loadType = builder->getPtrTy();
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(capturedVars[i].value)) {
+                loadType = alloca->getAllocatedType();
+            }
+            
+            llvm::Value* outerValue = builder->CreateLoad(loadType, capturedVars[i].value);
+            
+            bool shouldBox = !loadType->isPointerTy() || !boxedValues.count(outerValue);
+            if (capturedVars[i].type && capturedVars[i].type->kind == TypeKind::Function && loadType->isPointerTy()) {
+                shouldBox = false;
+            }
+            
+            if (shouldBox) {
+                outerValue = boxValue(outerValue, capturedVars[i].type);
+            }
+            builder->CreateStore(outerValue, fieldPtr);
+        }
+        
+        SPDLOG_INFO("FunctionDeclaration {} captures {} variables", funcName, capturedVars.size());
+        functionsWithClosures.insert(funcName);
+    }
+
     // Save ALL function-scoped state (same as visitFunctionExpression)
     struct SavedFunctionState {
         std::map<std::string, llvm::Value*> namedValues;
@@ -2091,10 +2163,39 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
     
     auto argIt = function->arg_begin();
+    llvm::Value* contextArg = nullptr;
     if (argIt != function->arg_end()) {
         argIt->setName("context");
-        currentContext = &*argIt;
+        contextArg = &*argIt;
+        currentContext = contextArg;
         ++argIt;
+    }
+    
+    // === CLOSURE CAPTURE: Extract captured values from context at function entry ===
+    if (!capturedVars.empty() && closureContextType && contextArg) {
+        for (size_t i = 0; i < capturedVars.size(); ++i) {
+            const auto& cv = capturedVars[i];
+            // Create a local alloca for this captured variable
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(function, cv.name, builder->getPtrTy());
+            // Load the value from the context struct
+            llvm::Value* fieldPtr = builder->CreateStructGEP(closureContextType, contextArg, static_cast<unsigned>(i));
+            llvm::Value* capturedValue = builder->CreateLoad(builder->getPtrTy(), fieldPtr);
+            // Store into local alloca
+            builder->CreateStore(capturedValue, alloca);
+            // Add to namedValues so the body can use it
+            namedValues[cv.name] = alloca;
+            
+            // Check if this was a cell variable in the outer scope
+            if (capturedCellVarNames.count(cv.name)) {
+                cellVariables.insert(cv.name);
+                cellPointers[cv.name] = capturedValue;
+                SPDLOG_INFO("FunctionDecl: Extracted cell variable {} at index {}", cv.name, i);
+            } else {
+                boxedValues.insert(capturedValue);
+                boxedVariables.insert(cv.name);
+                SPDLOG_INFO("FunctionDecl: Extracted captured var {} at index {}", cv.name, i);
+            }
+        }
     }
     
     // Handle parameters
@@ -2116,6 +2217,9 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     
     // Pre-pass: Hoist function declarations (JavaScript hoisting behavior)
     hoistFunctionDeclarations(node->body, function);
+    
+    // Pre-pass: Hoist variable declarations for closure capture
+    hoistVariableDeclarations(node->body, function);
     
     // Visit function body
     for (auto& stmt : node->body) {
@@ -2181,9 +2285,14 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Box the function and store in namedValues for the enclosing scope
     llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
     llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
+    
+    // Use closure context if we have captures, otherwise use the enclosing context
+    llvm::Value* contextToPass = closureContext ? closureContext : 
+        (saved.currentContext ? saved.currentContext : llvm::ConstantPointerNull::get(builder->getPtrTy()));
+    
     llvm::Value* boxedFunc = createCall(makeFnFt, makeFnFn.getCallee(), { 
         function, 
-        saved.currentContext ? saved.currentContext : llvm::ConstantPointerNull::get(builder->getPtrTy())
+        contextToPass
     });
     boxedValues.insert(boxedFunc);
     

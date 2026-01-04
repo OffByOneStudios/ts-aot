@@ -1490,6 +1490,12 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     // This ensures function names are available before their declaration is visited
     hoistFunctionDeclarations(node->body, function);
     
+    // Pre-pass: Hoist variable declarations
+    // This ensures that all var declarations in this function scope are in namedValues
+    // BEFORE we visit any nested functions that might reference them.
+    // This fixes closure capture for variables declared after the closure textually.
+    hoistVariableDeclarations(node->body, function);
+    
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
@@ -1957,6 +1963,60 @@ void IRGenerator::hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stm
             namedValues[funcDecl->name] = alloca;
             boxedVariables.insert(funcDecl->name);
         }
+    }
+}
+
+// JavaScript variable hoisting - pre-register all var declarations before body execution
+// This ensures that when nested function expressions are compiled, all variables from
+// the enclosing function scope are already in namedValues and can be captured.
+// Without this, a nested function that references a var declared AFTER it (textually)
+// would fail to capture it because namedValues wouldn't contain it yet.
+void IRGenerator::hoistVariableDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn) {
+    // Collect all variables declared in this scope
+    std::vector<VariableInfo> vars;
+    for (auto& stmt : stmts) {
+        collectVariables(stmt.get(), vars);
+    }
+    
+    // Create allocas for each variable (hoisting to function entry block)
+    for (auto& var : vars) {
+        if (var.name.empty()) continue;
+        
+        // Skip if already registered (e.g., from function hoisting or parameters)
+        if (namedValues.count(var.name)) {
+            continue;
+        }
+        
+        // Determine the type for the alloca
+        llvm::Type* allocaType = var.llvmType;
+        if (!allocaType) {
+            allocaType = builder->getPtrTy();  // Default to pointer type
+        }
+        
+        // Check if this variable will be captured by a nested closure
+        // If so, use pointer type (cells will be created later)
+        if (cellVariables.count(var.name)) {
+            allocaType = builder->getPtrTy();
+        }
+        
+        // Create alloca and initialize to undefined/null
+        llvm::AllocaInst* alloca = createEntryBlockAlloca(enclosingFn, var.name, allocaType);
+        if (allocaType->isPointerTy()) {
+            builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), alloca);
+        } else if (allocaType->isDoubleTy()) {
+            builder->CreateStore(llvm::ConstantFP::get(allocaType, 0.0), alloca);
+        } else if (allocaType->isIntegerTy()) {
+            builder->CreateStore(llvm::ConstantInt::get(allocaType, 0), alloca);
+        }
+        
+        namedValues[var.name] = alloca;
+        
+        // Track the type for later use
+        if (var.type) {
+            variableTypes[var.name] = var.type;
+        }
+        
+        SPDLOG_DEBUG("Hoisted variable {} in function {}", var.name, enclosingFn->getName().str());
     }
 }
 
