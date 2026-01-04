@@ -1,0 +1,16 @@
+const m = new Map();
+console.log("Step 1: set a=1");
+m.set("a", 1);
+console.log("Step 2: set 2=b");
+m.set(2, "b");
+console.log("Step 3: creating BigInt(3)");
+const big = BigInt(3);
+console.log("Step 4: set BigInt=c");
+m.set(big, "c");
+console.log("Step 5: creating Symbol");
+const s = Symbol("d");
+console.log("Step 6: set symbol=e");
+m.set(s, "e");
+console.log("Step 7: about to check size");
+const sz = m.size;
+console.log("Map size:", sz);
