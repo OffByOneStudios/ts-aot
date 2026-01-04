@@ -862,9 +862,6 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     SetUnhandledExceptionFilter(ts_unhandled_exception_filter);
 #endif
 
-    fprintf(stderr, "[ts-aot] ts_main: start\n");
-    fflush(stderr);
-
     // 0. Record process start time and argv0
     process_start_time = std::chrono::steady_clock::now();
     if (argc > 0 && argv[0]) {
@@ -873,25 +870,13 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     }
 
     // 1. Initialize Garbage Collector
-    fprintf(stderr, "[ts-aot] ts_main: ts_gc_init...\n");
-    fflush(stderr);
     ts_gc_init();
-    fprintf(stderr, "[ts-aot] ts_main: ts_gc_init OK\n");
-    fflush(stderr);
 
     // 1.5 Initialize Runtime Globals
-    fprintf(stderr, "[ts-aot] ts_main: ts_runtime_init...\n");
-    fflush(stderr);
     ts_runtime_init();
-    fprintf(stderr, "[ts-aot] ts_main: ts_runtime_init OK\n");
-    fflush(stderr);
 
     // 2. Initialize Event Loop
-    fprintf(stderr, "[ts-aot] ts_main: ts_loop_init...\n");
-    fflush(stderr);
     ts_loop_init();
-    fprintf(stderr, "[ts-aot] ts_main: ts_loop_init OK\n");
-    fflush(stderr);
 
     // 3. Initialize process.argv
     TsArray* argvArray = TsArray::Create(argc);
@@ -903,17 +888,13 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 4. Run User Code (which might schedule async work)
     if (user_main) {
-        fprintf(stderr, "[ts-aot] ts_main: user_main...\n");
-        fflush(stderr);
 
 #ifdef _MSC_VER
         __try {
             TsValue* result = user_main(nullptr);
             (void)result; // For now, we don't do anything special with the top-level promise
-            fprintf(stderr, "[ts-aot] ts_main: user_main OK\n");
-            fflush(stderr);
         } __except(ts_seh_filter(GetExceptionInformation(), GetExceptionCode())) {
-            fprintf(stderr, "[ts-aot] ts_main: user_main EXCEPTION code=0x%08lx addr=%p\n",
+            fprintf(stderr, "[ts-aot] EXCEPTION code=0x%08lx addr=%p\n",
                     (unsigned long)ts_last_seh_code, ts_last_seh_addr);
             fflush(stderr);
             return 1;
@@ -921,8 +902,6 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 #else
         TsValue* result = user_main(nullptr);
         (void)result; // For now, we don't do anything special with the top-level promise
-        fprintf(stderr, "[ts-aot] ts_main: user_main OK\n");
-        fflush(stderr);
 #endif
     }
 

@@ -106,17 +106,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                                          module->type == ModuleType::TypedJavaScript);
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
-        if (isLodashModule) {
-            fmt::print("Monomorphizer: lodash module->ast->body has {} statements:\n", module->ast->body.size());
-            for (size_t i = 0; i < module->ast->body.size(); ++i) {
-                fmt::print("  [{}]: {}\n", i, module->ast->body[i]->getKind());
-            }
-        }
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
-            if (isLodashModule) {
-                fmt::print("  Processing stmt: {}\n", kind);
-            }
             // For JavaScript: move FunctionDeclarations to moduleInit (runtime hoisting)
             // For TypeScript: keep FunctionDeclarations in newBody (compile-time processing)
             bool keepInNewBody = false;
@@ -140,27 +131,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
                 // fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
-                if (isLodashModule) {
-                    fmt::print("    -> Moved to moduleInit (now {} stmts)\n", moduleInit->body.size());
-                }
             }
-        }
-
-        // For crash localization: log immediately on module init entry.
-        if (isLodashModule) {
-            // Build a snapshot of statement kinds AFTER moving from AST (avoid commas in output)
-            std::string kinds_summary = "lodash_stmts=[";
-            for (size_t i = 0; i < moduleInit->body.size(); ++i) {
-                if (i > 0) kinds_summary += "|";  // Use | instead of comma
-                kinds_summary += moduleInit->body[i]->getKind();
-            }
-            kinds_summary += "]";
-            fmt::print("After moving statements, moduleInit->body: {}\n", kinds_summary);
-            
-            moduleInit->body.insert(moduleInit->body.begin(),
-                                    makeConsoleLogStatement(kinds_summary));
-            moduleInit->body.insert(moduleInit->body.begin() + 1,
-                                    makeConsoleLogStatement("lodash_module_init_entry"));
         }
 
         // Targeted debug markers for lodash: DISABLED for now
@@ -318,25 +289,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         const auto& initName = moduleInitFunctions[i];
         const auto& path = analyzer.moduleOrder[i];
         const auto& modObjName = moduleObjNames[i];
-
-        // Debug marker before running module init
-        {
-            auto logCall = std::make_unique<ast::CallExpression>();
-            auto logAccess = std::make_unique<ast::PropertyAccessExpression>();
-            auto consoleId = std::make_unique<ast::Identifier>();
-            consoleId->name = "console";
-            logAccess->expression = std::move(consoleId);
-            logAccess->name = "log";
-            logCall->callee = std::move(logAccess);
-
-            auto msgLit = std::make_unique<ast::StringLiteral>();
-            msgLit->value = std::string("module_init_begin: ") + path;
-            logCall->arguments.push_back(std::move(msgLit));
-
-            auto logStmt = std::make_unique<ast::ExpressionStatement>();
-            logStmt->expression = std::move(logCall);
-            userMain->body.push_back(std::move(logStmt));
-        }
         
         // Create a variable to hold the module init result
         std::string resVarName = "__module_res_" + std::to_string(i);
@@ -383,25 +335,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         resDecl->initializer = std::move(finalExpr);
         userMain->body.push_back(std::move(resDecl));
-
-        // Debug marker after running module init
-        {
-            auto logCall = std::make_unique<ast::CallExpression>();
-            auto logAccess = std::make_unique<ast::PropertyAccessExpression>();
-            auto consoleId = std::make_unique<ast::Identifier>();
-            consoleId->name = "console";
-            logAccess->expression = std::move(consoleId);
-            logAccess->name = "log";
-            logCall->callee = std::move(logAccess);
-
-            auto msgLit = std::make_unique<ast::StringLiteral>();
-            msgLit->value = std::string("module_init_end: ") + path;
-            logCall->arguments.push_back(std::move(msgLit));
-
-            auto logStmt = std::make_unique<ast::ExpressionStatement>();
-            logStmt->expression = std::move(logCall);
-            userMain->body.push_back(std::move(logStmt));
-        }
 
         // If this is the last module init and there's NO user-defined user_main,
         // make it a return statement.
