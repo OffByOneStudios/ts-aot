@@ -295,6 +295,7 @@ Re-enabled Boehm GC after debugging with pool allocator.
 2. Change API to `const TsValue*`: Defeats the by-value optimization purpose but guarantees ABI compatibility
 3. Use inline LLVM IR: Implement `_v` operations entirely in LLVM codegen without C++ calls
 **Recommendation:** Option 3 (inline IR) aligns with original inline boxing goal and avoids ABI issues entirely.
+**Detailed Plan:** See [PLAN_INLINE_IR_OPERATIONS.md](PLAN_INLINE_IR_OPERATIONS.md) for complete implementation strategy (estimated 12-16 hours).
 
 ---
 
