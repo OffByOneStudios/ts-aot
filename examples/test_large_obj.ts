@@ -1,63 +1,17 @@
-// Minimal reproduction of lodash's mixin pattern to find memory leak
-
+// Test passing larger static object to any parameter (55 methods like lodash)
 function keys(obj: any): string[] {
-    console.log("keys: entering");
     const result: string[] = [];
     for (const key in obj) {
-        console.log("keys: got key");
         result.push(key);
     }
-    console.log("keys: returning " + result.length);
     return result;
 }
 
-function isFunction(value: any): boolean {
-    return typeof value === 'function';
-}
-
-function baseFunctions(object: any, props: string[]): string[] {
-    const result: string[] = [];
-    for (let i = 0; i < props.length; i++) {
-        const key = props[i];
-        if (isFunction(object[key])) {
-            result.push(key);
-        }
-    }
-    return result;
-}
-
-function arrayEach(array: any[], iteratee: (value: any, index: number) => void): any[] {
-    let index = -1;
-    const length = array.length;
-    while (++index < length) {
-        if (iteratee(array[index], index) === false) {
-            break;
-        }
-    }
-    return array;
-}
-
-function mixin(object: any, source: any): any {
-    const props = keys(source);
-    console.log("Mixin: got " + props.length + " props from keys");
-    const methodNames = baseFunctions(source, props);
-    
-    console.log("Mixin: found " + methodNames.length + " methods");
-    
-    arrayEach(methodNames, function(methodName: string) {
-        const func = source[methodName];
-        object[methodName] = func;
-    });
-    
-    return object;
-}
-
-// Create a lodash-like object with many methods
 const lodashMethods = {
     chunk: function(arr: any[], size: number) { return arr; },
     compact: function(arr: any[]) { return arr; },
     concat: function(...args: any[]) { return args; },
-    difference: function(arr: any[], ...values: any[]) { return arr; },
+    difference: function(arr: any[], values: any[]) { return arr; },
     drop: function(arr: any[], n: number) { return arr; },
     dropRight: function(arr: any[], n: number) { return arr; },
     fill: function(arr: any[], value: any) { return arr; },
@@ -71,12 +25,12 @@ const lodashMethods = {
     head: function(arr: any[]) { return arr[0]; },
     indexOf: function(arr: any[], value: any) { return 0; },
     initial: function(arr: any[]) { return arr; },
-    intersection: function(...arrays: any[][]) { return []; },
+    intersection: function(arrs: any[][]) { return []; },
     join: function(arr: any[], separator: string) { return ""; },
     last: function(arr: any[]) { return arr[arr.length - 1]; },
     lastIndexOf: function(arr: any[], value: any) { return 0; },
     nth: function(arr: any[], n: number) { return arr[n]; },
-    pull: function(arr: any[], ...values: any[]) { return arr; },
+    pull: function(arr: any[], values: any[]) { return arr; },
     pullAll: function(arr: any[], values: any[]) { return arr; },
     pullAt: function(arr: any[], indexes: any[]) { return []; },
     remove: function(arr: any[], predicate: any) { return []; },
@@ -95,38 +49,28 @@ const lodashMethods = {
     takeRight: function(arr: any[], n: number) { return arr; },
     takeRightWhile: function(arr: any[], predicate: any) { return arr; },
     takeWhile: function(arr: any[], predicate: any) { return arr; },
-    union: function(...arrays: any[][]) { return []; },
-    unionBy: function(...args: any[]) { return []; },
-    unionWith: function(...args: any[]) { return []; },
+    union: function(arrs: any[][]) { return []; },
+    unionBy: function(args: any[]) { return []; },
+    unionWith: function(args: any[]) { return []; },
     uniq: function(arr: any[]) { return arr; },
     uniqBy: function(arr: any[], iteratee: any) { return arr; },
     uniqWith: function(arr: any[], comparator: any) { return arr; },
     unzip: function(arr: any[]) { return arr; },
     unzipWith: function(arr: any[], iteratee: any) { return arr; },
-    without: function(arr: any[], ...values: any[]) { return arr; },
-    xor: function(...arrays: any[][]) { return []; },
-    xorBy: function(...args: any[]) { return []; },
-    xorWith: function(...args: any[]) { return []; },
-    zip: function(...arrays: any[][]) { return []; },
+    without: function(arr: any[], values: any[]) { return arr; },
+    xor: function(arrs: any[][]) { return []; },
+    xorBy: function(args: any[]) { return []; },
+    xorWith: function(args: any[]) { return []; },
+    zip: function(arrs: any[][]) { return []; },
     zipObject: function(props: any[], values: any[]) { return {}; },
     zipObjectDeep: function(props: any[], values: any[]) { return {}; },
-    zipWith: function(...args: any[]) { return []; }
+    zipWith: function(args: any[]) { return []; }
 };
 
-console.log("Start mixin test");
-
-// Test keys directly before mixin
-console.log("Testing keys directly");
-const testKeys = keys(lodashMethods);
-console.log("Direct keys call returned: " + testKeys.length);
-
-const lodash: any = {};
-
-// This is what lodash does - iterate over all methods and copy them
-mixin(lodash, lodashMethods);
-
-console.log("Mixin complete");
-console.log("lodash.chunk exists: " + (typeof lodash.chunk === 'function'));
-console.log("lodash.last exists: " + (typeof lodash.last === 'function'));
-
+console.log("Getting keys");
+const k = keys(lodashMethods);
+console.log("Found " + k.length + " keys");
+for (let i = 0; i < 5; i++) {
+    console.log("  " + k[i]);
+}
 console.log("Done");

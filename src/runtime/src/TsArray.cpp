@@ -420,6 +420,62 @@ extern "C" {
         return (TsValue*)val;
     }
 
+    // Value-based variant - returns TsValue by value to avoid heap allocation
+    TsValue ts_array_get_v(void* arr, int64_t index) {
+        TsValue result;
+        result.type = ValueType::UNDEFINED;
+        result.ptr_val = nullptr;
+        
+        if (!arr) return result;
+        
+        TsArray* array = (TsArray*)arr;
+        if (index < 0 || index >= array->Length()) {
+            return result;
+        }
+        
+        int64_t val = array->Get(index);
+        if (array->IsSpecialized()) {
+            if (array->IsDouble()) {
+                result.type = ValueType::NUMBER_DBL;
+                result.d_val = *(double*)&val;
+            } else {
+                result.type = ValueType::NUMBER_INT;
+                result.i_val = val;
+            }
+            return result;
+        }
+        
+        // For non-specialized arrays, the stored value is a TsValue*
+        TsValue* stored = (TsValue*)val;
+        if (stored) {
+            return *stored;
+        }
+        return result;
+    }
+
+    // Value-based set - takes TsValue by value
+    void ts_array_set_v(void* arr, int64_t index, TsValue value) {
+        if (!arr) return;
+        TsArray* array = (TsArray*)arr;
+        
+        if (array->IsSpecialized()) {
+            if (array->IsDouble()) {
+                double d = (value.type == ValueType::NUMBER_DBL) ? value.d_val : (double)value.i_val;
+                int64_t bits;
+                memcpy(&bits, &d, sizeof(bits));
+                array->Set(index, bits);
+            } else {
+                int64_t i = (value.type == ValueType::NUMBER_INT) ? value.i_val : (int64_t)value.d_val;
+                array->Set(index, i);
+            }
+        } else {
+            // For non-specialized, we need to allocate a TsValue
+            TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+            *v = value;
+            array->Set(index, (int64_t)v);
+        }
+    }
+
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         return (void*)((TsArray*)arr)->GetUnchecked(index);
     }

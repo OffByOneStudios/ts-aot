@@ -242,6 +242,33 @@ TsValue* ts_map_get(void* map, TsValue* key) {
     return v;
 }
 
+// Value-based API variants - avoid heap allocation by passing/returning TsValue by value
+// These are more efficient for hot paths where the caller can use stack-allocated TsValue
+void ts_map_set_v(void* map, TsValue key, TsValue value) {
+    if (!map) return;
+    ((TsMap*)map)->Set(key, value);
+}
+
+TsValue ts_map_get_v(void* map, TsValue key) {
+    if (!map) {
+        TsValue undef;
+        undef.type = ValueType::UNDEFINED;
+        undef.ptr_val = nullptr;
+        return undef;
+    }
+    return ((TsMap*)map)->Get(key);
+}
+
+bool ts_map_has_v(void* map, TsValue key) {
+    if (!map) return false;
+    return ((TsMap*)map)->Has(key);
+}
+
+bool ts_map_delete_v(void* map, TsValue key) {
+    if (!map) return false;
+    return ((TsMap*)map)->Delete(key);
+}
+
 bool ts_map_has(void* map, TsValue* key) {
     if (!map || !key) return false;
     return ((TsMap*)map)->Has(*key);

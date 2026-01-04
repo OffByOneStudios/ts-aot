@@ -1420,6 +1420,92 @@ TsValue* ts_value_make_int(int64_t i) {
         return value;
     }
 
+    // ============================================================
+    // Value-passing variants (_v) - avoid heap allocation for TsValue
+    // These take TsValue by value (16 bytes, fits in 2 registers)
+    // ============================================================
+
+    TsValue ts_object_get_prop_v(TsValue obj, TsValue key) {
+        // If key is a number, try array access
+        if (key.type == ValueType::NUMBER_INT || key.type == ValueType::NUMBER_DBL) {
+            int64_t idx = (key.type == ValueType::NUMBER_INT) ? key.i_val : (int64_t)key.d_val;
+            void* rawObj = ts_value_get_object(&obj);
+            if (rawObj) {
+                uint32_t magic = *(uint32_t*)rawObj;
+                if (magic == 0x41525259) { // TsArray::MAGIC
+                    return ts_array_get_v(rawObj, idx);
+                }
+            }
+        }
+        
+        // Coerce key to string
+        TsString* keyStr = (TsString*)ts_value_get_string(&key);
+        if (!keyStr) {
+            TsValue undef;
+            undef.type = ValueType::UNDEFINED;
+            undef.i_val = 0;
+            return undef;
+        }
+        
+        // Delegate to pointer-based version and dereference
+        TsValue* result = ts_value_get_property(&obj, (void*)keyStr);
+        if (!result) {
+            TsValue undef;
+            undef.type = ValueType::UNDEFINED;
+            undef.i_val = 0;
+            return undef;
+        }
+        return *result;
+    }
+
+    TsValue ts_object_set_prop_v(TsValue obj, TsValue key, TsValue value) {
+        void* rawObj = ts_value_get_object(&obj);
+        if (!rawObj) return value;
+
+        // If key is a number, try array access
+        if (key.type == ValueType::NUMBER_INT || key.type == ValueType::NUMBER_DBL) {
+            int64_t idx = (key.type == ValueType::NUMBER_INT) ? key.i_val : (int64_t)key.d_val;
+            uint32_t magic = *(uint32_t*)rawObj;
+            if (magic == 0x41525259) { // TsArray::MAGIC
+                ts_array_set_v(rawObj, idx, value);
+                return value;
+            }
+        }
+
+        // Coerce key to string
+        TsString* keyStr = (TsString*)ts_value_get_string(&key);
+        if (!keyStr) return value;
+
+        // Check multiple magic offsets for TsMap
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
+        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
+
+        // Check for TsFunction (can have properties like _.chunk)
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
+            TsFunction* func = (TsFunction*)rawObj;
+            if (!func->properties) {
+                func->properties = TsMap::Create();
+            }
+            // Need to box key/value for Map::Set
+            TsValue* boxedKey = (TsValue*)ts_alloc(sizeof(TsValue));
+            TsValue* boxedVal = (TsValue*)ts_alloc(sizeof(TsValue));
+            *boxedKey = key;
+            *boxedVal = value;
+            func->properties->Set(*boxedKey, *boxedVal);
+            return value;
+        }
+
+        // Check if it's a map
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+            ts_map_set_v(rawObj, key, value);
+            return value;
+        }
+
+        return value;
+    }
+
     bool ts_object_has_prop(TsValue* obj, TsValue* key) {
         if (!obj || !key) return false;
         void* rawObj = ts_value_get_object(obj);
