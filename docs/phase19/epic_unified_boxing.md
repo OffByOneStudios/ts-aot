@@ -200,17 +200,31 @@ Standardize all runtime APIs to use TsValue consistently.
 - [ ] 5.7 Deprecate old pointer-based APIs with warnings (Phase 3)
 - [ ] 5.8 Remove deprecated APIs after full migration (Phase 4)
 
-### Milestone 6: Validation ⬜
+### Milestone 6: Validation 🔄 IN PROGRESS
 Comprehensive testing to ensure no regressions.
 
 #### Action Items
-- [ ] 6.1 Run full test suite
-- [ ] 6.2 Benchmark raytracer performance
-- [ ] 6.3 Benchmark SHA256 performance
-- [ ] 6.4 Test lodash loading and initialization
-- [ ] 6.5 Test computed property access in all contexts
-- [ ] 6.6 Test `typeof` on all value types
+- [x] 6.1 Run full test suite
+  - Key tests passing: mixin_leak, typeof_func, for_in, arrays
+  - Some integration tests have pre-existing issues (abstract classes, aoc tests)
+- [x] 6.2 Benchmark property access performance
+  - 100k iterations × 10 props = 1M ops in 53ms (~19M ops/sec)
+- [ ] 6.3 Benchmark raytracer/SHA256 (blocked: spdlog linker issue, unrelated)
+- [x] 6.4 Test lodash loading and initialization - PASS
+- [x] 6.5 Test computed property access in all contexts - PASS
+- [x] 6.6 Test `typeof` on all value types
+  - Primitives: PASS (undefined, number, boolean, string, object, array)
+  - Functions direct: PASS  
+  - Functions via any: **BUG FOUND** - function→any assignment stores undefined
 - [ ] 6.7 Memory usage comparison before/after
+
+#### Bugs Found During Validation
+- **BUG: Function to Any assignment stores undefined**
+  - Symptom: `let fn: any = myFunc;` results in `fn` being undefined
+  - Root cause: Codegen drops function value when target is Any type
+  - IR shows `ts_value_make_function()` return not used; undefined stored instead
+  - Severity: Medium - affects dynamic function references
+  - Status: Logged for follow-up (separate from boxing epic)
 
 ### Milestone 7: Re-enable Garbage Collector ⬜
 Currently using raw malloc for debugging stability. Must re-enable Boehm GC.
