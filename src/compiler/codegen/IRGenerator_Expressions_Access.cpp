@@ -356,7 +356,22 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         emitNullCheckForExpression(node->expression.get(), mapVal);
         
         visit(node->argumentExpression.get());
-        llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+        llvm::Value* key = lastValue;
+        
+        // For Map element access, box the key using inline boxing for pointer types
+        // to avoid heap allocation overhead
+        auto keyType = node->argumentExpression->inferredType;
+        if (keyType && keyType->kind == TypeKind::String && key->getType()->isPointerTy()) {
+            // String key - use inline boxing (most common case)
+            // First unbox in case it's already a TsValue*, then inline box
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+            llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { key });
+            key = emitInlineBox(rawKey, 4);  // ValueType::STRING_PTR = 4
+        } else {
+            // Non-string key - use boxValue (handles int, double, etc.)
+            key = boxValue(key, keyType);
+        }
         
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getFn = getRuntimeFunction("ts_map_get", getFt);
@@ -483,7 +498,19 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
 
         // If index is not an integer, use dynamic access
         if (index->getType()->isPointerTy() || index->getType()->isDoubleTy()) {
-            llvm::Value* boxedIndex = boxValue(index, node->argumentExpression->inferredType);
+            // Box the index - use inline boxing for string indices
+            llvm::Value* boxedIndex = nullptr;
+            auto indexType = node->argumentExpression->inferredType;
+            if (indexType && indexType->kind == TypeKind::String && index->getType()->isPointerTy()) {
+                // String index - use inline boxing
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+                llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { index });
+                boxedIndex = emitInlineBox(rawKey, 4);  // ValueType::STRING_PTR = 4
+            } else {
+                boxedIndex = boxValue(index, indexType);
+            }
+            
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get_dynamic", getFt);
             
@@ -588,8 +615,18 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     
     if (!node->expression->inferredType || node->expression->inferredType->kind == TypeKind::Any) {
         if (index->getType()->isPointerTy()) {
-            // String index on any
-            llvm::Value* boxedIndex = boxValue(index, node->argumentExpression->inferredType);
+            // String index on any - use inline boxing for performance
+            auto indexType = node->argumentExpression->inferredType;
+            llvm::Value* boxedIndex = nullptr;
+            if (indexType && indexType->kind == TypeKind::String) {
+                // Unbox first (idempotent), then inline box
+                llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+                llvm::Value* rawKey = createCall(unboxFt, unboxFn.getCallee(), { index });
+                boxedIndex = emitInlineBox(rawKey, 4);  // ValueType::STRING_PTR = 4
+            } else {
+                boxedIndex = boxValue(index, indexType);
+            }
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = getRuntimeFunction("ts_value_get_property", ft);
             lastValue = createCall(ft, getFn.getCallee(), { arr, boxedIndex });

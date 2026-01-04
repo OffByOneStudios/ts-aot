@@ -14,7 +14,8 @@ enum class ValueType : uint8_t {
     PROMISE_PTR,
     ARRAY_PTR,
     BIGINT_PTR,
-    SYMBOL_PTR
+    SYMBOL_PTR,
+    FUNCTION_PTR  // Functions stored with their own type for reliable typeof
 };
 
 struct TaggedValue {
@@ -150,7 +151,7 @@ extern "C" {
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     
     // Type info
-    TsValue* ts_value_typeof(TsValue* v);
+    TsString* ts_value_typeof(TsValue* v);
     
     // Object static methods
     TsValue* ts_object_keys(TsValue* obj);

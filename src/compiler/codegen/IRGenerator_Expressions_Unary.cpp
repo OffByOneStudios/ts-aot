@@ -30,6 +30,13 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             return;
         }
 
+        // If statically typed as Function, return "function" directly
+        if (node->operand->inferredType && node->operand->inferredType->kind == TypeKind::Function) {
+            llvm::Value* strPtr = builder->CreateGlobalStringPtr("function");
+            lastValue = createCall(createFt, createFn.getCallee(), {strPtr});
+            return;
+        }
+
         if (val->getType()->isPointerTy()) {
             // If it's 'any' type, use the slow path ts_value_typeof
             if (node->operand->inferredType && node->operand->inferredType->kind == TypeKind::Any) {
@@ -52,6 +59,55 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
     visit(node->operand.get());
     llvm::Value* operandV = lastValue;
+
+    if (node->op == "++" || node->op == "--") {
+        // Prefix increment/decrement: increment first, then return new value
+        if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            llvm::Value* variable = nullptr;
+            if (namedValues.count(id->name)) {
+                variable = namedValues[id->name];
+            } else {
+                variable = module->getGlobalVariable(id->name);
+            }
+            if (variable) {
+                llvm::Value* newVal = nullptr;
+                if (operandV->getType()->isPointerTy()) {
+                    // Boxed 'any' / runtime value: use runtime arithmetic
+                    llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+                    llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+                    const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+                    llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+                    newVal = createCall(arithFt, arithFn.getCallee(), { operandV, oneBoxed });
+                } else if (operandV->getType()->isDoubleTy()) {
+                    llvm::Value* one = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 1.0);
+                    newVal = (node->op == "++") ? builder->CreateFAdd(operandV, one) : builder->CreateFSub(operandV, one);
+                } else if (operandV->getType()->isIntegerTy()) {
+                    llvm::Value* one = llvm::ConstantInt::get(operandV->getType(), 1);
+                    newVal = (node->op == "++") ? builder->CreateAdd(operandV, one) : builder->CreateSub(operandV, one);
+                }
+
+                if (newVal) {
+                    // Cast for store if needed
+                    llvm::Type* varType = nullptr;
+                    if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                        varType = alloca->getAllocatedType();
+                    } else if (auto gv = llvm::dyn_cast<llvm::GlobalVariable>(variable)) {
+                        varType = gv->getValueType();
+                    }
+                    if (varType && newVal->getType() != varType) {
+                        newVal = castValue(newVal, varType);
+                    }
+                    builder->CreateStore(newVal, variable);
+                    lastValue = newVal;  // Prefix: return new value
+                    return;
+                }
+            }
+        }
+        return;
+    }
 
     if (node->op == "-") {
         if (operandV->getType()->isDoubleTy()) {
