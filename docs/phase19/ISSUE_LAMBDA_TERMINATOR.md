@@ -1,14 +1,39 @@
 # Issue: Lambda Functions Missing Terminators in LLVM IR
 
-**Status:** Open  
+**Status:** ✅ FIXED  
 **Priority:** HIGH  
 **Created:** 2026-01-04  
+**Fixed:** 2026-01-04
 **Category:** Compiler Bug - IRGenerator  
 **Blocks:** Lodash integration, arrow function tests
 
 ---
 
-## Problem Statement
+## Resolution
+
+**Fix Applied:** Defer `currentReturnBB` insertion into function until actually needed.
+
+**Root Cause:** 
+- `currentReturnBB` was created and immediately added to the function at line 1007
+- For arrow functions with expression bodies, the code directly returned without branching to `currentReturnBB`
+- The unused block had no terminator and no predecessors, causing LLVM verification failure
+
+**Solution:**
+1. Create `currentReturnBB` without parent: `llvm::BasicBlock::Create(*context, "return")` (no function parameter)
+2. Only insert block if code branches to it: `currentReturnBB->insertInto(function)`
+3. Delete unused block if never inserted: `delete currentReturnBB`
+
+**Files Changed:**
+- `IRGenerator_Functions.cpp` line 1007: Defer block creation
+- `IRGenerator_Functions.cpp` line 1095: Conditional insertion
+- `IRGenerator_Expressions_Access.cpp`: Replace removed `ts_object_get_prop` with `ts_object_get_dynamic`
+- `BoxingPolicy.cpp`: Update API registry
+
+**Commit:** 5b7acb8
+
+---
+
+## Problem Statement (ORIGINAL)
 
 Arrow functions and lambda expressions fail to compile with LLVM module verification error: "Basic Block in function 'lambda_X' does not have terminator!"
 
