@@ -762,16 +762,14 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Any) {
             visit(elem->expression.get());
             llvm::Value* obj = boxValue(lastValue, elem->expression->inferredType);
+            // Unbox to get the raw map pointer
+            obj = emitInlineUnbox(obj);
             
             visit(elem->argumentExpression.get());
             llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
             
-            llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
-                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_prop", setFt);
-            
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+            emitInlineMapSet(obj, key, boxedVal);
             lastValue = val;
             return;
         }
