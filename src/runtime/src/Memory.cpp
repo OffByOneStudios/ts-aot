@@ -82,8 +82,9 @@ static void* pool_alloc_internal(size_t size) {
     
     // Check if we need a new block
     if (block.data == nullptr || block.offset + allocSize > block.capacity) {
-        // Use system malloc to avoid GC heap section issues
-        block.data = (char*)malloc(POOL_BLOCK_SIZE);
+        // Use GC_malloc_uncollectable so GC scans block for pointers but doesn't free it
+        // This avoids "too many heap sections" while still allowing GC to find roots
+        block.data = (char*)GC_malloc_uncollectable(POOL_BLOCK_SIZE);
         block.offset = 0;
         block.capacity = POOL_BLOCK_SIZE;
         
@@ -146,12 +147,12 @@ void ts_gc_init() {
     // Install custom GC abort handler - intercepts "too many heap sections" and other fatal GC errors
     GC_set_abort_func(CustomGCAbortHandler);
     
-    // Disable GC - we use pool allocator for small objects, GC only for large ones
-    GC_disable();
+    // GC is now enabled - pool allocator uses GC_malloc_uncollectable for blocks
+    // so GC can scan them for pointers but won't free the block itself
     
     GC_set_max_heap_size(2ULL * 1024 * 1024 * 1024);  // 2GB max
     
-    fprintf(stderr, "[GC] Pool allocator active for objects <= 512 bytes\n");
+    fprintf(stderr, "[GC] Enabled with pool allocator for objects <= 512 bytes\n");
     fflush(stderr);
 }
 
