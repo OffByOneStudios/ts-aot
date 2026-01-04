@@ -205,6 +205,16 @@ Comprehensive testing to ensure no regressions.
 - [ ] 6.6 Test `typeof` on all value types
 - [ ] 6.7 Memory usage comparison before/after
 
+### Milestone 7: Re-enable Garbage Collector ⬜
+Currently using raw malloc for debugging stability. Must re-enable Boehm GC.
+
+#### Action Items
+- [ ] 7.1 Switch `ts_alloc` back to `GC_malloc` instead of `malloc`
+- [ ] 7.2 Verify GC doesn't collect live objects (all roots properly registered)
+- [ ] 7.3 Test long-running programs don't leak memory
+- [ ] 7.4 Benchmark memory usage with GC enabled vs malloc
+- [ ] 7.5 Test lodash mixin pattern with GC enabled (no premature collection)
+
 ---
 
 ## Performance Expectations
