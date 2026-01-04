@@ -268,7 +268,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_native_function(void* funcPtr, void* context) {
-        TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::NATIVE);
+        void* mem = ts_alloc(sizeof(TsFunction));
+        TsFunction* func = new (mem) TsFunction(funcPtr, context, FunctionType::NATIVE);
+        // Explicitly set magic using member access instead of offset calculation
+        func->magic = TsFunction::MAGIC;
+        printf("[ts_value_make_native_function] After setting: func=%p, func->magic=%08X (expected %08X)\n", 
+               func, func->magic, TsFunction::MAGIC);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::OBJECT_PTR;
         v->ptr_val = func;
@@ -568,6 +573,10 @@ TsValue* ts_value_make_int(int64_t i) {
             k.ptr_val = TsString::Create(keyStr);
             TsValue val = map->Get(k);
             printf("[ts_object_get_property] TsMap::Get(%s) returned type=%d\n", keyStr, (int)val.type);
+            if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
+                uint32_t valMagic = *(uint32_t*)val.ptr_val;
+                printf("[ts_object_get_property] Retrieved value ptr_val=%p, magic=%08X (FUNC=46554E43, MAPS=4D415053)\n", val.ptr_val, valMagic);
+            }
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
             *res = val;
             return res;
@@ -708,22 +717,18 @@ TsValue* ts_value_make_int(int64_t i) {
     // Helper to safely extract TsFunction from boxed value
     static TsFunction* ts_extract_function(TsValue* boxedFunc) {
         if (!boxedFunc || boxedFunc->type != ValueType::OBJECT_PTR) {
-            printf("[ts_extract_function] boxedFunc is null or wrong type (type=%d)\n", boxedFunc ? (int)boxedFunc->type : -1);
             return nullptr;
         }
         void* ptr = boxedFunc->ptr_val;
         if (!ptr) {
-            printf("[ts_extract_function] ptr_val is NULL\n");
             return nullptr;
         }
-        // Check if this is actually a TsFunction (has FUNC magic at offset 0)
-        uint32_t magic = *(uint32_t*)ptr;
-        printf("[ts_extract_function] Checking magic: got=%08X, expected=%08X, ptr=%p\n", magic, TsFunction::MAGIC, ptr);
-        if (magic != TsFunction::MAGIC) {
-            printf("[ts_extract_function] ERROR: Attempted to call non-function object (magic=%08X)\n", magic);
+        // Check if this is actually a TsFunction (has FUNC magic)
+        TsFunction* func = (TsFunction*)ptr;
+        if (func->magic != TsFunction::MAGIC) {
             return nullptr;
         }
-        return (TsFunction*)ptr;
+        return func;
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
@@ -733,8 +738,7 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
         } else {
             typedef TsValue* (*Fn0)(void*);
-            TsValue* result = ((Fn0)func->funcPtr)(func->context);
-            return result;
+            return ((Fn0)func->funcPtr)(func->context);
         }
     }
 
@@ -747,12 +751,11 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
         // Check if this is actually a TsFunction (has FUNC magic)
-        uint32_t magic = *(uint32_t*)ptr;
-        if (magic != TsFunction::MAGIC) {
-            printf("[ts_call_1] ERROR: Attempted to call non-function object (magic=%08X)\n", magic);
+        TsFunction* func = (TsFunction*)ptr;
+        if (func->magic != TsFunction::MAGIC) {
+            printf("[ts_call_1] ERROR: Attempted to call non-function object (magic=%08X)\n", func->magic);
             return ts_value_make_undefined();
         }
-        TsFunction* func = (TsFunction*)ptr;
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
@@ -1544,19 +1547,30 @@ TsValue* ts_value_make_int(int64_t i) {
 
     void ts_runtime_init() {
         // Initialize Object global - make it callable
+        printf("[ts_runtime_init] Creating Object constructor...\n");
         TsValue* objectConstructor = ts_value_make_native_function((void*)ts_object_constructor_native, nullptr);
+        printf("[ts_runtime_init] Object constructor created: %p\n", objectConstructor);
         
         // Get the TsFunction so we can add static methods as properties
         TsFunction* objectFunc = (TsFunction*)objectConstructor->ptr_val;
+        printf("[ts_runtime_init] BEFORE properties: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         if (!objectFunc->properties) {
             objectFunc->properties = TsMap::Create();
         }
+        printf("[ts_runtime_init] AFTER creating properties map: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
         objectFunc->properties->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
+        printf("[ts_runtime_init] AFTER Set(keys): objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
         
         Object = objectConstructor;
+        printf("[ts_runtime_init] AFTER Object assignment: objectFunc=%p, magic=%08X\n", objectFunc, objectFunc->magic);
+        printf("[ts_runtime_init] Set Object global: Object=%p, type=%d, ptr_val=%p\n", Object, (int)Object->type, Object->ptr_val);
+        if (Object->ptr_val) {
+            uint32_t magic = *((uint32_t*)((char*)Object->ptr_val + 8));  // magic is at offset 8 after vtable
+            printf("[ts_runtime_init] Object->ptr_val magic at offset+8=%08X (expected FUNC=46554E43)\n", magic);
+        }
 
         // Initialize console
         TsMap* consoleMap = TsMap::Create();
