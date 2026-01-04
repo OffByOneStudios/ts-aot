@@ -616,4 +616,54 @@ extern "C" {
         uint32_t* magic_ptr = (uint32_t*)value;
         return *magic_ptr == TsArray::MAGIC;
     }
+    
+    // ============================================================
+    // Inline IR Helpers - Scalar-based API to avoid struct passing
+    // ============================================================
+    
+    // Get array element via out-parameters (avoids struct return)
+    void __ts_array_get_inline(void* arr, int64_t index, uint8_t* out_type, int64_t* out_value) {
+        if (!arr || index < 0) {
+            *out_type = (uint8_t)ValueType::UNDEFINED;
+            *out_value = 0;
+            return;
+        }
+        
+        TsArray* array = (TsArray*)arr;
+        if (index >= array->Length()) {
+            *out_type = (uint8_t)ValueType::UNDEFINED;
+            *out_value = 0;
+            return;
+        }
+        
+        int64_t raw_val = array->GetUnchecked(index);
+        
+        // Check if it's a pointer (high bit set or looks like heap address)
+        if (raw_val > 0xFFFFFFFF || raw_val < 0) {
+            // Treat as object pointer
+            *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            *out_value = raw_val;
+        } else {
+            // Treat as integer
+            *out_type = (uint8_t)ValueType::NUMBER_INT;
+            *out_value = raw_val;
+        }
+    }
+    
+    // Set array element from separate type/value
+    void __ts_array_set_inline(void* arr, int64_t index, uint8_t val_type, int64_t val_value) {
+        if (!arr || index < 0) return;
+        
+        TsArray* array = (TsArray*)arr;
+        
+        // For simplicity, always store the raw i64 value
+        // The array stores int64_t regardless of the actual type
+        array->Set(index, val_value);
+    }
+    
+    // Get array length (ensure it's exported for inline IR)
+    int64_t __ts_array_length(void* arr) {
+        if (!arr) return 0;
+        return ((TsArray*)arr)->Length();
+    }
 }

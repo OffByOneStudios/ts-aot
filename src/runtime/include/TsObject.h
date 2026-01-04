@@ -157,6 +157,10 @@ extern "C" {
     TsValue ts_object_get_prop_v(TsValue obj, TsValue key);
     TsValue ts_object_set_prop_v(TsValue obj, TsValue key, TsValue value);
     
+    // Inline IR helpers - scalar-based API to avoid struct passing
+    void* __ts_object_get_map(void* obj);
+    void* __ts_value_to_property_key(uint8_t type, int64_t value);
+    
     // Type info
     TsString* ts_value_typeof(TsValue* v);
     
