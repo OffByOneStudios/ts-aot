@@ -131,7 +131,6 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 }
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
-                // fmt::print("Moving {} to module init\n", kind);
                 moduleInit->body.push_back(std::move(stmt));
             }
         }
