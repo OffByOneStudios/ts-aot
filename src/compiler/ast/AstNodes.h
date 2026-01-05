@@ -205,6 +205,7 @@ struct FunctionDeclaration : Statement {
     bool isDefaultExport = false;
     bool isAsync = false;
     bool isGenerator = false;
+    bool hoisted = false;  // Set by hoistFunctionDeclarations to avoid double processing
     std::vector<std::unique_ptr<Parameter>> parameters;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::string returnType;

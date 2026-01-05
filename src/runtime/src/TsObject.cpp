@@ -931,40 +931,31 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_call_0(TsValue* boxedFunc) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
-            std::printf("[ts_call_0] func extraction failed, returning undefined\n");
             return ts_value_make_undefined();
         }
         if (func->type == FunctionType::NATIVE) {
             auto result = ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
-            // TEMP DEBUG
-            std::printf("[ts_call_0] NATIVE call returned: ptr=%p type=%d\n", 
-                        result, result ? (int)result->type : -1);
-            if (result && result->type == ValueType::FUNCTION_PTR) {
-                std::printf("[ts_call_0]   -> function ptr_val=%p\n", result->ptr_val);
-            }
             return result;
         } else {
             typedef TsValue* (*Fn0)(void*);
             auto result = ((Fn0)func->funcPtr)(func->context);
-            // TEMP DEBUG
-            std::printf("[ts_call_0] AOT call returned: ptr=%p type=%d\n",
-                        result, result ? (int)result->type : -1);
-            if (result && result->type == ValueType::FUNCTION_PTR) {
-                std::printf("[ts_call_0]   -> function ptr_val=%p\n", result->ptr_val);
-            }
             return result;
         }
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) return ts_value_make_undefined();
+        if (!func) {
+            return ts_value_make_undefined();
+        }
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
-            return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
+            TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
+            return result;
         } else {
             typedef TsValue* (*Fn1)(void*, TsValue*);
-            return ((Fn1)func->funcPtr)(func->context, arg1);
+            TsValue* result = ((Fn1)func->funcPtr)(func->context, arg1);
+            return result;
         }
     }
 
@@ -1414,16 +1405,6 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsString* ts_value_typeof(TsValue* v) {
-        // TEMP DEBUG
-        std::printf("[ts_value_typeof] called with ptr=%p\n", v);
-        if (v) {
-            uint8_t typeField = *(uint8_t*)v;
-            std::printf("[ts_value_typeof]   typeField=%d type=%d\n", typeField, typeField <= 10 ? (int)v->type : -1);
-            if (typeField <= 10 && v->type == ValueType::FUNCTION_PTR) {
-                std::printf("[ts_value_typeof]   -> FUNCTION ptr_val=%p\n", v->ptr_val);
-            }
-        }
-        
         if (!v) return TsString::Create("undefined");
 
         // Check type field first - if in valid range (0-10), trust it
@@ -1552,6 +1533,14 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x41525259) { // TsArray::MAGIC
             ((TsArray*)rawArr)->Set(idx, (int64_t)value);
         }
+    }
+
+    // Generic dynamic property/element set - handles both arrays and maps/objects
+    void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
+        if (!obj || !key || !value) return;
+        
+        // Delegate to ts_object_set_prop_v which handles all cases
+        ts_object_set_prop_v(*obj, *key, *value);
     }
 
     // ============================================================
@@ -2094,31 +2083,6 @@ TsValue* ts_value_make_int(int64_t i) {
         std::string pathStr = s->ToUtf8();
 
         g_module_cache[pathStr] = exports;
-
-        // Debug: verify synthetic module objects are created with module.exports = {}.
-        // Keep logs targeted to avoid noise.
-        const bool debugModuleExports =
-            (pathStr.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
-            (pathStr.find("lodash_test_minimal.js") != std::string::npos) ||
-            (pathStr.find("test_umdsim.ts") != std::string::npos);
-        if (debugModuleExports) {
-            if (exports && exports->type == ValueType::OBJECT_PTR) {
-                g_debug_lodash_module_map = exports->ptr_val;
-            }
-            std::printf("[ts_module_register] path='%s' exportsArg.type=%d ptr=%p\n",
-                        pathStr.c_str(), exports ? (int)exports->type : -1, exports ? exports->ptr_val : nullptr);
-            if (exports && exports->type == ValueType::OBJECT_PTR && exports->ptr_val) {
-                TsString* exportsStr = TsString::Create("exports");
-                uint64_t hash = (uint64_t)exportsStr;
-                int64_t bucket = __ts_map_find_bucket(exports->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)exportsStr);
-                std::printf("[ts_module_register] moduleObj->ptr_val=%p exports bucket=%lld\n", exports->ptr_val, (long long)bucket);
-                if (bucket >= 0) {
-                    TsValue result;
-                    __ts_map_get_value_at(exports->ptr_val, bucket, reinterpret_cast<uint8_t*>(&result.type), &result.i_val);
-                    std::printf("[ts_module_register] module.exports initial type=%d ptr=%p\n", (int)result.type, result.ptr_val);
-                }
-            }
-        }
     }
 
     TsValue* ts_module_get(const char* path) {
@@ -2136,7 +2100,6 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         TsString* s = (TsString*)specifier->ptr_val;
         std::string spec = s->ToUtf8();
-        const bool debugRequire = (spec == "lodash");
 
         try {
             fs::path resolved;
@@ -2183,32 +2146,19 @@ TsValue* ts_value_make_int(int64_t i) {
 
             TsValue* moduleObj = ts_module_get(absPath.c_str());
             if (moduleObj) {
-                if (debugRequire) {
-                    std::printf("[ts_require] spec='%s' resolved='%s' cache=hit\n", spec.c_str(), absPath.c_str());
-                    std::printf("[ts_require] cached.type=%d cached.ptr=%p\n", (int)moduleObj->type, moduleObj->ptr_val);
-                }
                 // CommonJS: return module.exports
                 if (moduleObj->type == ValueType::OBJECT_PTR) {
                     // Use inline map operations to get "exports" property
                     TsString* exportsStr = TsString::Create("exports");
                     uint64_t hash = (uint64_t)exportsStr;
                     int64_t bucket = __ts_map_find_bucket(moduleObj->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)exportsStr);
-                    if (debugRequire) {
-                        std::printf("[ts_require] exports lookup: moduleObj->ptr_val=%p bucket=%lld\n", moduleObj->ptr_val, (long long)bucket);
-                    }
                     if (bucket >= 0) {
                         TsValue result;
                         __ts_map_get_value_at(moduleObj->ptr_val, bucket, reinterpret_cast<uint8_t*>(&result.type), &result.i_val);
                         if (result.type != ValueType::UNDEFINED) {
                             TsValue* exports = (TsValue*)ts_alloc(sizeof(TsValue));
                             *exports = result;
-                            if (debugRequire) {
-                                std::printf("[ts_require] returning module.exports type=%d ptr=%p\n", (int)exports->type, exports->ptr_val);
-                            }
                             return exports;
-                        }
-                        if (debugRequire) {
-                            std::printf("[ts_require] exports bucket found but value was UNDEFINED\n");
                         }
 
                         // CommonJS default: module.exports starts as {}
@@ -2219,9 +2169,6 @@ TsValue* ts_value_make_int(int64_t i) {
                         exportsKey.type = ValueType::STRING_PTR;
                         exportsKey.ptr_val = exportsStr;
                         ((TsMap*)moduleObj->ptr_val)->Set(exportsKey, *exportsBoxed);
-                        if (debugRequire) {
-                            std::printf("[ts_require] initialized module.exports to {}\n");
-                        }
                         return exportsBoxed;
                     }
 
@@ -2232,18 +2179,9 @@ TsValue* ts_value_make_int(int64_t i) {
                     exportsKey.type = ValueType::STRING_PTR;
                     exportsKey.ptr_val = exportsStr;
                     ((TsMap*)moduleObj->ptr_val)->Set(exportsKey, *exportsBoxed);
-                    if (debugRequire) {
-                        std::printf("[ts_require] exports missing; initialized module.exports to {}\n");
-                    }
                     return exportsBoxed;
                 }
-                if (debugRequire) {
-                    std::printf("[ts_require] returning cached module object (exports not found)\n");
-                }
                 return moduleObj;
-            }
-            if (debugRequire) {
-                std::printf("[ts_require] spec='%s' resolved='%s' cache=miss\n", spec.c_str(), absPath.c_str());
             }
         } catch (const std::exception& e) {
             // Swallow errors in requires to keep parity with JS runtime behavior

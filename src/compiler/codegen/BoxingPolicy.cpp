@@ -125,6 +125,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Slow path property access
     {"ts_object_get_dynamic", {true, true}},      // (TsValue*, TsValue*) -> TsValue*
     {"ts_object_set_prop",  {true, true, true}},   // (TsValue*, TsValue*, TsValue*) -> TsValue*
+    {"ts_object_set_dynamic", {true, true, true}},  // (TsValue*, TsValue*, TsValue*) -> void - handles both arrays and maps
     {"ts_object_get_dynamic", {true, true}},       // (TsValue*, TsValue*) -> TsValue*
     {"ts_array_get_dynamic", {true, true}},        // (TsValue*, TsValue*) -> TsValue*
     {"ts_array_set_dynamic", {true, true, true}},  // (TsValue*, TsValue*, TsValue*) -> void

@@ -760,18 +760,24 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             return;
         }
 
-        // Handle 'any' type element assignment as map set (since {} creates a TsMap)
-        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Any) {
+        // Handle 'any' type element assignment OR null inferredType (JavaScript slow-path)
+        // Use dynamic set that handles both arrays and maps
+        if (!elem->expression->inferredType || elem->expression->inferredType->kind == TypeKind::Any) {
             visit(elem->expression.get());
-            llvm::Value* obj = boxValue(lastValue, elem->expression->inferredType);
-            // Unbox to get the raw map pointer
-            obj = emitInlineUnbox(obj);
+            llvm::Value* obj = boxValue(lastValue, elem->expression->inferredType ? elem->expression->inferredType : std::make_shared<Type>(TypeKind::Any));
             
             visit(elem->argumentExpression.get());
-            llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+            llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType ? elem->argumentExpression->inferredType : std::make_shared<Type>(TypeKind::Any));
             
-            llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            emitInlineMapSet(obj, key, boxedVal);
+            llvm::Value* boxedVal = boxValue(val, node->right->inferredType ? node->right->inferredType : std::make_shared<Type>(TypeKind::Any));
+            
+            // Use ts_object_set_dynamic which handles both arrays and maps at runtime
+            llvm::FunctionType* setFt = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                false);
+            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_dynamic", setFt);
+            createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
             lastValue = val;
             return;
         }
@@ -854,6 +860,15 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         llvm::Value* arr = lastValue;
         emitNullCheckForExpression(elem->expression.get(), arr);
         
+        // ⚠️ CRITICAL: Always unbox array for Array types before any use.
+        // The array may be boxed from ts_array_create_sized or similar.
+        // ts_value_get_object is idempotent for raw pointers.
+        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Array) {
+            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+            arr = createCall(getObjFt, getObjFn.getCallee(), { arr });
+        }
+        
         visit(elem->argumentExpression.get());
         llvm::Value* index = lastValue;
         
@@ -870,6 +885,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                         { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee setFn = getRuntimeFunction("ts_array_set_dynamic", setFt);
                 
+                // arr is already unboxed above, but ts_array_set_dynamic may expect boxed - rebox it
                 createCall(setFt, setFn.getCallee(), { boxValue(arr, elem->expression->inferredType), boxedIndex, boxedVal });
                 lastValue = val;
                 return;
@@ -919,9 +935,17 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Box the value for inline array set
         llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
         
+        // ⚠️ CRITICAL: Always call ts_value_get_object to unbox the array.
+        // The array may be boxed from ts_array_create_sized or similar, but
+        // emitInlineArraySet expects a raw TsArray*. ts_value_get_object is
+        // idempotent for raw pointers.
+        llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+        llvm::Value* rawArr = createCall(getObjFt, getObjFn.getCallee(), { arr });
+        
         // Use inline IR operations to avoid Windows x64 ABI issues
         // emitInlineArraySet calls __ts_array_set_inline with scalar parameters
-        emitInlineArraySet(arr, index, boxedVal);
+        emitInlineArraySet(rawArr, index, boxedVal);
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
         // For JavaScript slow-path: null inferredType, Any, or Function (which has dynamic properties) means dynamic object
         bool exprIsDynamic = !prop->expression->inferredType || 

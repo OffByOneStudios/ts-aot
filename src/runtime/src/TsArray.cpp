@@ -437,6 +437,9 @@ extern "C" {
         if (!arr) return;
         TsArray* array = (TsArray*)arr;
         
+        printf("[ts_array_set_v] arr=%p index=%lld value.type=%d value.i_val=%lld\n",
+               arr, index, (int)value.type, value.i_val);
+        
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
                 double d = (value.type == ValueType::NUMBER_DBL) ? value.d_val : (double)value.i_val;
@@ -451,6 +454,7 @@ extern "C" {
             // For non-specialized, we need to allocate a TsValue
             TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
             *v = value;
+            printf("[ts_array_set_v] Storing TsValue* %p at index %lld\n", v, index);
             array->Set(index, (int64_t)v);
         }
     }
@@ -613,34 +617,50 @@ extern "C" {
         
         int64_t raw_val = array->GetUnchecked(index);
         
-        // Check if it's a pointer (high bit set or looks like heap address)
-        if (raw_val > 0xFFFFFFFF || raw_val < 0) {
-            // Check if it's a TsString by looking for magic number
-            void* ptr = (void*)raw_val;
-            uint32_t* magic_ptr = (uint32_t*)ptr;
-            if (*magic_ptr == 0x53545247) { // "STRG" = TsString magic
-                *out_type = (uint8_t)ValueType::STRING_PTR;
+        // For specialized arrays, return the raw value directly
+        if (array->IsSpecialized()) {
+            if (array->IsDouble()) {
+                *out_type = (uint8_t)ValueType::NUMBER_DBL;
             } else {
-                // Treat as object pointer
-                *out_type = (uint8_t)ValueType::OBJECT_PTR;
+                *out_type = (uint8_t)ValueType::NUMBER_INT;
             }
             *out_value = raw_val;
-        } else {
-            // Treat as integer
-            *out_type = (uint8_t)ValueType::NUMBER_INT;
-            *out_value = raw_val;
+            return;
         }
+        
+        // For non-specialized arrays, the stored value is a TsValue* pointer
+        // We need to dereference it to get the actual type and value
+        if (raw_val == 0) {
+            *out_type = (uint8_t)ValueType::UNDEFINED;
+            *out_value = 0;
+            return;
+        }
+        
+        TsValue* stored = (TsValue*)raw_val;
+        *out_type = (uint8_t)stored->type;
+        *out_value = stored->i_val;  // Union - works for any type
     }
     
     // Set array element from separate type/value
+    // For non-specialized arrays, we need to store TsValue* pointers, not raw values
     void __ts_array_set_inline(void* arr, int64_t index, uint8_t val_type, int64_t val_value) {
         if (!arr || index < 0) return;
         
         TsArray* array = (TsArray*)arr;
         
-        // For simplicity, always store the raw i64 value
-        // The array stores int64_t regardless of the actual type
-        array->Set(index, val_value);
+        // For specialized arrays, store raw value
+        if (array->IsSpecialized()) {
+            array->Set(index, val_value);
+            return;
+        }
+        
+        // For non-specialized arrays, we need to store a TsValue*
+        // Reconstruct a boxed TsValue from the type and value
+        TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
+        boxed->type = (ValueType)val_type;
+        boxed->i_val = val_value;  // Union - works for any type
+        
+        array->Set(index, (int64_t)boxed);
     }
     
     // Get array length (ensure it's exported for inline IR)

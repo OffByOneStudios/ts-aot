@@ -49,6 +49,10 @@ void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
         lastType = std::make_shared<Type>(TypeKind::Any);
     } else if (node->op == "|" || node->op == "&" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>") {
         lastType = std::make_shared<Type>(TypeKind::Int);
+    } else if (node->op == "/") {
+        // Division ALWAYS produces a double in JavaScript/TypeScript
+        // even for integer operands (e.g., 4 / 2 = 2.0, 1 / 0 = Infinity)
+        lastType = std::make_shared<Type>(TypeKind::Double);
     } else if (leftType && rightType) {
         if (leftType->kind == TypeKind::Int && rightType->kind == TypeKind::Int) {
             lastType = std::make_shared<Type>(TypeKind::Int);

@@ -1,18 +1,26 @@
-// Test typeof operator
+// Test typeof operator and lodash number functions
+
+const _ = require('./lodash_full.js');
 
 console.log("=== typeof Operator Test ===");
 
 // Test with statically typed values
 let numVal = 42;
-console.log("typeof 42:");
-console.log(typeof numVal);
+console.log("typeof 42:", typeof numVal);
+console.log("typeof numVal == 'number':", typeof numVal == 'number');
 
-let strVal = "hello";
-console.log("typeof 'hello':");
-console.log(typeof strVal);
+// Test with lodash functions
+console.log("\n=== Lodash toNumber test ===");
+const toNumResult = _.toNumber(2);
+console.log("_.toNumber(2):", toNumResult);
 
-let boolVal = true;
-console.log("typeof true:");
+console.log("\n=== Lodash toFinite test ===");
+const toFinResult = _.toFinite(2);
+console.log("_.toFinite(2):", toFinResult);
+
+console.log("\n=== Lodash toInteger test ===");
+const toIntResult = _.toInteger(2);
+console.log("_.toInteger(2):", toIntResult);
 console.log(typeof boolVal);
 
 // Test with any type (uses runtime ts_typeof)

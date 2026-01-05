@@ -582,23 +582,24 @@ void IRGenerator::visitClassExpression(ast::ClassExpression* node) {
     lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
 }
 
-void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
-    // For function expressions, we generate the function type and use it as the
-    // value of the expression. This is similar to how we handle function declarations.
-    llvm::FunctionType* funcType = llvm::FunctionType::get(
-        builder->getPtrTy(), // Return type
-        false // Not vararg
-    );
-
-    llvm::FunctionCallee funcCallee = module->getOrInsertFunction(node->id->name, funcType);
-
-    // The value of the function expression is the function itself
-    lastValue = funcCallee.getCallee();
-}
+// NOTE: visitFunctionExpression is implemented in IRGenerator_Functions.cpp
+// DO NOT add a duplicate implementation here - it causes ODR violations
 
 void IRGenerator::visitArrowFunctionExpression(ast::ArrowFunctionExpression* node) {
-    // Arrow functions are treated similarly to regular functions for code generation
-    visitFunctionExpression(node);
+    // Arrow functions are handled through FunctionExpression conversion in the parser/analyzer
+    // If we reach here directly, treat as a FunctionExpression
+    static int arrowCounter = 0;
+    std::string name = "arrow_" + std::to_string(arrowCounter++);
+    
+    // Create a FunctionExpression to delegate to the proper handler
+    ast::FunctionExpression funcExpr;
+    funcExpr.name = name;
+    funcExpr.parameters = std::move(node->parameters);
+    funcExpr.body = std::move(node->body);
+    funcExpr.async = node->async;
+    funcExpr.resolvedType = node->resolvedType;
+    
+    visitFunctionExpression(&funcExpr);
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
@@ -705,7 +706,6 @@ void IRGenerator::visitArrayExpression(ast::ArrayExpression* node) {
 }
 
 void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
-    SPDLOG_DEBUG("visitObjectExpression");
     llvm::FunctionType* objectCreateFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
     llvm::FunctionCallee objectCreateFn = getRuntimeFunction("ts_map_create", objectCreateFt);
 
@@ -729,68 +729,34 @@ void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
             llvm::Value* keyBoxed = boxValue(key, std::make_shared<Type>(TypeKind::String));
             // Use inline map set operations
             emitInlineMapSet(obj, keyBoxed, value);
+        } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+            // Shorthand property: { foo } => { foo: foo }
+            // Visit the identifier to get its value
+            ast::Identifier id;
+            id.name = spa->name;
+            id.inferredType = spa->inferredType;
+            visitIdentifier(&id);
+            
+            // If already boxed (from cell variable), don't double-box
+            llvm::Value* value = lastValue;
+            if (!boxedValues.count(lastValue)) {
+                value = boxValue(lastValue, spa->inferredType);
+            }
+            
+            // Create the key string
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(spa->name) });
+            llvm::Value* keyBoxed = boxValue(key, std::make_shared<Type>(TypeKind::String));
+            
+            emitInlineMapSet(obj, keyBoxed, value);
         }
     }
 
     lastValue = obj;
 }
 
-void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
-    std::vector<llvm::Type*> argTypes;
-    argTypes.push_back(builder->getPtrTy()); // context
-    for (size_t i = 0; i < node->params.size(); ++i) {
-        argTypes.push_back(builder->getPtrTy());
-    }
-
-    llvm::FunctionType* funcType = llvm::FunctionType::get(
-        builder->getPtrTy(), // Return type
-        argTypes,
-        false // Not vararg
-    );
-
-    llvm::FunctionCallee funcCallee = module->getOrInsertFunction(node->id->name, funcType);
-    llvm::Function* function = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
-
-    // The function body is generated in the context of the function itself
-    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", function);
-    builder->SetInsertPoint(entry);
-
-    auto oldNamedValues = namedValues;
-    auto oldBoxedVariables = boxedVariables;
-    namedValues.clear();
-    boxedVariables.clear();
-
-    auto argIt = function->arg_begin();
-    if (argIt != function->arg_end()) {
-        argIt->setName("context");
-        currentContext = &*argIt;
-        ++argIt;
-    }
-
-    // Allocate space for the arguments and store them
-    for (size_t i = 0; i < node->params.size(); ++i) {
-        auto param = node->params[i];
-        if (argIt != function->arg_end()) {
-            llvm::Value* argVal = &*argIt;
-            argVal->setName(param->id->name);
-            
-            llvm::AllocaInst* alloca = builder->CreateAlloca(builder->getPtrTy(), nullptr, param->id->name);
-            builder->CreateStore(argVal, alloca);
-            namedValues[param->id->name] = alloca;
-            ++argIt;
-        }
-    }
-
-    visit(node->body.get());
-
-    // Create the function
-    if (!builder->GetInsertBlock()->getTerminator()) {
-        builder->CreateRet(llvm::ConstantPointerNull::get(builder->getPtrTy()));
-    }
-
-    namedValues = oldNamedValues;
-    boxedVariables = oldBoxedVariables;
-}
+// NOTE: visitFunctionDeclaration is defined in IRGenerator_Core.cpp
 
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {
     auto classType = std::make_shared<ClassType>();

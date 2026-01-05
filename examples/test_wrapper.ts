@@ -1,26 +1,18 @@
-// Test: calling through wrapper after direct call
-function keys(obj: any): string[] {
-    console.log("keys: entering");
-    const result: string[] = [];
-    for (const key in obj) {
-        console.log("  key");
-        result.push(key);
-    }
-    console.log("keys: returning " + result.length);
+// Minimal test for any parameter return
+const _ = require('./lodash_full.js');
+
+function wrapper(v: any): any {
+    console.log('wrapper called, v =', v);
+    console.log('typeof v =', typeof v);
+    const result = _.identity(v);
+    console.log('_.identity(v) returned =', result);
     return result;
 }
 
-function wrapper(source: any): string[] {
-    console.log("wrapper: calling keys");
-    return keys(source);
-}
+console.log('Test 1: Direct _.identity(2)');
+const r1 = _.identity(2);
+console.log('r1 =', r1);
 
-const testObj = { a: 1, b: 2, c: 3 };
-
-console.log("Direct call:");
-const r1 = keys(testObj);
-console.log("Got " + r1.length + " keys");
-
-console.log("Through wrapper:");
-const r2 = wrapper(testObj);
-console.log("Got " + r2.length + " keys");
+console.log('\nTest 2: wrapper(2)');
+const r2 = wrapper(2);
+console.log('r2 =', r2);

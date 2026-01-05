@@ -123,7 +123,8 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         
         lastValue = createCall(ft, fn.getCallee(), args);
         boxedValues.insert(lastValue);
-        lastValue = unboxValue(lastValue, node->inferredType);
+        // DO NOT unbox here - let the consumer (property access, etc.) unbox if needed
+        // Unboxing here causes double-unboxing when result is stored in variable then accessed
         return;
     }
 
@@ -218,7 +219,8 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::Value* argvPtr = builder->CreateBitCast(argvAlloca, llvm::PointerType::getUnqual(builder->getPtrTy()));
             llvm::Value* res = createCall(ft, fn.getCallee(), { target, thisArg, argcVal, argvPtr });
             boxedValues.insert(res);
-            lastValue = unboxValue(res, node->inferredType);
+            lastValue = res;
+            // DO NOT unbox here - let the consumer unbox if needed
             return;
         } else if (pa->name == "apply") {
             visit(pa->expression.get());
@@ -242,7 +244,8 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             llvm::FunctionCallee fn = getRuntimeFunction("ts_function_apply", ft);
             llvm::Value* res = createCall(ft, fn.getCallee(), { target, thisArg, argsArray });
             boxedValues.insert(res);
-            lastValue = unboxValue(res, node->inferredType);
+            lastValue = res;
+            // DO NOT unbox here - let the consumer unbox if needed
             return;
         }
     }

@@ -31,6 +31,17 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 8. ~~**Mutable Closures:**~~ **FIXED** - TsCell-based capture-by-reference now works for counter/memoize patterns
 9. ~~**Function Hoisting in Nested Scopes:**~~ **FIXED** - Two-phase hoisting approach: Phase 1 creates null placeholders for all function names, Phase 2 fills them during normal statement processing. Added `ts_call_9` and `ts_call_10` for 9-10 argument function calls.
 10. ~~**JavaScript Slow Path Analysis:**~~ **FIXED** - For JavaScript modules, `analyzeFunctionBody` was returning early without setting `inferredType` on AST nodes. This prevented codegen from recognizing `TypeKind::Any` for property assignment (`obj.b = 20`) and other operations. Fixed by visiting all statements even for UntypedJavaScript modules. Also fixed variable type inference to not update types from initializers in JavaScript mode.
+11. ~~**IIFE Assignment Double-Unboxing:**~~ **FIXED** ✅
+    - **Symptom:** Minimal IIFE pattern crashed: `const result = (function() { return { a, b }; })();` followed by `result.a` access
+    - **Error:** "Runtime Panic: Null or undefined dereference"
+    - **Root Cause:** IIFE calls, `.call()`, and `.apply()` were calling `unboxValue()` on their return values, then variable assignment stored the raw pointer. Later property access tried to unbox again, causing null dereference.
+    - **Fix:** Removed `unboxValue()` calls from IIFE, `.call()`, and `.apply()` handlers in `IRGenerator_Expressions_Calls.cpp`. Return values now stay boxed, letting consumers (property access, etc.) unbox only when needed.
+    - **Test Cases:** 
+      - ✅ `tests/golden_ir/typescript/functions/iife_assignment.ts` - IIFE returns object
+      - ✅ `tests/golden_ir/typescript/functions/function_in_object.ts` - Function in shorthand property
+      - ✅ `examples/test_func_ret.ts` - Shorthand property with function
+      - ✅ `examples/test_iife_minimal.ts` - IIFE with cell variables
+    - **Impact:** Unblocks lodash UMD wrapper pattern (uses IIFE extensively)
 
 ### Boxing Refactor Fixes (commit 71c4b13, 8d37f63)
 
