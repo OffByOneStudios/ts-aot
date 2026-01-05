@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (41 tests: 33 passing, 8 XFAIL - Milestone 106.2 ongoing)
+**Status:** In Progress (49 tests: 37 passing, 11 XFAIL, 1 fail - Milestone 106.2 at 72%)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -170,15 +170,23 @@ tests/golden_ir/
   for (const x of arr) { }
   ```
   Test: `typescript/arrays/for_of_array.ts`
- **Task 106.2.16:** Array.reverse() in-place
-- [ ] **Task 106.2.17:** Array.join() string coercion
-- [ ] **Task 106.2.18:** Array.find() with predicate
-- [ ] **Task 106.2.19:** Array.findIndex() optimization
-- [ ] **Task 106.2.20:** Array.every() / some() short-circuit
+- [x] **Task 106.2.16:** Array.reverse() in-place ✅ (XFAIL)
+  Test: `typescript/arrays/array_reverse.ts`
+  Note: Doesn't modify array in place, returns original order
+- [x] **Task 106.2.17:** Array.join() string coercion ✅
+  Test: `typescript/arrays/array_join.ts`
+- [x] **Task 106.2.18:** Array.find() with predicate ✅ (XFAIL)
+  Test: `typescript/arrays/array_find.ts`
+  Note: Returns garbage pointer instead of found element
+- [x] **Task 106.2.19:** Array.findIndex() optimization ✅
+  Test: `typescript/arrays/array_findindex.ts`
+- [x] **Task 106.2.20:** Array.every() / some() short-circuit ✅ (XFAIL)
+  Test: `typescript/arrays/array_every.ts`, `typescript/arrays/array_some.ts`
+  Note: Both return false even when predicates match
 
 ### Objects (15 tests)
 
-**Status:** 9/15 complete (60%)
+**Status:** 11/15 complete (73%)
 
 - [x] **Task 106.2.21:** Object literal creation ✅
   ```typescript
@@ -199,14 +207,18 @@ tests/golden_ir/
 
 - [x] **Task 106.2.23**: Object property assignment (CHECK: `ts_map_create`, `__ts_map_set_at`)
 - [x] **Task 106.2.24:** Object computed property access (CHECK: `ts_object_get_dynamic`, `ts_map_create`)
-- [ ] **Task 106.2.25:** Object spread `{ ...obj }`
+- [x] **Task 106.2.25:** Object spread `{ ...obj }` ✅ (XFAIL)
+  Test: `typescript/objects/object_spread.ts`
+  Note: Causes compilation error
 - [ ] **Task 106.2.26:** Object destructuring `{ a, b } = obj`
 - [x] **Task 106.2.27:** Object.keys() iteration ✅
   Test: `typescript/objects/object_keys.ts`
 - [x] **Task 106.2.28:** Object.values() typed return ✅
   Test: `typescript/objects/object_values.ts`
 - [x] **Task 106.2.29:** Object.entries() tuples ✅ (XFAIL)
-  Test: `typescript/objects/object_entries.ts`
+  Tx] **Task 106.2.30:** Object.assign() merge ✅ (XFAIL)
+  Test: `typescript/objects/object_assign.ts`
+  Note: Crashes compiler with access violation
   Note: Returns empty array (length 0)
 - [ ] **Task 106.2.30:** Object.assign() merge
 - [ ] **Task 106.2.31:** Optional chaining `obj?.prop`
@@ -222,28 +234,25 @@ tests/golden_ir/
 
 ### Functions (15 tests)
 
-**Status:** 8/15 complete (53%)
+**Status:** 10/15 complete (67%)
 
 - [x] **Task 106.2.36:** Named function definition ✅
   Test: `typescript/functions/named_function.ts`
 
 - [x] **Task 106.2.37:** Arrow function capture ✅
   Test: `typescript/functions/arrow_capture.tsnst fn = () => x;
-  ```
+  `x] **Task 106.2.38:** Function hoisting ✅
+  Test: `typescript/functions/function_hoisting.ts`
+  Note: Functions can be called before declaration
 
-- [ ] **Task 106.2.38:** Function hoisting
-  ```typescript
-  // CHECK: call {{.*}} @ts_cell_create
-  // CHECK: call {{.*}} @ts_cell_set
-  console.log(hoisted());
-  function hoisted() { return 42; }
-  ```
-
-- [ ] **Task 106.2.39:** Closure with mutable capture
+- [x] **Task 106.2.39:** Closure with mutable capture ✅
   ```typescript
   // CHECK: call {{.*}} @ts_cell_create
   // CHECK: call {{.*}} @ts_cell_get
   let count = 0;
+  return () => ++count;
+  ```
+  Test: `typescript/functions/closure_mutable_capture.tst count = 0;
   return () => ++count;
   ```
 
@@ -251,7 +260,8 @@ tests/golden_ir/
   Test: `typescript/functions/nested_closures.ts`
 - [x] **Task 106.2.41:** Function with default parameters (CHECK: `icmp eq`)
 - [ ] **Task 106.2.42:** Function with rest parameters `...args`
-- [ ] **Task 106.2.43:** Function with destructured parameters
+- [x] **Task 106.2.42:** Function with rest parameters `...args` ✅
+  Test: `typescript/functions/rest_parameters.t
 - [ ] **Task 106.2.44:** Function return type inference
 - [ ] **Task 106.2.45:** Generic function `<T>`
 - [x] **Task 106.2.46:** Higher-order function (function returning function) ✅
@@ -279,7 +289,7 @@ tests/golden_ir/
 
 ### Control Flow (10 tests)
 
-**Status:** 8/10 complete (80%)
+**Status:** 9/10 complete (90%)
 
 - [x] **Task 106.2.51:** If-else optimization ✅
   ```typescript
@@ -310,6 +320,8 @@ tests/golden_ir/
   Test: `typescript/control_flow/ternary_operator.ts`
 
 ---
+- [x] **Task 106.2.61:** Nested loops ✅
+  Test: `typescript/control_flow/nested_loops.ts`
 
 ## Milestone 106.3: JavaScript Slow Path Tests
 
