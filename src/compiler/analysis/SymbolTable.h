@@ -12,6 +12,7 @@ namespace ts {
 struct Symbol {
     std::string name;
     std::shared_ptr<Type> type;
+    std::string modulePath; // Module path for top-level variables (empty for non-module symbols)
 };
 
 class SymbolTable {

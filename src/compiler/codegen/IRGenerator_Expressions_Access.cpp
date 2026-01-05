@@ -111,8 +111,19 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 
     SPDLOG_DEBUG("Identifier {} not found in namedValues", node->name);
 
-    // Check for global variable
+    // Check for global variable (first unmangled, then mangled with module hash)
     llvm::GlobalVariable* gv = module->getGlobalVariable(node->name);
+    if (!gv) {
+        // Check if this is a top-level variable that was mangled with a module hash
+        for (const auto& symbol : analyzer->topLevelVariables) {
+            if (symbol->name == node->name && !symbol->modulePath.empty()) {
+                size_t hash = std::hash<std::string>{}(symbol->modulePath);
+                std::string mangledName = symbol->name + "_" + std::to_string(hash);
+                gv = module->getGlobalVariable(mangledName);
+                if (gv) break;
+            }
+        }
+    }
     if (gv) {
         lastValue = builder->CreateLoad(gv->getValueType(), gv, node->name.c_str());
         if (boxedVariables.count(node->name)) {

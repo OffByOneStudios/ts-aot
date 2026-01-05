@@ -1,0 +1,297 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "ParenthesizedExpression",
+        "expression": {
+          "kind": "CallExpression",
+          "callee": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "FunctionExpression",
+              "name": null,
+              "isAsync": false,
+              "isGenerator": false,
+              "typeParameters": [],
+              "returnType": "",
+              "parameters": [],
+              "body": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 3,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 3,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Test3] Start",
+                        "line": 3,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 3,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "line": 3,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                },
+                {
+                  "kind": "FunctionDeclaration",
+                  "name": "inner",
+                  "isExported": false,
+                  "isDefaultExport": false,
+                  "isAsync": false,
+                  "isGenerator": false,
+                  "typeParameters": [],
+                  "returnType": "",
+                  "parameters": [],
+                  "body": [
+                    {
+                      "kind": "ReturnStatement",
+                      "expression": {
+                        "kind": "NumericLiteral",
+                        "value": 42,
+                        "line": 6,
+                        "column": 12,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "line": 6,
+                      "column": 5,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                    }
+                  ],
+                  "decorators": [],
+                  "line": 5,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "result",
+                    "line": 9,
+                    "column": 7,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "Identifier",
+                    "name": "inner",
+                    "line": 9,
+                    "column": 16,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "line": 9,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                },
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 10,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 10,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Test3] result typeof:",
+                        "line": 10,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "typeof",
+                        "operand": {
+                          "kind": "Identifier",
+                          "name": "result",
+                          "line": 10,
+                          "column": 48,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                        },
+                        "line": 10,
+                        "column": 41,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 10,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "line": 10,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                },
+                {
+                  "kind": "IfStatement",
+                  "condition": {
+                    "kind": "BinaryExpression",
+                    "operator": "&&",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "!==",
+                      "left": {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "typeof",
+                        "operand": {
+                          "kind": "Identifier",
+                          "name": "module",
+                          "line": 12,
+                          "column": 14,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                        },
+                        "line": 12,
+                        "column": 7,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "right": {
+                        "kind": "StringLiteral",
+                        "value": "undefined",
+                        "line": 12,
+                        "column": 25,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "line": 12,
+                      "column": 7,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "module",
+                        "line": 12,
+                        "column": 40,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      },
+                      "name": "exports",
+                      "isOptional": false,
+                      "line": 12,
+                      "column": 40,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                    },
+                    "line": 12,
+                    "column": 7,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "thenStatement": {
+                    "kind": "BlockStatement",
+                    "body": [
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "AssignmentExpression",
+                          "left": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "module",
+                              "line": 13,
+                              "column": 5,
+                              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                            },
+                            "name": "exports",
+                            "isOptional": false,
+                            "line": 13,
+                            "column": 5,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                          },
+                          "right": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 13,
+                            "column": 22,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                          },
+                          "line": 13,
+                          "column": 5,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                        },
+                        "line": 13,
+                        "column": 5,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                      }
+                    ],
+                    "line": 12,
+                    "column": 56,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                  },
+                  "elseStatement": null,
+                  "line": 12,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+                }
+              ],
+              "line": 2,
+              "column": 3,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+            },
+            "name": "call",
+            "isOptional": false,
+            "line": 2,
+            "column": 3,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+          },
+          "arguments": [
+            {
+              "kind": "Identifier",
+              "name": "this",
+              "line": 15,
+              "column": 8,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+            }
+          ],
+          "typeArguments": [],
+          "isOptional": false,
+          "line": 2,
+          "column": 3,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+        },
+        "line": 2,
+        "column": 2,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+      },
+      "line": 2,
+      "column": 2,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_store_3_funcptr.js"
+    }
+  ]
+}

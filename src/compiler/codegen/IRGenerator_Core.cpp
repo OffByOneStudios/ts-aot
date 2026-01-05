@@ -306,7 +306,18 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         // These are injected by the analyzer for CommonJS support and must remain
         // function-local bindings in module init, not process-wide LLVM globals.
         if (name == "module" || name == "exports") continue;
-        if (module->getGlobalVariable(name)) continue;
+        
+        // Check if this is a top-level variable from a module that needs mangling
+        std::string globalName = name;
+        for (const auto& tlSym : analyzer.topLevelVariables) {
+            if (tlSym->name == name && !tlSym->modulePath.empty()) {
+                size_t hash = std::hash<std::string>{}(tlSym->modulePath);
+                globalName = name + "_" + std::to_string(hash);
+                break;
+            }
+        }
+        
+        if (module->getGlobalVariable(globalName)) continue;
         
         // Most functions are handled elsewhere, but some are runtime-provided globals
         // that must exist as TsValue* values (e.g., parseFloat used as a value).
@@ -318,7 +329,7 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
             // Runtime global functions are exposed as boxed TsValue*.
             llvm::Type* type = builder->getPtrTy();
             new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
-                nullptr, name);
+                nullptr, globalName);
             continue;
         }
         
@@ -338,13 +349,22 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         }
 
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
-            initializer, name);
+            initializer, globalName);
     }
 
     // Also process top-level variables from modules
     // Note: these are variable declarations (const x = ...), not function declarations
     for (auto& symbol : analyzer.topLevelVariables) {
-        if (module->getGlobalVariable(symbol->name)) continue;
+        // Mangle the name with module hash to avoid conflicts between modules
+        std::string mangledName = symbol->name;
+        if (!symbol->modulePath.empty()) {
+            size_t hash = std::hash<std::string>{}(symbol->modulePath);
+            mangledName = symbol->name + "_" + std::to_string(hash);
+        }
+        
+        if (module->getGlobalVariable(mangledName)) {
+            continue;
+        }
         if (symbol->name.find("ts_") == 0) continue;
         if (symbol->type->kind == TypeKind::Interface) continue;
         
@@ -359,7 +379,7 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
             SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
         }
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
-            llvm::Constant::getNullValue(type), symbol->name);
+            llvm::Constant::getNullValue(type), mangledName);
     }
 }
 
@@ -573,8 +593,40 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
 void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern) {
     SPDLOG_DEBUG("generateDestructuring: pattern={}", (pattern ? pattern->getKind() : "null"));
     if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
-        bool isGlobal = false;
-        if (auto gv = module->getGlobalVariable(id->name)) {
+        // Get the current function (if any)
+        llvm::Function* currentFunc = builder->GetInsertBlock() ? builder->GetInsertBlock()->getParent() : nullptr;
+        bool isInsideFunction = (currentFunc != nullptr);
+        
+        // Check if this variable is in topLevelVariables (module-scoped)
+        bool isTopLevel = false;
+        for (const auto& symbol : analyzer->topLevelVariables) {
+            if (symbol->name == id->name) {
+                isTopLevel = true;
+                break;
+            }
+        }
+        
+        // Only check for globals if we're NOT inside a function OR the variable is a top-level variable
+        // Inside functions, we should prefer creating locals unless it's explicitly a module-level global
+        llvm::GlobalVariable* gv = nullptr;
+        if (isTopLevel && !isInsideFunction) {
+            // At module init scope, store to module-specific mangled global
+            for (const auto& symbol : analyzer->topLevelVariables) {
+                if (symbol->name == id->name && !symbol->modulePath.empty()) {
+                    size_t hash = std::hash<std::string>{}(symbol->modulePath);
+                    std::string mangledName = symbol->name + "_" + std::to_string(hash);
+                    gv = module->getGlobalVariable(mangledName);
+                    if (gv) break;
+                }
+            }
+        } else if (!isInsideFunction) {
+            // At module init scope but not a top-level var - check unmangled (e.g., `module`, `exports`)
+            gv = module->getGlobalVariable(id->name);
+        }
+        // Inside a function, skip global lookup entirely - will create local alloca below
+        
+        bool isGlobal = (gv != nullptr);
+        if (gv) {
             // Handle type mismatch between boxed value and global variable type
             llvm::Type* gvType = gv->getValueType();
             if (value->getType() != gvType) {
