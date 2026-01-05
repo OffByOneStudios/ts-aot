@@ -1802,9 +1802,27 @@ TsValue* ts_value_make_int(int64_t i) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false);
         }
+        
         // 'this' is passed as context for method calls
-        // For now, return false - proper implementation would check the object
-        return ts_value_make_bool(false);
+        if (!ctx) {
+            return ts_value_make_bool(false);
+        }
+        
+        // Try to get the object from context (could be boxed TsValue or raw pointer)
+        void* obj = ts_value_get_object((TsValue*)ctx);
+        if (!obj) obj = ctx;
+        
+        // Check if it's a TsMap
+        TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);
+        if (!map) {
+            return ts_value_make_bool(false);
+        }
+        
+        // Get the property key as TsValue
+        TsValue* keyVal = argv[0];
+        
+        // Check if the property exists in the map using TsValue directly
+        return ts_value_make_bool(map->Has(*keyVal));
     }
     
     // Object.prototype.toString() - returns "[object Object]"
