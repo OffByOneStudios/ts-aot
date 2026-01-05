@@ -38,6 +38,7 @@ target triple = "x86_64-pc-windows-msvc"
 @Symbol = global ptr null
 @TextDecoder = global ptr null
 @https = global ptr null
+@result_9610421887249242215 = global i64 0
 @events = global ptr null
 @http = global ptr null
 @stream = global ptr null
@@ -46,6 +47,7 @@ target triple = "x86_64-pc-windows-msvc"
 @path = global ptr null
 @net = global ptr null
 @util = global ptr null
+@x_9610421887249242215 = global i64 0
 @DataView_VTable_Global = constant %DataView_VTable { ptr null, ptr @DataView_get_property, ptr @DataView_getUint32, ptr @DataView_setUint32 }, !type !0
 @0 = private unnamed_addr constant [7 x i8] c"buffer\00", align 1
 @1 = private unnamed_addr constant [7 x i8] c"length\00", align 1
@@ -83,11 +85,10 @@ target triple = "x86_64-pc-windows-msvc"
 @25 = private unnamed_addr constant [9 x i8] c"username\00", align 1
 @URL_VTable_Global = constant %URL_VTable { ptr null, ptr @URL_get_property, ptr @URL_toJSON, ptr @URL_toString }, !type !9
 @26 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@27 = private unnamed_addr constant [2 x i8] c",\00", align 1
+@27 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 @28 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@29 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 @__ts_const_undefined_value = private constant %TsValue zeroinitializer
-@30 = private unnamed_addr constant [90 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\control_flow\\nested_loops.ts\00", align 1
+@29 = private unnamed_addr constant [101 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\regression\\mutable_variable_reassign.ts\00", align 1
 
 declare i8 @ts_typed_array_get_u8(ptr, i64)
 
@@ -513,10 +514,8 @@ declare ptr @URL_toJSON(ptr, ptr) #0
 
 declare ptr @URL_toString(ptr, ptr) #0
 
-define ptr @__module_init_1214463123918570457_any(ptr %context, ptr %module) #0 !type !14 {
+define ptr @__module_init_9610421887249242215_any(ptr %context, ptr %module) #0 !type !14 {
 entry:
-  %j = alloca i64, align 8
-  %i = alloca i64, align 8
   %exports = alloca ptr, align 8
   %module1 = alloca ptr, align 8
   %returnValue = alloca ptr, align 8
@@ -537,66 +536,48 @@ entry:
   %3 = call ptr @ts_value_make_string(ptr %2)
   %4 = call ptr @ts_object_get_dynamic(ptr %1, ptr %3)
   store ptr %4, ptr %exports, align 8
-  store i64 0, ptr %i, align 8
-  br label %forcond
+  store i64 2, ptr @x_9610421887249242215, align 8
+  store i64 0, ptr @result_9610421887249242215, align 8
+  %x = load i64, ptr @x_9610421887249242215, align 8
+  switch i64 %x, label %case4 [
+    i64 1, label %case
+    i64 2, label %case3
+  ]
 
-return:                                           ; preds = %dead
+return:                                           ; preds = %dead8
   %5 = load ptr, ptr %returnValue, align 8
   ret ptr %5
 
-forcond:                                          ; preds = %forinc11, %entry
-  %i3 = load i64, ptr %i, align 8
-  %cmptmp = icmp slt i64 %i3, 2
-  br i1 %cmptmp, label %forloop, label %forafter14
+case:                                             ; preds = %entry
+  br label %switch.end
 
-forloop:                                          ; preds = %forcond
-  store i64 0, ptr %j, align 8
-  br label %forcond4
+case3:                                            ; preds = %dead, %entry
+  br label %switch.end
 
-forcond4:                                         ; preds = %forinc, %forloop
-  %j5 = load i64, ptr %j, align 8
-  %cmptmp6 = icmp slt i64 %j5, 2
-  br i1 %cmptmp6, label %forloop7, label %forafter
+case4:                                            ; preds = %dead5, %entry
+  br label %switch.end
 
-forloop7:                                         ; preds = %forcond4
-  %i8 = load i64, ptr %i, align 8
-  %6 = call ptr @ts_string_create(ptr @27)
-  %7 = call ptr @ts_string_from_int(i64 %i8)
-  %8 = call ptr @ts_string_concat(ptr %7, ptr %6)
-  %j9 = load i64, ptr %j, align 8
-  %9 = call ptr @ts_string_from_int(i64 %j9)
-  %10 = call ptr @ts_string_concat(ptr %8, ptr %9)
-  call void @ts_console_log(ptr %10)
-  br label %forinc
-
-forinc:                                           ; preds = %forloop7
-  store i1 false, ptr %shouldContinue, align 1
-  %j10 = load i64, ptr %j, align 8
-  %incdec = add i64 %j10, 1
-  store i64 %incdec, ptr %j, align 8
-  br label %forcond4
-
-forafter:                                         ; preds = %forcond4
+switch.end:                                       ; preds = %dead6, %case4, %case3, %case
   store i1 false, ptr %shouldBreak, align 1
-  br label %forinc11
-
-forinc11:                                         ; preds = %forafter
-  store i1 false, ptr %shouldContinue, align 1
-  %i12 = load i64, ptr %i, align 8
-  %incdec13 = add i64 %i12, 1
-  store i64 %incdec13, ptr %i, align 8
-  br label %forcond
-
-forafter14:                                       ; preds = %forcond
-  store i1 false, ptr %shouldBreak, align 1
-  %module15 = load ptr, ptr %module1, align 8
-  %11 = call ptr @ts_value_box_any(ptr %module15)
-  %12 = call ptr @ts_string_create(ptr @28)
-  %13 = call ptr @ts_value_make_string(ptr %12)
-  %14 = call ptr @ts_object_get_dynamic(ptr %11, ptr %13)
-  ret ptr %14
+  %result = load i64, ptr @result_9610421887249242215, align 8
+  call void @ts_console_log_int(i64 %result)
+  %module7 = load ptr, ptr %module1, align 8
+  %6 = call ptr @ts_value_box_any(ptr %module7)
+  %7 = call ptr @ts_string_create(ptr @27)
+  %8 = call ptr @ts_value_make_string(ptr %7)
+  %9 = call ptr @ts_object_get_dynamic(ptr %6, ptr %8)
+  ret ptr %9
 
 dead:                                             ; No predecessors!
+  br label %case3
+
+dead5:                                            ; No predecessors!
+  br label %case4
+
+dead6:                                            ; No predecessors!
+  br label %switch.end
+
+dead8:                                            ; No predecessors!
   br label %return
 }
 
@@ -618,7 +599,7 @@ entry:
   %1 = call ptr @ts_map_create()
   %2 = call ptr @ts_map_create()
   %3 = call ptr @ts_value_make_object(ptr %2)
-  %4 = call ptr @ts_string_create(ptr @29)
+  %4 = call ptr @ts_string_create(ptr @28)
   %5 = call ptr @ts_value_make_string(ptr %4)
   %6 = icmp eq ptr %5, null
   %7 = icmp eq ptr %3, null
@@ -635,12 +616,12 @@ entry:
   call void @__ts_map_set_at(ptr %1, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
   %10 = call ptr @ts_value_make_object(ptr %1)
   store ptr %10, ptr %__module_obj_0, align 8
-  %11 = call ptr @ts_string_create(ptr @30)
+  %11 = call ptr @ts_string_create(ptr @29)
   %12 = call ptr @ts_value_make_string(ptr %11)
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
   call void @ts_module_register(ptr %12, ptr %__module_obj_05)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
-  %13 = call ptr @__module_init_1214463123918570457_any(ptr null, ptr %__module_obj_06)
+  %13 = call ptr @__module_init_9610421887249242215_any(ptr null, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8
   %__module_res_07 = load ptr, ptr %__module_res_0, align 8
   %14 = call ptr @ts_value_box_any(ptr %__module_res_07)
@@ -656,11 +637,7 @@ dead:                                             ; No predecessors!
 
 declare ptr @ts_object_get_dynamic(ptr, ptr)
 
-declare ptr @ts_string_from_int(i64)
-
-declare ptr @ts_string_concat(ptr, ptr)
-
-declare void @ts_console_log(ptr)
+declare void @ts_console_log_int(i64)
 
 declare ptr @ts_map_create()
 
@@ -694,5 +671,5 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !11 = !{!"/DEFAULTLIB:libcmt.lib"}
 !12 = !{!"/NODEFAULTLIB:libcmtd.lib"}
 !13 = !{!"/FAILIFMISMATCH:\22RuntimeLibrary=MT_StaticRelease\22"}
-!14 = !{i64 0, !"__module_init_1214463123918570457_any"}
+!14 = !{i64 0, !"__module_init_9610421887249242215_any"}
 !15 = !{i64 0, !"user_main"}
