@@ -22,7 +22,7 @@ Automatically analyzes crashes using CDB debugger. Extracts stack traces, except
 .\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
 ```
 
-**⚠️ MANDATORY:** Always use this skill for crash analysis. **NEVER** invoke `cdb` directly - always use the skill script which handles paths and output parsing correctly.
+**⚠️ MANDATORY:** Always use this skill for crash analysis. **NEVER** invoke `cdb` directly - always use the skill script which handles paths and output parsing correctly. **NEVER** Write temporary files into the root of the source tree.
 
 **When to use:**
 - **ANY** crash or access violation

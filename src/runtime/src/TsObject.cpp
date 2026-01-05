@@ -1146,15 +1146,27 @@ TsValue* ts_value_make_int(int64_t i) {
     
     // Object.values(obj) - returns array of values
     TsValue* ts_object_values(TsValue* obj) {
-        if (!obj) return ts_value_make_array(TsArray::Create(0));
+        if (!obj) {
+            std::printf("[ts_object_values] obj is NULL\n");
+            return ts_value_make_array(TsArray::Create(0));
+        }
         
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
+        std::printf("[ts_object_values] rawPtr=%p\n", rawPtr);
+        
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        std::printf("[ts_object_values] magic at +16 = 0x%X (expected 0x4D415053)\n", magic);
+        
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_values(rawPtr));
+            void* valuesArray = ts_map_values(rawPtr);
+            std::printf("[ts_object_values] ts_map_values returned %p\n", valuesArray);
+            TsValue* result = ts_value_make_array(valuesArray);
+            std::printf("[ts_object_values] ts_value_make_array returned %p\n", result);
+            return result;
         }
+        std::printf("[ts_object_values] magic mismatch, returning empty array\n");
         return ts_value_make_array(TsArray::Create(0));
     }
     
