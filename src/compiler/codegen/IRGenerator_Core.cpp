@@ -2714,6 +2714,11 @@ llvm::Value* IRGenerator::castValue(llvm::Value* val, llvm::Type* expectedType) 
 llvm::Value* IRGenerator::emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type) {
     if (!val) return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
     
+    // Null and Undefined are always falsy in JavaScript
+    if (type && (type->kind == TypeKind::Null || type->kind == TypeKind::Undefined)) {
+        return llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+    }
+    
     if (val->getType()->isIntegerTy(1)) return val;
     
     if (val->getType()->isDoubleTy()) {

@@ -1,21 +1,18 @@
-// Test JavaScript truthiness semantics
+// Test truthiness of null and undefined
+console.log('Testing truthiness...');
 
-console.log("=== Truthiness Test ===");
+const testNull = null;
+const testUndef = undefined;
+const testZero = 0;
+const testFalse = false;
+const testEmptyStr = '';
 
-// Test with array filter using truthiness
-let mixedArr: any[] = [0, 1, "", "hello", false, true, null, undefined];
+console.log('null || "fallback":', testNull || 'fallback');
+console.log('undefined || "fallback":', testUndef || 'fallback');
+console.log('0 || "fallback":', testZero || 'fallback');
+console.log('false || "fallback":', testFalse || 'fallback');
+console.log('"" || "fallback":', testEmptyStr || 'fallback');
 
-// Filter using Boolean as callback would require truthiness checks
-let i = 0;
-for (i = 0; i < mixedArr.length; i++) {
-    let val: any = mixedArr[i];
-    if (val) {
-        console.log("truthy:");
-        console.log(val);
-    } else {
-        console.log("falsy:");
-        console.log(val);
-    }
-}
-
-console.log("=== Test Complete ===");
+console.log('\nDirect tests:');
+console.log('null || "A":', null || 'A');
+console.log('undefined || "B":', undefined || 'B');
