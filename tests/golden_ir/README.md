@@ -55,6 +55,7 @@ function user_main(): number {
 - **OUTPUT:** Expected stdout text
 - **OUTPUT-REGEX:** Expected stdout regex pattern
 - **EXIT-CODE:** Expected exit code (default: 0)
+- **XFAIL:** Expected failure with reason (for tracking known bugs)
 
 ### Pattern Syntax
 
@@ -83,6 +84,14 @@ const arr = [1, 2, 3];
 console.log(42);
 ```
 
+**Expected failure (regression test):**
+```typescript
+// XFAIL: Array.concat() causes runtime panic
+// Test tracks a known bug and alerts when it gets fixed
+const result = arr1.concat(arr2);
+// OUTPUT: 4
+```
+
 ## Test Organization
 
 ```
@@ -93,6 +102,7 @@ typescript/
   classes/      - Class definitions
   generics/     - Generic types
   control_flow/ - If/while/for/switch
+  regression/   - Known bugs tracked as XFAIL tests
 
 javascript/
   dynamic_types/    - Slow-path type operations
