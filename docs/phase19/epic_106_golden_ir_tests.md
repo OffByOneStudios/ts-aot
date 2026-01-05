@@ -46,7 +46,7 @@ function user_main(): number {
 
 ```
 tests/golden_ir/
-├── runner.ps1                 # Main test runner
+├── runner.py                  # Main test runner (Python 3.7+)
 ├── typescript/                # TypeScript typed tests
 │   ├── arrays/
 │   ├── objects/
@@ -54,14 +54,11 @@ tests/golden_ir/
 │   ├── classes/
 │   ├── generics/
 │   └── control_flow/
-├── javascript/                # JavaScript slow-path tests
-│   ├── dynamic_types/
-│   ├── property_access/
-│   ├── operators/
-│   └── closures/
-└── common/
-    ├── assertions.ps1         # CHECK pattern matching
-    └── differ.ps1             # IR diff tool
+└── javascript/                # JavaScript slow-path tests
+    ├── dynamic_types/
+    ├── property_access/
+    ├── operators/
+    └── closures/
 ```
 
 ---
@@ -72,11 +69,12 @@ tests/golden_ir/
 
 **Status:** ✅ Complete (5/5 tasks)
 
-- [x] **Task 106.1.1:** Create `tests/golden_ir/runner.ps1` ✅
+- [x] **Task 106.1.1:** Create `tests/golden_ir/runner.py` ✅
   - Parse `// RUN:` directives to determine compilation command
   - Execute compiler with `--dump-ir` flag
   - Capture IR output and executable output
-  - Exit codes: 0 = pass, 1 = compilation failed, 2 = CHECK failed, 3 = OUTPUT mismatch
+  - Exit codes: 0 = pass, 1 = any failure
+  - Python 3.7+ for better portability and maintainability
 
 - [x] **Task 106.1.2:** Implement CHECK pattern matcher ✅
   - `// CHECK:` - Must appear in order ✅
@@ -475,17 +473,17 @@ inue in loops
 
 **Goal:** Developer-friendly tools for maintaining golden tests.
 
-- [ ] **Task 106.6.1:** `update_golden.ps1` script
+- [ ] **Task 106.6.1:** `update_golden.py` script
   - Recompile test and update CHECK patterns
   - Show diff before accepting changes
   - Bulk update all tests or specific category
 
-- [ ] **Task 106.6.2:** `new_golden_test.ps1` generator
+- [ ] **Task 106.6.2:** `new_golden_test.py` generator
   - Scaffold new test file with template
   - Run compiler and suggest initial CHECK patterns
   - Add to test index automatically
 
-- [ ] **Task 106.6.3:** `debug_golden.ps1` helper
+- [ ] **Task 106.6.3:** Use `runner.py --details` for debugging
   - Run single test with verbose output
   - Show IR side-by-side with CHECK patterns
   - Highlight mismatches in color
@@ -527,7 +525,7 @@ inue in loops
 - [ ] Debug metadata optional (tests shouldn't break on debug info changes)
 
 ### Infrastructure
-- [ ] PowerShell 7+ for test runner
+- [x] Python 3.7+ for test runner ✅
 - [ ] Git integration for diffing
 - [ ] GitHub Actions runner with LLVM tools
 

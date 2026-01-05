@@ -4,19 +4,27 @@ Regression tests that validate LLVM IR output against expected patterns.
 
 ## Running Tests
 
-```powershell
-# Run all tests
-.\runner.ps1 .
+```bash
+# Run all tests in a directory
+python runner.py typescript
+python runner.py javascript
 
-# Run specific test
-.\runner.ps1 typescript/arrays/array_literal.ts
+# Run a single test
+python runner.py typescript/arrays/array_map.ts
 
-# Run category
-.\runner.ps1 typescript/functions/
-
-# Verbose output with full IR dumps
-.\runner.ps1 typescript/ -Verbose
+# Run with detailed output
+python runner.py typescript --details
 ```
+
+**Legacy PowerShell runner (deprecated):**
+```powershell
+.\runner.ps1 typescript
+```
+
+## Requirements
+
+- Python 3.7+
+- Compiler at `build/src/compiler/Release/ts-aot.exe`
 
 ## Writing Tests
 
