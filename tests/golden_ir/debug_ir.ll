@@ -38,7 +38,6 @@ target triple = "x86_64-pc-windows-msvc"
 @Symbol = global ptr null
 @TextDecoder = global ptr null
 @https = global ptr null
-@obj_1181829833699376581 = global ptr null
 @events = global ptr null
 @http = global ptr null
 @stream = global ptr null
@@ -84,17 +83,11 @@ target triple = "x86_64-pc-windows-msvc"
 @25 = private unnamed_addr constant [9 x i8] c"username\00", align 1
 @URL_VTable_Global = constant %URL_VTable { ptr null, ptr @URL_get_property, ptr @URL_toJSON, ptr @URL_toString }, !type !9
 @26 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@27 = private unnamed_addr constant [5 x i8] c"Test\00", align 1
-@28 = private unnamed_addr constant [5 x i8] c"name\00", align 1
+@27 = private unnamed_addr constant [2 x i8] c",\00", align 1
+@28 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
+@29 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 @__ts_const_undefined_value = private constant %TsValue zeroinitializer
-@29 = private unnamed_addr constant [6 x i8] c"value\00", align 1
-@__ts_const_undefined_value.1 = private constant %TsValue zeroinitializer
-@30 = private unnamed_addr constant [5 x i8] c"name\00", align 1
-@31 = private unnamed_addr constant [6 x i8] c"value\00", align 1
-@32 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@33 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@__ts_const_undefined_value.2 = private constant %TsValue zeroinitializer
-@34 = private unnamed_addr constant [99 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\objects\\object_property_assignment.ts\00", align 1
+@30 = private unnamed_addr constant [90 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\control_flow\\nested_loops.ts\00", align 1
 
 declare i8 @ts_typed_array_get_u8(ptr, i64)
 
@@ -520,8 +513,10 @@ declare ptr @URL_toJSON(ptr, ptr) #0
 
 declare ptr @URL_toString(ptr, ptr) #0
 
-define ptr @__module_init_1181829833699376581_any(ptr %context, ptr %module) #0 !type !14 {
+define ptr @__module_init_1214463123918570457_any(ptr %context, ptr %module) #0 !type !14 {
 entry:
+  %j = alloca i64, align 8
+  %i = alloca i64, align 8
   %exports = alloca ptr, align 8
   %module1 = alloca ptr, align 8
   %returnValue = alloca ptr, align 8
@@ -542,66 +537,64 @@ entry:
   %3 = call ptr @ts_value_make_string(ptr %2)
   %4 = call ptr @ts_object_get_dynamic(ptr %1, ptr %3)
   store ptr %4, ptr %exports, align 8
-  %5 = call ptr @ts_map_create()
-  %6 = call ptr @ts_value_make_object(ptr %5)
-  store ptr %6, ptr @obj_1181829833699376581, align 8
-  %7 = call ptr @ts_string_create(ptr @27)
-  %obj = load ptr, ptr @obj_1181829833699376581, align 8
-  %8 = call ptr @ts_string_create(ptr @28)
-  %9 = call ptr @ts_value_make_string(ptr %8)
-  %10 = call ptr @ts_value_make_string(ptr %7)
-  %11 = call ptr @__ts_object_get_map(ptr %obj)
-  %12 = icmp eq ptr %9, null
-  %13 = icmp eq ptr %10, null
-  %14 = select i1 %12, ptr @__ts_const_undefined_value, ptr %9
-  %15 = select i1 %13, ptr @__ts_const_undefined_value, ptr %10
-  %typePtr = getelementptr inbounds %TsValue, ptr %14, i32 0, i32 0
-  %type = load i8, ptr %typePtr, align 1
-  %unionPtr = getelementptr inbounds %TsValue, ptr %14, i32 0, i32 2
-  %unionVal = load i64, ptr %unionPtr, align 8
-  %typePtr3 = getelementptr inbounds %TsValue, ptr %15, i32 0, i32 0
-  %type4 = load i8, ptr %typePtr3, align 1
-  %unionPtr5 = getelementptr inbounds %TsValue, ptr %15, i32 0, i32 2
-  %unionVal6 = load i64, ptr %unionPtr5, align 8
-  call void @__ts_map_set_at(ptr %11, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type4, i64 %unionVal6)
-  %obj7 = load ptr, ptr @obj_1181829833699376581, align 8
-  %16 = call ptr @ts_string_create(ptr @29)
-  %17 = call ptr @ts_value_make_string(ptr %16)
-  %18 = call ptr @ts_value_make_int(i64 42)
-  %19 = call ptr @__ts_object_get_map(ptr %obj7)
-  %20 = icmp eq ptr %17, null
-  %21 = icmp eq ptr %18, null
-  %22 = select i1 %20, ptr @__ts_const_undefined_value.1, ptr %17
-  %23 = select i1 %21, ptr @__ts_const_undefined_value.1, ptr %18
-  %typePtr8 = getelementptr inbounds %TsValue, ptr %22, i32 0, i32 0
-  %type9 = load i8, ptr %typePtr8, align 1
-  %unionPtr10 = getelementptr inbounds %TsValue, ptr %22, i32 0, i32 2
-  %unionVal11 = load i64, ptr %unionPtr10, align 8
-  %typePtr12 = getelementptr inbounds %TsValue, ptr %23, i32 0, i32 0
-  %type13 = load i8, ptr %typePtr12, align 1
-  %unionPtr14 = getelementptr inbounds %TsValue, ptr %23, i32 0, i32 2
-  %unionVal15 = load i64, ptr %unionPtr14, align 8
-  call void @__ts_map_set_at(ptr %19, i64 %unionVal11, i8 %type9, i64 %unionVal11, i8 %type13, i64 %unionVal15)
-  %obj16 = load ptr, ptr @obj_1181829833699376581, align 8
-  %24 = call ptr @ts_string_create(ptr @30)
-  %25 = call ptr @ts_value_make_string(ptr %24)
-  %26 = call ptr @ts_object_get_dynamic(ptr %obj16, ptr %25)
-  call void @ts_console_log_value(ptr %26)
-  %obj17 = load ptr, ptr @obj_1181829833699376581, align 8
-  %27 = call ptr @ts_string_create(ptr @31)
-  %28 = call ptr @ts_value_make_string(ptr %27)
-  %29 = call ptr @ts_object_get_dynamic(ptr %obj17, ptr %28)
-  call void @ts_console_log_value(ptr %29)
-  %module18 = load ptr, ptr %module1, align 8
-  %30 = call ptr @ts_value_box_any(ptr %module18)
-  %31 = call ptr @ts_string_create(ptr @32)
-  %32 = call ptr @ts_value_make_string(ptr %31)
-  %33 = call ptr @ts_object_get_dynamic(ptr %30, ptr %32)
-  ret ptr %33
+  store i64 0, ptr %i, align 8
+  br label %forcond
 
 return:                                           ; preds = %dead
-  %34 = load ptr, ptr %returnValue, align 8
-  ret ptr %34
+  %5 = load ptr, ptr %returnValue, align 8
+  ret ptr %5
+
+forcond:                                          ; preds = %forinc11, %entry
+  %i3 = load i64, ptr %i, align 8
+  %cmptmp = icmp slt i64 %i3, 2
+  br i1 %cmptmp, label %forloop, label %forafter14
+
+forloop:                                          ; preds = %forcond
+  store i64 0, ptr %j, align 8
+  br label %forcond4
+
+forcond4:                                         ; preds = %forinc, %forloop
+  %j5 = load i64, ptr %j, align 8
+  %cmptmp6 = icmp slt i64 %j5, 2
+  br i1 %cmptmp6, label %forloop7, label %forafter
+
+forloop7:                                         ; preds = %forcond4
+  %i8 = load i64, ptr %i, align 8
+  %6 = call ptr @ts_string_create(ptr @27)
+  %7 = call ptr @ts_string_from_int(i64 %i8)
+  %8 = call ptr @ts_string_concat(ptr %7, ptr %6)
+  %j9 = load i64, ptr %j, align 8
+  %9 = call ptr @ts_string_from_int(i64 %j9)
+  %10 = call ptr @ts_string_concat(ptr %8, ptr %9)
+  call void @ts_console_log(ptr %10)
+  br label %forinc
+
+forinc:                                           ; preds = %forloop7
+  store i1 false, ptr %shouldContinue, align 1
+  %j10 = load i64, ptr %j, align 8
+  %incdec = add i64 %j10, 1
+  store i64 %incdec, ptr %j, align 8
+  br label %forcond4
+
+forafter:                                         ; preds = %forcond4
+  store i1 false, ptr %shouldBreak, align 1
+  br label %forinc11
+
+forinc11:                                         ; preds = %forafter
+  store i1 false, ptr %shouldContinue, align 1
+  %i12 = load i64, ptr %i, align 8
+  %incdec13 = add i64 %i12, 1
+  store i64 %incdec13, ptr %i, align 8
+  br label %forcond
+
+forafter14:                                       ; preds = %forcond
+  store i1 false, ptr %shouldBreak, align 1
+  %module15 = load ptr, ptr %module1, align 8
+  %11 = call ptr @ts_value_box_any(ptr %module15)
+  %12 = call ptr @ts_string_create(ptr @28)
+  %13 = call ptr @ts_value_make_string(ptr %12)
+  %14 = call ptr @ts_object_get_dynamic(ptr %11, ptr %13)
+  ret ptr %14
 
 dead:                                             ; No predecessors!
   br label %return
@@ -625,12 +618,12 @@ entry:
   %1 = call ptr @ts_map_create()
   %2 = call ptr @ts_map_create()
   %3 = call ptr @ts_value_make_object(ptr %2)
-  %4 = call ptr @ts_string_create(ptr @33)
+  %4 = call ptr @ts_string_create(ptr @29)
   %5 = call ptr @ts_value_make_string(ptr %4)
   %6 = icmp eq ptr %5, null
   %7 = icmp eq ptr %3, null
-  %8 = select i1 %6, ptr @__ts_const_undefined_value.2, ptr %5
-  %9 = select i1 %7, ptr @__ts_const_undefined_value.2, ptr %3
+  %8 = select i1 %6, ptr @__ts_const_undefined_value, ptr %5
+  %9 = select i1 %7, ptr @__ts_const_undefined_value, ptr %3
   %typePtr = getelementptr inbounds %TsValue, ptr %8, i32 0, i32 0
   %type = load i8, ptr %typePtr, align 1
   %unionPtr = getelementptr inbounds %TsValue, ptr %8, i32 0, i32 2
@@ -642,12 +635,12 @@ entry:
   call void @__ts_map_set_at(ptr %1, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
   %10 = call ptr @ts_value_make_object(ptr %1)
   store ptr %10, ptr %__module_obj_0, align 8
-  %11 = call ptr @ts_string_create(ptr @34)
+  %11 = call ptr @ts_string_create(ptr @30)
   %12 = call ptr @ts_value_make_string(ptr %11)
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
   call void @ts_module_register(ptr %12, ptr %__module_obj_05)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
-  %13 = call ptr @__module_init_1181829833699376581_any(ptr null, ptr %__module_obj_06)
+  %13 = call ptr @__module_init_1214463123918570457_any(ptr null, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8
   %__module_res_07 = load ptr, ptr %__module_res_0, align 8
   %14 = call ptr @ts_value_box_any(ptr %__module_res_07)
@@ -663,13 +656,15 @@ dead:                                             ; No predecessors!
 
 declare ptr @ts_object_get_dynamic(ptr, ptr)
 
+declare ptr @ts_string_from_int(i64)
+
+declare ptr @ts_string_concat(ptr, ptr)
+
+declare void @ts_console_log(ptr)
+
 declare ptr @ts_map_create()
 
-declare ptr @__ts_object_get_map(ptr)
-
 declare void @__ts_map_set_at(ptr, i64, i8, i64, i8, i64)
-
-declare void @ts_console_log_value(ptr)
 
 declare void @ts_module_register(ptr, ptr)
 
@@ -699,5 +694,5 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !11 = !{!"/DEFAULTLIB:libcmt.lib"}
 !12 = !{!"/NODEFAULTLIB:libcmtd.lib"}
 !13 = !{!"/FAILIFMISMATCH:\22RuntimeLibrary=MT_StaticRelease\22"}
-!14 = !{i64 0, !"__module_init_1181829833699376581_any"}
+!14 = !{i64 0, !"__module_init_1214463123918570457_any"}
 !15 = !{i64 0, !"user_main"}
