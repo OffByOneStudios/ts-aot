@@ -59,6 +59,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
         moduleInit->name = initName;
         moduleInit->isAsync = module->isAsync;
+        moduleInit->sourceFile = path;  // Set source file for debug info
+        moduleInit->line = 1;  // Module init starts at line 1
         if (module->isAsync) {
             SPDLOG_DEBUG("Module {} is async, marking init as async", path);
         }
