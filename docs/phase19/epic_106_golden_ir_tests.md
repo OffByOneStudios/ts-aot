@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (60 tests: 37 passing, 22 XFAIL - Milestone 106.2 COMPLETE ✅)
+**Status:** In Progress (70 tests: 37 passing, 32 XFAIL - Milestone 106.2 ✅, 106.3 started)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -342,59 +342,38 @@ tests/golden_ir/
 
 ## Milestone 106.3: JavaScript Slow Path Tests
 
-**Goal:** Verify dynamic JavaScript features use proper boxing and slow-path operations.
+**Status:** In Progress (10/30 tests - 33%)
 
 ### Dynamic Types (10 tests)
 
-- [ ] **Task 106.3.1:** Variable without type annotation
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_make_int
-  // CHECK: store {{.*}} @x_global
-  var x = 42;
-  ```
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
 
-- [ ] **Task 106.3.2:** Dynamic addition `a + b`
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_add
-  // CHECK-NOT: add i64
-  var result = a + b;
-  ```
+- [x] **Task 106.3.1:** Variable without type annotation ✅ (XFAIL)
+  Test: `javascript/dynamic_types/var_without_type.js`
+  Note: JavaScript files not yet supported by compiler
 
-- [ ] **Task 106.3.3:** Dynamic subtraction/multiply/divide
-- [ ] **Task 106.3.4:** Type coercion in operators
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_add
-  // OUTPUT: 42string
-  var result = 42 + "string";
-  ```
+- [x] **Task 106.3.2:** Dynamic addition `a + b` ✅ (XFAIL)
+  Test: `javascript/dynamic_types/dynamic_addition.js`
 
-- [ ] **Task 106.3.5:** Loose equality `==`
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_eq
-  if (1 == "1") { }
-  ```
+- [x] **Task 106.3.3:** Dynamic subtraction/multiply/divide ✅ (XFAIL)
+  Test: `javascript/dynamic_types/dynamic_operators.js`
+- [x] **Task 106.3.4:** Type coercion in operators ✅ (XFAIL)
+  Test: `javascript/dynamic_types/type_coercion.js`
 
-- [ ] **Task 106.3.6:** Strict equality `===`
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_strict_eq
-  if (1 === "1") { }
-  ```
+- [x] **Task 106.3.5:** Loose equality `==` ✅ (XFAIL)
+  Test: `javascript/dynamic_types/loose_equality.js`
+- [x] **Task 106.3.6:** Strict equality `===` ✅ (XFAIL)
+  Test: `javascript/dynamic_types/strict_equality.js`
 
-- [ ] **Task 106.3.7:** typeof operator
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_typeof
-  // OUTPUT: number
-  console.log(typeof 42);
-  ```
+- [x] **Task 106.3.7:** typeof operator ✅ (XFAIL)
+  Test: `javascript/dynamic_types/typeof_operator.js`
+- [x] **Task 106.3.8:** Truthiness checks ✅ (XFAIL)
+  Test: `javascript/dynamic_types/truthiness.js`
 
-- [ ] **Task 106.3.8:** Truthiness checks
-  ```javascript
-  // CHECK: call {{.*}} @ts_value_to_bool
-  if (x) { }
-  ```
-
-- [ ] **Task 106.3.9:** Dynamic comparison `<`, `>`
-- [ ] **Task 106.3.10:** in operator `'prop' in obj`
+- [x] **Task 106.3.9:** Dynamic comparison `<`, `>` ✅ (XFAIL)
+  Test: `javascript/dynamic_types/dynamic_comparison.js`
+- [x] **Task 106.3.10:** in operator `'prop' in obj` ✅ (XFAIL)
+  Test: `javascript/dynamic_types/in_operator.js`
 
 ### Dynamic Property Access (10 tests)
 
