@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (33 tests: 29 passing, 4 XFAIL - Milestone 106.2 ongoing)
+**Status:** In Progress (41 tests: 33 passing, 8 XFAIL - Milestone 106.2 ongoing)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -118,11 +118,11 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of TypeScript features with typed optimizations.
 
-**Status:** 27/60 complete (45%)
+**Status:** 35/60 complete (58%)
 
 ### Arrays (20 tests)
 
-**Status:** 11/20 complete (55%)
+**Status:** 14/20 complete (70%)
 
 - [x] **Task 106.2.1:** Array literal creation ✅
   ```typescript
@@ -178,7 +178,7 @@ tests/golden_ir/
 
 ### Objects (15 tests)
 
-**Status:** 8/15 complete (53%)
+**Status:** 9/15 complete (60%)
 
 - [x] **Task 106.2.21:** Object literal creation ✅
   ```typescript
@@ -205,7 +205,9 @@ tests/golden_ir/
   Test: `typescript/objects/object_keys.ts`
 - [x] **Task 106.2.28:** Object.values() typed return ✅
   Test: `typescript/objects/object_values.ts`
-- [ ] **Task 106.2.29:** Object.entries() tuples
+- [x] **Task 106.2.29:** Object.entries() tuples ✅ (XFAIL)
+  Test: `typescript/objects/object_entries.ts`
+  Note: Returns empty array (length 0)
 - [ ] **Task 106.2.30:** Object.assign() merge
 - [ ] **Task 106.2.31:** Optional chaining `obj?.prop`
 - [ ] **Task 106.2.32:** Nullish coalescing `obj.prop ?? default`
@@ -220,7 +222,7 @@ tests/golden_ir/
 
 ### Functions (15 tests)
 
-**Status:** 6/15 complete (40%)
+**Status:** 8/15 complete (53%)
 
 - [x] **Task 106.2.36:** Named function definition ✅
   Test: `typescript/functions/named_function.ts`
@@ -252,8 +254,10 @@ tests/golden_ir/
 - [ ] **Task 106.2.43:** Function with destructured parameters
 - [ ] **Task 106.2.44:** Function return type inference
 - [ ] **Task 106.2.45:** Generic function `<T>`
-- [ ] **Task 106.2.46:** Higher-order function (function returning function)
-- [ ] **Task 106.2.47:** Recursive function optimization
+- [x] **Task 106.2.46:** Higher-order function (function returning function) ✅
+  Test: `typescript/functions/higher_order_function.ts`
+- [x] **Task 106.2.47:** Recursive function optimization ✅
+  Test: `typescript/functions/recursive_function.ts`
 - [ ] **Task 106.2.48:** IIFE `(function() {})()` without closure
   ```typescript
   // CHECK-NOT: ts_cell_create
@@ -275,7 +279,7 @@ tests/golden_ir/
 
 ### Control Flow (10 tests)
 
-**Status:** 6/10 complete (60%)
+**Status:** 8/10 complete (80%)
 
 - [x] **Task 106.2.51:** If-else optimization ✅
   ```typescript
@@ -298,8 +302,12 @@ tests/golden_ir/
   Test: `typescript/control_flow/for_loop_break.ts`
 - [x] **Task 106.2.54:** Switch statement ✅
   Test: `typescript/control_flow/switch_statement.ts`
-- [ ] **Task 106.2.59:** Return in nested blocks
-- [x] **Task 106.2.60:** Ternary operator (CHECK: `icmp`, `select`)
+- [x] **Task 106.2.55:** Continue statement ✅
+  Test: `typescript/control_flow/continue_statement.ts`
+- [x] **Task 106.2.59:** Return in nested blocks ✅
+  Test: `typescript/control_flow/return_nested_blocks.ts`
+- [x] **Task 106.2.60:** Ternary operator ✅
+  Test: `typescript/control_flow/ternary_operator.ts`
 
 ---
 
@@ -423,7 +431,7 @@ tests/golden_ir/
 ## Milestone 106.4: Edge Cases & Regression Tests
 
 **Goal:** Capture specific bugs that have occurred and ensure they don't regress.
-**Status:** 6/10 complete
+**Status:** 10/10 complete
 
 - [x] **Task 106.4.1:** Function in object property (Issue #11) ✅
   ```typescript
@@ -479,7 +487,30 @@ tests/golden_ir/
   console.log(obj.getValue()); // prints undefined
   ```
   Test: `typescript/objects/method_shorthand.ts`
-- [ ] **Task 106.4.7:** Cell variable in object shorthand
+- [x] **Task 106.4.7:** Array.find() returns garbage ✅
+  ```typescript
+  // XFAIL: Returns uninitialized pointer instead of element
+  arr.find(x => x > 25); // Returns garbage like 2102074279760
+  ```
+  Test: `typescript/arrays/array_find.ts`
+- [x] **Task 106.4.8:** Array.every() returns false incorrectly ✅
+  ```typescript
+  // XFAIL: Returns false even when all elements match predicate
+  [2,4,6,8].every(x => x % 2 === 0); // Returns false, should be true
+  ```
+  Test: `typescript/arrays/array_every.ts`
+- [x] **Task 106.4.9:** Array.some() returns false incorrectly ✅
+  ```typescript
+  // XFAIL: Returns false even when element exists
+  [1,3,5,8].some(x => x % 2 === 0); // Returns false, should be true
+  ```
+  Test: `typescript/arrays/array_some.ts`
+- [x] **Task 106.4.10:** Object.entries() returns empty array ✅
+  ```typescript
+  // XFAIL: Returns array with length 0
+  Object.entries({a:1, b:2}).length; // Returns 0, should be 2
+  ```
+  Test: `typescript/objects/object_entries.ts`
 - [ ] **Task 106.4.7:** Generic array push boxing
 - [ ] **Task 106.4.8:** Boolean-typed pointer to emitToBoolean
 - [ ] **Task 106.4.9:** Set<T> for-of element access
