@@ -40,14 +40,12 @@ Write-Host "Executable: $ExePath" -ForegroundColor Yellow
 Write-Host "Debugger: $cdbPath" -ForegroundColor Yellow
 Write-Host ""
 
-# CDB commands to execute
+# CDB commands to execute - stop on first-chance access violation
 $commands = @(
     ".sympath srv*https://msdl.microsoft.com/download/symbols"  # Symbol server
     ".reload"                                                    # Reload symbols
+    "sxe -c `"kb 50;r;q`" av"                                   # On AV: print stack, regs, quit
     "g"                                                          # Run until crash/exit
-    "~*k"                                                        # All threads stack trace
-    "r"                                                          # Show registers
-    "dv"                                                         # Display local variables
     "!analyze -v"                                                # Automatic crash analysis
     "lm"                                                         # List modules
     "q"                                                          # Quit
@@ -62,10 +60,10 @@ Write-Host "Running debugger with automated commands..." -ForegroundColor Cyan
 Write-Host ""
 
 # Run CDB with command script using -cfr (command file then exit)
-# Wrap in a job with timeout to prevent hanging
+# Use -xe to set exception handling BEFORE running
 $job = Start-Job -ScriptBlock {
     param($cdb, $script, $exe)
-    & $cdb -cfr $script -g -G $exe 2>&1
+    & $cdb -xe av -cfr $script $exe 2>&1
 } -ArgumentList $cdbPath, $tempScript, $ExePath
 
 # Wait up to 30 seconds for the job to complete
