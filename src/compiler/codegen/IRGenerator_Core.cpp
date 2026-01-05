@@ -219,13 +219,38 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     }
 }
 
+llvm::DIFile* IRGenerator::getOrCreateDIFile(const std::string& filePath) {
+    if (!debug || filePath.empty()) {
+        return nullptr;
+    }
+    
+    // Check cache first
+    auto it = diFileCache.find(filePath);
+    if (it != diFileCache.end()) {
+        return it->second;
+    }
+    
+    // Create new DIFile
+    std::filesystem::path p = std::filesystem::absolute(filePath);
+    std::string fileName = p.filename().string();
+    std::string directory = p.parent_path().string();
+    
+    llvm::DIFile* file = diBuilder->createFile(fileName, directory);
+    diFileCache[filePath] = file;
+    
+    return file;
+}
+
 void IRGenerator::emitLocation(ast::Node* node) {
     if (!debug || !node) {
         builder->SetCurrentDebugLocation(llvm::DebugLoc());
         return;
     }
     
+    // Always use the current debug scope (DISubprogram or DILexicalBlock)
+    // The DIFile is already tracked within the scope
     llvm::DIScope* scope = debugScopes.empty() ? compileUnit : debugScopes.back();
+    
     builder->SetCurrentDebugLocation(llvm::DILocation::get(*context, node->line, node->column, scope));
 }
 
@@ -671,10 +696,16 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             
             // Add debug info for local variable
             if (debug && !debugScopes.empty()) {
+                // Get the correct DIFile for this variable's source file
+                llvm::DIFile* varFile = compileUnit->getFile();
+                if (!id->sourceFile.empty()) {
+                    varFile = getOrCreateDIFile(id->sourceFile);
+                }
+                
                 llvm::DILocalVariable* debugVar = diBuilder->createAutoVariable(
                     debugScopes.back(),
                     id->name,
-                    compileUnit->getFile(),
+                    varFile,
                     id->line,
                     createDebugType(type),
                     true // alwaysPreserve

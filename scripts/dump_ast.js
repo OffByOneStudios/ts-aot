@@ -155,6 +155,7 @@ function visit(node) {
         const { line, character } = currentSourceFile.getLineAndCharacterOfPosition(node.getStart());
         result.line = line + 1;
         result.column = character + 1;
+        result.sourceFile = currentSourceFile.fileName;
     }
     return result;
 }
@@ -766,7 +767,8 @@ function visitParameter(p) {
         isReadonly: readonly,
         isParameterProperty: !!access || readonly,
         line: line + 1,
-        column: character + 1
+        column: character + 1,
+        sourceFile: currentSourceFile.fileName
     };
 }
 

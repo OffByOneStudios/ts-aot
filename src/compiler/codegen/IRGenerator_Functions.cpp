@@ -174,8 +174,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         builder->SetInsertPoint(bb);
 
         if (debug && spec.node) {
-            // Actually, we should have the file name from the compileUnit
-            llvm::DIFile* unitFile = compileUnit->getFile();
+            // Get the correct DIFile for this function's source file
+            llvm::DIFile* funcFile = compileUnit->getFile();  // Default to main file
+            if (!spec.node->sourceFile.empty()) {
+                funcFile = getOrCreateDIFile(spec.node->sourceFile);
+            }
             
             // Build parameter types for debug info
             std::vector<llvm::Metadata*> paramTypes;
@@ -191,7 +194,7 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             );
             
             llvm::DISubprogram* sp = diBuilder->createFunction(
-                unitFile, spec.specializedName, spec.specializedName, unitFile,
+                funcFile, spec.specializedName, spec.specializedName, funcFile,
                 spec.node->line, debugFuncType, spec.node->line,
                 llvm::DINode::FlagPrototyped, llvm::DISubprogram::SPFlagDefinition);
             function->setSubprogram(sp);
@@ -488,11 +491,17 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                             std::shared_ptr<Type> bindType = id->inferredType;
                             if (!bindType) bindType = std::make_shared<Type>(TypeKind::Any);
                             
+                            // Get the correct DIFile for the parameter's source file
+                            llvm::DIFile* paramFile = compileUnit->getFile();
+                            if (!param->sourceFile.empty()) {
+                                paramFile = getOrCreateDIFile(param->sourceFile);
+                            }
+                            
                             llvm::DILocalVariable* debugParam = diBuilder->createParameterVariable(
                                 debugScopes.back(),
                                 id->name,
                                 pIdx + 2, // +1 for 1-based, +1 for context param
-                                compileUnit->getFile(),
+                                paramFile,
                                 param->line,
                                 createDebugType(bindType)
                             );
