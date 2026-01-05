@@ -342,15 +342,15 @@ tests/golden_ir/
 
 ## Milestone 106.3: JavaScript Slow Path Tests
 
-**Status:** ✅ Complete (30/30 tests - All XFAIL until .js support added)
+**Status:** ✅ Complete (30/30 tests - Restored to .js files with proper parsing)
 
 ### Dynamic Types (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
 
 - [x] **Task 106.3.1:** Variable without type annotation ✅ (XFAIL)
   Test: `javascript/dynamic_types/var_without_type.js`
-  Note: JavaScript files not yet supported by compiler
+  Note: Dynamic typing not fully implemented in runtime
 
 - [x] **Task 106.3.2:** Dynamic addition `a + b` ✅ (XFAIL)
   Test: `javascript/dynamic_types/dynamic_addition.js`
@@ -377,7 +377,7 @@ tests/golden_ir/
 
 ### Dynamic Property Access (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
 
 - [x] **Task 106.3.11:** Get property by string ✅ (XFAIL)
   Test: `javascript/property_access/get_property.js`
@@ -406,7 +406,7 @@ tests/golden_ir/
 
 ### Closures & IIFEs (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
 
 - [x] **Task 106.3.21:** IIFE without closure ✅ (XFAIL)
   Test: `javascript/closures/iife_no_closure.js`
