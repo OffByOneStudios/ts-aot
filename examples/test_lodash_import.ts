@@ -2,6 +2,18 @@
 const _ = require('lodash');
 
 console.log('=== Testing lodash from node_modules ===');
+console.log('typeof require("lodash"):', typeof _);
+console.log('has _.chunk:', typeof _.chunk);
+console.log('has _.lodash:', typeof _.lodash);
+console.log('has _.default:', typeof _.default);
+console.log('has _.exports:', typeof _.exports);
+
+// If exports are wrong, avoid crashing early so we can see shape.
+if (typeof _.chunk !== 'function') {
+	console.log('ERROR: lodash API missing (expected _.chunk).');
+	console.log('Hint: if _.lodash is present, lodash likely took the UMD global-attach path.');
+	console.log('Skipping API tests.');
+} else {
 
 // Test 1: _.chunk
 console.log('\nTest 1: _.chunk([1, 2, 3, 4, 5], 2)');
@@ -48,5 +60,6 @@ original.a.b = 999;
 console.log('After modifying original:');
 console.log('Original.a.b:', original.a.b);
 console.log('Cloned.a.b:', cloned.a.b);
+}
 
 console.log('\n=== All tests complete ===');

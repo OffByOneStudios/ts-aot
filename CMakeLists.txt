@@ -11,6 +11,14 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Emit debug symbols even in Release (project forces Release-only builds).
+# This makes crash addresses actionable without changing optimization level.
+if(MSVC)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT ProgramDatabase)
+    add_compile_options(/Zi)
+    add_link_options(/DEBUG:FULL)
+endif()
+
 # Support static CRT for static builds
 if(VCPKG_TARGET_TRIPLET STREQUAL "x64-windows-static")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

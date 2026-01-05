@@ -40,8 +40,10 @@ struct TsValueHash {
             case ValueType::NUMBER_DBL: return std::hash<double>{}(v.d_val);
             case ValueType::BOOLEAN: return std::hash<bool>{}(v.b_val);
             case ValueType::STRING_PTR: {
+                if (!v.ptr_val) return 0;
                 TsString* s = (TsString*)v.ptr_val;
                 const char* str = s->ToUtf8();
+                if (!str) return 0;
                 size_t h = 5381;
                 int c;
                 while ((c = *str++))
@@ -49,8 +51,10 @@ struct TsValueHash {
                 return h;
             }
             case ValueType::BIGINT_PTR: {
+                if (!v.ptr_val) return 0;
                 TsBigInt* bi = (TsBigInt*)v.ptr_val;
                 const char* str = bi->ToString();
+                if (!str) return 0;
                 size_t h = 5381;
                 int c;
                 while ((c = *str++))
@@ -74,10 +78,18 @@ struct TsValueEqual {
             }
             case ValueType::BOOLEAN: return lhs.b_val == rhs.b_val;
             case ValueType::STRING_PTR: {
-                return std::strcmp(((TsString*)lhs.ptr_val)->ToUtf8(), ((TsString*)rhs.ptr_val)->ToUtf8()) == 0;
+                if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
+                const char* a = ((TsString*)lhs.ptr_val)->ToUtf8();
+                const char* b = ((TsString*)rhs.ptr_val)->ToUtf8();
+                if (!a || !b) return a == b;
+                return std::strcmp(a, b) == 0;
             }
             case ValueType::BIGINT_PTR: {
-                return std::strcmp(((TsBigInt*)lhs.ptr_val)->ToString(), ((TsBigInt*)rhs.ptr_val)->ToString()) == 0;
+                if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
+                const char* a = ((TsBigInt*)lhs.ptr_val)->ToString();
+                const char* b = ((TsBigInt*)rhs.ptr_val)->ToString();
+                if (!a || !b) return a == b;
+                return std::strcmp(a, b) == 0;
             }
             default: return lhs.ptr_val == rhs.ptr_val;
         }
@@ -223,6 +235,9 @@ TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
 
 extern "C" {
 
+// Debug hook from TsObject.cpp: TsMap* backing lodash's module object.
+extern void* g_debug_lodash_module_map;
+
 void* ts_map_create() {
     return TsMap::Create();
 }
@@ -231,6 +246,14 @@ void* ts_map_create() {
 // These are more efficient for hot paths where the caller can use stack-allocated TsValue
 void ts_map_set_v(void* map, TsValue key, TsValue value) {
     if (!map) return;
+    if (g_debug_lodash_module_map && map == g_debug_lodash_module_map && key.type == ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)key.ptr_val;
+        const char* keyUtf8 = keyStr ? keyStr->ToUtf8() : nullptr;
+        if (keyUtf8 && std::strcmp(keyUtf8, "exports") == 0) {
+            std::printf("[ts_map_set_v] module.exports write: value.type=%d value.ptr=%p\n",
+                        (int)value.type, value.ptr_val);
+        }
+    }
     ((TsMap*)map)->Set(key, value);
 }
 
@@ -477,6 +500,16 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
     if (magic != TsMap::MAGIC) {
         // Not a TsMap - silently fail to avoid crash
         return;
+    }
+
+    // Targeted trace: watch tracked module.exports writes
+    if (g_debug_lodash_module_map && map == g_debug_lodash_module_map && key_type == (uint8_t)ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)key_val;
+        const char* keyUtf8 = keyStr ? keyStr->ToUtf8() : nullptr;
+        if (keyUtf8 && std::strcmp(keyUtf8, "exports") == 0) {
+            std::printf("[__ts_map_set_at] module.exports write: val_type=%d val_val=%p\n",
+                        (int)val_type, (void*)val_val);
+        }
     }
     
     TsMap* tsmap = (TsMap*)map;
