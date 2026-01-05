@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (90 tests: 37 passing, 52 XFAIL - Milestone 106.2 ✅, 106.3 ✅)
+**Status:** In Progress (90 tests: 37 passing, 31 failed, 22 XFAIL - Milestones 106.1-106.3 ✅)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
