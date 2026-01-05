@@ -1,15 +1,13 @@
-// Test the lodash pattern
-const freeGlobal = typeof global == 'object' && global && global.Object === Object && global;
-console.log("freeGlobal:", freeGlobal);
-console.log("typeof freeGlobal:", typeof freeGlobal);
+// Test that mimics lodash's actual structure more closely
 
-const root = freeGlobal || null;
-console.log("root:", root);
-console.log("typeof root:", typeof root);
+const result = require('./lodash_sim.js');
 
-// Try to set a property on root
-if (root) {
-    console.log("Setting root.test = 42");
-    root.test = 42;
-    console.log("root.test:", root.test);
+console.log('typeof result:', typeof result);
+console.log('typeof result._:', typeof result._);
+console.log('result() call:', result());
+
+if (typeof result._ === 'function') {
+  console.log('SUCCESS: Module exports a function with ._ property');
+} else {
+  console.log('FAIL: Expected result._ to be a function');
 }

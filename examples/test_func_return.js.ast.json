@@ -1,0 +1,482 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 3,
+            "column": 1,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 3,
+          "column": 1,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "[test_func_return] Starting",
+            "line": 3,
+            "column": 13,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 3,
+        "column": 1,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "line": 3,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "makeFunc",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 6,
+                "column": 5,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 6,
+              "column": 5,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "[test_func_return] makeFunc called",
+                "line": 6,
+                "column": 17,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 6,
+            "column": 5,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "line": 6,
+          "column": 5,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        {
+          "kind": "FunctionDeclaration",
+          "name": "inner",
+          "isExported": false,
+          "isDefaultExport": false,
+          "isAsync": false,
+          "isGenerator": false,
+          "typeParameters": [],
+          "returnType": "",
+          "parameters": [],
+          "body": [
+            {
+              "kind": "ExpressionStatement",
+              "expression": {
+                "kind": "CallExpression",
+                "callee": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "console",
+                    "line": 8,
+                    "column": 9,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+                  },
+                  "name": "log",
+                  "isOptional": false,
+                  "line": 8,
+                  "column": 9,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+                },
+                "arguments": [
+                  {
+                    "kind": "StringLiteral",
+                    "value": "[test_func_return] inner called",
+                    "line": 8,
+                    "column": 21,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+                  }
+                ],
+                "typeArguments": [],
+                "isOptional": false,
+                "line": 8,
+                "column": 9,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "line": 8,
+              "column": 9,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            {
+              "kind": "ReturnStatement",
+              "expression": {
+                "kind": "NumericLiteral",
+                "value": 42,
+                "line": 9,
+                "column": 16,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "line": 9,
+              "column": 9,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            }
+          ],
+          "decorators": [],
+          "line": 7,
+          "column": 5,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 11,
+                "column": 5,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 11,
+              "column": 5,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "[test_func_return] returning inner",
+                "line": 11,
+                "column": 17,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 11,
+            "column": 5,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "line": 11,
+          "column": 5,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "Identifier",
+            "name": "inner",
+            "line": 12,
+            "column": 12,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "line": 12,
+          "column": 5,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        }
+      ],
+      "decorators": [],
+      "line": 5,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 15,
+            "column": 1,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 15,
+          "column": 1,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "[test_func_return] Calling makeFunc",
+            "line": 15,
+            "column": 13,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 15,
+        "column": 1,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "line": 15,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "VariableDeclaration",
+      "name": {
+        "kind": "Identifier",
+        "name": "result",
+        "line": 16,
+        "column": 5,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "isExported": false,
+      "type": "",
+      "initializer": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "Identifier",
+          "name": "makeFunc",
+          "line": 16,
+          "column": 14,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "arguments": [],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 16,
+        "column": 14,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "line": 16,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 17,
+            "column": 1,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 17,
+          "column": 1,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "[test_func_return] result type:",
+            "line": 17,
+            "column": 13,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          {
+            "kind": "PrefixUnaryExpression",
+            "operator": "typeof",
+            "operand": {
+              "kind": "Identifier",
+              "name": "result",
+              "line": 17,
+              "column": 55,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            "line": 17,
+            "column": 48,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 17,
+        "column": 1,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "line": 17,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "CallExpression",
+        "callee": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "console",
+            "line": 18,
+            "column": 1,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "name": "log",
+          "isOptional": false,
+          "line": 18,
+          "column": 1,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "arguments": [
+          {
+            "kind": "StringLiteral",
+            "value": "[test_func_return] result value:",
+            "line": 18,
+            "column": 13,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          {
+            "kind": "Identifier",
+            "name": "result",
+            "line": 18,
+            "column": 49,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          }
+        ],
+        "typeArguments": [],
+        "isOptional": false,
+        "line": 18,
+        "column": 1,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "line": 18,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    },
+    {
+      "kind": "IfStatement",
+      "condition": {
+        "kind": "BinaryExpression",
+        "operator": "&&",
+        "left": {
+          "kind": "BinaryExpression",
+          "operator": "!==",
+          "left": {
+            "kind": "PrefixUnaryExpression",
+            "operator": "typeof",
+            "operand": {
+              "kind": "Identifier",
+              "name": "module",
+              "line": 20,
+              "column": 12,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            "line": 20,
+            "column": 5,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "right": {
+            "kind": "StringLiteral",
+            "value": "undefined",
+            "line": 20,
+            "column": 23,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "line": 20,
+          "column": 5,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "right": {
+          "kind": "PropertyAccessExpression",
+          "expression": {
+            "kind": "Identifier",
+            "name": "module",
+            "line": 20,
+            "column": 38,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          },
+          "name": "exports",
+          "isOptional": false,
+          "line": 20,
+          "column": 38,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+        },
+        "line": 20,
+        "column": 5,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "thenStatement": {
+        "kind": "BlockStatement",
+        "body": [
+          {
+            "kind": "ExpressionStatement",
+            "expression": {
+              "kind": "AssignmentExpression",
+              "left": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "module",
+                  "line": 21,
+                  "column": 5,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+                },
+                "name": "exports",
+                "isOptional": false,
+                "line": 21,
+                "column": 5,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "right": {
+                "kind": "Identifier",
+                "name": "result",
+                "line": 21,
+                "column": 22,
+                "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+              },
+              "line": 21,
+              "column": 5,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+            },
+            "line": 21,
+            "column": 5,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+          }
+        ],
+        "line": 20,
+        "column": 54,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+      },
+      "elseStatement": null,
+      "line": 20,
+      "column": 1,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/test_func_return.js"
+    }
+  ]
+}

@@ -2024,7 +2024,7 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
             llvm::Value* res = createCall(undefFt, undefFn.getCallee(), {});
             boxedValues.insert(res);
             return res;
-        } else if ((type && type->kind == TypeKind::Function) || llvm::isa<llvm::Function>(val->stripPointerCasts())) {
+        } else if (llvm::isa<llvm::Function>(val->stripPointerCasts())) {
             llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_function", fnFt);
 
@@ -2798,6 +2798,24 @@ void IRGenerator::emitStoreTsValueFields(llvm::Value* boxedPtr, llvm::Value* typ
 
 llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* keyBoxed) {
     initTsValueType();
+
+    // Some JS lowering paths can temporarily represent `undefined` as a null TsValue*.
+    // Make inline map ops robust by substituting a constant UNDEFINED TsValue for field loads.
+    llvm::GlobalVariable* undefGV = module->getGlobalVariable("__ts_const_undefined_value");
+    if (!undefGV) {
+        auto* init = llvm::Constant::getNullValue(tsValueType); // type=0, union=0
+        undefGV = new llvm::GlobalVariable(
+            *module,
+            tsValueType,
+            /*isConstant*/ true,
+            llvm::GlobalValue::PrivateLinkage,
+            init,
+            "__ts_const_undefined_value");
+    }
+    llvm::Value* undefPtr = undefGV;
+    llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    llvm::Value* keyIsNull = builder->CreateICmpEQ(keyBoxed, nullPtr);
+    llvm::Value* keyBoxedSafe = builder->CreateSelect(keyIsNull, undefPtr, keyBoxed);
     
     // Allocate result on stack
     llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
@@ -2805,8 +2823,8 @@ llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* key
     llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "mapGetResult");
     
     // Load key fields
-    llvm::Value* keyType = emitLoadTsValueType(keyBoxed);
-    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxed);
+    llvm::Value* keyType = emitLoadTsValueType(keyBoxedSafe);
+    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxedSafe);
     
     // Compute hash (simplified - just use keyVal for now, strings need special handling)
     llvm::Value* keyHash = keyVal;  // TODO: proper hash for strings
@@ -2858,12 +2876,31 @@ llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* key
 
 void IRGenerator::emitInlineMapSet(llvm::Value* rawMap, llvm::Value* keyBoxed, llvm::Value* valBoxed) {
     initTsValueType();
+
+    // Make field loads robust to null TsValue* (treated as UNDEFINED).
+    llvm::GlobalVariable* undefGV = module->getGlobalVariable("__ts_const_undefined_value");
+    if (!undefGV) {
+        auto* init = llvm::Constant::getNullValue(tsValueType); // type=0, union=0
+        undefGV = new llvm::GlobalVariable(
+            *module,
+            tsValueType,
+            /*isConstant*/ true,
+            llvm::GlobalValue::PrivateLinkage,
+            init,
+            "__ts_const_undefined_value");
+    }
+    llvm::Value* undefPtr = undefGV;
+    llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    llvm::Value* keyIsNull = builder->CreateICmpEQ(keyBoxed, nullPtr);
+    llvm::Value* valIsNull = builder->CreateICmpEQ(valBoxed, nullPtr);
+    llvm::Value* keyBoxedSafe = builder->CreateSelect(keyIsNull, undefPtr, keyBoxed);
+    llvm::Value* valBoxedSafe = builder->CreateSelect(valIsNull, undefPtr, valBoxed);
     
     // Load key and value fields
-    llvm::Value* keyType = emitLoadTsValueType(keyBoxed);
-    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxed);
-    llvm::Value* valType = emitLoadTsValueType(valBoxed);
-    llvm::Value* valVal = emitLoadTsValueUnion(valBoxed);
+    llvm::Value* keyType = emitLoadTsValueType(keyBoxedSafe);
+    llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxedSafe);
+    llvm::Value* valType = emitLoadTsValueType(valBoxedSafe);
+    llvm::Value* valVal = emitLoadTsValueUnion(valBoxedSafe);
     
     // Compute hash
     llvm::Value* keyHash = keyVal;  // TODO: proper hash

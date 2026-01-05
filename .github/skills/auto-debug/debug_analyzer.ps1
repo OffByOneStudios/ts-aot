@@ -41,11 +41,12 @@ Write-Host "Debugger: $cdbPath" -ForegroundColor Yellow
 Write-Host ""
 
 # CDB commands to execute - stop on first-chance access violation
+# Note: Keep the AV handler short; long output can hit the 30s job timeout.
 $commands = @(
     ".lines"                                                     # Enable source line support
     ".sympath srv*https://msdl.microsoft.com/download/symbols"  # Symbol server
     ".reload"                                                    # Reload symbols
-    "sxe -c `"kP;r;q`" av"                                      # On AV: print stack with lines, regs, quit
+    "sxe -c `"kP;r;ln @rip;u @rip-30 L80;q`" av"                # On AV: stack+regs, symbolize RIP, disassemble around RIP, quit
     "g"                                                          # Run until crash/exit
     "!analyze -v"                                                # Automatic crash analysis
     "lm"                                                         # List modules
