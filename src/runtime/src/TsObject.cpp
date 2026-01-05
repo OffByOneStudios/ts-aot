@@ -1411,19 +1411,22 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // Check if this is actually a TsMap before using map operations
         // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
-        uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 16);
-        if (magic != 0x4D415053) { // TsMap::MAGIC = "MAPS"
+        uint32_t magic16 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 16);
+        uint32_t magic20 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 20);
+        uint32_t magic24 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 24);
+        if (magic16 != 0x4D415053 && magic20 != 0x4D415053 && magic24 != 0x4D415053) { // TsMap::MAGIC = "MAPS"
             // Not a map - return undefined
             return ts_value_make_undefined();
         }
         
-        // Use inline map operations
-        uint64_t hash = (uint64_t)key;
-        int64_t bucket = __ts_map_find_bucket(rawObj, hash, (uint8_t)key->type, key->i_val);
-        if (bucket < 0) return ts_value_make_undefined();
+        // Use TsMap::Get which handles hashing correctly (by string content, not pointer address)
+        TsMap* map = (TsMap*)rawObj;
+        TsValue result = map->Get(*key);
         
-        TsValue result;
-        __ts_map_get_value_at(rawObj, bucket, reinterpret_cast<uint8_t*>(&result.type), &result.i_val);
+        if (result.type == ValueType::UNDEFINED) {
+            return ts_value_make_undefined();
+        }
+        
         TsValue* heapResult = (TsValue*)ts_alloc(sizeof(TsValue));
         *heapResult = result;
         return heapResult;

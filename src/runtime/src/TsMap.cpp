@@ -462,6 +462,16 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
                      uint8_t val_type, int64_t val_val) {
     if (!map) return;
     
+    // Check if this is a boxed TsValue* instead of raw TsMap*
+    // TsValue has type enum (0-10) at offset 0
+    uint8_t firstByte = *(uint8_t*)map;
+    if (firstByte <= 10) {  // Could be a TsValue*
+        TsValue* maybeVal = (TsValue*)map;
+        if ((maybeVal->type == ValueType::OBJECT_PTR || maybeVal->type == ValueType::ARRAY_PTR) && maybeVal->ptr_val) {
+            map = maybeVal->ptr_val;  // Unwrap to get the raw object
+        }
+    }
+    
     // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
