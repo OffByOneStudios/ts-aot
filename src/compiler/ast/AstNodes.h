@@ -162,6 +162,7 @@ struct Node {
     virtual void accept(Visitor* visitor) = 0;
     int line = 0;
     int column = 0;
+    std::string sourceFile;  // Full path to the source file this node came from
     std::vector<std::string> decorators;
 };
 

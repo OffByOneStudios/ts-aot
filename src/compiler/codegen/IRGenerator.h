@@ -40,6 +40,7 @@ private:
     std::unique_ptr<llvm::DIBuilder> diBuilder;
     llvm::DICompileUnit* compileUnit = nullptr;
     std::vector<llvm::DIScope*> debugScopes;
+    std::map<std::string, llvm::DIFile*> diFileCache;  // Cache of DIFile per source file path
 
     std::vector<Specialization> specializations;
     std::shared_ptr<Type> currentReturnType;
@@ -53,6 +54,7 @@ private:
 
     void emitLocation(ast::Node* node);
     llvm::DIType* createDebugType(std::shared_ptr<Type> type);
+    llvm::DIFile* getOrCreateDIFile(const std::string& filePath);  // Get or create DIFile for source file
 
     void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override;
 

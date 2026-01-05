@@ -32,6 +32,10 @@ void setLocation(Node* node, const json& j) {
             }
         } catch (...) {}
     }
+    
+    if (j.contains("sourceFile") && !j["sourceFile"].is_null() && j["sourceFile"].is_string()) {
+        node->sourceFile = j["sourceFile"].get<std::string>();
+    }
 }
 
 std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
