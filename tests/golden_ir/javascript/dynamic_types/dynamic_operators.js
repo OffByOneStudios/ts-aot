@@ -1,6 +1,5 @@
 // RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: JavaScript files not yet supported by compiler
-// CHECK: define {{.*}} @user_main
+// CHECK: define {{.*}} @__ts_module_init
 // CHECK: call {{.*}} @ts_value_sub
 // CHECK: call {{.*}} @ts_value_mul
 // CHECK: call {{.*}} @ts_value_div
@@ -8,11 +7,8 @@
 // OUTPUT: 50
 // OUTPUT: 2
 
-function user_main() {
-    var a = 10;
+var a = 10;
     var b = 5;
     console.log(a - b);
     console.log(a * b);
     console.log(a / b);
-    return 0;
-}

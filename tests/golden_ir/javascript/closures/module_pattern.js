@@ -1,11 +1,9 @@
 // RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: JavaScript files not yet supported by compiler
-// CHECK: define {{.*}} @user_main
+// CHECK: define {{.*}} @__ts_module_init
 // OUTPUT: 42
 // OUTPUT: secret
 
-function user_main() {
-    var myModule = (function() {
+var myModule = (function() {
         var privateVar = "secret";
         return {
             publicMethod: function() { return privateVar; },
@@ -14,5 +12,3 @@ function user_main() {
     })();
     console.log(myModule.publicVar);
     console.log(myModule.publicMethod());
-    return 0;
-}
