@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (90 tests: 37 passing, 31 failed, 22 XFAIL - Milestones 106.1-106.3 ✅)
+**Status:** In Progress (90 tests: 57 passing, 11 failed, 22 XFAIL - Milestones 106.1-106.3 ✅)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -342,93 +342,104 @@ tests/golden_ir/
 
 ## Milestone 106.3: JavaScript Slow Path Tests
 
-**Status:** ✅ Complete (30/30 tests - Restored to .js files with proper parsing)
+**Goal:** Comprehensive coverage of JavaScript code paths with dynamic typing.
+
+**Status:** 🟡 In Progress (30/30 tests created, 20/30 passing - 66.7%)
 
 ### Dynamic Types (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
+**Status:** 10/10 passing ✅
 
-- [x] **Task 106.3.1:** Variable without type annotation ✅ (XFAIL)
+- [x] **Task 106.3.1:** Variable without type annotation ✅
   Test: `javascript/dynamic_types/var_without_type.js`
-  Note: Dynamic typing not fully implemented in runtime
 
-- [x] **Task 106.3.2:** Dynamic addition `a + b` ✅ (XFAIL)
+- [x] **Task 106.3.2:** Dynamic addition `a + b` ✅
   Test: `javascript/dynamic_types/dynamic_addition.js`
 
-- [x] **Task 106.3.3:** Dynamic subtraction/multiply/divide ✅ (XFAIL)
+- [x] **Task 106.3.3:** Dynamic subtraction/multiply/divide ✅
   Test: `javascript/dynamic_types/dynamic_operators.js`
-- [x] **Task 106.3.4:** Type coercion in operators ✅ (XFAIL)
+- [x] **Task 106.3.4:** Type coercion in operators ✅
   Test: `javascript/dynamic_types/type_coercion.js`
 
-- [x] **Task 106.3.5:** Loose equality `==` ✅ (XFAIL)
+- [x] **Task 106.3.5:** Loose equality `==` ✅
   Test: `javascript/dynamic_types/loose_equality.js`
-- [x] **Task 106.3.6:** Strict equality `===` ✅ (XFAIL)
+- [x] **Task 106.3.6:** Strict equality `===` ✅
   Test: `javascript/dynamic_types/strict_equality.js`
 
-- [x] **Task 106.3.7:** typeof operator ✅ (XFAIL)
+- [x] **Task 106.3.7:** typeof operator ✅
   Test: `javascript/dynamic_types/typeof_operator.js`
-- [x] **Task 106.3.8:** Truthiness checks ✅ (XFAIL)
+- [x] **Task 106.3.8:** Truthiness checks ✅
   Test: `javascript/dynamic_types/truthiness.js`
 
-- [x] **Task 106.3.9:** Dynamic comparison `<`, `>` ✅ (XFAIL)
+- [x] **Task 106.3.9:** Dynamic comparison `<`, `>` ✅
   Test: `javascript/dynamic_types/dynamic_comparison.js`
-- [x] **Task 106.3.10:** in operator `'prop' in obj` ✅ (XFAIL)
+- [x] **Task 106.3.10:** in operator `'prop' in obj` ✅
   Test: `javascript/dynamic_types/in_operator.js`
 
 ### Dynamic Property Access (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
+**Status:** 6/10 passing (60%) 🟡 [4 tests need runtime features]
 
-- [x] **Task 106.3.11:** Get property by string ✅ (XFAIL)
+- [x] **Task 106.3.11:** Get property by string ❌
   Test: `javascript/property_access/get_property.js`
+  Note: CHECK pattern not found - needs `ts_object_get_prop`
 
-- [x] **Task 106.3.12:** Set property by string ✅ (XFAIL)
+- [x] **Task 106.3.12:** Set property by string ❌
   Test: `javascript/property_access/set_property.js`
+  Note: CHECK pattern not found - needs `ts_object_set_prop`
 
-- [x] **Task 106.3.13:** Get property by dynamic key ✅ (XFAIL)
+- [x] **Task 106.3.13:** Get property by dynamic key ✅
   Test: `javascript/property_access/dynamic_key.js`
 
-- [x] **Task 106.3.14:** Array access by dynamic index ✅ (XFAIL)
+- [x] **Task 106.3.14:** Array access by dynamic index ✅
   Test: `javascript/property_access/array_dynamic_index.js`
 
-- [x] **Task 106.3.15:** Delete property ✅ (XFAIL)
+- [x] **Task 106.3.15:** Delete property ✅
   Test: `javascript/property_access/delete_property.js`
-- [x] **Task 106.3.16:** Has property check ✅ (XFAIL)
+- [x] **Task 106.3.16:** Has property check ❌
   Test: `javascript/property_access/has_property.js`
-- [x] **Task 106.3.17:** Object.keys() on any type ✅ (XFAIL)
+  Note: Outputs 'undefined' instead of 'true/false'
+- [x] **Task 106.3.17:** Object.keys() on any type ✅
   Test: `javascript/property_access/object_keys_any.js`
-- [x] **Task 106.3.18:** Object.values() on any type ✅ (XFAIL)
+- [x] **Task 106.3.18:** Object.values() on any type ❌
   Test: `javascript/property_access/object_values_any.js`
-- [x] **Task 106.3.19:** For-in loop on any object ✅ (XFAIL)
+  Note: Outputs 'undefined' instead of '3'
+- [x] **Task 106.3.19:** For-in loop on any object ✅
   Test: `javascript/property_access/for_in_loop.js`
-- [x] **Task 106.3.20:** Property chain `obj.a.b.c` ✅ (XFAIL)
+- [x] **Task 106.3.20:** Property chain `obj.a.b.c` ✅
   Test: `javascript/property_access/property_chain.js`
 
 ### Closures & IIFEs (10 tests)
 
-**Status:** 10/10 complete (100%) ✅ [All XFAIL - Runtime features not implemented]
+**Status:** 4/10 passing (40%) 🟡 [6 tests need IIFE support]
 
-- [x] **Task 106.3.21:** IIFE without closure ✅ (XFAIL)
+- [x] **Task 106.3.21:** IIFE without closure ❌
   Test: `javascript/closures/iife_no_closure.js`
+  Note: IIFE pattern needs implementation
 
-- [x] **Task 106.3.22:** IIFE with closure ✅ (XFAIL)
+- [x] **Task 106.3.22:** IIFE with closure ❌
   Test: `javascript/closures/iife_with_closure.js`
-- [x] **Task 106.3.23:** IIFE returning object literal ✅ (XFAIL)
+  Note: IIFE pattern needs implementation
+- [x] **Task 106.3.23:** IIFE returning object literal ❌
   Test: `javascript/closures/iife_object_literal.js`
+  Note: IIFE pattern needs implementation
 
-- [x] **Task 106.3.24:** IIFE with .call(this) ✅ (XFAIL)
+- [x] **Task 106.3.24:** IIFE with .call(this) ❌
   Test: `javascript/closures/iife_with_call.js`
-- [x] **Task 106.3.25:** IIFE with multiple returns ✅ (XFAIL)
+  Note: IIFE pattern needs implementation
+- [x] **Task 106.3.25:** IIFE with multiple returns ❌
   Test: `javascript/closures/iife_multiple_returns.js`
-- [x] **Task 106.3.26:** Nested IIFEs ✅ (XFAIL)
+  Note: IIFE pattern needs implementation
+- [x] **Task 106.3.26:** Nested IIFEs ❌
   Test: `javascript/closures/nested_iifes.js`
-- [x] **Task 106.3.27:** IIFE in while loop ✅ (XFAIL)
+  Note: IIFE pattern needs implementation
+- [x] **Task 106.3.27:** IIFE in while loop ✅
   Test: `javascript/closures/iife_in_loop.js`
-- [x] **Task 106.3.28:** Counter closure pattern ✅ (XFAIL)
+- [x] **Task 106.3.28:** Counter closure pattern ✅
   Test: `javascript/closures/counter_closure.js`
-- [x] **Task 106.3.29:** Module pattern with IIFE ✅ (XFAIL)
+- [x] **Task 106.3.29:** Module pattern with IIFE ✅
   Test: `javascript/closures/module_pattern.js`
-- [x] **Task 106.3.30:** UMD pattern (like lodash) ✅ (XFAIL)
+- [x] **Task 106.3.30:** UMD pattern (like lodash) ✅
   Test: `javascript/closures/umd_pattern.js`
 
 ---
