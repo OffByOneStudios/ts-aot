@@ -1,4 +1,4 @@
-const result = require('./lodash_test_minimal.js');
+const result = require('./test_alloca.js');
 
 console.log('typeof result:', typeof result);
 if (typeof result === 'function') {
@@ -6,4 +6,3 @@ if (typeof result === 'function') {
 } else {
   console.log('❌ FAIL - expected function, got:', typeof result);
 }
-console.log('Done!');

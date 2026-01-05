@@ -1,0 +1,509 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "ExpressionStatement",
+      "expression": {
+        "kind": "ParenthesizedExpression",
+        "expression": {
+          "kind": "CallExpression",
+          "callee": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "FunctionExpression",
+              "name": null,
+              "isAsync": false,
+              "isGenerator": false,
+              "typeParameters": [],
+              "returnType": "",
+              "parameters": [],
+              "body": [
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 3,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 3,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Minimal] Start",
+                        "line": 3,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 3,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "line": 3,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "FunctionDeclaration",
+                  "name": "returnsFunction",
+                  "isExported": false,
+                  "isDefaultExport": false,
+                  "isAsync": false,
+                  "isGenerator": false,
+                  "typeParameters": [],
+                  "returnType": "",
+                  "parameters": [],
+                  "body": [
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console",
+                            "line": 6,
+                            "column": 5,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          "name": "log",
+                          "isOptional": false,
+                          "line": 6,
+                          "column": 5,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "[Minimal] returnsFunction called",
+                            "line": 6,
+                            "column": 17,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 6,
+                        "column": 5,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "line": 6,
+                      "column": 5,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    {
+                      "kind": "FunctionDeclaration",
+                      "name": "inner",
+                      "isExported": false,
+                      "isDefaultExport": false,
+                      "isAsync": false,
+                      "isGenerator": false,
+                      "typeParameters": [],
+                      "returnType": "",
+                      "parameters": [],
+                      "body": [
+                        {
+                          "kind": "ReturnStatement",
+                          "expression": {
+                            "kind": "NumericLiteral",
+                            "value": 42,
+                            "line": 8,
+                            "column": 14,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          "line": 8,
+                          "column": 7,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        }
+                      ],
+                      "decorators": [],
+                      "line": 7,
+                      "column": 5,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    {
+                      "kind": "ExpressionStatement",
+                      "expression": {
+                        "kind": "CallExpression",
+                        "callee": {
+                          "kind": "PropertyAccessExpression",
+                          "expression": {
+                            "kind": "Identifier",
+                            "name": "console",
+                            "line": 10,
+                            "column": 5,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          "name": "log",
+                          "isOptional": false,
+                          "line": 10,
+                          "column": 5,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        },
+                        "arguments": [
+                          {
+                            "kind": "StringLiteral",
+                            "value": "[Minimal] Returning inner, typeof:",
+                            "line": 10,
+                            "column": 17,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          {
+                            "kind": "PrefixUnaryExpression",
+                            "operator": "typeof",
+                            "operand": {
+                              "kind": "Identifier",
+                              "name": "inner",
+                              "line": 10,
+                              "column": 62,
+                              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                            },
+                            "line": 10,
+                            "column": 55,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          }
+                        ],
+                        "typeArguments": [],
+                        "isOptional": false,
+                        "line": 10,
+                        "column": 5,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "line": 10,
+                      "column": 5,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    {
+                      "kind": "ReturnStatement",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "inner",
+                        "line": 11,
+                        "column": 12,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "line": 11,
+                      "column": 5,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    }
+                  ],
+                  "decorators": [],
+                  "line": 5,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 14,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 14,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Minimal] Calling returnsFunction",
+                        "line": 14,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 14,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "line": 14,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "VariableDeclaration",
+                  "name": {
+                    "kind": "Identifier",
+                    "name": "result",
+                    "line": 15,
+                    "column": 7,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "isExported": false,
+                  "type": "",
+                  "initializer": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "Identifier",
+                      "name": "returnsFunction",
+                      "line": 15,
+                      "column": 16,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "arguments": [],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 15,
+                    "column": 16,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "line": 15,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 16,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 16,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Minimal] After call, result type:",
+                        "line": 16,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "typeof",
+                        "operand": {
+                          "kind": "Identifier",
+                          "name": "result",
+                          "line": 16,
+                          "column": 60,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        },
+                        "line": 16,
+                        "column": 53,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 16,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "line": 16,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "ExpressionStatement",
+                  "expression": {
+                    "kind": "CallExpression",
+                    "callee": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "console",
+                        "line": 17,
+                        "column": 3,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "name": "log",
+                      "isOptional": false,
+                      "line": 17,
+                      "column": 3,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "arguments": [
+                      {
+                        "kind": "StringLiteral",
+                        "value": "[Minimal] result value:",
+                        "line": 17,
+                        "column": 15,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      {
+                        "kind": "Identifier",
+                        "name": "result",
+                        "line": 17,
+                        "column": 42,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      }
+                    ],
+                    "typeArguments": [],
+                    "isOptional": false,
+                    "line": 17,
+                    "column": 3,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "line": 17,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                },
+                {
+                  "kind": "IfStatement",
+                  "condition": {
+                    "kind": "BinaryExpression",
+                    "operator": "&&",
+                    "left": {
+                      "kind": "BinaryExpression",
+                      "operator": "!==",
+                      "left": {
+                        "kind": "PrefixUnaryExpression",
+                        "operator": "typeof",
+                        "operand": {
+                          "kind": "Identifier",
+                          "name": "module",
+                          "line": 19,
+                          "column": 14,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        },
+                        "line": 19,
+                        "column": 7,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "right": {
+                        "kind": "StringLiteral",
+                        "value": "undefined",
+                        "line": 19,
+                        "column": 25,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "line": 19,
+                      "column": 7,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "right": {
+                      "kind": "PropertyAccessExpression",
+                      "expression": {
+                        "kind": "Identifier",
+                        "name": "module",
+                        "line": 19,
+                        "column": 40,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      },
+                      "name": "exports",
+                      "isOptional": false,
+                      "line": 19,
+                      "column": 40,
+                      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                    },
+                    "line": 19,
+                    "column": 7,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "thenStatement": {
+                    "kind": "BlockStatement",
+                    "body": [
+                      {
+                        "kind": "ExpressionStatement",
+                        "expression": {
+                          "kind": "AssignmentExpression",
+                          "left": {
+                            "kind": "PropertyAccessExpression",
+                            "expression": {
+                              "kind": "Identifier",
+                              "name": "module",
+                              "line": 20,
+                              "column": 5,
+                              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                            },
+                            "name": "exports",
+                            "isOptional": false,
+                            "line": 20,
+                            "column": 5,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          "right": {
+                            "kind": "Identifier",
+                            "name": "result",
+                            "line": 20,
+                            "column": 22,
+                            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                          },
+                          "line": 20,
+                          "column": 5,
+                          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                        },
+                        "line": 20,
+                        "column": 5,
+                        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                      }
+                    ],
+                    "line": 19,
+                    "column": 56,
+                    "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                  },
+                  "elseStatement": null,
+                  "line": 19,
+                  "column": 3,
+                  "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+                }
+              ],
+              "line": 2,
+              "column": 3,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+            },
+            "name": "call",
+            "isOptional": false,
+            "line": 2,
+            "column": 3,
+            "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+          },
+          "arguments": [
+            {
+              "kind": "Identifier",
+              "name": "this",
+              "line": 22,
+              "column": 8,
+              "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+            }
+          ],
+          "typeArguments": [],
+          "isOptional": false,
+          "line": 2,
+          "column": 3,
+          "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+        },
+        "line": 2,
+        "column": 2,
+        "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+      },
+      "line": 2,
+      "column": 2,
+      "sourceFile": "E:/src/github.com/cgrinker/ts-aoc/examples/lodash_test_minimal.js"
+    }
+  ]
+}

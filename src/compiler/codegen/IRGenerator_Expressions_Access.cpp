@@ -73,7 +73,27 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         }
         
         if (type) {
+            // TEMP DEBUG: Log alloca loads for "result" variable
+            if (node->name == "result") {
+                auto formatStr = builder->CreateGlobalStringPtr("[IR-DEBUG] Loading from alloca %p for 'result'\n");
+                std::vector<llvm::Type*> printfArgs;
+                printfArgs.push_back(builder->getPtrTy());
+                llvm::FunctionType* printfType = llvm::FunctionType::get(builder->getInt32Ty(), printfArgs, true);
+                llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
+                builder->CreateCall(printfFunc, { formatStr, val });
+            }
+            
             lastValue = builder->CreateLoad(type, val, node->name.c_str());
+            
+            // TEMP DEBUG: Log loaded value for "result" variable
+            if (node->name == "result") {
+                auto formatStr2 = builder->CreateGlobalStringPtr("[IR-DEBUG] Loaded value %p from 'result'\n");
+                std::vector<llvm::Type*> printfArgs2;
+                printfArgs2.push_back(builder->getPtrTy());
+                llvm::FunctionType* printfType2 = llvm::FunctionType::get(builder->getInt32Ty(), printfArgs2, true);
+                llvm::FunctionCallee printfFunc2 = module->getOrInsertFunction("printf", printfType2);
+                builder->CreateCall(printfFunc2, { formatStr2, lastValue });
+            }
             
             if (boxedVariables.count(node->name)) {
                 boxedValues.insert(lastValue);
