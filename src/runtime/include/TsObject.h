@@ -146,6 +146,7 @@ extern "C" {
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
     TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index);
     void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
+    void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);  // Handles both arrays and maps
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     

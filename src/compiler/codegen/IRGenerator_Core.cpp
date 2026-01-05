@@ -597,6 +597,16 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
         llvm::Function* currentFunc = builder->GetInsertBlock() ? builder->GetInsertBlock()->getParent() : nullptr;
         bool isInsideFunction = (currentFunc != nullptr);
         
+        // Check if we're in a module init function (__module_init_*)
+        // Module init functions are treated as module-level scope for variable assignment
+        bool isModuleInit = false;
+        if (currentFunc) {
+            std::string funcName = currentFunc->getName().str();
+            if (funcName.find("__module_init_") == 0) {
+                isModuleInit = true;
+            }
+        }
+        
         // Check if this variable is in topLevelVariables (module-scoped)
         bool isTopLevel = false;
         for (const auto& symbol : analyzer->topLevelVariables) {
@@ -606,10 +616,10 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             }
         }
         
-        // Only check for globals if we're NOT inside a function OR the variable is a top-level variable
-        // Inside functions, we should prefer creating locals unless it's explicitly a module-level global
+        // Only check for globals if we're NOT inside a function OR we're in module init with a top-level variable
+        // Inside regular functions, we should prefer creating locals unless it's explicitly a module-level global
         llvm::GlobalVariable* gv = nullptr;
-        if (isTopLevel && !isInsideFunction) {
+        if (isTopLevel && (!isInsideFunction || isModuleInit)) {
             // At module init scope, store to module-specific mangled global
             for (const auto& symbol : analyzer->topLevelVariables) {
                 if (symbol->name == id->name && !symbol->modulePath.empty()) {
@@ -619,7 +629,7 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                     if (gv) break;
                 }
             }
-        } else if (!isInsideFunction) {
+        } else if (!isInsideFunction || isModuleInit) {
             // At module init scope but not a top-level var - check unmangled (e.g., `module`, `exports`)
             gv = module->getGlobalVariable(id->name);
         }
@@ -785,21 +795,6 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                     builder->GetInsertBlock()
                 );
             }
-        }
-        
-        // TEMP DEBUG: Log alloca stores for "result" variable
-        if (id->name == "result" && varPtr->getType()->isPointerTy()) {
-            // Create printf format string
-            auto formatStr = builder->CreateGlobalStringPtr("[IR-DEBUG] Storing %p to alloca %p for 'result'\n");
-            
-            // Get or create printf function
-            std::vector<llvm::Type*> printfArgs;
-            printfArgs.push_back(builder->getPtrTy());
-            llvm::FunctionType* printfType = llvm::FunctionType::get(builder->getInt32Ty(), printfArgs, true);
-            llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
-            
-            // Call printf with value pointer and alloca pointer
-            builder->CreateCall(printfFunc, { formatStr, value, varPtr });
         }
         
         builder->CreateStore(value, varPtr);
@@ -2589,9 +2584,16 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     });
     boxedValues.insert(boxedFunc);
     
-    // Check if we have a hoisted placeholder to update
-    if (namedValues.count(node->name)) {
-        // Update the existing alloca with the real function
+    // Check if this is a cell-based hoisted function
+    if (cellPointers.count(node->name)) {
+        // Store the boxed function INTO the cell using ts_cell_set
+        llvm::Value* cell = cellPointers[node->name];
+        llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee cellSetFn = getRuntimeFunction("ts_cell_set", cellSetFt);
+        createCall(cellSetFt, cellSetFn.getCallee(), { cell, boxedFunc });
+        SPDLOG_INFO("Stored boxed function {} into cell via ts_cell_set", node->name);
+    } else if (namedValues.count(node->name)) {
+        // Update the existing alloca with the real function (non-cell case)
         builder->CreateStore(boxedFunc, namedValues[node->name]);
     } else {
         // No hoisted placeholder, create a new alloca

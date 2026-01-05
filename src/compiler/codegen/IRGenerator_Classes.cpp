@@ -1023,15 +1023,27 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             // Use inline map set operation
             emitInlineMapSet(map, boxedKey, boxedVal);
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
-            auto it = namedValues.find(spa->name);
-            if (it != namedValues.end()) {
-                llvm::Value* val = it->second;
-                llvm::Value* boxedVal = boxValue(val, nullptr); 
-                llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(spa->name) });
-                llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
-                // Use inline map set operation
-                emitInlineMapSet(map, boxedKey, boxedVal);
+            // Shorthand property: { foo } => { foo: foo }
+            // Need to properly visit the identifier to handle cell variables
+            ast::Identifier id;
+            id.name = spa->name;
+            // Try to get inferredType from the namedValues or use Any
+            id.inferredType = std::make_shared<Type>(TypeKind::Any);
+            visitIdentifier(&id);
+            
+            // The value from visitIdentifier is already boxed if it came from a cell
+            llvm::Value* val = lastValue;
+            llvm::Value* boxedVal = val;
+            
+            // Only box if not already boxed
+            if (!boxedValues.count(val)) {
+                boxedVal = boxValue(val, std::make_shared<Type>(TypeKind::Any));
             }
+            
+            llvm::Value* keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(spa->name) });
+            llvm::Value* boxedKey = boxValue(keyStr, std::make_shared<Type>(TypeKind::String));
+            // Use inline map set operation
+            emitInlineMapSet(map, boxedKey, boxedVal);
         } else if (auto method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
             visitMethodDefinition(method);
             llvm::Value* val = lastValue; // This is already boxed by visitMethodDefinition

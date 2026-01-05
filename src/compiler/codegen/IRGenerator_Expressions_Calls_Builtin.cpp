@@ -19,7 +19,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_array_pop", {true}, true);  // arr -> boxed
     bp.registerRuntimeApi("ts_array_shift", {true}, true);
     bp.registerRuntimeApi("ts_array_unshift", {true, true}, false);  // arr, value -> length
-    bp.registerRuntimeApi("ts_array_slice", {true, false, false}, true);  // arr, start, end
+    bp.registerRuntimeApi("ts_array_slice", {true, false, false}, false);  // arr, start, end -> raw TsArray*
     bp.registerRuntimeApi("ts_array_join", {true, false}, false);  // arr, separator -> string
     bp.registerRuntimeApi("ts_array_indexOf", {true, true, false}, false);  // arr, value, fromIndex -> int
     bp.registerRuntimeApi("ts_array_flat", {true, false}, true);  // arr, depth

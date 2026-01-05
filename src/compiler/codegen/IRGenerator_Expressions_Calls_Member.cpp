@@ -58,22 +58,29 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         llvm::Value* objPtr = lastValue;
         emitNullCheckForExpression(prop->expression.get(), objPtr);
         
-        // Ensure the object is boxed
-        llvm::Value* boxedObj = boxValue(objPtr, prop->expression->inferredType);
-        
+        // Get the method from the object using ts_object_get_property
         llvm::Value* propNameStr = builder->CreateGlobalStringPtr(prop->name);
-        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
-        llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
-        propName = boxValue(propName, std::make_shared<Type>(TypeKind::String));
-
+        llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_object_get_property", getPropFt);
+        
+        // ts_object_get_property expects raw object pointer (not boxed) and raw string
+        llvm::Value* rawObj = objPtr;
+        if (boxedValues.count(objPtr)) {
+            // Call ts_value_get_object to unbox
+            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+            rawObj = createCall(getObjFt, getObjFn.getCallee(), { objPtr });
+        }
+        
+        llvm::Value* methodValue = createCall(getPropFt, getPropFn.getCallee(), { rawObj, propNameStr });
+        boxedValues.insert(methodValue);  // ts_object_get_property returns TsValue*
+        
+        // Now call the method using ts_call_N
         std::vector<llvm::Value*> args;
-        args.push_back(boxedObj);
-        args.push_back(propName);
+        args.push_back(methodValue);  // boxed function
         
         std::vector<llvm::Type*> paramTypes;
-        paramTypes.push_back(builder->getPtrTy()); // obj
-        paramTypes.push_back(builder->getPtrTy()); // key
+        paramTypes.push_back(builder->getPtrTy()); // boxed func
         
         for (auto& arg : node->arguments) {
             visit(arg.get());
@@ -81,7 +88,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             paramTypes.push_back(builder->getPtrTy());
         }
         
-        std::string fnName = "ts_method_call_" + std::to_string(node->arguments.size());
+        std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
         llvm::FunctionCallee fn = getRuntimeFunction(fnName, ft);
         

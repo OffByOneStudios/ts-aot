@@ -2004,26 +2004,54 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
 // This implements the hoisting semantics where function declarations are accessible
 // throughout their containing scope, even before the declaration appears textually.
 // 
-// Two-phase approach:
-// Phase 1: Create allocas for all function names and initialize to null (this function)
-// Phase 2: The actual function bodies are generated during normal statement processing
+// JavaScript function hoisting semantics require that the entire function (body and all)
+// is hoisted to the top of the scope. This means functions declared later in the source
+// must be callable from earlier code.
+//
+// CELL-BASED HOISTING: To handle mutual recursion and forward references, we use cells.
+// Each hoisted function gets a cell (GC-allocated pointer slot). When a function captures
+// another hoisted function, it captures the cell pointer (stable). When the function
+// declaration is visited, we store the boxed function INTO the cell. At call time,
+// we load from the cell to get the actual function.
 void IRGenerator::hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn) {
+    // Collect all function declarations first
+    std::vector<ast::FunctionDeclaration*> funcDecls;
     for (auto& stmt : stmts) {
         if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-            if (funcDecl->name.empty()) continue;
-            
-            // Skip if already registered
-            if (namedValues.count(funcDecl->name)) {
-                continue;
+            if (!funcDecl->name.empty() && !namedValues.count(funcDecl->name)) {
+                funcDecls.push_back(funcDecl);
             }
-            
-            // Phase 1: Just create an alloca and initialize to null
-            // The actual function will be generated during normal body processing
-            llvm::AllocaInst* alloca = createEntryBlockAlloca(enclosingFn, funcDecl->name, builder->getPtrTy());
-            builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), alloca);
-            namedValues[funcDecl->name] = alloca;
-            boxedVariables.insert(funcDecl->name);
         }
+    }
+    
+    if (funcDecls.empty()) return;
+    
+    // Allocate cells and create allocas for all hoisted functions
+    // Using cells allows forward references: we capture the cell pointer (stable),
+    // and when the function is visited later, we store the boxed function into the cell.
+    // Use ts_cell_create which creates a TsCell struct (compatible with ts_cell_get/set)
+    llvm::FunctionType* cellCreateFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee cellCreateFn = getRuntimeFunction("ts_cell_create", cellCreateFt);
+    
+    for (auto* funcDecl : funcDecls) {
+        // Create a cell initialized with undefined (null)
+        llvm::Value* cell = createCall(cellCreateFt, cellCreateFn.getCallee(), { 
+            llvm::ConstantPointerNull::get(builder->getPtrTy())
+        });
+        
+        // Create alloca to hold the cell pointer
+        llvm::AllocaInst* alloca = createEntryBlockAlloca(enclosingFn, funcDecl->name, builder->getPtrTy());
+        builder->CreateStore(cell, alloca);
+        namedValues[funcDecl->name] = alloca;
+        
+        // Mark as cell variable so closures capture the cell pointer, not the value
+        cellVariables.insert(funcDecl->name);
+        cellPointers[funcDecl->name] = cell;
+        
+        // Also mark as boxed (the value inside the cell is a boxed function)
+        boxedVariables.insert(funcDecl->name);
+        
+        SPDLOG_INFO("Hoisted function {} with cell at {:p}", funcDecl->name, (void*)cell);
     }
 }
 
