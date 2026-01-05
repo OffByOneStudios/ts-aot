@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (26 tests: 23 passing, 3 XFAIL - Milestone 106.2 ongoing)
+**Status:** In Progress (33 tests: 29 passing, 4 XFAIL - Milestone 106.2 ongoing)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -118,11 +118,11 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of TypeScript features with typed optimizations.
 
-**Status:** 20/60 complete
+**Status:** 27/60 complete (45%)
 
-**Status:** 1/20 complete
+### Arrays (20 tests)
 
-**Status:** 6/20 complete
+**Status:** 11/20 complete (55%)
 
 - [x] **Task 106.2.1:** Array literal creation ✅
   ```typescript
@@ -152,8 +152,9 @@ tests/golden_ir/
 
 - [x] **Task 106.2.5**: Array element access `arr[0]`, `arr[1]` (simplified from destructuring - CHECK: `ts_array_create_specialized`)
 - [x] **Task 106.2.6**: Array spread operator (CHECK: `ts_array_concat`)
-- [ ] **Task 106.2.7:** Array.includes() with primitives
-- [ ] **Task 106.2.8:** Array.indexOf() optimization
+- [ ] **Task 106.2.7:** Array.includes() with primitives (XFAIL in regression/)
+- [x] **Task 106.2.8:** Array.indexOf() optimization ✅
+  Test: `typescript/arrays/array_indexof.ts`
 - [ ] **Task 106.2.9:** Array.slice() with bounds
 - [ ] **Task 106.2.10:** Array.concat() multiple arrays
 - [ ] **Task 106.2.11:** for-of loop specialized access
@@ -177,7 +178,7 @@ tests/golden_ir/
 
 ### Objects (15 tests)
 
-**Status:** 2/15 complete
+**Status:** 8/15 complete (53%)
 
 - [x] **Task 106.2.21:** Object literal creation ✅
   ```typescript
@@ -200,26 +201,26 @@ tests/golden_ir/
 - [x] **Task 106.2.24:** Object computed property access (CHECK: `ts_object_get_dynamic`, `ts_map_create`)
 - [ ] **Task 106.2.25:** Object spread `{ ...obj }`
 - [ ] **Task 106.2.26:** Object destructuring `{ a, b } = obj`
-- [x] **Task 106.2.27:** Object.keys() iteration (CHECK: `ts_object_keys`)
-- [ ] **Task 106.2.28:** Object.values() typed return
+- [x] **Task 106.2.27:** Object.keys() iteration ✅
+  Test: `typescript/objects/object_keys.ts`
+- [x] **Task 106.2.28:** Object.values() typed return ✅
+  Test: `typescript/objects/object_values.ts`
 - [ ] **Task 106.2.29:** Object.entries() tuples
 - [ ] **Task 106.2.30:** Object.assign() merge
 - [ ] **Task 106.2.31:** Optional chaining `obj?.prop`
 - [ ] **Task 106.2.32:** Nullish coalescing `obj.prop ?? default`
-- [ ] **Task 106.2.33:** Shorthand property `{ x }` from variable
-  ```typescript
-  // CHECK: call {{.*}} @visitIdentifier
-  // CHECK: call {{.*}} @__ts_map_set_at
-  const x = 42;
-  const obj = { x };
-  ```
-- [ ] **Task 106.2.34:** Method shorthand `{ foo() {} }`
+- [x] **Task 106.2.33:** Shorthand property `{ x }` from variable ✅
+  Test: `typescript/objects/object_shorthand_property.ts`
+- [x] **Task 106.2.34:** Method shorthand `{ foo() {} }` ✅ (XFAIL)
+  Test: `typescript/objects/method_shorthand.ts`
+  Note: Currently returns undefined instead of function result
 - [ ] **Task 106.2.35:** Getter/setter properties
 **Status:** 2/15 complete
 
 
 ### Functions (15 tests)
-**Status:** 4/15 complete
+
+**Status:** 6/15 complete (40%)
 
 - [x] **Task 106.2.36:** Named function definition ✅
   Test: `typescript/functions/named_function.ts`
@@ -244,7 +245,8 @@ tests/golden_ir/
   return () => ++count;
   ```
 
-- [ ] **Task 106.2.40:** Nested closures (3 levels)
+- [x] **Task 106.2.40:** Nested closures (3 levels) ✅
+  Test: `typescript/functions/nested_closures.ts`
 - [x] **Task 106.2.41:** Function with default parameters (CHECK: `icmp eq`)
 - [ ] **Task 106.2.42:** Function with rest parameters `...args`
 - [ ] **Task 106.2.43:** Function with destructured parameters
@@ -273,7 +275,7 @@ tests/golden_ir/
 
 ### Control Flow (10 tests)
 
-**Status:** 1/10 complete
+**Status:** 6/10 complete (60%)
 
 - [x] **Task 106.2.51:** If-else optimization ✅
   ```typescript
@@ -292,7 +294,10 @@ tests/golden_ir/
 
 - [x] **Task 106.2.52:** While loop ✅
   Test: `typescript/control_flow/while_loop.ts`
-- [x] **Task 106.2.54:** Switch statement (CHECK: `switch i64`, `br label`)
+- [x] **Task 106.2.53:** For loop with break ✅
+  Test: `typescript/control_flow/for_loop_break.ts`
+- [x] **Task 106.2.54:** Switch statement ✅
+  Test: `typescript/control_flow/switch_statement.ts`
 - [ ] **Task 106.2.59:** Return in nested blocks
 - [x] **Task 106.2.60:** Ternary operator (CHECK: `icmp`, `select`)
 
@@ -418,7 +423,7 @@ tests/golden_ir/
 ## Milestone 106.4: Edge Cases & Regression Tests
 
 **Goal:** Capture specific bugs that have occurred and ensure they don't regress.
-**Status:** 5/10 complete
+**Status:** 6/10 complete
 
 - [x] **Task 106.4.1:** Function in object property (Issue #11) ✅
   ```typescript
@@ -467,7 +472,14 @@ tests/golden_ir/
   ```
   Test: `typescript/regression/array_includes.ts`
 
-- [ ] **Task 106.4.6:** Cell variable in object shorthand
+- [x] **Task 106.4.6:** Method shorthand returns undefined ✅
+  ```typescript
+  // XFAIL: Method shorthand returns undefined instead of function result
+  const obj = { getValue() { return 42; } };
+  console.log(obj.getValue()); // prints undefined
+  ```
+  Test: `typescript/objects/method_shorthand.ts`
+- [ ] **Task 106.4.7:** Cell variable in object shorthand
 - [ ] **Task 106.4.7:** Generic array push boxing
 - [ ] **Task 106.4.8:** Boolean-typed pointer to emitToBoolean
 - [ ] **Task 106.4.9:** Set<T> for-of element access
