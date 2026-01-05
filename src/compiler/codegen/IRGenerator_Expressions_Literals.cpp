@@ -35,11 +35,17 @@ void IRGenerator::visitBooleanLiteral(ast::BooleanLiteral* node) {
 }
 
 void IRGenerator::visitNullLiteral(ast::NullLiteral* node) {
-    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    // Create a proper TsValue with type=NULL_VALUE (not a null pointer!)
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_null", ft);
+    lastValue = createCall(ft, fn.getCallee(), {});
 }
 
 void IRGenerator::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
-    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    // Create a proper TsValue with type=UNDEFINED (not a null pointer!)
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_undefined", ft);
+    lastValue = createCall(ft, fn.getCallee(), {});
 }
 
 void IRGenerator::visitStringLiteral(ast::StringLiteral* node) {
