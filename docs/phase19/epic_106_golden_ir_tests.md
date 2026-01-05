@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (19 tests, 100% passing - Milestone 106.2 ongoing)
+**Status:** In Progress (23 tests, 100% passing - Milestone 106.2 ongoing)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -104,7 +104,7 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of TypeScript features with typed optimizations.
 
-**Status:** 16/60 complete
+**Status:** 20/60 complete
 
 **Status:** 1/20 complete
 
@@ -186,7 +186,7 @@ tests/golden_ir/
 - [x] **Task 106.2.24:** Object computed property access (CHECK: `ts_object_get_dynamic`, `ts_map_create`)
 - [ ] **Task 106.2.25:** Object spread `{ ...obj }`
 - [ ] **Task 106.2.26:** Object destructuring `{ a, b } = obj`
-- [ ] **Task 106.2.27:** Object.keys() iteration
+- [x] **Task 106.2.27:** Object.keys() iteration (CHECK: `ts_object_keys`)
 - [ ] **Task 106.2.28:** Object.values() typed return
 - [ ] **Task 106.2.29:** Object.entries() tuples
 - [ ] **Task 106.2.30:** Object.assign() merge
@@ -231,7 +231,7 @@ tests/golden_ir/
   ```
 
 - [ ] **Task 106.2.40:** Nested closures (3 levels)
-- [ ] **Task 106.2.41:** Function with default parameters
+- [x] **Task 106.2.41:** Function with default parameters (CHECK: `icmp eq`)
 - [ ] **Task 106.2.42:** Function with rest parameters `...args`
 - [ ] **Task 106.2.43:** Function with destructured parameters
 - [ ] **Task 106.2.44:** Function return type inference
@@ -278,9 +278,9 @@ tests/golden_ir/
 
 - [x] **Task 106.2.52:** While loop ✅
   Test: `typescript/control_flow/while_loop.ts`
-inue in loops
+- [x] **Task 106.2.54:** Switch statement (CHECK: `switch i64`, `br label`)
 - [ ] **Task 106.2.59:** Return in nested blocks
-- [ ] **Task 106.2.60:** Ternary operator `cond ? a : b`
+- [x] **Task 106.2.60:** Ternary operator (CHECK: `icmp`, `select`)
 
 ---
 
