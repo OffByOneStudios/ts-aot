@@ -66,6 +66,7 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
             auto sym = std::make_shared<Symbol>();
             sym->name = id->name;
             sym->type = type;  // Now uses the correctly inferred type
+            sym->modulePath = currentModule ? currentModule->path : "";
             topLevelVariables.push_back(sym);
         }
     }
