@@ -40,9 +40,13 @@ void Analyzer::visitBinaryExpression(ast::BinaryExpression* node) {
 
     // Simple type inference for binary ops
     if (node->op == "==" || node->op == "===" || node->op == "!=" || node->op == "!==" ||
-        node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=" ||
-        node->op == "&&" || node->op == "||") {
+        node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=") {
         lastType = std::make_shared<Type>(TypeKind::Boolean);
+    } else if (node->op == "&&" || node->op == "||") {
+        // JavaScript && and || return the actual value, not a boolean!
+        // The type is the union of both operand types, but we simplify to Any
+        // to handle the dynamic nature of these operators correctly.
+        lastType = std::make_shared<Type>(TypeKind::Any);
     } else if (node->op == "|" || node->op == "&" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>") {
         lastType = std::make_shared<Type>(TypeKind::Int);
     } else if (leftType && rightType) {

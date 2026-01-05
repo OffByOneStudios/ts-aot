@@ -450,8 +450,49 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
         
-        // Types must match for strict equality
-        if (lhsVal.type != rhsVal.type) return false;
+        // Types must match for strict equality, EXCEPT for FUNCTION_PTR vs OBJECT_PTR
+        // which can both represent the same underlying function
+        bool bothFunctionLike = (lhsVal.type == ValueType::FUNCTION_PTR || lhsVal.type == ValueType::OBJECT_PTR) &&
+                                (rhsVal.type == ValueType::FUNCTION_PTR || rhsVal.type == ValueType::OBJECT_PTR);
+        if (lhsVal.type != rhsVal.type && !bothFunctionLike) return false;
+        
+        // For function-like types with mismatched wrapper types, compare underlying pointers
+        if (lhsVal.type != rhsVal.type && bothFunctionLike) {
+            // Check if both point to the same underlying object/function
+            void* lhsPtr = lhsVal.ptr_val;
+            void* rhsPtr = rhsVal.ptr_val;
+            
+            // Handle double-boxing: OBJECT_PTR might point to a TsValue with FUNCTION_PTR type
+            if (lhsVal.type == ValueType::OBJECT_PTR && lhsPtr) {
+                // Check if ptr_val is itself a TsValue (check type field <= 10)
+                uint8_t innerType = *(uint8_t*)lhsPtr;
+                if (innerType <= 10) {
+                    TsValue* innerVal = (TsValue*)lhsPtr;
+                    lhsPtr = innerVal->ptr_val;
+                }
+            }
+            if (rhsVal.type == ValueType::OBJECT_PTR && rhsPtr) {
+                uint8_t innerType = *(uint8_t*)rhsPtr;
+                if (innerType <= 10) {
+                    TsValue* innerVal = (TsValue*)rhsPtr;
+                    rhsPtr = innerVal->ptr_val;
+                }
+            }
+            
+            // Now check if both are TsFunctions and compare funcPtr
+            if (lhsPtr && rhsPtr) {
+                uint32_t lhsMagic = *(uint32_t*)lhsPtr;
+                uint32_t rhsMagic = *(uint32_t*)rhsPtr;
+                if (lhsMagic == 0x46554E43 && rhsMagic == 0x46554E43) {
+                    TsFunction* lhsFunc = (TsFunction*)lhsPtr;
+                    TsFunction* rhsFunc = (TsFunction*)rhsPtr;
+                    return lhsFunc->funcPtr == rhsFunc->funcPtr;
+                }
+            }
+            
+            // Fall through to pointer comparison
+            return lhsPtr == rhsPtr;
+        }
         
         switch (lhsVal.type) {
             case ValueType::UNDEFINED: return true;
@@ -476,7 +517,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 return std::strcmp(b1->ToString(), b2->ToString()) == 0;
             }
             // For objects/arrays/etc, strict equality compares identity (same pointer)
-            default: return lhsVal.ptr_val == rhsVal.ptr_val;
+            default:
+                return lhsVal.ptr_val == rhsVal.ptr_val;
         }
     }
 

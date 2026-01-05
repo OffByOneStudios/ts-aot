@@ -42,9 +42,10 @@ Write-Host ""
 
 # CDB commands to execute - stop on first-chance access violation
 $commands = @(
+    ".lines"                                                     # Enable source line support
     ".sympath srv*https://msdl.microsoft.com/download/symbols"  # Symbol server
     ".reload"                                                    # Reload symbols
-    "sxe -c `"kb 50;r;q`" av"                                   # On AV: print stack, regs, quit
+    "sxe -c `"kP;r;q`" av"                                      # On AV: print stack with lines, regs, quit
     "g"                                                          # Run until crash/exit
     "!analyze -v"                                                # Automatic crash analysis
     "lm"                                                         # List modules

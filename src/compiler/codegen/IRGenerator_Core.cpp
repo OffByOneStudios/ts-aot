@@ -575,6 +575,21 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
     if (auto id = dynamic_cast<ast::Identifier*>(pattern)) {
         bool isGlobal = false;
         if (auto gv = module->getGlobalVariable(id->name)) {
+            // Handle type mismatch between boxed value and global variable type
+            llvm::Type* gvType = gv->getValueType();
+            if (value->getType() != gvType) {
+                if (gvType->isPointerTy() && !value->getType()->isPointerTy()) {
+                    // Global is ptr but value is primitive - box it
+                    value = boxValue(value, type);
+                } else if (!gvType->isPointerTy() && value->getType()->isPointerTy()) {
+                    // Global is primitive but value is boxed - unbox it
+                    value = unboxValue(value, type);
+                } else {
+                    // Other type mismatch - cast it
+                    value = castValue(value, gvType);
+                }
+            }
+            
             builder->CreateStore(value, gv);
             
             if (boxedValues.count(value)) {
