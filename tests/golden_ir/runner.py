@@ -193,6 +193,10 @@ class GoldenIRRunner:
             test.run_command, test.file_path, temp_dir
         )
 
+        # Debug: Print the expanded command
+        if self.show_details:
+            print(color_text(f"  Expanded command: {expanded_cmd}", Colors.YELLOW))
+
         # Split on && to get separate commands
         commands = [cmd.strip() for cmd in expanded_cmd.split('&&')]
 
@@ -219,10 +223,15 @@ class GoldenIRRunner:
                     ir_output = result.stdout + result.stderr
 
                     if result.returncode != 0:
+                        error_msg = f"Compilation failed with exit code {result.returncode}"
+                        if result.stderr:
+                            error_msg += f"\nStderr: {result.stderr[:500]}"
+                        if self.show_details:
+                            print(color_text(f"  Debug: stdout len={len(result.stdout)}, stderr len={len(result.stderr)}", Colors.YELLOW))
                         return TestResult(
                             success=False,
                             stage='Compilation',
-                            error=f"Compilation failed with exit code {result.returncode}",
+                            error=error_msg,
                             ir_output=ir_output
                         )
 

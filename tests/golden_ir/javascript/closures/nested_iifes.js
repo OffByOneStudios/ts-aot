@@ -1,5 +1,5 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @__ts_module_init
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
+// CHECK: define {{.*}} @__module_init_{{.*}}_any
 // OUTPUT: 15
 
 var result = (function() {
