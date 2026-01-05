@@ -1,0 +1,11 @@
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
+// XFAIL: Array.every() returns false even when all elements match
+// CHECK: define
+// CHECK: ts_array_create_specialized
+// OUTPUT: true
+// OUTPUT: false
+
+const arr1 = [2, 4, 6, 8];
+const arr2 = [1, 2, 3, 4];
+console.log(arr1.every(x => x % 2 === 0));
+console.log(arr2.every(x => x % 2 === 0));
