@@ -509,6 +509,18 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
         if (keyUtf8 && std::strcmp(keyUtf8, "exports") == 0) {
             std::printf("[__ts_map_set_at] module.exports write: val_type=%d val_val=%p\n",
                         (int)val_type, (void*)val_val);
+            // TEMP DEBUG: Log stack trace context
+            std::printf("[__ts_map_set_at]   map=%p key_hash=%llx\n", map, (unsigned long long)key_hash);
+        }
+    }
+    
+    // TEMP: Log ALL writes to "exports" key
+    if (key_type == (uint8_t)ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)key_val;
+        const char* keyUtf8 = keyStr ? keyStr->ToUtf8() : nullptr;
+        if (keyUtf8 && std::strcmp(keyUtf8, "exports") == 0) {
+            std::printf("[__ts_map_set_at TEMP] ANY exports write: val_type=%d val_val=%p map=%p\n",
+                        (int)val_type, (void*)val_val, map);
         }
     }
     

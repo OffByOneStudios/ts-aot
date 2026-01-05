@@ -734,6 +734,22 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
                 );
             }
         }
+        
+        // TEMP DEBUG: Log alloca stores for "result" variable
+        if (id->name == "result" && varPtr->getType()->isPointerTy()) {
+            // Create printf format string
+            auto formatStr = builder->CreateGlobalStringPtr("[IR-DEBUG] Storing %p to alloca %p for 'result'\n");
+            
+            // Get or create printf function
+            std::vector<llvm::Type*> printfArgs;
+            printfArgs.push_back(builder->getPtrTy());
+            llvm::FunctionType* printfType = llvm::FunctionType::get(builder->getInt32Ty(), printfArgs, true);
+            llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
+            
+            // Call printf with value pointer and alloca pointer
+            builder->CreateCall(printfFunc, { formatStr, value, varPtr });
+        }
+        
         builder->CreateStore(value, varPtr);
 
         // Store the TS type for this variable (used for closure capture)

@@ -930,12 +930,29 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) return ts_value_make_undefined();
+        if (!func) {
+            std::printf("[ts_call_0] func extraction failed, returning undefined\n");
+            return ts_value_make_undefined();
+        }
         if (func->type == FunctionType::NATIVE) {
-            return ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
+            auto result = ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
+            // TEMP DEBUG
+            std::printf("[ts_call_0] NATIVE call returned: ptr=%p type=%d\n", 
+                        result, result ? (int)result->type : -1);
+            if (result && result->type == ValueType::FUNCTION_PTR) {
+                std::printf("[ts_call_0]   -> function ptr_val=%p\n", result->ptr_val);
+            }
+            return result;
         } else {
             typedef TsValue* (*Fn0)(void*);
-            return ((Fn0)func->funcPtr)(func->context);
+            auto result = ((Fn0)func->funcPtr)(func->context);
+            // TEMP DEBUG
+            std::printf("[ts_call_0] AOT call returned: ptr=%p type=%d\n",
+                        result, result ? (int)result->type : -1);
+            if (result && result->type == ValueType::FUNCTION_PTR) {
+                std::printf("[ts_call_0]   -> function ptr_val=%p\n", result->ptr_val);
+            }
+            return result;
         }
     }
 
@@ -1397,6 +1414,16 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsString* ts_value_typeof(TsValue* v) {
+        // TEMP DEBUG
+        std::printf("[ts_value_typeof] called with ptr=%p\n", v);
+        if (v) {
+            uint8_t typeField = *(uint8_t*)v;
+            std::printf("[ts_value_typeof]   typeField=%d type=%d\n", typeField, typeField <= 10 ? (int)v->type : -1);
+            if (typeField <= 10 && v->type == ValueType::FUNCTION_PTR) {
+                std::printf("[ts_value_typeof]   -> FUNCTION ptr_val=%p\n", v->ptr_val);
+            }
+        }
+        
         if (!v) return TsString::Create("undefined");
 
         // Check type field first - if in valid range (0-10), trust it
@@ -2072,6 +2099,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Keep logs targeted to avoid noise.
         const bool debugModuleExports =
             (pathStr.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
+            (pathStr.find("lodash_test_minimal.js") != std::string::npos) ||
             (pathStr.find("test_umdsim.ts") != std::string::npos);
         if (debugModuleExports) {
             if (exports && exports->type == ValueType::OBJECT_PTR) {
