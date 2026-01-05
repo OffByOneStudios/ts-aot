@@ -1,11 +1,7 @@
 // RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: JavaScript files not yet supported by compiler
-// CHECK: define {{.*}} @user_main
+// CHECK: define {{.*}} @__ts_module_init
 // OUTPUT: 42
 
-function user_main() {
-    var obj = { value: 42 };
+var obj = { value: 42 };
     var result = (function() { return this.value; }).call(obj);
     console.log(result);
-    return 0;
-}

@@ -1,10 +1,8 @@
 // RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: JavaScript files not yet supported by compiler
-// CHECK: define {{.*}} @user_main
+// CHECK: define {{.*}} @__ts_module_init
 // OUTPUT: 42
 
-function user_main() {
-    var myLib = (function(global, factory) {
+var myLib = (function(global, factory) {
         if (typeof module === 'object') {
             module.exports = factory();
         } else {
@@ -14,5 +12,3 @@ function user_main() {
         return { version: 42 };
     });
     console.log(myLib.version);
-    return 0;
-}
