@@ -225,7 +225,15 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
         
         if (!function->getReturnType()->isVoidTy()) {
             currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", function->getReturnType());
-            builder->CreateStore(llvm::Constant::getNullValue(function->getReturnType()), currentReturnValueAlloca);
+            // Initialize return value to undefined (not null) for functions returning TsValue*
+            if (function->getReturnType()->isPointerTy()) {
+                llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
+                llvm::Value* undefVal = createCall(undefFt, undefFn.getCallee(), {});
+                builder->CreateStore(undefVal, currentReturnValueAlloca);
+            } else {
+                builder->CreateStore(llvm::Constant::getNullValue(function->getReturnType()), currentReturnValueAlloca);
+            }
         } else {
             currentReturnValueAlloca = nullptr;
         }
@@ -1026,7 +1034,13 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
     currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
     currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", builder->getPtrTy());
-    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
+    // Initialize return value to undefined (not null) to avoid null pointer crashes
+    {
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* undefVal = createCall(undefFt, undefFn.getCallee(), {});
+        builder->CreateStore(undefVal, currentReturnValueAlloca);
+    }
     
     auto argIt = function->arg_begin();
     llvm::Value* contextArg = nullptr;
@@ -1467,7 +1481,13 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     currentBreakTargetAlloca = createEntryBlockAlloca(function, "breakTarget", builder->getPtrTy());
     currentContinueTargetAlloca = createEntryBlockAlloca(function, "continueTarget", builder->getPtrTy());
     currentReturnValueAlloca = createEntryBlockAlloca(function, "returnValue", builder->getPtrTy());
-    builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), currentReturnValueAlloca);
+    // Initialize return value to undefined (not null) to avoid null pointer crashes
+    {
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* undefVal = createCall(undefFt, undefFn.getCallee(), {});
+        builder->CreateStore(undefVal, currentReturnValueAlloca);
+    }
     
     auto argIt = function->arg_begin();
     llvm::Value* contextArg = nullptr;

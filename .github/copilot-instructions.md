@@ -22,7 +22,10 @@ Automatically analyzes crashes using CDB debugger. Extracts stack traces, except
 .\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
 ```
 
-**When to suggest:**
+**⚠️ MANDATORY:** Always use this skill for crash analysis. **NEVER** invoke `cdb` directly - always use the skill script which handles paths and output parsing correctly.
+
+**When to use:**
+- **ANY** crash or access violation
 - User reports a crash without clear cause
 - Debugging lodash or complex executables
 - Need automated crash analysis
@@ -108,13 +111,17 @@ Follow this cycle for all development tasks:
 3.  **Plan:** If the Epic is incomplete, help the user flesh out Milestones and Action Items.
 4.  **Pick:** Identify the next unchecked Action Item.
 4.  **Implement:** Write the code, ensuring it compiles and follows the Technical Constraints.
-5.  **Verify:**
-    *   Run `cmake --build build` to ensure the compiler and runtime are up to date.
+5.  **Build:** 
+    *   **ALWAYS build ALL targets:** `cmake --build build --config Release`
+    *   This builds both the compiler AND runtime. Never skip this step.
+    *   **Stop** if the build fails and fix it before proceeding.
+6.  **Verify:**
     *   Run the compiler directly: `build/src/compiler/Release/ts-aot.exe examples/your_test.ts -o examples/your_test.exe`.
     *   **Debug types:** Use `--dump-types` flag to see inferred types.
+    *   **Debug crashes:** Use the auto-debug skill: `.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe`
     *   **Performance Testing:** Performance regression guards MUST be run against Release builds.
     *   **Regression Guard:** Use `// CHECK:` for IR verification and `// TYPE-CHECK:` for type inference snapshots in the `.ts` file footer.
-    *   **Stop** if the build or verification fails and fix it.
-6.  **Commit:** Run `git add .` and `git commit` with a descriptive message referencing the task.
-7.  **Update:** Check off `[x]` the completed task in the Epic markdown file.
-8.  **Loop:** Report completion to the user and ask to proceed to the next Action Item.
+    *   **Stop** if verification fails and fix it.
+7.  **Commit:** Run `git add .` and `git commit` with a descriptive message referencing the task.
+8.  **Update:** Check off `[x]` the completed task in the Epic markdown file.
+9.  **Loop:** Report completion to the user and ask to proceed to the next Action Item.
