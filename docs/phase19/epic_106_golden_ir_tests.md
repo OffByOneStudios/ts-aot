@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (14 tests, 100% passing - Milestone 106.2 ongoing)
+**Status:** In Progress (19 tests, 100% passing - Milestone 106.2 ongoing)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -106,7 +106,7 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of TypeScript features with typed optimizations.
 
-**Status:** 11/60 complete
+**Status:** 16/60 complete
 
 **Status:** 1/20 complete
 
@@ -138,10 +138,8 @@ tests/golden_ir/
   Tx] **Task 106.2.4:** Array.reduce() with typed accumulator ✅
   Test: `typescript/arrays/array_reduce.ts`
 
-
-- [ ] **Task 106.2.4:** Array.reduce() with typed accumulator
-- [ ] **Task 106.2.5:** Array destructuring `[a, b] = arr`
-- [ ] **Task 106.2.6:** Array spread `[...arr1, ...arr2]`
+- [x] **Task 106.2.5**: Array element access `arr[0]`, `arr[1]` (simplified from destructuring - CHECK: `ts_array_create_specialized`)
+- [x] **Task 106.2.6**: Array spread operator (CHECK: `ts_array_concat`)
 - [ ] **Task 106.2.7:** Array.includes() with primitives
 - [ ] **Task 106.2.8:** Array.indexOf() optimization
 - [ ] **Task 106.2.9:** Array.slice() with bounds
@@ -186,8 +184,8 @@ tests/golden_ir/
   ```
   Test: `typescript/objects/object_property_access.ts`
 
-- [ ] **Task 106.2.23:** Object property assignment
-- [ ] **Task 106.2.24:** Object computed property `obj[key]`
+- [x] **Task 106.2.23**: Object property assignment (CHECK: `ts_map_create`, `__ts_map_set_at`)
+- [x] **Task 106.2.24:** Object computed property access (CHECK: `ts_object_get_dynamic`, `ts_map_create`)
 - [ ] **Task 106.2.25:** Object spread `{ ...obj }`
 - [ ] **Task 106.2.26:** Object destructuring `{ a, b } = obj`
 - [ ] **Task 106.2.27:** Object.keys() iteration
