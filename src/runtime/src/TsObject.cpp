@@ -337,7 +337,21 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // FIRST: Check for TsObject-derived classes with vtable
+        // FIRST: Check if this is a TsValue by examining the type field
+        // TsValue has ValueType enum at offset 0, which is <= 10
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper boxed TsValue - extract ptr_val
+            if (v->type == ValueType::OBJECT_PTR || 
+                v->type == ValueType::ARRAY_PTR || 
+                v->type == ValueType::PROMISE_PTR ||
+                v->type == ValueType::FUNCTION_PTR) {
+                return v->ptr_val;
+            }
+            return nullptr;
+        }
+
+        // Not a boxed TsValue - check for TsObject-derived classes with vtable
         // Layout: [vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
         // So TsObject::magic is at offset 16
         uint32_t magic16 = *(uint32_t*)((char*)v + 16);
@@ -355,19 +369,6 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (magic16 == 0x42554646) { // TsBuffer::MAGIC
             return v;
-        }
-
-        // Check type field - if valid TsValue type (0-10), use it
-        uint8_t typeField = *(uint8_t*)v;
-        if (typeField <= 10) {
-            // It's a proper TsValue
-            if (v->type == ValueType::OBJECT_PTR || 
-                v->type == ValueType::ARRAY_PTR || 
-                v->type == ValueType::PROMISE_PTR ||
-                v->type == ValueType::FUNCTION_PTR) {
-                return v->ptr_val;
-            }
-            return nullptr;
         }
 
         // Type > 10 means this might be a raw pointer without vtable
@@ -1031,8 +1032,8 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
-        // Check TsMap::magic at offset 24
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        // Check TsMap::magic at offset 16 (after vptr + explicit vtable field)
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_keys(rawPtr));
         }
@@ -1048,7 +1049,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_values(rawPtr));
         }

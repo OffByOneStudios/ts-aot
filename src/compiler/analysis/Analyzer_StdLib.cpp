@@ -402,6 +402,10 @@ Analyzer::Analyzer() {
 
     symbols.define("console", consoleType);
 
+    // Register global object (contains all global variables and functions)
+    auto globalType = std::make_shared<Type>(TypeKind::Any);
+    symbols.define("global", globalType);
+
     // Register ts_console_log
     auto consoleLogType = std::make_shared<FunctionType>();
     consoleLogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
