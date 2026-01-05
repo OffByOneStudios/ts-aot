@@ -55,7 +55,7 @@ function Parse-TestFile {
         FileName = Split-Path $FilePath -Leaf
         RunCommand = $null
         CheckPatterns = @()
-        ExpectedOutput = $null
+        ExpectedOutput = @()
         ExpectedExitCode = 0
     }
     
@@ -76,7 +76,7 @@ function Parse-TestFile {
             }
         }
         elseif ($Line -match '^\s*//\s*OUTPUT:\s*(.+)$') {
-            $Test.ExpectedOutput = $Matches[1].Trim()
+            $Test.ExpectedOutput += $Matches[1].Trim()
         }
         elseif ($Line -match '^\s*//\s*EXIT-CODE:\s*(\d+)$') {
             $Test.ExpectedExitCode = [int]$Matches[1]
@@ -98,11 +98,11 @@ function Expand-RunCommand {
     $IRPath = Join-Path $TempDir "$ExeName.ll"
     
     $Expanded = $Command `
+        -replace '%ts-aot', $CompilerPath `
         -replace '%s', $TestFile `
         -replace '%t\.exe', $ExePath `
         -replace '%t\.ll', $IRPath `
-        -replace '%t', (Join-Path $TempDir $ExeName) `
-        -replace 'ts-aot', $CompilerPath
+        -replace '%t', (Join-Path $TempDir $ExeName)
     
     return @{
         Command = $Expanded
@@ -229,9 +229,12 @@ function Test-Output {
         $Failures += "Exit code mismatch: expected $ExpectedExitCode, got $ActualExitCode"
     }
     
-    if ($null -ne $Expected) {
-        if ($Actual -ne $Expected) {
-            $Failures += "Output mismatch: expected '$Expected', got '$Actual'"
+    if ($null -ne $Expected -and $Expected.Count -gt 0) {
+        $ExpectedStr = ($Expected -join "`n").TrimEnd()
+        $ActualStr = $Actual.TrimEnd("`r", "`n") -replace "`r`n", "`n" -replace "`r", "`n"
+        
+        if ($ActualStr -ne $ExpectedStr) {
+            $Failures += "Output mismatch: expected '$ExpectedStr', got '$ActualStr'"
         }
     }
     
@@ -285,7 +288,7 @@ function Invoke-GoldenTest {
                     Stage = 'CHECK Patterns'
                     Failures = $CheckResult.Failures
                 }
-                return
+                returnand $Test.ExpectedOutput.Count -gt 0 -
             }
         }
         

@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @user_main
 // CHECK: call {{.*}} @ts_array_create_specialized
 // CHECK: call {{.*}} @ts_console_log_int
