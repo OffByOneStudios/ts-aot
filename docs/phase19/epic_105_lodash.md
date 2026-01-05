@@ -32,6 +32,31 @@ Compile lodash functionality with ts-aot. Two-phase approach:
 9. ~~**Function Hoisting in Nested Scopes:**~~ **FIXED** - Two-phase hoisting approach: Phase 1 creates null placeholders for all function names, Phase 2 fills them during normal statement processing. Added `ts_call_9` and `ts_call_10` for 9-10 argument function calls.
 10. ~~**JavaScript Slow Path Analysis:**~~ **FIXED** - For JavaScript modules, `analyzeFunctionBody` was returning early without setting `inferredType` on AST nodes. This prevented codegen from recognizing `TypeKind::Any` for property assignment (`obj.b = 20`) and other operations. Fixed by visiting all statements even for UntypedJavaScript modules. Also fixed variable type inference to not update types from initializers in JavaScript mode.
 
+### Boxing Refactor Fixes (commit 71c4b13, 8d37f63)
+
+The following issues were discovered and fixed during the Unified Boxing Epic (Phase 19) that directly impact lodash support:
+
+1. **JSON require() now works** ✅
+   - Added runtime JSON parsing in `ts_require` for `.json` files
+   - `require("./package.json")` now correctly parses and returns JSON object
+   - Enables lodash's package.json resolution
+
+2. **Dynamic array access on any-typed values** ✅
+   - `ts_object_get_dynamic` now handles TsArray magic (0x41525259)
+   - Numeric indices work: `arr[0]` returns correct element
+   - Property access works: `arr.length` returns array length
+   - Critical for JavaScript slow path where all arrays are `any`
+
+3. **String type detection in arrays** ✅
+   - `__ts_array_get_inline` now checks TsString magic (0x53545247)
+   - JSON arrays containing strings return proper STRING_PTR type
+   - Fixes display of string arrays from JSON
+
+4. **Magic checks prevent crashes** ✅
+   - Added magic validation to `__ts_map_find_bucket`, `__ts_map_get_value_at`, `__ts_map_set_at`
+   - Prevents crashes when non-TsMap objects passed to map operations
+   - Returns undefined gracefully instead of crashing
+
 ## Design Rationale
 
 Lodash is written in **JavaScript**, not TypeScript. Since ts-aot is optimized for typed code, we use a two-phase approach:
@@ -301,9 +326,267 @@ To avoid "ad hoc boxing" and ensure the compiler generates correct code, **ALL**
 - [x] **Task 105.11.4:** Fix default parameters for `undefined` arguments (type + runtime)  
   - Analyzer/codegen now agree on specializations when callers pass `undefined` into defaulted params; wrappers preserve boxed defaulted primitives so runtime defaulting works. Integration test `tests/integration/default_params_undefined.ts` passes. Removed noisy `ts_value_is_undefined` / `ts_require` printf spam in the runtime.
 
+---
+
+### Milestone 105.11.5: Incremental Lodash Pattern Testing ⚠️ NEW
+
+**Goal:** Before attempting full lodash, verify each JavaScript pattern used by lodash works in isolation.
+
+**Rationale:** 
+- Lodash uses many advanced JavaScript patterns (IIFEs, closures, prototype chains, etc.)
+- Full lodash is 17,220 lines - impossible to debug as a unit
+- Must verify each pattern independently before combining
+- Prevent regressions in other language features
+
+**Test Strategy:**
+1. Create minimal test file for each pattern
+2. Compile and run to verify correctness
+3. Run existing test suite to catch regressions
+4. Only proceed to next pattern after current one passes
+
+**Regression Test Suite:**
+```powershell
+# Run before and after each lodash fix
+.\scripts\run_regression_tests.ps1
+# Minimum tests to pass:
+# - test_inline_ops.exe (Map/Array/Object operations)
+# - map_set_test.exe (collections)
+# - json_import_test.exe (ES6 imports)
+# - test_require_json.exe (CommonJS require)
+# - object_test.exe (Object.keys/values/entries)
+```
+
+#### Pattern Tests (in order of complexity):
+
+- [ ] **Test 105.11.5.1:** Simple Object Literals
+  ```javascript
+  // tests/js_patterns/object_literal.js
+  var obj = { a: 1, b: 2, c: 3 };
+  console.log(obj.a, obj.b, obj.c);
+  ```
+
+- [ ] **Test 105.11.5.2:** Object Property Assignment
+  ```javascript
+  // tests/js_patterns/object_assign.js
+  var obj = {};
+  obj.x = 10;
+  obj.y = 20;
+  obj['z'] = 30;
+  console.log(obj.x, obj.y, obj.z);
+  ```
+
+- [ ] **Test 105.11.5.3:** Array Operations
+  ```javascript
+  // tests/js_patterns/array_ops.js
+  var arr = [1, 2, 3];
+  arr.push(4);
+  console.log(arr.length, arr[0], arr[3]);
+  for (var i = 0; i < arr.length; i++) {
+    console.log(arr[i]);
+  }
+  ```
+
+- [ ] **Test 105.11.5.4:** Basic Function Definition & Call
+  ```javascript
+  // tests/js_patterns/basic_function.js
+  function add(a, b) { return a + b; }
+  var result = add(2, 3);
+  console.log(result); // 5
+  ```
+
+- [ ] **Test 105.11.5.5:** Function Stored in Object
+  ```javascript
+  // tests/js_patterns/object_method.js
+  var obj = {
+    value: 42,
+    getValue: function() { return this.value; }
+  };
+  console.log(obj.getValue()); // 42
+  ```
+
+- [ ] **Test 105.11.5.6:** Simple IIFE (Immediately Invoked Function Expression)
+  ```javascript
+  // tests/js_patterns/iife_simple.js
+  var result = (function() {
+    return 42;
+  })();
+  console.log(result); // 42
+  ```
+
+- [ ] **Test 105.11.5.7:** IIFE with .call(this)
+  ```javascript
+  // tests/js_patterns/iife_call.js
+  var result = (function() {
+    return "hello";
+  }).call(this);
+  console.log(result); // "hello"
+  ```
+
+- [ ] **Test 105.11.5.8:** IIFE with Closure
+  ```javascript
+  // tests/js_patterns/iife_closure.js
+  var counter = (function() {
+    var count = 0;
+    return function() {
+      count++;
+      return count;
+    };
+  })();
+  console.log(counter()); // 1
+  console.log(counter()); // 2
+  ```
+
+- [ ] **Test 105.11.5.9:** Multiple Object Properties (Lodash typedArrayTags pattern)
+  ```javascript
+  // tests/js_patterns/multi_props.js
+  var tags = {};
+  tags['[object Float32Array]'] = true;
+  tags['[object Float64Array]'] = true;
+  tags['[object Int8Array]'] = true;
+  tags['[object Int16Array]'] = true;
+  console.log(tags['[object Float32Array]']); // true
+  ```
+
+- [ ] **Test 105.11.5.10:** While Loop in IIFE
+  ```javascript
+  // tests/js_patterns/iife_while.js
+  var result = (function() {
+    var i = 0;
+    while (i < 10) { i++; }
+    return i;
+  })();
+  console.log(result); // 10
+  ```
+
+- [ ] **Test 105.11.5.11:** For-in Loop on Object
+  ```javascript
+  // tests/js_patterns/for_in.js
+  var obj = { a: 1, b: 2, c: 3 };
+  for (var key in obj) {
+    console.log(key, obj[key]);
+  }
+  ```
+
+- [ ] **Test 105.11.5.12:** Function with Many Parameters (Lodash uses up to 10)
+  ```javascript
+  // tests/js_patterns/many_params.js
+  function fn(a,b,c,d,e,f,g,h,i,j) {
+    return a+b+c+d+e+f+g+h+i+j;
+  }
+  console.log(fn(1,2,3,4,5,6,7,8,9,10)); // 55
+  ```
+
+- [ ] **Test 105.11.5.13:** Nested Function Definitions
+  ```javascript
+  // tests/js_patterns/nested_functions.js
+  function outer() {
+    function inner() { return 42; }
+    return inner();
+  }
+  console.log(outer()); // 42
+  ```
+
+- [ ] **Test 105.11.5.14:** Function Hoisting
+  ```javascript
+  // tests/js_patterns/function_hoisting.js
+  console.log(hoisted()); // "works"
+  function hoisted() { return "works"; }
+  ```
+
+- [ ] **Test 105.11.5.15:** Constructor Function with Prototype
+  ```javascript
+  // tests/js_patterns/constructor.js
+  function Person(name) { this.name = name; }
+  Person.prototype.greet = function() { return "Hello " + this.name; };
+  var p = new Person("World");
+  console.log(p.greet()); // "Hello World"
+  ```
+
+- [ ] **Test 105.11.5.16:** Object.keys() Iteration
+  ```javascript
+  // tests/js_patterns/object_keys.js
+  var obj = { a: 1, b: 2, c: 3 };
+  var keys = Object.keys(obj);
+  for (var i = 0; i < keys.length; i++) {
+    console.log(keys[i]);
+  }
+  ```
+
+- [ ] **Test 105.11.5.17:** Array.push in Loop (Lodash mixin pattern)
+  ```javascript
+  // tests/js_patterns/array_push_loop.js
+  var methods = [];
+  var names = ['chunk', 'compact', 'drop', 'take'];
+  for (var i = 0; i < names.length; i++) {
+    methods.push(names[i]);
+  }
+  console.log(methods.length); // 4
+  ```
+
+- [ ] **Test 105.11.5.18:** typeof Checks
+  ```javascript
+  // tests/js_patterns/typeof.js
+  console.log(typeof undefined);  // "undefined"
+  console.log(typeof null);       // "object"
+  console.log(typeof 42);         // "number"
+  console.log(typeof "hello");    // "string"
+  console.log(typeof {});         // "object"
+  console.log(typeof function(){}); // "function"
+  ```
+
+- [ ] **Test 105.11.5.19:** Ternary with Truthiness
+  ```javascript
+  // tests/js_patterns/ternary.js
+  var a = null;
+  var b = a ? "truthy" : "falsy";
+  console.log(b); // "falsy"
+  var c = 1;
+  var d = c ? "truthy" : "falsy";
+  console.log(d); // "truthy"
+  ```
+
+- [ ] **Test 105.11.5.20:** Large Object with 50+ Properties
+  ```javascript
+  // tests/js_patterns/large_object.js
+  var obj = {};
+  for (var i = 0; i < 50; i++) {
+    obj['prop' + i] = i;
+  }
+  console.log(Object.keys(obj).length); // 50
+  console.log(obj.prop25); // 25
+  ```
+
+- [ ] **Test 105.11.5.21:** Lodash runInContext() Simulation (Mini Version)
+  ```javascript
+  // tests/js_patterns/run_in_context.js
+  // Simulates the pattern that hangs in full lodash
+  var _ = (function() {
+    var lodash = {};
+    var methodNames = ['chunk', 'compact', 'drop', 'filter', 'find'];
+    for (var i = 0; i < methodNames.length; i++) {
+      lodash[methodNames[i]] = (function(name) {
+        return function() { return name; };
+      })(methodNames[i]);
+    }
+    return lodash;
+  })();
+  console.log(_.chunk()); // "chunk"
+  console.log(_.filter()); // "filter"
+  ```
+
+**Execution Order:**
+1. Run tests 105.11.5.1 through 105.11.5.10 first (basic patterns)
+2. Run regression suite after each
+3. If all pass, run tests 105.11.5.11 through 105.11.5.21 (advanced patterns)
+4. Only attempt full lodash (105.12) after ALL pattern tests pass
+
+---
+
 ### Milestone 105.12: Compile Real Lodash
 
 **Status:** In Progress - Incremental debugging with checkpoints
+
+**Prerequisites:** ⚠️ All tests in Milestone 105.11.5 must pass first!
 
 **Approach:**
 Lodash is 17,210 lines with 603+ function definitions. The file is too large to debug as a whole. We're using an incremental checkpoint approach:
