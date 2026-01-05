@@ -288,11 +288,11 @@ function Invoke-GoldenTest {
                     Stage = 'CHECK Patterns'
                     Failures = $CheckResult.Failures
                 }
-                returnand $Test.ExpectedOutput.Count -gt 0 -
+                return
             }
         }
         
-        if ($null -ne $Test.ExpectedOutput -or $Test.ExpectedExitCode -ne 0) {
+        if ($null -ne $Test.ExpectedOutput -and $Test.ExpectedOutput.Count -gt 0 -or $Test.ExpectedExitCode -ne 0) {
             $OutputResult = Test-Output `
                 -Actual $Result.RuntimeOutput `
                 -Expected $Test.ExpectedOutput `

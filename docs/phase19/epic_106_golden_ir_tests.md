@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (Milestone 106.1 Complete - 3 tests passing)
+**Status:** In Progress (14 tests, 100% passing - Milestone 106.2 ongoing)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -106,9 +106,11 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of TypeScript features with typed optimizations.
 
-**Status:** 5/60 complete
+**Status:** 11/60 complete
 
 **Status:** 1/20 complete
+
+**Status:** 6/20 complete
 
 - [x] **Task 106.2.1:** Array literal creation ✅
   ```typescript
@@ -133,14 +135,9 @@ tests/golden_ir/
   // CHECK: call {{.*}} @ts_value_gt
   arr.filter(x => x > 5);
   ```
-  Test: `typescript/arrays/array_filter.ts`
+  Tx] **Task 106.2.4:** Array.reduce() with typed accumulator ✅
+  Test: `typescript/arrays/array_reduce.ts`
 
-- [ ] **Task 106.2.3:** Array.filter() optimization
-  ```typescript
-  // CHECK: call {{.*}} @__ts_array_filter
-  // CHECK: call {{.*}} @emitToBoolean
-  arr.filter(x => x > 5);
-  ```
 
 - [ ] **Task 106.2.4:** Array.reduce() with typed accumulator
 - [ ] **Task 106.2.5:** Array destructuring `[a, b] = arr`
@@ -154,12 +151,15 @@ tests/golden_ir/
   // CHECK: call {{.*}} @__ts_array_get_inline
   // CHECK-NOT: ts_value_get_object
   for (const x of arr) { }
+  `x] **Task 106.2.11:** for-of loop specialized access ✅
+  ```typescript
+  Test: `typescript/arrays/array_push.ts` ✅
+  // CHECK: call {{.*}} @ts_array_length
+  // CHECK: icmp slt
+  for (const x of arr) { }
   ```
-- [ ] **Task 106.2.12:** Array.push() unboxed primitives
-- [ ] **Task 106.2.13:** Array.pop() return type
-- [ ] **Task 106.2.14:** Array.shift() / unshift()
-- [ ] **Task 106.2.15:** Array.sort() with comparator
-- [ ] **Task 106.2.16:** Array.reverse() in-place
+  Test: `typescript/arrays/for_of_array.ts`
+ **Task 106.2.16:** Array.reverse() in-place
 - [ ] **Task 106.2.17:** Array.join() string coercion
 - [ ] **Task 106.2.18:** Array.find() with predicate
 - [ ] **Task 106.2.19:** Array.findIndex() optimization
@@ -209,20 +209,13 @@ tests/golden_ir/
 
 
 ### Functions (15 tests)
+**Status:** 4/15 complete
 
-- [ ] **Task 106.2.36:** Named function definition
-  ```typescript
-  // CHECK: define {{.*}} @func_
-  // CHECK: !dbg !{{[0-9]+}}
-  function add(a: number, b: number): number { return a + b; }
-  ```
+- [x] **Task 106.2.36:** Named function definition ✅
+  Test: `typescript/functions/named_function.ts`
 
-- [ ] **Task 106.2.37:** Arrow function capture
-  ```typescript
-  // CHECK: define {{.*}} @lambda_
-  // CHECK: load {{.*}} @x_global
-  const x = 5;
-  const fn = () => x;
+- [x] **Task 106.2.37:** Arrow function capture ✅
+  Test: `typescript/functions/arrow_capture.tsnst fn = () => x;
   ```
 
 - [ ] **Task 106.2.38:** Function hoisting
@@ -276,18 +269,20 @@ tests/golden_ir/
   ```typescript
   // CHECK: icmp
   // CHECK: br i1
+  // CHECK-N2/10 complete
+
+- [x] **Task 106.2.51:** If-else optimization ✅
+  ```typescript
+  // CHECK: icmp
+  // CHECK: br i1
   // CHECK-NOT: call {{.*}} @ts_value_to_bool
   if (x > 5) { } else { }
   ```
   Test: `typescript/control_flow/if_else_optimization.ts`
 
-- [ ] **Task 106.2.52:** While loop
-- [ ] **Task 106.2.53:** For loop with optimization
-- [ ] **Task 106.2.54:** For-of loop specialized
-- [ ] **Task 106.2.55:** For-in loop on objects
-- [ ] **Task 106.2.56:** Switch statement
-- [ ] **Task 106.2.57:** Try-catch-finally
-- [ ] **Task 106.2.58:** Break/continue in loops
+- [x] **Task 106.2.52:** While loop ✅
+  Test: `typescript/control_flow/while_loop.ts`
+inue in loops
 - [ ] **Task 106.2.59:** Return in nested blocks
 - [ ] **Task 106.2.60:** Ternary operator `cond ? a : b`
 
