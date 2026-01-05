@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @user_main
 // CHECK: call {{.*}} @ts_value_make_function
 // CHECK: call {{.*}} @__ts_map_set_at

@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @user_main
 // CHECK: call {{.*}} @ts_call_0
 // CHECK-NOT: call {{.*}} @ts_value_get_object{{.*}}call {{.*}} @ts_value_get_object
