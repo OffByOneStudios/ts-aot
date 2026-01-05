@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (70 tests: 37 passing, 32 XFAIL - Milestone 106.2 ✅, 106.3 started)
+**Status:** In Progress (90 tests: 37 passing, 52 XFAIL - Milestone 106.2 ✅, 106.3 ✅)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -342,7 +342,7 @@ tests/golden_ir/
 
 ## Milestone 106.3: JavaScript Slow Path Tests
 
-**Status:** In Progress (10/30 tests - 33%)
+**Status:** ✅ Complete (30/30 tests - All XFAIL until .js support added)
 
 ### Dynamic Types (10 tests)
 
@@ -377,62 +377,59 @@ tests/golden_ir/
 
 ### Dynamic Property Access (10 tests)
 
-- [ ] **Task 106.3.11:** Get property by string
-  ```javascript
-  // CHECK: call {{.*}} @ts_object_get_prop
-  var val = obj.foo;
-  ```
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
 
-- [ ] **Task 106.3.12:** Set property by string
-  ```javascript
-  // CHECK: call {{.*}} @ts_object_set_prop
-  obj.foo = 42;
-  ```
+- [x] **Task 106.3.11:** Get property by string ✅ (XFAIL)
+  Test: `javascript/property_access/get_property.js`
 
-- [ ] **Task 106.3.13:** Get property by dynamic key
-  ```javascript
-  // CHECK: call {{.*}} @ts_object_get_dynamic
-  var val = obj[key];
-  ```
+- [x] **Task 106.3.12:** Set property by string ✅ (XFAIL)
+  Test: `javascript/property_access/set_property.js`
 
-- [ ] **Task 106.3.14:** Array access by dynamic index
-  ```javascript
-  // CHECK: call {{.*}} @ts_object_get_dynamic
-  // CHECK: magic check for TsArray
-  var val = arr[i];
-  ```
+- [x] **Task 106.3.13:** Get property by dynamic key ✅ (XFAIL)
+  Test: `javascript/property_access/dynamic_key.js`
 
-- [ ] **Task 106.3.15:** Delete property
-- [ ] **Task 106.3.16:** Has property check
-- [ ] **Task 106.3.17:** Object.keys() on any type
-- [ ] **Task 106.3.18:** Object.values() on any type
-- [ ] **Task 106.3.19:** For-in loop on any object
-- [ ] **Task 106.3.20:** Property chain `obj.a.b.c`
+- [x] **Task 106.3.14:** Array access by dynamic index ✅ (XFAIL)
+  Test: `javascript/property_access/array_dynamic_index.js`
+
+- [x] **Task 106.3.15:** Delete property ✅ (XFAIL)
+  Test: `javascript/property_access/delete_property.js`
+- [x] **Task 106.3.16:** Has property check ✅ (XFAIL)
+  Test: `javascript/property_access/has_property.js`
+- [x] **Task 106.3.17:** Object.keys() on any type ✅ (XFAIL)
+  Test: `javascript/property_access/object_keys_any.js`
+- [x] **Task 106.3.18:** Object.values() on any type ✅ (XFAIL)
+  Test: `javascript/property_access/object_values_any.js`
+- [x] **Task 106.3.19:** For-in loop on any object ✅ (XFAIL)
+  Test: `javascript/property_access/for_in_loop.js`
+- [x] **Task 106.3.20:** Property chain `obj.a.b.c` ✅ (XFAIL)
+  Test: `javascript/property_access/property_chain.js`
 
 ### Closures & IIFEs (10 tests)
 
-- [ ] **Task 106.3.21:** IIFE without closure
-  ```javascript
-  // CHECK-NOT: ts_cell_create
-  var result = (function() { return 42; })();
-  ```
+**Status:** 10/10 complete (100%) ✅ [All XFAIL - .js files not supported]
 
-- [ ] **Task 106.3.22:** IIFE with closure
-- [ ] **Task 106.3.23:** IIFE returning object literal
-  ```javascript
-  // CHECK: call {{.*}} @ts_call_0
-  // CHECK: call {{.*}} @ts_value_get_object
-  // CHECK: store {{.*}} @result_global
-  var result = (function() { return { a: 1 }; })();
-  ```
+- [x] **Task 106.3.21:** IIFE without closure ✅ (XFAIL)
+  Test: `javascript/closures/iife_no_closure.js`
 
-- [ ] **Task 106.3.24:** IIFE with .call(this)
-- [ ] **Task 106.3.25:** IIFE with multiple returns
-- [ ] **Task 106.3.26:** Nested IIFEs
-- [ ] **Task 106.3.27:** IIFE in while loop
-- [ ] **Task 106.3.28:** Counter closure pattern
-- [ ] **Task 106.3.29:** Module pattern with IIFE
-- [ ] **Task 106.3.30:** UMD pattern (like lodash)
+- [x] **Task 106.3.22:** IIFE with closure ✅ (XFAIL)
+  Test: `javascript/closures/iife_with_closure.js`
+- [x] **Task 106.3.23:** IIFE returning object literal ✅ (XFAIL)
+  Test: `javascript/closures/iife_object_literal.js`
+
+- [x] **Task 106.3.24:** IIFE with .call(this) ✅ (XFAIL)
+  Test: `javascript/closures/iife_with_call.js`
+- [x] **Task 106.3.25:** IIFE with multiple returns ✅ (XFAIL)
+  Test: `javascript/closures/iife_multiple_returns.js`
+- [x] **Task 106.3.26:** Nested IIFEs ✅ (XFAIL)
+  Test: `javascript/closures/nested_iifes.js`
+- [x] **Task 106.3.27:** IIFE in while loop ✅ (XFAIL)
+  Test: `javascript/closures/iife_in_loop.js`
+- [x] **Task 106.3.28:** Counter closure pattern ✅ (XFAIL)
+  Test: `javascript/closures/counter_closure.js`
+- [x] **Task 106.3.29:** Module pattern with IIFE ✅ (XFAIL)
+  Test: `javascript/closures/module_pattern.js`
+- [x] **Task 106.3.30:** UMD pattern (like lodash) ✅ (XFAIL)
+  Test: `javascript/closures/umd_pattern.js`
 
 ---
 
