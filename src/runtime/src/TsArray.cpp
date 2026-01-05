@@ -615,8 +615,15 @@ extern "C" {
         
         // Check if it's a pointer (high bit set or looks like heap address)
         if (raw_val > 0xFFFFFFFF || raw_val < 0) {
-            // Treat as object pointer
-            *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            // Check if it's a TsString by looking for magic number
+            void* ptr = (void*)raw_val;
+            uint32_t* magic_ptr = (uint32_t*)ptr;
+            if (*magic_ptr == 0x53545247) { // "STRG" = TsString magic
+                *out_type = (uint8_t)ValueType::STRING_PTR;
+            } else {
+                // Treat as object pointer
+                *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            }
             *out_value = raw_val;
         } else {
             // Treat as integer

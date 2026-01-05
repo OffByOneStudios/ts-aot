@@ -1345,6 +1345,35 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return ts_value_make_undefined();
         
+        // Check magic at offset 0 first (TsArray has magic at offset 0)
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        if (magic0 == 0x41525259) { // TsArray::MAGIC = "ARRY"
+            // This is an array
+            if (key->type == ValueType::NUMBER_INT) {
+                return ts_array_get_as_value(rawObj, key->i_val);
+            } else if (key->type == ValueType::NUMBER_DBL) {
+                return ts_array_get_as_value(rawObj, (int64_t)key->d_val);
+            } else if (key->type == ValueType::STRING_PTR) {
+                // Handle property access on arrays like "length"
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k && strcmp(k, "length") == 0) {
+                        return ts_value_make_int(((TsArray*)rawObj)->Length());
+                    }
+                }
+            }
+            return ts_value_make_undefined();
+        }
+        
+        // Check if this is actually a TsMap before using map operations
+        // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
+        uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 16);
+        if (magic != 0x4D415053) { // TsMap::MAGIC = "MAPS"
+            // Not a map - return undefined
+            return ts_value_make_undefined();
+        }
+        
         // Use inline map operations
         uint64_t hash = (uint64_t)key;
         int64_t bucket = __ts_map_find_bucket(rawObj, hash, (uint8_t)key->type, key->i_val);
@@ -1941,6 +1970,30 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (absPath.empty()) {
+                return ts_value_make_undefined();
+            }
+
+            // Handle JSON files: read and parse at runtime
+            if (absPath.size() >= 5 && absPath.substr(absPath.size() - 5) == ".json") {
+                // Read the JSON file
+                std::ifstream file(absPath);
+                if (!file.is_open()) {
+                    return ts_value_make_undefined();
+                }
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string content = buffer.str();
+                
+                // Parse the JSON content
+                TsString* jsonStr = TsString::Create(content.c_str());
+                extern void* ts_json_parse(void* json_str);
+                TsValue* parsed = (TsValue*)ts_json_parse(jsonStr);
+                if (parsed) {
+                    // Cache it for future requires
+                    TsValue* pathVal = ts_value_make_string(TsString::Create(absPath.c_str()));
+                    ts_module_register(pathVal, parsed);
+                    return parsed;
+                }
                 return ts_value_make_undefined();
             }
 

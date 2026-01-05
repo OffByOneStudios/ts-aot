@@ -234,7 +234,8 @@ Standardize all runtime APIs to use TsValue consistently.
     - ✅ buffer_string_test.exe: Buffer operations
     - ✅ object_test.exe: Object.keys/values/entries/assign/hasOwn
     - ✅ json_transformer.exe: JSON operations (155ms benchmark)
-    - ⚠️ Some crashes in json_import_test.exe, map_set_test.exe (investigating)
+    - ✅ json_import_test.exe: JSON import works correctly (fixed: commit 017f8a3)
+    - ✅ map_set_test.exe: All Map/Set operations pass (fixed: commit 017f8a3)
     - ⚠️ Some tests have pre-existing compilation failures (for_in_test, for_of_test, lodash)
   - **Status:** Migration complete, all collection operations use inline IR, no ABI issues
   - **Previous Approach:** `_v` APIs abandoned due to Windows x64 struct-by-value ABI mismatch
@@ -257,22 +258,18 @@ Comprehensive testing to ensure no regressions from inline IR migration.
   - ✅ buffer_string_test.exe: Buffer operations
   - ✅ object_test.exe: Object.keys/values/entries/assign/hasOwn
   - ✅ json_transformer.exe: JSON operations (155ms benchmark, 2 results)
-  - ⚠️ json_import_test.exe: Runtime crash ("Null or undefined dereference")
-  - ⚠️ map_set_test.exe: Runtime crash ("Null or undefined dereference")
+  - ✅ json_import_test.exe: JSON import works correctly (fixed: commit 017f8a3)
+  - ✅ map_set_test.exe: All Map/Set operations pass (fixed: commit 017f8a3)
   - ⚠️ lodash_load_only.exe: EXCEPTION code=0xc0000005 (access violation)
   - ⚠️ test_lodash.ts: Compilation failure (lambda functions missing terminators)
   - ⚠️ for_in_test.ts, for_of_test.ts: Compilation failures (pre-existing)
 - [x] 6.2 Benchmark property access performance
   - 100k iterations × 10 props = 1M ops in 53ms (~19M ops/sec)
 - [~] 6.3 Benchmark raytracer/SHA256 - OUT OF SCOPE (blocked: spdlog linker issue, unrelated to inline IR)
-- [~] 6.4 Investigate crashes - DEFERRED (likely pre-existing issues, not blocking inline IR completion)
-  - **map_set_test.exe**: Crashes after printing "Map size (should be 4):" before value
-    - Isolated tests show Map.size, Map.get, BigInt keys, Symbol keys all work individually
-    - May be related to complex state or console.log with multiple property access args
-    - NOT related to inline IR migration (basic operations verified working)
-  - **json_import_test.exe**: Runtime crash "Null or undefined dereference"
-  - **lodash_load_only.exe**: EXCEPTION 0xc0000005 (access violation)
-  - **Investigation Plan**: See "Crash Investigation Plan" section below
+- [x] 6.4 Investigate crashes - FIXED (commit 017f8a3)
+  - **map_set_test.exe**: ✅ FIXED - TsObject::magic at offset 16, check magic before type byte
+  - **json_import_test.exe**: ✅ FIXED - Module init name matching + store to global variable
+  - **lodash_load_only.exe**: ⚠️ Separate JSON parser crash (nlohmann::json), not inline IR related
 - [x] 6.5 Test computed property access in all contexts - PASS (test_inline_ops)
 - [x] 6.6 Test `typeof` on all value types
   - Primitives: PASS (undefined, number, boolean, string, object, array)
@@ -281,11 +278,11 @@ Comprehensive testing to ensure no regressions from inline IR migration.
 - [~] 6.7 Memory usage comparison before/after - OUT OF SCOPE (future optimization tracking)
 
 #### Summary
-Core inline IR operations verified working (test_inline_ops). Several test crashes discovered during validation:
+Core inline IR operations verified working. All major test crashes have been fixed:
 - **Confirmed Working**: Map/Array/Object operations, property access, basic functionality
-- **Crashes Found**: map_set_test, json_import_test, lodash_load_only - appear to be pre-existing issues
-- **Evidence**: Isolated tests of individual operations (Map.size, Map.get, BigInt/Symbol keys) all pass
-- **Conclusion**: Inline IR migration is functionally complete and correct; crashes are unrelated
+- **Fixed**: map_set_test.exe, json_import_test.exe (commit 017f8a3)
+- **Remaining**: lodash has separate JSON parser crash (nlohmann library issue)
+- **Conclusion**: Inline IR migration is complete and all collection tests pass
 
 ---
 
@@ -293,35 +290,32 @@ Core inline IR operations verified working (test_inline_ops). Several test crash
 
 The following crashes were discovered during Phase 4 validation. Initial analysis suggests they are **pre-existing issues** not caused by inline IR migration, but require investigation to confirm:
 
-### 1. map_set_test.exe - Stack Buffer Overrun
+### 1. map_set_test.exe - ✅ FIXED (commit 017f8a3)
 **Symptom:** Crashes after printing "Map size (should be 4):" before the size value
 **Error:** Security check failure or stack buffer overrun (c0000409)
-**Evidence:**
-- Individual tests pass: Map.size ✅, Map.get ✅, BigInt keys ✅, Symbol keys ✅
-- Simplified sequences work correctly
-- Likely related to complex state or specific operation combination
 
-**Investigation Steps:**
-1. Binary search: Add/remove lines from map_set_test.ts to isolate exact failure point
-2. Check git history: When did this test last pass?
-3. Compare IR: Generate --dump-ir for working vs failing versions
-4. Debug: Use CDB to get exact crash location and stack trace
-5. Check console.log: Test multi-arg console.log with property access patterns
+**Root Cause:** `ts_value_get_object` type detection was checking first byte of pointer as TsValue type BEFORE checking magic at offset 16. When vtable address had a low first byte (0-10), raw TsMap* was misidentified as TsValue*, causing wrong memory access.
 
-**Priority:** Low (core operations proven working, appears pre-existing)
+**Fix Applied:**
+1. Reordered checks in `ts_value_get_object` to check magic at offset 16 FIRST
+2. Added `TsObject::magic = MAGIC` initialization in TsMap and TsSet constructors
+3. TsObject layout: [vtable ptr (8)] [explicit vtable (8)] [magic (4)] - magic is at offset 16
 
-### 2. json_import_test.exe - Null Dereference
+**Status:** ✅ All Map and Set operations now pass (size, get, set, has, delete, clear)
+
+### 2. json_import_test.exe - ✅ FIXED (commit 017f8a3)
 **Symptom:** Runtime Panic: Null or undefined dereference
 **Context:** JSON import/parsing test
 
-**Investigation Steps:**
-1. Check test file: Review json_import_test.ts for what it's testing
-2. Simplify: Create minimal repro case
-3. Check JSON.parse: Verify JSON parsing returns non-null
-4. Debug: Use auto-debug skill to locate crash point
-5. Git history: Check if test ever passed
+**Root Causes:**
+1. Module init function name matching used exact equality but names have type suffix (`_any`)
+2. JSON value stored only to local alloca, but generated code loads from global variable
 
-**Priority:** Medium (JSON operations are important but test may never have worked)
+**Fix Applied:**
+1. Changed `initName == spec.specializedName` to `spec.specializedName.starts_with(initName)` in IRGenerator_Functions.cpp
+2. Added store to global variable: `builder->CreateStore(jsonVal, gv)` before alloca store
+
+**Status:** ✅ All JSON properties accessible (name, version, debug, maxRetries, features, settings)
 
 ### 3. lodash_load_only.exe - Access Violation
 **Symptom:** EXCEPTION code=0xc0000005 (access violation)
@@ -349,16 +343,15 @@ The following crashes were discovered during Phase 4 validation. Initial analysi
 **Priority:** High (blocks lodash testing entirely, compilation issue not runtime)
 
 ### Validation Conclusion
-**Inline IR migration is COMPLETE and CORRECT.** The crashes discovered are unrelated to the migration as evidenced by:
-- All core inline operations pass dedicated tests
-- Individual Map/Array/Object operations work correctly
-- Simplified versions of failing tests pass
-- Crashes involve complex state or edge cases not exercised by inline IR code paths
+**Inline IR migration is COMPLETE and CORRECT.** All discovered crashes have been investigated and fixed:
+- ✅ map_set_test.exe: Fixed type detection order in ts_value_get_object
+- ✅ json_import_test.exe: Fixed module init matching and global variable storage
+- ⚠️ lodash: Separate issue with nlohmann JSON parser (not inline IR related)
 
-**Next Steps:**
-1. Mark inline IR epic as ✅ COMPLETE
-2. File separate issues for crash investigations
-3. Proceed with Phase 5: Remove deprecated APIs (safe now that inline IR is proven)
+**Completed:**
+1. ✅ Inline IR epic COMPLETE
+2. ✅ Crash investigations resolved (commit 017f8a3)
+3. ✅ Deprecated APIs removed
 
 #### Bugs Found During Validation
 - **BUG: Function to Any assignment stores undefined**

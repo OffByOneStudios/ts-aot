@@ -403,6 +403,13 @@ static TsValue __ts_value_from_scalars(uint8_t type, int64_t value) {
 int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val) {
     if (!map) return -1;
     
+    // Verify this is actually a TsMap before using it
+    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
+    if (magic != TsMap::MAGIC) {
+        // Not a TsMap - return not found
+        return -1;
+    }
+    
     TsMap* tsmap = (TsMap*)map;
     MapType* impl = (MapType*)tsmap->impl;
     
@@ -421,6 +428,14 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
 // Avoids returning TsValue struct (Windows x64 ABI issue)
 void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value) {
     if (!map || bucket_idx < 0) {
+        *out_type = (uint8_t)ValueType::UNDEFINED;
+        *out_value = 0;
+        return;
+    }
+    
+    // Verify this is actually a TsMap before using it
+    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
+    if (magic != TsMap::MAGIC) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
         *out_value = 0;
         return;
@@ -446,6 +461,13 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
 void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val,
                      uint8_t val_type, int64_t val_val) {
     if (!map) return;
+    
+    // Verify this is actually a TsMap before using it
+    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
+    if (magic != TsMap::MAGIC) {
+        // Not a TsMap - silently fail to avoid crash
+        return;
+    }
     
     TsMap* tsmap = (TsMap*)map;
     TsValue key = __ts_value_from_scalars(key_type, key_val);

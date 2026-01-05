@@ -1,0 +1,11 @@
+{
+  "name": "full-test-package",
+  "version": 2.5,
+  "enabled": true,
+  "nullable": null,
+  "settings": {
+    "debug": false,
+    "timeout": 3000
+  },
+  "tags": ["alpha", "beta", "gamma"]
+}

@@ -378,7 +378,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                         // - Function types (passed as boxed TsFunction*)
                         // - Object/Class/Interface types (may be passed as boxed TsValue* from any-typed callers)
                         // This prevents double-boxing when storing to cells
-                        if (argVal->getType()->isPointerTy()) {
+                        // 
+                        // EXCEPTION: Module init functions receive the 'module' parameter as a raw pointer,
+                        // not boxed. The module object is a TsMap* passed directly, not wrapped in TsValue.
+                        bool isModuleInit = (spec.specializedName.find("__module_init_") != std::string::npos);
+                        if (argVal->getType()->isPointerTy() && !isModuleInit) {
                             if (argType && (argType->kind == TypeKind::Function ||
                                            argType->kind == TypeKind::Object ||
                                            argType->kind == TypeKind::Class ||
