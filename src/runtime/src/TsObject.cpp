@@ -1146,27 +1146,15 @@ TsValue* ts_value_make_int(int64_t i) {
     
     // Object.values(obj) - returns array of values
     TsValue* ts_object_values(TsValue* obj) {
-        if (!obj) {
-            std::printf("[ts_object_values] obj is NULL\n");
-            return ts_value_make_array(TsArray::Create(0));
-        }
+        if (!obj) return ts_value_make_array(TsArray::Create(0));
         
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
-        std::printf("[ts_object_values] rawPtr=%p\n", rawPtr);
-        
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
-        std::printf("[ts_object_values] magic at +16 = 0x%X (expected 0x4D415053)\n", magic);
-        
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            void* valuesArray = ts_map_values(rawPtr);
-            std::printf("[ts_object_values] ts_map_values returned %p\n", valuesArray);
-            TsValue* result = ts_value_make_array(valuesArray);
-            std::printf("[ts_object_values] ts_value_make_array returned %p\n", result);
-            return result;
+            return ts_value_make_array(ts_map_values(rawPtr));
         }
-        std::printf("[ts_object_values] magic mismatch, returning empty array\n");
         return ts_value_make_array(TsArray::Create(0));
     }
     
@@ -1703,6 +1691,16 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_keys(argv[0]);
     }
 
+    TsValue* ts_object_values_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_array(TsArray::Create(0));
+        return ts_object_values(argv[0]);
+    }
+
+    TsValue* ts_object_entries_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_array(TsArray::Create(0));
+        return ts_object_entries(argv[0]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -1944,6 +1942,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
         objectFunc->properties->Set(keysKey, *ts_value_make_native_function((void*)ts_object_keys_native, nullptr));
+        
+        // Object.values
+        TsValue valuesKey; valuesKey.type = ValueType::STRING_PTR; valuesKey.ptr_val = TsString::Create("values");
+        objectFunc->properties->Set(valuesKey, *ts_value_make_native_function((void*)ts_object_values_native, nullptr));
+        
+        // Object.entries
+        TsValue entriesKey; entriesKey.type = ValueType::STRING_PTR; entriesKey.ptr_val = TsString::Create("entries");
+        objectFunc->properties->Set(entriesKey, *ts_value_make_native_function((void*)ts_object_entries_native, nullptr));
         
         Object = objectConstructor;
 
