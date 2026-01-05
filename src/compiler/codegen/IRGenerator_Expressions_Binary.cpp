@@ -923,11 +923,18 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // emitInlineArraySet calls __ts_array_set_inline with scalar parameters
         emitInlineArraySet(arr, index, boxedVal);
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
-        // For JavaScript slow-path: null inferredType or TypeKind::Any means dynamic object
-        bool exprIsAny = !prop->expression->inferredType || prop->expression->inferredType->kind == TypeKind::Any;
-        if (exprIsAny) {
+        // For JavaScript slow-path: null inferredType, Any, or Function (which has dynamic properties) means dynamic object
+        bool exprIsDynamic = !prop->expression->inferredType || 
+                             prop->expression->inferredType->kind == TypeKind::Any ||
+                             prop->expression->inferredType->kind == TypeKind::Function;
+        SPDLOG_DEBUG("visitAssignmentExpression PropertyAccess: prop->name='{}' exprType={} exprIsDynamic={}", 
+            prop->name, 
+            prop->expression->inferredType ? (int)prop->expression->inferredType->kind : -1,
+            exprIsDynamic);
+        if (exprIsDynamic) {
             visit(prop->expression.get());
-            llvm::Value* obj = boxValue(lastValue, prop->expression->inferredType);
+            // Use Any boxing here to avoid double-boxing already-boxed TsValue* values.
+            llvm::Value* objBoxed = boxValue(lastValue, std::make_shared<Type>(TypeKind::Any));
             
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(prop->name);
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -937,8 +944,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
             
-            // Use map operations directly (objects ARE maps internally)
-            emitInlineMapSet(obj, key, boxedVal);
+            // Use object set helper so functions route through their properties map.
+            emitInlineObjectSetProp(objBoxed, key, boxedVal);
             lastValue = val;
             return;
         }
@@ -963,16 +970,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
         if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(prop->expression.get());
-            llvm::Value* obj = lastValue;
-            
-            // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
-            // The value might be boxed (e.g., loaded from a global) but not tracked
-            // in boxedValues. ts_value_get_object is idempotent for raw pointers.
-            if (obj->getType()->isPointerTy()) {
-                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
-                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
-            }
+            // Use Any boxing here to avoid double-boxing already-boxed TsValue* values.
+            llvm::Value* objBoxed = boxValue(lastValue, std::make_shared<Type>(TypeKind::Any));
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
@@ -981,8 +980,8 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
             
-            // Use map operations directly (objects ARE maps internally)
-            emitInlineMapSet(obj, keyBoxed, boxedVal);
+            // Use object set helper so functions route through their properties map.
+            emitInlineObjectSetProp(objBoxed, keyBoxed, boxedVal);
             lastValue = val;
             return;
         }
