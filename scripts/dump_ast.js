@@ -781,11 +781,22 @@ if (!fileName || !outputFileName) {
 }
 
 const sourceCode = fs.readFileSync(fileName, "utf-8");
+// Determine script kind based on file extension
+const ext = fileName.toLowerCase();
+let scriptKind = ts.ScriptKind.TS;
+if (ext.endsWith('.js') || ext.endsWith('.jsx') || ext.endsWith('.mjs') || ext.endsWith('.cjs')) {
+    scriptKind = ts.ScriptKind.JS;
+} else if (ext.endsWith('.ts')) {
+    scriptKind = ts.ScriptKind.TS;
+} else if (ext.endsWith('.tsx') || ext.endsWith('.jsx')) {
+    scriptKind = ts.ScriptKind.TSX;
+}
 const sourceFile = ts.createSourceFile(
     fileName,
     sourceCode,
     ts.ScriptTarget.Latest,
-    true
+    true,
+    scriptKind
 );
 
 const astJson = printAST(sourceFile);
