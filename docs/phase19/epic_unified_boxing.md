@@ -346,12 +346,36 @@ The following crashes were discovered during Phase 4 validation. Initial analysi
 **Inline IR migration is COMPLETE and CORRECT.** All discovered crashes have been investigated and fixed:
 - ✅ map_set_test.exe: Fixed type detection order in ts_value_get_object
 - ✅ json_import_test.exe: Fixed module init matching and global variable storage
-- ⚠️ lodash: Separate issue with nlohmann JSON parser (not inline IR related)
+- ✅ JSON require: Now fully working (commit 71c4b13)
+- ⚠️ lodash: Separate issue - crashes in generated lodash JS code (not JSON related)
+
+### 5. JSON require() - ✅ FIXED (commit 71c4b13)
+**Symptom:** `require("./file.json")` returns object but property access returns undefined
+**Context:** Runtime JSON parsing for CommonJS require()
+
+**Root Causes:**
+1. `ts_require` had no runtime JSON parsing - only loaded precompiled modules
+2. `ts_object_get_dynamic` didn't handle TsArray for numeric/property access
+3. `__ts_array_get_inline` didn't detect TsString magic for string elements
+
+**Fix Applied:**
+1. Added JSON file detection and runtime parsing in `ts_require` using `ts_json_parse`
+2. Added TsArray magic check in `ts_object_get_dynamic` with numeric index and "length" property support
+3. Added TsString magic (0x53545247) detection in `__ts_array_get_inline`
+4. Added magic checks in `__ts_map_*` functions to prevent crashes on non-map objects
+
+**Test Coverage:**
+- `test_require_json.ts`: Basic property access (name, version)
+- `test_require_json_full.ts`: All JSON types (strings, numbers, booleans, arrays, nested objects)
+- `test_require_lodash_json.ts`: Proves JSON require works with lodash's package.json
+
+**Status:** ✅ All JSON require operations work correctly
 
 **Completed:**
 1. ✅ Inline IR epic COMPLETE
 2. ✅ Crash investigations resolved (commit 017f8a3)
 3. ✅ Deprecated APIs removed
+4. ✅ JSON require functionality (commit 71c4b13)
 
 #### Bugs Found During Validation
 - **BUG: Function to Any assignment stores undefined**
