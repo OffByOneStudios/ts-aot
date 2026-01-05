@@ -138,7 +138,6 @@ void ts_gc_init() {
     // Set custom report hook
     _CrtSetReportHook(CustomReportHook);
     
-    fprintf(stderr, "[GC] Windows error dialogs disabled, redirecting to stderr\n");
     fflush(stderr);
 #endif
 
@@ -151,9 +150,6 @@ void ts_gc_init() {
     // so GC can scan them for pointers but won't free the block itself
     
     GC_set_max_heap_size(2ULL * 1024 * 1024 * 1024);  // 2GB max
-    
-    fprintf(stderr, "[GC] Enabled with pool allocator for objects <= 512 bytes\n");
-    fflush(stderr);
 }
 
 void __stack_chk_fail() {
