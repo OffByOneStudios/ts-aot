@@ -115,6 +115,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_sub",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_mul",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_div",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
+    {"ts_value_mod",        {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_eq",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_lt",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
     {"ts_value_gt",         {true, true}},         // (TsValue*, TsValue*) -> TsValue*
