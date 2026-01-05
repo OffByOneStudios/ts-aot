@@ -1277,6 +1277,14 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_double(d1 / d2);
     }
 
+    TsValue* ts_value_mod(TsValue* a, TsValue* b) {
+        if (!a || !b) return ts_value_make_undefined();
+        double d1 = ts_value_get_double(a);
+        double d2 = ts_value_get_double(b);
+        if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        return ts_value_make_double(std::fmod(d1, d2));
+    }
+
     TsValue* ts_value_eq(TsValue* a, TsValue* b) {
         // Treat nullptr as undefined for loose equality
         if (!a) a = ts_value_make_undefined();

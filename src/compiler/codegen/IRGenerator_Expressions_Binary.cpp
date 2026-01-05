@@ -108,10 +108,13 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool leftIsPtr = left->getType()->isPointerTy();
     bool rightIsPtr = right->getType()->isPointerTy();
     
-    if (leftIsPtr && !rightIsPtr && node->left->inferredType && 
-        node->left->inferredType->kind != TypeKind::String &&
-        node->left->inferredType->kind != TypeKind::Null &&
-        node->left->inferredType->kind != TypeKind::Undefined) {
+    // CRITICAL: Only unbox primitive types (Int, Double, Boolean) - NOT Object/Array/etc!
+    auto isPrimitiveType = [](std::shared_ptr<Type> t) {
+        if (!t) return false;
+        return t->kind == TypeKind::Int || t->kind == TypeKind::Double || t->kind == TypeKind::Boolean;
+    };
+    
+    if (leftIsPtr && !rightIsPtr && isPrimitiveType(node->left->inferredType)) {
         if (right->getType()->isDoubleTy()) {
             left = unboxValue(left, std::make_shared<Type>(TypeKind::Double));
         } else if (right->getType()->isIntegerTy(64)) {
@@ -120,10 +123,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
             left = unboxValue(left, std::make_shared<Type>(TypeKind::Boolean));
         }
     }
-    if (rightIsPtr && !leftIsPtr && node->right->inferredType && 
-        node->right->inferredType->kind != TypeKind::String &&
-        node->right->inferredType->kind != TypeKind::Null &&
-        node->right->inferredType->kind != TypeKind::Undefined) {
+    if (rightIsPtr && !leftIsPtr && isPrimitiveType(node->right->inferredType)) {
         if (left->getType()->isDoubleTy()) {
             right = unboxValue(right, std::make_shared<Type>(TypeKind::Double));
         } else if (left->getType()->isIntegerTy(64)) {
@@ -435,8 +435,10 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         llvm::Value* leftBoxed = boxValue(leftVal, node->left->inferredType);
         llvm::Value* leftCond = emitToBoolean(leftVal, node->left->inferredType);
 
-        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        // CRITICAL: Capture leftBB AFTER boxing, since boxing may create new blocks
         llvm::BasicBlock* leftBB = builder->GetInsertBlock();
+        
+        llvm::Function* func = leftBB->getParent();
         llvm::BasicBlock* rhsBB = llvm::BasicBlock::Create(*context, node->op == "&&" ? "land.rhs" : "lor.rhs", func);
         llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, node->op == "&&" ? "land.cont" : "lor.cont");
 

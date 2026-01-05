@@ -133,6 +133,7 @@ extern "C" {
     TsValue* ts_value_sub(TsValue* a, TsValue* b);
     TsValue* ts_value_mul(TsValue* a, TsValue* b);
     TsValue* ts_value_div(TsValue* a, TsValue* b);
+    TsValue* ts_value_mod(TsValue* a, TsValue* b);
     
     // Slow path comparison
     TsValue* ts_value_eq(TsValue* a, TsValue* b);
