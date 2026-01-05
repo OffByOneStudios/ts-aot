@@ -1,6 +1,6 @@
 # Epic 106: Golden IR Regression Test Suite
 
-**Status:** In Progress (90 tests: 60 passing, 5 failed, 25 XFAIL - JavaScript 27/30 passing!)
+**Status:** In Progress (90 tests: 61 passing, 5 failed, 24 XFAIL - JavaScript 28/30 passing, 93%!)
 **Parent:** [Phase 19 Meta Epic](./meta_epic.md)
 **Priority:** High - Infrastructure for preventing regressions
 
@@ -344,7 +344,7 @@ tests/golden_ir/
 
 **Goal:** Comprehensive coverage of JavaScript code paths with dynamic typing.
 
-**Status:** � 27/30 passing (90%) - 3 XFAIL for runtime features
+**Status:** ✅ 28/30 passing (93%) - 2 XFAIL 💚
 
 ### Dynamic Types (10 tests)
 
@@ -378,7 +378,7 @@ tests/golden_ir/
 
 ### Dynamic Property Access (10 tests)
 
-**Status:** 8/10 passing (80%), 2 XFAIL 💚
+**Status:** 9/10 passing (90%), 1 XFAIL 💚
 
 - [x] **Task 106.3.11:** Get property by string ✅
   Test: `javascript/property_access/get_property.js`
@@ -399,9 +399,8 @@ tests/golden_ir/
   Note: hasOwnProperty returns undefined - ctx parameter issue
 - [x] **Task 106.3.17:** Object.keys() on any type ✅
   Test: `javascript/property_access/object_keys_any.js`
-- [x] **Task 106.3.18:** Object.values() on any type ✅ (XFAIL)
+- [x] **Task 106.3.18:** Object.values() on any type ✅
   Test: `javascript/property_access/object_values_any.js`
-  Note: Object.values returns undefined - needs implementation
 - [x] **Task 106.3.19:** For-in loop on any object ✅
   Test: `javascript/property_access/for_in_loop.js`
 - [x] **Task 106.3.20:** Property chain `obj.a.b.c` ✅
