@@ -84,7 +84,7 @@ function Parse-TestFile {
     }
     
     if (-not $Test.RunCommand) {
-        $Test.RunCommand = 'ts-aot %s --dump-ir -o %t.exe && %t.exe'
+        $Test.RunCommand = '%ts-aot %s --dump-ir -o %t.exe && %t.exe'
     }
     
     return $Test
