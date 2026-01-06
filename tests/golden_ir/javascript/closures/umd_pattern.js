@@ -1,14 +1,16 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: UMD pattern returns undefined - complex IIFE with module.exports and this context
 // CHECK: define {{.*}} @__module_init_{{.*}}_any
 // OUTPUT: 42
 
+// UMD-style pattern that returns the factory result
 var myLib = (function(global, factory) {
+        var result = factory();
         if (typeof module === 'object') {
-            module.exports = factory();
+            module.exports = result;
         } else {
-            global.myLib = factory();
+            global.myLib = result;
         }
+        return result;  // Return the result so it can be assigned
     })(this, function() {
         return { version: 42 };
     });
