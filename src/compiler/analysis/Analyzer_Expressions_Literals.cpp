@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
+#include <iostream>
 
 namespace ts {
 using namespace ast;
@@ -88,7 +89,26 @@ void Analyzer::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
             objType->fields[spa->name] = lastType;
         } else if (auto md = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
-            objType->fields[md->name] = lastType;
+            if (md->isGetter) {
+                // Getter: store the return type as a field, and the getter function
+                auto funcType = std::dynamic_pointer_cast<FunctionType>(lastType);
+                if (funcType) {
+                    objType->getters[md->name] = funcType;
+                    objType->fields[md->name] = funcType->returnType;
+                }
+            } else if (md->isSetter) {
+                // Setter: store the setter function
+                auto funcType = std::dynamic_pointer_cast<FunctionType>(lastType);
+                if (funcType) {
+                    objType->setters[md->name] = funcType;
+                    // Don't overwrite field type if getter already set it
+                    if (objType->fields.find(md->name) == objType->fields.end() && !funcType->paramTypes.empty()) {
+                        objType->fields[md->name] = funcType->paramTypes[0];
+                    }
+                }
+            } else {
+                objType->fields[md->name] = lastType;
+            }
         }
     }
     lastType = objType;

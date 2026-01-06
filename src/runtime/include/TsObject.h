@@ -123,6 +123,8 @@ extern "C" {
     double ts_value_get_double(TsValue* val);
     bool ts_value_get_bool(TsValue* val);
     void* ts_value_get_string(TsValue* val);
+    void* ts_value_get_function(TsValue* val);  // Extract funcPtr from TsFunction
+    void* ts_value_get_context(TsValue* val);   // Extract context from TsFunction
     
     // Comparison helpers
     bool ts_value_strict_eq_bool(TsValue* lhs, TsValue* rhs);

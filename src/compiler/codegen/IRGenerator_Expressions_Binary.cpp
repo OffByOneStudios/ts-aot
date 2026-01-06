@@ -1006,8 +1006,52 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
 
         if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection)) {
             visit(prop->expression.get());
+            llvm::Value* objPtr = lastValue;
+            
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
+            if (objPtr->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                objPtr = createCall(getObjFt, getObjFn.getCallee(), { objPtr });
+            }
+            
+            // Check if this property has a setter
+            if (prop->expression->inferredType->kind == TypeKind::Object) {
+                auto obj = std::static_pointer_cast<ObjectType>(prop->expression->inferredType);
+                if (obj->setters.count(prop->name)) {
+                    // Property has a setter - look up the setter function and call it
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+                    std::string setterKey = "__setter_" + prop->name;
+                    llvm::Value* keyStr = builder->CreateGlobalStringPtr(setterKey);
+                    llvm::Value* keyStrPtr = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+                    llvm::Value* keyBoxed = boxValue(keyStrPtr, std::make_shared<Type>(TypeKind::String));
+                    
+                    // Get the setter function from the map
+                    llvm::Value* setterVal = emitInlineMapGet(objPtr, keyBoxed);
+                    
+                    // Unbox to get raw function pointer
+                    llvm::FunctionType* getFnPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee getFnPtrFn = getRuntimeFunction("ts_value_get_function", getFnPtrFt);
+                    llvm::Value* setterFn = createCall(getFnPtrFt, getFnPtrFn.getCallee(), { setterVal });
+                    
+                    // For getter/setter, context is the object itself (this), not the closure context
+                    llvm::Value* context = objPtr;
+                    
+                    // Box the value to pass to setter
+                    llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+                    
+                    // Call the setter: (context, value) -> TsValue*
+                    llvm::FunctionType* setterType = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    createCall(setterType, setterFn, { context, boxedVal });
+                    
+                    lastValue = val;
+                    return;
+                }
+            }
+            
             // Use Any boxing here to avoid double-boxing already-boxed TsValue* values.
-            llvm::Value* objBoxed = boxValue(lastValue, std::make_shared<Type>(TypeKind::Any));
+            llvm::Value* objBoxed = boxValue(objPtr, std::make_shared<Type>(TypeKind::Any));
             
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);

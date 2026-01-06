@@ -232,7 +232,13 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     }
 
     if (node->isGetter) {
-        methodType->returnType = parseType(node->returnType, symbols);
+        if (!node->returnType.empty()) {
+            methodType->returnType = parseType(node->returnType, symbols);
+        } else {
+            // Getters infer their return type from the body
+            methodType->returnType = std::make_shared<Type>(TypeKind::Void);
+            needsReturnTypeInference = true;
+        }
     } else if (node->isSetter) {
         methodType->returnType = std::make_shared<Type>(TypeKind::Void);
         if (node->parameters.size() > 0) {
@@ -301,8 +307,11 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         auto ctorType = std::make_shared<FunctionType>();
         ctorType->returnType = classType;
         symbols.define("this", ctorType);
-    } else {
+    } else if (classType) {
         symbols.define("this", classType);
+    } else {
+        // Object literal method - 'this' is the object itself (typed as Any for now)
+        symbols.define("this", std::make_shared<Type>(TypeKind::Any));
     }
 
     // Define parameters in scope

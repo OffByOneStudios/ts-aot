@@ -1048,9 +1048,21 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             visitMethodDefinition(method);
             llvm::Value* val = lastValue; // This is already boxed by visitMethodDefinition
             
-            llvm::Value* keyStr = nullptr;
+            std::string keyName;
             if (auto id = dynamic_cast<ast::Identifier*>(method->nameNode.get())) {
-                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(id->name) });
+                // For getters/setters, use special key names
+                if (method->isGetter) {
+                    keyName = "__getter_" + id->name;
+                } else if (method->isSetter) {
+                    keyName = "__setter_" + id->name;
+                } else {
+                    keyName = id->name;
+                }
+            }
+            
+            llvm::Value* keyStr = nullptr;
+            if (!keyName.empty()) {
+                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(keyName) });
             } else if (auto computed = dynamic_cast<ast::ComputedPropertyName*>(method->nameNode.get())) {
                 visit(computed->expression.get());
                 keyStr = unboxValue(lastValue, std::make_shared<Type>(TypeKind::String));
