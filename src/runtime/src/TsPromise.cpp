@@ -29,6 +29,8 @@ AsyncContext::AsyncContext() {
     pendingNextPromise = nullptr;
     resumeFn = nullptr;
     data = nullptr;
+    resumedValue = nullptr;
+    execContext = nullptr;
 }
 
 TsValue* create_generator_result(TsValue value, bool done) {
@@ -61,8 +63,9 @@ TsValue* TsGenerator::next(TsValue* value) {
     }
     
     ctx->yielded = false;
-    ctx->resumeFn(ctx, value);
-    
+    ctx->resumedValue = value;
+    ctx->resumeFn(ctx);
+
     if (ctx->yielded) {
         return create_generator_result(ctx->yieldedValue, false);
     } else {
@@ -93,8 +96,9 @@ TsPromise* TsAsyncGenerator::next(TsValue* value) {
     
     ctx->pendingNextPromise = p;
     ctx->yielded = false;
-    ctx->resumeFn(ctx, value);
-    
+    ctx->resumedValue = value;
+    ctx->resumeFn(ctx);
+
     return p;
 }
 
@@ -203,8 +207,9 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
 }
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
+    ctx->resumedValue = value;
     if (ctx->resumeFn) {
-        ctx->resumeFn(ctx, value);
+        ctx->resumeFn(ctx);
     }
 }
 

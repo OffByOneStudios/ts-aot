@@ -719,9 +719,42 @@ All documented in `tests/node/PROGRESS.md` with root cause analysis.
 - [ ] Delete original files after verification
 
 **Blockers Requiring Runtime Fixes:**
-- Async/await state machine resume mechanism
+- ~~Async/await state machine resume mechanism~~ ✅ **FIXED** (2026-01-06)
 - Event loop timer callback dispatch
 - process.argv array property access
+
+### ✅ Runtime Fix: Async/Await Try-Catch Support (2026-01-06)
+
+**Problem:** Async functions with try-catch blocks failed LLVM IR verification with cross-function parameter reference errors.
+
+**Root Cause:** State machine passed `resumedValue` as function parameter, but try-catch control flow violated LLVM domination rules.
+
+**Solution Implemented:**
+- Added `resumedValue` field (field 10) to `AsyncContext` struct
+- Added `execContext` field (field 11) for nested function context
+- Changed state machine signature: `void SM(AsyncContext*)` (removed value param)
+- Load resumed value from context at each state entry point
+- Store execution context for nested function declarations
+
+**Files Modified:**
+- `src/runtime/include/TsPromise.h` - Added fields to AsyncContext
+- `src/runtime/src/TsPromise.cpp` - Updated resume functions
+- `src/compiler/codegen/IRGenerator_Core.cpp` - Updated LLVM type
+- `src/compiler/codegen/IRGenerator_Expressions_Async.cpp` - State machine changes
+
+**Testing Results:**
+- ✅ All 90 golden IR tests pass (100% - no regressions)
+- ✅ Simple async functions compile successfully
+- ✅ Async functions with try-catch compile successfully
+- ✅ Multiple await statements in try-catch work correctly
+
+**Known Edge Case:**
+- ⚠️ **Nested async function declarations** still fail compilation
+  - Example: `async function outer() { async function inner() { return 42; } }`
+  - Error: "Referring to an argument in another function" accessing AsyncContext fields
+  - Affects: `tests/node/async/async_basic.ts` (has nested async functions in try blocks)
+  - Workaround: Declare nested async functions at module scope, not inside other functions
+  - Test case created: `tmp/test_nested_async.ts` (captures edge case for future fix)
 
 ---
 

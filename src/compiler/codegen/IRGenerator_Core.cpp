@@ -205,7 +205,9 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         builder->getPtrTy(), // pendingNextPromise
         builder->getPtrTy(), // generator
         builder->getPtrTy(), // resumeFn
-        builder->getPtrTy()  // data
+        builder->getPtrTy(), // data
+        builder->getPtrTy(), // resumedValue
+        builder->getPtrTy()  // execContext
     });
 
     generateClasses(analyzer, specializations);

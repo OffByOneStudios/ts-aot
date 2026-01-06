@@ -21,9 +21,11 @@ struct AsyncContext : public TsObject {
     TsPromise* promise = nullptr;
     TsPromise* pendingNextPromise = nullptr;
     TsAsyncGenerator* generator = nullptr;
-    void (*resumeFn)(AsyncContext*, TsValue*);
+    void (*resumeFn)(AsyncContext*);
     void* data = nullptr; // For local variables
-    
+    TsValue* resumedValue = nullptr; // Stores value from last resume
+    void* execContext = nullptr; // Execution context for nested function creation
+
     AsyncContext();
 };
 

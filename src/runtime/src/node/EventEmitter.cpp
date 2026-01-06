@@ -235,6 +235,10 @@ int TsEventEmitter::GetMaxListeners() {
     return this->maxListeners;
 }
 
+void* TsEventEmitter::EventNames() {
+    return this->listeners->GetKeys();
+}
+
 extern "C" {
     void* ts_event_emitter_create() {
         void* mem = ts_alloc(sizeof(TsEventEmitter));
@@ -314,6 +318,17 @@ extern "C" {
         e->PrependOnceListener(s->ToUtf8(), callback);
     }
 
+    void ts_event_emitter_remove_listener(void* emitter, void* event, void* callback) {
+        if (!emitter) return;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
+        TsString* s = (TsString*)event;
+        if (!s) return;
+        e->RemoveListener(s->ToUtf8(), callback);
+    }
+
     void ts_event_emitter_remove_all_listeners(void* emitter, void* event) {
         if (!emitter) return;
         TsObject* obj = (TsObject*)emitter;
@@ -331,6 +346,26 @@ extern "C" {
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
         e->SetMaxListeners(n);
+    }
+
+    int ts_event_emitter_get_max_listeners(void* emitter) {
+        if (!emitter) return 0;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return 0;
+        return e->GetMaxListeners();
+    }
+
+    int ts_event_emitter_listener_count(void* emitter, void* event) {
+        if (!emitter) return 0;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return 0;
+        TsString* s = (TsString*)event;
+        if (!s) return 0;
+        return e->ListenerCount(s->ToUtf8());
     }
 
     void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {
@@ -375,5 +410,14 @@ extern "C" {
         e->Once(s->ToUtf8(), callback);
 
         return ts_value_make_promise(promise);
+    }
+
+    void* ts_event_emitter_event_names(void* emitter) {
+        if (!emitter) return nullptr;
+        TsObject* obj = (TsObject*)emitter;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return nullptr;
+        return e->EventNames();
     }
 }

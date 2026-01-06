@@ -1,27 +1,35 @@
 #include "IRGenerator.h"
 #include "BoxingPolicy.h"
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#include <spdlog/spdlog.h>
 
 namespace ts {
 
-// Static helper to register Events module's runtime functions once (8 functions)
+// Static helper to register Events module's runtime functions once (12 functions)
 static bool eventsFunctionsRegistered = false;
 static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     if (eventsFunctionsRegistered) return;
     eventsFunctionsRegistered = true;
-    
+
     bp.registerRuntimeApi("ts_event_emitter_on", {true, false, true}, true);  // emitter, event, listener
     bp.registerRuntimeApi("ts_event_emitter_once", {true, false, true}, true);
     bp.registerRuntimeApi("ts_event_emitter_emit", {true, false, true}, false);  // returns bool
     bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {true, false, true}, true);
     bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {true, false, true}, true);
+    bp.registerRuntimeApi("ts_event_emitter_remove_listener", {true, false, true}, true);  // emitter, event, listener
     bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {true, false}, true);
     bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {true, false}, true);  // emitter, n
+    bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {true}, false);  // returns int
+    bp.registerRuntimeApi("ts_event_emitter_listener_count", {true, false}, false);  // returns int
+    bp.registerRuntimeApi("ts_event_emitter_event_names", {true}, true);  // returns array
     bp.registerRuntimeApi("ts_event_emitter_static_once", {true, false}, true);  // events.once()
 }
 
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     ensureEventsFunctionsRegistered(boxingPolicy);
-    
+
+    SPDLOG_DEBUG("tryGenerateEventsCall: checking method '{}'", prop->name);
+
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "events" && prop->name == "once") {
             if (node->arguments.size() < 2) return true;
@@ -38,8 +46,9 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         }
     }
 
-    if (prop->name == "on" || prop->name == "addListener" || prop->name == "once" || 
-        prop->name == "prependListener" || prop->name == "prependOnceListener") {
+    if (prop->name == "on" || prop->name == "addListener" || prop->name == "once" ||
+        prop->name == "prependListener" || prop->name == "prependOnceListener" ||
+        prop->name == "removeListener" || prop->name == "off") {
         visit(prop->expression.get());
         llvm::Value* boxedObj = lastValue;
         llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
@@ -63,12 +72,8 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         const char* fnName = "ts_event_emitter_on";
         if (prop->name == "once") fnName = "ts_event_emitter_once";
         else if (prop->name == "prependListener") fnName = "ts_event_emitter_prepend_listener";
-        else if (prop->name == "prependOnceListener") {
-            // We don't have a specific ts_event_emitter_prepend_once_listener yet,
-            // but we can implement it or just use once for now (though it won't prepend).
-            // Actually, let's implement it in the runtime.
-            fnName = "ts_event_emitter_prepend_once_listener";
-        }
+        else if (prop->name == "prependOnceListener") fnName = "ts_event_emitter_prepend_once_listener";
+        else if (prop->name == "removeListener" || prop->name == "off") fnName = "ts_event_emitter_remove_listener";
 
         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
         createCall(ft, fn.getCallee(), { obj, event, callback });
@@ -149,8 +154,51 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         // Box the result (boolean)
         lastValue = boxValue(lastValue, std::make_shared<Type>(TypeKind::Boolean));
         return true;
+    } else if (prop->name == "listenerCount") {
+        visit(prop->expression.get());
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* event = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_listener_count", ft);
+        llvm::Value* count = createCall(ft, fn.getCallee(), { obj, event });
+
+        // Box the result (int)
+        lastValue = boxValue(count, std::make_shared<Type>(TypeKind::Int));
+        return true;
+    } else if (prop->name == "getMaxListeners") {
+        visit(prop->expression.get());
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_get_max_listeners", ft);
+        llvm::Value* maxListeners = createCall(ft, fn.getCallee(), { obj });
+
+        // Box the result (int)
+        lastValue = boxValue(maxListeners, std::make_shared<Type>(TypeKind::Int));
+        return true;
+    } else if (prop->name == "eventNames") {
+        visit(prop->expression.get());
+        llvm::Value* boxedObj = lastValue;
+        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_event_names", ft);
+        llvm::Value* names = createCall(ft, fn.getCallee(), { obj });
+
+        // Box the result (array)
+        lastValue = boxValue(names, std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String)));
+        return true;
     }
-    
+
     return false;
 }
 

@@ -51,7 +51,12 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
 
     // 5. Start next state
     builder->SetInsertPoint(nextBB);
-    
+
+    // Reload resumedValue from context at start of this state
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 10);
+    currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
+    boxedValues.insert(currentAsyncResumedValue);
+
     // Check for error
     llvm::Value* errorPtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 2);
     llvm::Value* errorVal = builder->CreateLoad(llvm::Type::getInt8Ty(*context), errorPtr);
@@ -129,11 +134,11 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
 
     // 5. Start next state
     builder->SetInsertPoint(nextBB);
-    
-        // 5. Start next state
-    builder->SetInsertPoint(nextBB);
-    
-    // Check for error
+
+    // Reload resumedValue from context at start of this state
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 10);
+    currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
+    boxedValues.insert(currentAsyncResumedValue);
 
     // The resumed value (from next()) is in currentAsyncResumedValue
     lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
@@ -256,7 +261,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // 2. Create the State Machine (SM) function
     std::string smName = specializedName + "_SM";
-    std::vector<llvm::Type*> smArgTypes = { builder->getPtrTy(), builder->getPtrTy() }; // ctx, resumedValue
+    std::vector<llvm::Type*> smArgTypes = { builder->getPtrTy() }; // ctx only
     llvm::FunctionType* smFt = llvm::FunctionType::get(builder->getVoidTy(), smArgTypes, false);
     llvm::Function* smFunc = llvm::Function::Create(smFt, llvm::Function::InternalLinkage, smName, module.get());
     addStackProtection(smFunc);
@@ -283,6 +288,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Store Frame in ctx->data
     llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 9);
     builder->CreateStore(frame, dataPtr);
+
+    // Store execution context in ctx->execContext
+    llvm::Value* execContextPtr = builder->CreateStructGEP(asyncContextType, ctx, 11);
+    builder->CreateStore(entryFunc->getArg(0), execContextPtr);
 
     // Initialize all frame variables to null/zero
     for (const auto& var : vars) {
@@ -338,8 +347,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     // Call SM function for the first time (only for non-generators)
     if (!isGenerator) {
-        llvm::Value* nullResumed = llvm::ConstantPointerNull::get(builder->getPtrTy());
-        createCall(smFunc->getFunctionType(), smFunc, { ctx, nullResumed });
+        // Initialize resumedValue to null
+        llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, ctx, 10);
+        builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), resumedValuePtr);
+        createCall(smFunc->getFunctionType(), smFunc, { ctx });
     }
 
     if (isGenerator) {
@@ -376,9 +387,9 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->SetInsertPoint(smEntryBB);
 
     llvm::Value* smCtx = smFunc->getArg(0);
-    llvm::Value* smResumedVal = smFunc->getArg(1);
 
     // Save current state for SM generation
+    auto oldContext = currentContext;
     auto oldAsyncContext = currentAsyncContext;
     auto oldAsyncResumedValue = currentAsyncResumedValue;
     auto oldAsyncFrame = currentAsyncFrame;
@@ -400,7 +411,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     auto oldReturnBB = currentReturnBB;
 
     currentAsyncContext = smCtx;
-    currentAsyncResumedValue = smResumedVal;
+
+    // Load resumedValue from context instead of function parameter
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, smCtx, 10);
+    currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
     boxedValues.insert(currentAsyncResumedValue);
     currentAsyncFrameType = frameType;
     currentAsyncFrameMap = frameMap;
@@ -413,6 +427,10 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Load Frame from ctx->data
     llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
     currentAsyncFrame = builder->CreateLoad(builder->getPtrTy(), smDataPtr);
+
+    // Load execution context from ctx->execContext and set as currentContext
+    llvm::Value* smExecContextPtr = builder->CreateStructGEP(asyncContextType, smCtx, 11);
+    currentContext = builder->CreateLoad(builder->getPtrTy(), smExecContextPtr);
 
     // Create the switch block
     llvm::BasicBlock* switchBB = llvm::BasicBlock::Create(*context, "switch", smFunc);
@@ -594,6 +612,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     }
 
     // Restore state
+    currentContext = oldContext;
     currentAsyncContext = oldAsyncContext;
     currentAsyncResumedValue = oldAsyncResumedValue;
     currentAsyncFrame = oldAsyncFrame;
