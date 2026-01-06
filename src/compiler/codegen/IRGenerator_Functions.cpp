@@ -957,7 +957,22 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
         }
+        // Clear async-related state before generating nested async function
+        // This prevents cross-function value references when generating nested async functions
+        auto savedCurrentContext = currentContext;
+        auto savedCurrentAsyncContext = currentAsyncContext;
+        auto savedCurrentAsyncResumedValue = currentAsyncResumedValue;
+        currentContext = nullptr;
+        currentAsyncContext = nullptr;
+        currentAsyncResumedValue = nullptr;
+
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
+
+        // Restore async state
+        currentContext = savedCurrentContext;
+        currentAsyncContext = savedCurrentAsyncContext;
+        currentAsyncResumedValue = savedCurrentAsyncResumedValue;
+
         builder->SetInsertPoint(oldBB);
         // Restore outer function state
         namedValues = saved.namedValues;
@@ -1405,7 +1420,22 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
         }
+        // Clear async-related state before generating nested async function
+        // This prevents cross-function value references when generating nested async functions
+        auto savedCurrentContext = currentContext;
+        auto savedCurrentAsyncContext = currentAsyncContext;
+        auto savedCurrentAsyncResumedValue = currentAsyncResumedValue;
+        currentContext = nullptr;
+        currentAsyncContext = nullptr;
+        currentAsyncResumedValue = nullptr;
+
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
+
+        // Restore async state
+        currentContext = savedCurrentContext;
+        currentAsyncContext = savedCurrentAsyncContext;
+        currentAsyncResumedValue = savedCurrentAsyncResumedValue;
+
         builder->SetInsertPoint(oldBB);
         // Restore outer function state
         namedValues = saved.namedValues;
@@ -1791,7 +1821,22 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
         }
+        // Clear async-related state before generating nested async function
+        // This prevents cross-function value references when generating nested async functions
+        auto savedCurrentContext = currentContext;
+        auto savedCurrentAsyncContext = currentAsyncContext;
+        auto savedCurrentAsyncResumedValue = currentAsyncResumedValue;
+        currentContext = nullptr;
+        currentAsyncContext = nullptr;
+        currentAsyncResumedValue = nullptr;
+
         generateAsyncFunctionBody(function, node, argTypes, nullptr, name);
+
+        // Restore async state
+        currentContext = savedCurrentContext;
+        currentAsyncContext = savedCurrentAsyncContext;
+        currentAsyncResumedValue = savedCurrentAsyncResumedValue;
+
         builder->SetInsertPoint(oldBB);
         // Restore outer function state
         namedValues = saved.namedValues;

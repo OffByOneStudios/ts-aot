@@ -194,21 +194,8 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
         llvm::Type::getInt64Ty(*context)  // length
     });
 
-    asyncContextType = llvm::StructType::create(*context, "AsyncContext");
-    asyncContextType->setBody({
-        builder->getPtrTy(), // vtable
-        llvm::Type::getInt32Ty(*context), // state
-        llvm::Type::getInt8Ty(*context), // error (bool)
-        llvm::Type::getInt8Ty(*context), // yielded (bool)
-        llvm::StructType::get(*context, { llvm::Type::getInt8Ty(*context), llvm::Type::getInt64Ty(*context) }), // yieldedValue (TsValue)
-        builder->getPtrTy(), // promise
-        builder->getPtrTy(), // pendingNextPromise
-        builder->getPtrTy(), // generator
-        builder->getPtrTy(), // resumeFn
-        builder->getPtrTy(), // data
-        builder->getPtrTy(), // resumedValue
-        builder->getPtrTy()  // execContext
-    });
+    // NOTE: AsyncContext must be defined AFTER tsValueType since it uses it
+    // This will be done in generateEntryPoint after tsValueType is created
 
     generateClasses(analyzer, specializations);
     generatePrototypes(specializations);
@@ -1812,7 +1799,7 @@ void IRGenerator::collectCapturedVariableNames(ast::Node* node,
 
 void IRGenerator::initTsValueType() {
     if (tsValueType) return;  // Already initialized
-    
+
     // TsValue structure: { i8 type, [7 x i8] padding, i64 value }
     // This matches the C++ TaggedValue layout:
     //   - 1 byte for ValueType enum
@@ -1825,6 +1812,33 @@ void IRGenerator::initTsValueType() {
         llvm::ArrayType::get(builder->getInt8Ty(), 7),  // padding for alignment
         builder->getInt64Ty()                           // value union (all members fit in i64)
     });
+
+    // AsyncContext must be initialized after TsValue since it contains a TsValue field
+    // CRITICAL: AsyncContext inherits from TsObject, which has:
+    //   - Implicit vtable pointer (from virtual destructor)
+    //   - Explicit void* vtable field
+    //   - uint32_t magic field
+    // Then AsyncContext adds its own fields
+    if (!asyncContextType) {
+        asyncContextType = llvm::StructType::create(*context, "AsyncContext");
+        asyncContextType->setBody({
+            builder->getPtrTy(),              // 0: implicit vtable pointer (C++ virtual destructor)
+            builder->getPtrTy(),              // 1: explicit vtable field (TsObject::vtable)
+            llvm::Type::getInt32Ty(*context), // 2: magic (TsObject::magic)
+            llvm::Type::getInt32Ty(*context), // 3: state (AsyncContext::state)
+            llvm::Type::getInt8Ty(*context),  // 4: error (AsyncContext::error)
+            llvm::Type::getInt8Ty(*context),  // 5: yielded (AsyncContext::yielded)
+            llvm::ArrayType::get(builder->getInt8Ty(), 6), // 6: padding (6 bytes to align to offset 32)
+            tsValueType,                      // 7: yieldedValue (AsyncContext::yieldedValue) - at offset 32
+            builder->getPtrTy(),              // 8: promise
+            builder->getPtrTy(),              // 9: pendingNextPromise
+            builder->getPtrTy(),              // 10: generator
+            builder->getPtrTy(),              // 11: resumeFn
+            builder->getPtrTy(),              // 12: data
+            builder->getPtrTy(),              // 13: resumedValue
+            builder->getPtrTy()               // 14: execContext
+        });
+    }
 }
 
 // Convert TypeKind to runtime ValueType enum value

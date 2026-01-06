@@ -163,18 +163,22 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                     llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                     llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
 
-                    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
-                    llvm::Value* currentContext = nullptr;
-                    if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
-                        currentContext = currentFunc->getArg(0);
-                    } else {
-                        currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    // Get context for function closure: use member currentContext if set (e.g., in async state machine),
+                    // otherwise fall back to current function's first argument
+                    llvm::Value* ctxForClosure = this->currentContext;
+                    if (!ctxForClosure) {
+                        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                        if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
+                            ctxForClosure = currentFunc->getArg(0);
+                        } else {
+                            ctxForClosure = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        }
                     }
 
                     target = createCall(
                         makeFnFt,
                         makeFnFn.getCallee(),
-                        { builder->CreateBitCast(stripped, builder->getPtrTy()), currentContext });
+                        { builder->CreateBitCast(stripped, builder->getPtrTy()), ctxForClosure });
                     boxedValues.insert(target);
                 }
             }
@@ -1029,8 +1033,10 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
          if (func) {
              // Add context as first argument
              std::vector<llvm::Value*> callArgs;
-             if (currentAsyncContext) {
-                 callArgs.push_back(currentAsyncContext);
+             if (currentContext) {
+                 // Use currentContext (execution context), NOT currentAsyncContext (state machine context)
+                 // currentAsyncContext is a state machine parameter and violates LLVM SSA if passed to another function
+                 callArgs.push_back(currentContext);
              } else {
                  callArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
              }
@@ -1063,6 +1069,15 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             }
              
              lastValue = createCall(func->getFunctionType(), func, callArgs);
+
+             // CRITICAL: Async functions return TsValue* (boxed promise), so mark the result as boxed
+             // to prevent double-boxing when the result is used
+             if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+                 auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
+                 if (classType->name.find("Promise") == 0) {
+                     boxedValues.insert(lastValue);
+                 }
+             }
          } else {
              SPDLOG_ERROR("Function not found: {}", mangledName);
              // TODO: Error handling
