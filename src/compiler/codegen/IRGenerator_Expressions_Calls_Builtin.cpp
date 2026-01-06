@@ -1482,6 +1482,37 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = getRuntimeFunction("ts_array_slice", sliceFt);
          lastValue = createCall(sliceFt, fn.getCallee(), { obj, start, end });
          return true;
+    } else if (prop->name == "at" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) {
+             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+             return true;
+         }
+         
+         visit(node->arguments[0].get());
+         llvm::Value* idx = lastValue;
+         if (idx->getType()->isDoubleTy()) {
+             idx = builder->CreateFPToSI(idx, llvm::Type::getInt64Ty(*context));
+         }
+         
+         llvm::FunctionType* atFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_at", atFt);
+         llvm::Value* ret = createCall(atFt, fn.getCallee(), { obj, idx });
+         
+         // Unbox the result to the element type
+         std::shared_ptr<Type> elemType = std::make_shared<Type>(TypeKind::Any);
+         if (prop->expression->inferredType->kind == TypeKind::Array) {
+             elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;
+         }
+         boxedValues.insert(ret);
+         lastValue = unboxValue(ret, elemType);
+         return true;
     } else if ((prop->name == "slice" || prop->name == "substring") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::String) {
          // String slice/substring: str.slice(start, end) or str.substring(start, end)
          visit(prop->expression.get());
