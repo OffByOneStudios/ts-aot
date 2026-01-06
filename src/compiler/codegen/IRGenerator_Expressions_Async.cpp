@@ -19,10 +19,17 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
     visit(node->expression.get());
     llvm::Value* promiseVal = lastValue;
     SPDLOG_INFO("visitAwaitExpression: promiseVal={}", (void*)promiseVal);
-    
-    // Box it if needed
-    promiseVal = boxValue(promiseVal, node->expression->inferredType);
-    SPDLOG_INFO("visitAwaitExpression: boxed promiseVal={}", (void*)promiseVal);
+
+    // Don't box Promise types - they are always already boxed!
+    // Promises are reference types that are never unboxed.
+    bool isPromiseType = node->expression->inferredType &&
+                         node->expression->inferredType->kind == TypeKind::Class &&
+                         std::static_pointer_cast<ClassType>(node->expression->inferredType)->name.find("Promise") == 0;
+
+    if (!isPromiseType) {
+        promiseVal = boxValue(promiseVal, node->expression->inferredType);
+        SPDLOG_INFO("visitAwaitExpression: boxed promiseVal={}", (void*)promiseVal);
+    }
 
     lastValue = emitAwait(promiseVal, node->inferredType);
 

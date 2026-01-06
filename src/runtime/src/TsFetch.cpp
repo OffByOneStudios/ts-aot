@@ -469,6 +469,6 @@ extern "C" {
     void* Response_text(void* ctx, void* resp) {
         TsResponse* r = (TsResponse*)resp;
         TsString* str = r->GetBody()->ToString();
-        return ts::ts_promise_resolve(ts_value_make_string(str));
+        return ts::ts_promise_resolve(nullptr, ts_value_make_string(str));
     }
 }

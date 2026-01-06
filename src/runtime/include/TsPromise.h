@@ -78,8 +78,8 @@ extern "C" {
     TsPromise* ts_promise_create();
     void ts_promise_resolve_internal(TsPromise* promise, TsValue* value);
     void ts_promise_reject_internal(TsPromise* promise, TsValue* reason);
-    TsValue* ts_promise_resolve(TsValue* value);
-    TsValue* ts_promise_reject(TsValue* reason);
+    TsValue* ts_promise_resolve(void* context, TsValue* value);
+    TsValue* ts_promise_reject(void* context, TsValue* reason);
     TsValue* ts_promise_all(TsValue* iterable);
     TsValue* ts_promise_race(TsValue* iterable);
     TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
