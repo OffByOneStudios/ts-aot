@@ -686,8 +686,20 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 varType = gep->getResultElementType();
             }
         } else {
-            // Check for global variable
-            llvm::GlobalVariable* gv = module->getGlobalVariable(id->name);
+            // Check for global variable - first try mangled name for top-level vars
+            llvm::GlobalVariable* gv = nullptr;
+            for (const auto& symbol : analyzer->topLevelVariables) {
+                if (symbol->name == id->name && !symbol->modulePath.empty()) {
+                    size_t hash = std::hash<std::string>{}(symbol->modulePath);
+                    std::string mangledName = symbol->name + "_" + std::to_string(hash);
+                    gv = module->getGlobalVariable(mangledName);
+                    if (gv) break;
+                }
+            }
+            if (!gv) {
+                // Fallback to unmangled global lookup
+                gv = module->getGlobalVariable(id->name);
+            }
             if (gv) {
                 variable = gv;
                 varType = gv->getValueType();
