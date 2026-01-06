@@ -873,13 +873,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         if (id->name == "process" && node->name == "platform") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_platform", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "arch") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_arch", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "stdout") {
@@ -920,7 +924,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         if (id->name == "process" && node->name == "version") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_version", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "versions") {
@@ -932,13 +938,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         if (id->name == "process" && node->name == "argv0") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_argv0", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "execPath") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_exec_path", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         if (id->name == "process" && node->name == "execArgv") {
@@ -950,7 +960,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         if (id->name == "process" && node->name == "title") {
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_title", ft);
-            lastValue = unboxValue(createCall(ft, fn.getCallee(), {}), node->inferredType);
+            llvm::Value* boxed = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(boxed);
+            lastValue = unboxValue(boxed, node->inferredType);
             return;
         }
         
