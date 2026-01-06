@@ -1170,21 +1170,30 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 return true;
             } else if (prop->name == "assign") {
                 if (node->arguments.size() < 2) return true;
+                
+                // Visit target (first argument)
                 visit(node->arguments[0].get());
                 llvm::Value* target = lastValue;
                 if (!target->getType()->isPointerTy()) {
                     target = builder->CreateIntToPtr(target, builder->getPtrTy());
                 }
-                visit(node->arguments[1].get());
-                llvm::Value* source = lastValue;
-                if (!source->getType()->isPointerTy()) {
-                    source = builder->CreateIntToPtr(source, builder->getPtrTy());
-                }
                 
+                // Process all source objects (arguments[1] onward)
                 llvm::FunctionType* assignFt = llvm::FunctionType::get(builder->getPtrTy(), 
                         { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee assignFn = getRuntimeFunction("ts_object_assign", assignFt);
-                lastValue = createCall(assignFt, assignFn.getCallee(), { target, source });
+                
+                for (size_t i = 1; i < node->arguments.size(); ++i) {
+                    visit(node->arguments[i].get());
+                    llvm::Value* source = lastValue;
+                    if (!source->getType()->isPointerTy()) {
+                        source = builder->CreateIntToPtr(source, builder->getPtrTy());
+                    }
+                    // Chain: target = ts_object_assign(target, source)
+                    target = createCall(assignFt, assignFn.getCallee(), { target, source });
+                }
+                
+                lastValue = target;
                 return true;
             } else if (prop->name == "freeze") {
                 if (node->arguments.empty()) return true;

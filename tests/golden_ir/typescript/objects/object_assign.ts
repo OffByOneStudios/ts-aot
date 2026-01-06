@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Object.assign() crashes compiler
 // CHECK: define
 // CHECK: ts_map_create
 // OUTPUT: 3

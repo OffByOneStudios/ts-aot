@@ -376,7 +376,6 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
             type = builder->getPtrTy();
         } else {
             type = getLLVMType(symbol->type);
-            SPDLOG_INFO("  Top-level variable: {} (type kind {})", symbol->name, (int)symbol->type->kind);
         }
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
             llvm::Constant::getNullValue(type), mangledName);
@@ -549,7 +548,14 @@ llvm::Type* IRGenerator::getLLVMType(const std::shared_ptr<Type>& type) {
         case TypeKind::Double: return llvm::Type::getDoubleTy(*context);
         case TypeKind::Boolean: return llvm::Type::getInt1Ty(*context);
         case TypeKind::Object: {
-            auto objType = std::static_pointer_cast<ObjectType>(type);
+            // Check if this is a specific object type with known fields, or a generic object
+            auto objType = std::dynamic_pointer_cast<ObjectType>(type);
+            if (!objType || objType->fields.empty()) {
+                // Generic object type (no specific fields known) - treat as pointer
+                return builder->getPtrTy();
+            }
+            
+            // Specific object type with known fields - create struct
             std::vector<llvm::Type*> fieldTypes;
             for (auto& [name, fieldType] : objType->fields) {
                 fieldTypes.push_back(getLLVMType(fieldType));
