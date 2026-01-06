@@ -1192,7 +1192,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
         
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_entries(rawPtr));
         }
