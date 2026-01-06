@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Method shorthand returns undefined instead of function result
+// Test: Method shorthand syntax in object literals
 // CHECK: define
 // CHECK: ts_map_create
 // CHECK: ts_value_make_function
