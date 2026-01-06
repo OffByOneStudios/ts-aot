@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Compiler error - Unknown variable name in block scope
 // Test: Mutable variable reassignment in switch block
 // 
 // Bug: The compiler loses track of mutable variables when they are
