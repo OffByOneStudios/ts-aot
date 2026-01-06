@@ -315,6 +315,22 @@ TsValue* ts_value_make_int(int64_t i) {
         return func->funcPtr;
     }
 
+    void* ts_value_get_function(TsValue* val) {
+        if (!val) return nullptr;
+        // Accept both FUNCTION_PTR and OBJECT_PTR for backwards compatibility
+        if (val->type != ValueType::FUNCTION_PTR && val->type != ValueType::OBJECT_PTR) return nullptr;
+        TsFunction* func = (TsFunction*)val->ptr_val;
+        return func->funcPtr;
+    }
+
+    void* ts_value_get_context(TsValue* val) {
+        if (!val) return nullptr;
+        // Accept both FUNCTION_PTR and OBJECT_PTR for backwards compatibility
+        if (val->type != ValueType::FUNCTION_PTR && val->type != ValueType::OBJECT_PTR) return nullptr;
+        TsFunction* func = (TsFunction*)val->ptr_val;
+        return func->context;
+    }
+
     bool ts_value_get_bool(TsValue* v) {
         if (!v) return false;
         if (v->type == ValueType::BOOLEAN) return v->b_val;

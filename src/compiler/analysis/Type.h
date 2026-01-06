@@ -151,6 +151,8 @@ struct FunctionType : public Type {
 
 struct ObjectType : public Type {
     std::map<std::string, std::shared_ptr<Type>> fields;
+    std::map<std::string, std::shared_ptr<FunctionType>> getters;
+    std::map<std::string, std::shared_ptr<FunctionType>> setters;
     ObjectType() : Type(TypeKind::Object) {}
     
     std::string toString() const override {

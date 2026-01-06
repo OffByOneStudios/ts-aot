@@ -105,6 +105,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_get_bool",   {true}},               // (TsValue*) -> bool
     {"ts_value_get_string", {true}},               // (TsValue*) -> TsString*
     {"ts_value_get_object", {true}},               // (TsValue*) -> void*
+    {"ts_value_get_function", {true}},             // (TsValue*) -> fn ptr
+    {"ts_value_get_context", {true}},              // (TsValue*) -> context ptr
     {"ts_value_is_undefined", {true}},             // (TsValue*) -> bool
     
     // Value comparison functions - compare boxed values

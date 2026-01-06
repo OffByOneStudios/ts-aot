@@ -1423,6 +1423,45 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             }
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
+            // Check if this property has a getter
+            if (node->expression->inferredType->kind == TypeKind::Object) {
+                auto obj = std::static_pointer_cast<ObjectType>(node->expression->inferredType);
+                if (obj->getters.count(node->name)) {
+                    // Property has a getter - look up the getter function and call it
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+                    std::string getterKey = "__getter_" + node->name;
+                    llvm::Value* keyStr = builder->CreateGlobalStringPtr(getterKey);
+                    llvm::Value* keyStrPtr = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+                    llvm::Value* keyBoxed = boxValue(keyStrPtr, std::make_shared<Type>(TypeKind::String));
+                    
+                    // Get the getter function from the map
+                    llvm::Value* getterVal = emitInlineMapGet(objPtr, keyBoxed);
+                    
+                    // Unbox to get raw function pointer
+                    llvm::FunctionType* getFnPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee getFnPtrFn = getRuntimeFunction("ts_value_get_function", getFnPtrFt);
+                    llvm::Value* getterFn = createCall(getFnPtrFt, getFnPtrFn.getCallee(), { getterVal });
+                    
+                    // For getter/setter, context is the object itself (this), not the closure context
+                    llvm::Value* context = objPtr;
+                    
+                    // Call the getter: (context) -> TsValue*
+                    llvm::FunctionType* getterType = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    lastValue = createCall(getterType, getterFn, { context });
+                    boxedValues.insert(lastValue);
+                    
+                    // Unbox based on getter return type
+                    auto getterFuncType = obj->getters[node->name];
+                    if (getterFuncType->returnType && 
+                        getterFuncType->returnType->kind != TypeKind::Object && 
+                        getterFuncType->returnType->kind != TypeKind::Any) {
+                        lastValue = unboxValue(lastValue, getterFuncType->returnType);
+                    }
+                    return;
+                }
+            }
+            
             // For typed objects, objPtr is already the raw TsMap* - use it directly for map operations
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
