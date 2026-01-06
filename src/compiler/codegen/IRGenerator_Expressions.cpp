@@ -727,9 +727,17 @@ void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
     for (auto& prop : node->properties) {
         if (auto method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
             // Method shorthand: { getValue() { return 42; } }
+            // Save the current insertion point before visiting the method
+            llvm::BasicBlock* savedBB = builder->GetInsertBlock();
+            
             // Visit the method to generate its function and get the boxed TsValue*
             visit(method);
             llvm::Value* funcValue = lastValue;  // Should be TsValue* (already boxed)
+            
+            // Restore insertion point after visiting method (in case it was changed)
+            if (savedBB && !savedBB->getTerminator()) {
+                builder->SetInsertPoint(savedBB);
+            }
             
             // Create the key string
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
