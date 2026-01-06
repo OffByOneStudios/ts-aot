@@ -225,31 +225,31 @@ void Analyzer::registerProcess() {
     // Milestone 102.8: Process Events
     // ========================================================================
     
-    // process.on(event: string, listener: Function): this
+    // process.on(event: string, listener: Function): void (was 'this' but causes circular ref)
     auto onType = std::make_shared<FunctionType>();
     onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     onType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
-    onType->returnType = processType;
+    onType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["on"] = onType;
-    
-    // process.once(event: string, listener: Function): this
+
+    // process.once(event: string, listener: Function): void (was 'this' but causes circular ref)
     auto onceType = std::make_shared<FunctionType>();
     onceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     onceType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
-    onceType->returnType = processType;
+    onceType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["once"] = onceType;
-    
-    // process.removeListener(event: string, listener: Function): this
+
+    // process.removeListener(event: string, listener: Function): void (was 'this' but causes circular ref)
     auto removeListenerType = std::make_shared<FunctionType>();
     removeListenerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     removeListenerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
-    removeListenerType->returnType = processType;
+    removeListenerType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["removeListener"] = removeListenerType;
-    
-    // process.removeAllListeners(event?: string): this
+
+    // process.removeAllListeners(event?: string): void (was 'this' but causes circular ref)
     auto removeAllListenersType = std::make_shared<FunctionType>();
     removeAllListenersType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    removeAllListenersType->returnType = processType;
+    removeAllListenersType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["removeAllListeners"] = removeAllListenersType;
     
     // process.setUncaughtExceptionCaptureCallback(fn: Function | null): void
@@ -267,14 +267,14 @@ void Analyzer::registerProcess() {
     // Milestone 102.9: Event Loop Handles
     // ========================================================================
     
-    // process.ref(): this
+    // process.ref(): void (was 'this' but causes circular ref)
     auto refType = std::make_shared<FunctionType>();
-    refType->returnType = processType;
+    refType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["ref"] = refType;
-    
-    // process.unref(): this
+
+    // process.unref(): void (was 'this' but causes circular ref)
     auto unrefType = std::make_shared<FunctionType>();
-    unrefType->returnType = processType;
+    unrefType->returnType = std::make_shared<Type>(TypeKind::Void);
     processType->fields["unref"] = unrefType;
     
     // process.getActiveResourcesInfo(): string[]

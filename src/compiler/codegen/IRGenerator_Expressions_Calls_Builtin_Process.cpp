@@ -16,9 +16,9 @@ static void ensureProcessFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_process_abort", {}, false);
     
     // Process info
-    bp.registerRuntimeApi("ts_process_cwd", {}, false);  // -> string
+    bp.registerRuntimeApi("ts_process_cwd", {}, true);  // -> boxed string
     bp.registerRuntimeApi("ts_process_chdir", {false}, false);  // dir
-    bp.registerRuntimeApi("ts_process_get_platform", {}, false);  // -> string
+    bp.registerRuntimeApi("ts_process_get_platform", {}, true);  // -> boxed string
     bp.registerRuntimeApi("ts_process_uptime", {}, false);  // -> double
     bp.registerRuntimeApi("ts_process_umask", {false}, false);  // mask -> old mask
     
