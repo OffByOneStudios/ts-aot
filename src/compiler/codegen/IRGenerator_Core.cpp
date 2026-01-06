@@ -2013,15 +2013,19 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
                     llvm::FunctionType* fnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_value_make_function", fnFt);
 
-                    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
-                    llvm::Value* currentContext = nullptr;
-                    if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
-                        currentContext = currentFunc->getArg(0);
-                    } else {
-                        currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    // Get context for function closure: use member currentContext if set (e.g., in async state machine),
+                    // otherwise fall back to current function's first argument
+                    llvm::Value* ctxForClosure = this->currentContext;
+                    if (!ctxForClosure) {
+                        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                        if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
+                            ctxForClosure = currentFunc->getArg(0);
+                        } else {
+                            ctxForClosure = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        }
                     }
 
-                    llvm::Value* res = createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(stripped, builder->getPtrTy()), currentContext });
+                    llvm::Value* res = createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(stripped, builder->getPtrTy()), ctxForClosure });
                     boxedValues.insert(res);
                     return res;
                 }
@@ -2106,15 +2110,19 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
                 funcPtrVal = val->stripPointerCasts();
             }
 
-            llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
-            llvm::Value* currentContext = nullptr;
-            if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
-                currentContext = currentFunc->getArg(0);
-            } else {
-                currentContext = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            // Get context for function closure: use member currentContext if set (e.g., in async state machine),
+            // otherwise fall back to current function's first argument
+            llvm::Value* ctxForClosure = this->currentContext;
+            if (!ctxForClosure) {
+                llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                if (currentFunc->arg_size() > 0 && currentFunc->getArg(0)->getType()->isPointerTy()) {
+                    ctxForClosure = currentFunc->getArg(0);
+                } else {
+                    ctxForClosure = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                }
             }
 
-            llvm::Value* res = createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(funcPtrVal, builder->getPtrTy()), currentContext });
+            llvm::Value* res = createCall(fnFt, fn.getCallee(), { builder->CreateBitCast(funcPtrVal, builder->getPtrTy()), ctxForClosure });
             boxedValues.insert(res);
             return res;
         } else if (valType->isPointerTy()) {
@@ -2415,11 +2423,7 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         currentIsAsync,
         anonVarCounter,
     };
-    
-    // Create function entry
-    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", function);
-    builder->SetInsertPoint(entry);
-    
+
     // Clear function-specific state for this nested function body
     namedValues.clear();
     forcedVariableTypes.clear();
@@ -2439,7 +2443,106 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     checkedAllocas.clear();
     lastValue = nullptr;
     anonVarCounter = 0;
-    
+
+    // Check if this is an async function - if so, use generateAsyncFunctionBody instead
+    if (node->isAsync) {
+        std::vector<std::shared_ptr<Type>> argTypes;
+        // Parse parameter types from the type annotations
+        for (size_t i = 0; i < node->parameters.size(); ++i) {
+            auto& param = node->parameters[i];
+            if (!param->type.empty() && analyzer) {
+                argTypes.push_back(analyzer->parseType(param->type, analyzer->getSymbolTable()));
+            } else {
+                argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+        }
+
+        // Clear async-related state before generating nested async function
+        // This prevents cross-function value references when generating nested async functions
+        auto savedCurrentContext = currentContext;
+        auto savedCurrentAsyncContext = currentAsyncContext;
+        auto savedCurrentAsyncResumedValue = currentAsyncResumedValue;
+        currentContext = nullptr;
+        currentAsyncContext = nullptr;
+        currentAsyncResumedValue = nullptr;
+
+        generateAsyncFunctionBody(function, node, argTypes, nullptr, funcName);
+
+        // Restore async state
+        currentContext = savedCurrentContext;
+        currentAsyncContext = savedCurrentAsyncContext;
+        currentAsyncResumedValue = savedCurrentAsyncResumedValue;
+
+        builder->SetInsertPoint(oldBB);
+        // Restore all state (same as below)
+        namedValues = saved.namedValues;
+        forcedVariableTypes = saved.forcedVariableTypes;
+        variableTypes = saved.variableTypes;
+        valueOverrides = saved.valueOverrides;
+        boxedValues = saved.boxedValues;
+        boxedVariables = saved.boxedVariables;
+        boxedElementArrayVars = saved.boxedElementArrayVars;
+        cellVariables = saved.cellVariables;
+        cellPointers = saved.cellPointers;
+        lengthAliases = saved.lengthAliases;
+        lastLengthArray = saved.lastLengthArray;
+        catchStack = saved.catchStack;
+        finallyStack = saved.finallyStack;
+        loopStack = saved.loopStack;
+        nonNullValues = saved.nonNullValues;
+        checkedAllocas = saved.checkedAllocas;
+        currentClass = saved.currentClass;
+        currentReturnType = saved.currentReturnType;
+        currentContext = saved.currentContext;
+        currentBreakBB = saved.currentBreakBB;
+        currentContinueBB = saved.currentContinueBB;
+        currentReturnBB = saved.currentReturnBB;
+        currentReturnValueAlloca = saved.currentReturnValueAlloca;
+        currentShouldReturnAlloca = saved.currentShouldReturnAlloca;
+        currentShouldBreakAlloca = saved.currentShouldBreakAlloca;
+        currentShouldContinueAlloca = saved.currentShouldContinueAlloca;
+        currentBreakTargetAlloca = saved.currentBreakTargetAlloca;
+        currentContinueTargetAlloca = saved.currentContinueTargetAlloca;
+        currentAsyncContext = saved.currentAsyncContext;
+        currentAsyncResumedValue = saved.currentAsyncResumedValue;
+        currentAsyncFrame = saved.currentAsyncFrame;
+        currentAsyncFrameType = saved.currentAsyncFrameType;
+        currentAsyncFrameMap = saved.currentAsyncFrameMap;
+        asyncDispatcherBB = saved.asyncDispatcherBB;
+        asyncStateBlocks = saved.asyncStateBlocks;
+        currentIsGenerator = saved.currentIsGenerator;
+        currentIsAsync = saved.currentIsAsync;
+        anonVarCounter = saved.anonVarCounter;
+
+        // Create a boxed reference to the async function
+        llvm::FunctionType* makeFnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee makeFnFn = getRuntimeFunction("ts_value_make_function", makeFnFt);
+        llvm::Value* boxedFunc = createCall(makeFnFt, makeFnFn.getCallee(), {
+            function,
+            saved.currentContext ? saved.currentContext : llvm::ConstantPointerNull::get(builder->getPtrTy())
+        });
+        boxedValues.insert(boxedFunc);
+
+        // Store in namedValues
+        if (namedValues.count(node->name)) {
+            builder->CreateStore(boxedFunc, namedValues[node->name]);
+        } else {
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(
+                builder->GetInsertBlock()->getParent(),
+                node->name,
+                builder->getPtrTy()
+            );
+            builder->CreateStore(boxedFunc, alloca);
+            namedValues[node->name] = alloca;
+        }
+        boxedVariables.insert(node->name);
+        return;
+    }
+
+    // For non-async functions, create the entry block now
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", function);
+    builder->SetInsertPoint(entry);
+
     // Force return type to Any for function declarations
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
     
