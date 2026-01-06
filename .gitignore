@@ -53,6 +53,7 @@ CMakeUserPresets.json
 *.lastbuildstate
 
 # Temporary/Generated files
+tmp/
 *.txt
 *.tmp
 *.log
@@ -87,3 +88,8 @@ Thumbs.db
 
 # Ctags configuration
 .ctags.d/
+
+# Claude Code local settings (not shared with team)
+.claude/CLAUDE.local.md
+.claude/settings.local.json
+.claude/**/*.local.*
