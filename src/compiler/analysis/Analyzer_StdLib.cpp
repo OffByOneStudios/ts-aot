@@ -607,6 +607,7 @@ Analyzer::Analyzer() {
     auto assignType = std::make_shared<FunctionType>();
     assignType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
     assignType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    assignType->hasRest = true;  // Accept variadic sources
     assignType->returnType = std::make_shared<Type>(TypeKind::Object);
     objectType->fields["assign"] = assignType;
     
