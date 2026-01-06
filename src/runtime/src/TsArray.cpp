@@ -289,6 +289,17 @@ int64_t TsArray::At(int64_t index) {
     return ((int64_t*)elements)[index];
 }
 
+void TsArray::Reverse() {
+    if (length <= 1) return;
+    int64_t* elems = (int64_t*)elements;
+    for (size_t i = 0; i < length / 2; ++i) {
+        size_t j = length - 1 - i;
+        int64_t temp = elems[i];
+        elems[i] = elems[j];
+        elems[j] = temp;
+    }
+}
+
 void* TsArray::Slice(int64_t start, int64_t end) {
     if (start < 0) start = length + start;
     if (start < 0) start = 0;
@@ -538,6 +549,10 @@ extern "C" {
 
     void* ts_array_join(void* arr, void* separator) {
         return ((TsArray*)arr)->Join(separator);
+    }
+
+    void ts_array_reverse(void* arr) {
+        ((TsArray*)arr)->Reverse();
     }
 
     void ts_array_forEach(void* arr, void* callback, void* thisArg) {
