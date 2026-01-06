@@ -1700,8 +1700,9 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* keyStr = (TsString*)ts_value_get_string(key);
         if (!keyStr) return false;
 
-        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic24 == 0x4D415053) { // TsMap::MAGIC
+        // Check for TsMap using TsObject::magic at offset 16 (after vptr and vtable)
+        uint32_t magic = *(uint32_t*)((char*)rawObj + 16);
+        if (magic == 0x4D415053) { // TsMap::MAGIC "MAPS"
             TsMap* map = (TsMap*)rawObj;
             return map->Delete(*key);
         }
