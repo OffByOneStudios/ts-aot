@@ -554,8 +554,10 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                 }
             }
 
-            for (auto& stmt : funcNode->body) {
-                visit(stmt.get());
+            SPDLOG_INFO("Function {} body has {} statements", spec.specializedName, funcNode->body.size());
+            for (size_t i = 0; i < funcNode->body.size(); ++i) {
+                SPDLOG_INFO("  Statement {}: {}", i, funcNode->body[i]->getKind());
+                visit(funcNode->body[i].get());
             }
         } else if (auto methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
             if (methodNode->isAsync) {
