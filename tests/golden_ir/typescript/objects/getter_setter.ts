@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Getter/setter syntax not yet implemented (compiler crash)
 // Test: Getter/setter properties on objects
 // OUTPUT: 10
 // OUTPUT: 20

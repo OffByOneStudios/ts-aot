@@ -21,12 +21,9 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                 return;
             }
         }
+        // In methods, 'this' is always the first argument (context)
         llvm::Function* func = builder->GetInsertBlock()->getParent();
-        if (func->arg_size() > 1) {
-            lastValue = func->getArg(1);
-        } else {
-            lastValue = func->getArg(0);
-        }
+        lastValue = func->getArg(0);
         return;
     }
 
