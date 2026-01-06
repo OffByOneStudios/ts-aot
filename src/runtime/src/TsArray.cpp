@@ -511,7 +511,6 @@ extern "C" {
     }
 
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
-        std::cout << "ts_array_slice: start=" << start << ", end=" << end << std::endl;
         return ((TsArray*)arr)->Slice(start, end);
     }
 
