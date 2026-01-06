@@ -346,8 +346,18 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
 
         // For PropertyAccessExpression callees (method calls like obj.method()),
-        // we need to pass 'this' context to the function
+        // check if it's a known array/string/etc. builtin first before falling back to runtime call
         if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(unwrapped)) {
+            // Try to handle as a builtin method first (e.g., arr.reverse(), arr.at())
+            if (prop->expression->inferredType && 
+                (prop->expression->inferredType->kind == TypeKind::Array || 
+                 prop->expression->inferredType->kind == TypeKind::String ||
+                 prop->expression->inferredType->kind == TypeKind::Object)) {
+                if (tryGenerateBuiltinCall(node, prop)) {
+                    return;
+                }
+            }
+            
             // First evaluate the object for 'this' context
             visit(prop->expression.get());
             llvm::Value* thisObj = lastValue;

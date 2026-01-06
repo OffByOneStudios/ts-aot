@@ -1844,6 +1844,19 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(unshiftFt, unshiftFn.getCallee(), { arrObj, boxedVal });
          lastValue = nullptr;
          return true;
+    } else if (prop->name == "reverse" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+         
+         llvm::FunctionType* reverseFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_reverse", reverseFt);
+         createCall(reverseFt, fn.getCallee(), { obj });
+         lastValue = obj;  // reverse() returns the array for chaining
+         return true;
     } else if (prop->name == "sort" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;

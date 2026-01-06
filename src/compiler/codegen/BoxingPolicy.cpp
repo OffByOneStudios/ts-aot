@@ -69,6 +69,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_get_elements_ptr",   {false}},                  // (arr*) -> void*
     {"ts_array_sort",               {false}},                  // (arr*)
     {"ts_array_sort_with_comparator", {false, true}},          // (arr*, comparator) - comparator is boxed
+    {"ts_array_reverse",            {false}},                  // (arr*) - modifies in place
 
     // =========================================================================
     // Console - optimized paths use raw values
