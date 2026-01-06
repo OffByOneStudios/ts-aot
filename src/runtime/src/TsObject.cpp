@@ -703,7 +703,23 @@ TsValue* ts_value_make_int(int64_t i) {
             k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::GetInterned(keyStr);
             TsValue val = map->Get(k);
-            return ts_property_return_value(val);
+            if (val.type != ValueType::UNDEFINED) {
+                return ts_property_return_value(val);
+            }
+            
+            // If not found in the map, check Object.prototype methods
+            // This provides prototype chain behavior for plain objects
+            if (strcmp(keyStr, "hasOwnProperty") == 0) {
+                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+            }
+            if (strcmp(keyStr, "toString") == 0) {
+                return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+            }
+            if (strcmp(keyStr, "valueOf") == 0) {
+                return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+            }
+            
+            return ts_value_make_undefined();
         }
 
         // 2. Fallback to magic-based checks for built-ins
@@ -1508,6 +1524,25 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue result = map->Get(*key);
         
         if (result.type == ValueType::UNDEFINED) {
+            // If not found in the map, check Object.prototype methods
+            // This provides prototype chain behavior for plain objects
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        if (strcmp(k, "hasOwnProperty") == 0) {
+                            return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                        }
+                        if (strcmp(k, "toString") == 0) {
+                            return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+                        }
+                        if (strcmp(k, "valueOf") == 0) {
+                            return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                        }
+                    }
+                }
+            }
             return ts_value_make_undefined();
         }
         

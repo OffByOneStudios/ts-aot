@@ -345,6 +345,55 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             } // end else (no closures - direct call allowed)
         }
 
+        // For PropertyAccessExpression callees (method calls like obj.method()),
+        // we need to pass 'this' context to the function
+        if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(unwrapped)) {
+            // First evaluate the object for 'this' context
+            visit(prop->expression.get());
+            llvm::Value* thisObj = lastValue;
+            llvm::Value* thisBoxed = boxValue(thisObj, prop->expression->inferredType);
+            
+            // Then get the method
+            visit(node->callee.get());
+            llvm::Value* boxedFunc = lastValue;
+            
+            // Build argv array for ts_function_call_with_this
+            int argc = static_cast<int>(node->arguments.size());
+            
+            // Allocate argv array on stack
+            llvm::Value* argv = nullptr;
+            if (argc > 0) {
+                argv = builder->CreateAlloca(builder->getPtrTy(), builder->getInt32(argc), "argv");
+                
+                int idx = 0;
+                for (auto& arg : node->arguments) {
+                    visit(arg.get());
+                    llvm::Value* val = boxValue(lastValue, arg->inferredType);
+                    
+                    // Store into argv[idx]
+                    llvm::Value* gep = builder->CreateGEP(builder->getPtrTy(), argv, builder->getInt32(idx));
+                    builder->CreateStore(val, gep);
+                    idx++;
+                }
+            } else {
+                // Create a null pointer for empty argv
+                argv = llvm::ConstantPointerNull::get(llvm::PointerType::get(builder->getContext(), 0));
+            }
+            
+            // Call ts_function_call_with_this(boxedFunc, thisArg, argc, argv)
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getInt32Ty(), builder->getPtrTy() },
+                false
+            );
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_function_call_with_this", ft);
+            
+            lastValue = createCall(ft, fn.getCallee(), { boxedFunc, thisBoxed, builder->getInt32(argc), argv });
+            boxedValues.insert(lastValue);
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return;
+        }
+
         visit(node->callee.get());
         llvm::Value* callee = boxValue(lastValue, node->callee->inferredType);
         
@@ -507,23 +556,25 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
 
     if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
         SPDLOG_INFO("IRGenerator: Fallback property call for {}", prop->name);
+        
+        // First evaluate the object for 'this' context
+        visit(prop->expression.get());
+        llvm::Value* thisObj = lastValue;
+        llvm::Value* thisBoxed = boxValue(thisObj, prop->expression->inferredType);
+        
+        // Then get the method
         visit(prop);
         llvm::Value* boxedFunc = lastValue;
         
-        if (node->arguments.empty()) {
-            llvm::FunctionType* callFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee callFn = getRuntimeFunction("ts_call_0", callFt);
-            lastValue = createCall(callFt, callFn.getCallee(), { boxedFunc });
+        // Build argv array for ts_function_call_with_this
+        int argc = static_cast<int>(node->arguments.size());
+        
+        // Allocate argv array on stack
+        llvm::Value* argv = nullptr;
+        if (argc > 0) {
+            argv = builder->CreateAlloca(builder->getPtrTy(), builder->getInt32(argc), "argv");
             
-            lastValue = unboxValue(lastValue, node->inferredType);
-            return;
-        } else {
-            std::vector<llvm::Value*> args;
-            args.push_back(boxedFunc);
-            
-            std::vector<llvm::Type*> paramTypes;
-            paramTypes.push_back(builder->getPtrTy()); // func
-            
+            int idx = 0;
             for (auto& arg : node->arguments) {
                 visit(arg.get());
                 std::shared_ptr<Type> argType = arg->inferredType;
@@ -533,18 +584,28 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                      }
                 }
                 llvm::Value* val = boxValue(lastValue, argType);
-                args.push_back(val);
-                paramTypes.push_back(builder->getPtrTy());
+                
+                // Store into argv[idx]
+                llvm::Value* gep = builder->CreateGEP(builder->getPtrTy(), argv, builder->getInt32(idx));
+                builder->CreateStore(val, gep);
+                idx++;
             }
-            
-            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
-            llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-            
-            lastValue = createCall(ft, fn.getCallee(), args);
-            lastValue = unboxValue(lastValue, node->inferredType);
-            return;
+        } else {
+            // Create a null pointer for empty argv
+            argv = llvm::ConstantPointerNull::get(llvm::PointerType::get(builder->getContext(), 0));
         }
+        
+        // Call ts_function_call_with_this(boxedFunc, thisArg, argc, argv)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getInt32Ty(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_function_call_with_this", ft);
+        
+        lastValue = createCall(ft, fn.getCallee(), { boxedFunc, thisBoxed, builder->getInt32(argc), argv });
+        lastValue = unboxValue(lastValue, node->inferredType);
+        return;
     }
 
     // User function call - local function variables may be boxed closures
