@@ -1211,9 +1211,9 @@ TsValue* ts_value_make_int(int64_t i) {
         void* sourceRaw = ts_value_get_object(source);
         if (!sourceRaw) sourceRaw = source;
         
-        // Check both are TsMaps (magic at offset 24)
-        uint32_t targetMagic = *(uint32_t*)((char*)targetRaw + 24);
-        uint32_t sourceMagic = *(uint32_t*)((char*)sourceRaw + 24);
+        // Check both are TsMaps (magic at offset 16 - see TsObject.h layout)
+        uint32_t targetMagic = *(uint32_t*)((char*)targetRaw + 16);
+        uint32_t sourceMagic = *(uint32_t*)((char*)sourceRaw + 16);
         
         if (targetMagic != 0x4D415053 || sourceMagic != 0x4D415053) {
             return target;

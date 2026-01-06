@@ -327,6 +327,10 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
     }
 
+    // Set the inferred type for object literal methods
+    node->inferredType = methodType;
+    lastType = methodType;
+
     currentMethodName = oldMethod;
 }
 

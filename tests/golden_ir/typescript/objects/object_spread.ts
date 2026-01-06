@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Object spread syntax causes compilation error
 // CHECK: define
 // CHECK: ts_map_create
 // OUTPUT: 3
