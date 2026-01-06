@@ -822,6 +822,35 @@ All documented in `tests/node/PROGRESS.md` with root cause analysis.
 - Test compiles but requires async/await runtime to execute
 - Blocked pending event loop and async function support
 
+### ✅ Compiler Fix: Promise Method Handlers (2026-01-06)
+
+**Problem:** Promise methods `.then()` and `.catch()` were not recognized by the compiler, causing null operand errors when attempting Promise chaining in test code.
+
+**Root Cause:** No codegen handler existed for Promise instance methods. Methods were falling through to generic method call handling which couldn't resolve them.
+
+**Solution Implemented:**
+- Created new `IRGenerator_Expressions_Calls_Builtin_Promise.cpp` file
+- Added `tryGeneratePromiseCall()` handler with codegen for:
+  - `.then(onFulfilled, onRejected)` - chains promises with fulfillment/rejection handlers
+  - `.catch(onRejected)` - chains promises with only rejection handler
+- Registered runtime functions `ts_promise_then` and `ts_promise_catch` with BoxingPolicy
+- Integrated into builtin call dispatch chain
+
+**Files Modified:**
+- `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_Promise.cpp` - New Promise method handlers
+- `src/compiler/codegen/IRGenerator.h` - Added tryGeneratePromiseCall declaration
+- `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin.cpp` - Added to dispatch chain
+- `src/compiler/CMakeLists.txt` - Added new file to build
+
+**Testing Results:**
+- ✅ All 90 golden IR tests pass (100% - no regressions)
+- ✅ Promise `.then()` and `.catch()` methods now recognized
+- ✅ Null operand errors for Promise methods resolved
+- ❌ `promises/promises_basic.ts` still has domination issues (separate async state machine problem)
+- No change to pass rate (domination issues prevent full Promise test compilation)
+
+**Note:** Promise method handlers are now in place. The remaining domination issues in `promises/promises_basic.ts` are related to async state machine control flow, not method resolution.
+
 ---
 
 ## References
