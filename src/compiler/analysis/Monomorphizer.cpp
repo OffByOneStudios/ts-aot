@@ -354,7 +354,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = "user_main";
         call->callee = std::move(callId);
-        call->inferredType = std::make_shared<Type>(TypeKind::Void);
+        // Use the actual return type from the user-defined function
+        if (userDefinedMain->returnType.empty()) {
+            call->inferredType = std::make_shared<Type>(TypeKind::Void);
+        } else {
+            call->inferredType = analyzer.parseType(userDefinedMain->returnType, analyzer.getSymbolTable());
+        }
         
         auto stmt = std::make_unique<ast::ReturnStatement>();
         stmt->expression = std::move(call);
@@ -365,7 +370,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         userMainSpec.originalName = "user_main";
         userMainSpec.specializedName = "user_main";
         userMainSpec.argTypes = {};
-        userMainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+        // Use the actual return type from the user-defined function
+        if (userDefinedMain->returnType.empty()) {
+            userMainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+        } else {
+            userMainSpec.returnType = analyzer.parseType(userDefinedMain->returnType, analyzer.getSymbolTable());
+        }
         userMainSpec.node = userDefinedMain;
         specializations.push_back(userMainSpec);
     }

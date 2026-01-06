@@ -280,13 +280,14 @@ void IRGenerator::visitElementAccessExpression(ast::ElementAccessExpression* nod
         valueOverrides.erase(node->expression.get());
         
         llvm::Value* accessResult = lastValue;
+        llvm::Value* boxedAccessResult = boxValue(accessResult, node->inferredType);
         llvm::BasicBlock* finalAccessBB = builder->GetInsertBlock();
         builder->CreateBr(mergeBB);
 
         builder->SetInsertPoint(mergeBB);
         llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2);
         phi->addIncoming(undef, checkBB);
-        phi->addIncoming(boxValue(accessResult, node->inferredType), finalAccessBB);
+        phi->addIncoming(boxedAccessResult, finalAccessBB);
         boxedValues.insert(phi);
         lastValue = phi;
         return;
@@ -675,13 +676,14 @@ void IRGenerator::visitPropertyAccessExpression(ast::PropertyAccessExpression* n
         valueOverrides.erase(node->expression.get());
         
         llvm::Value* accessResult = lastValue;
+        llvm::Value* boxedAccessResult = boxValue(accessResult, node->inferredType);
         llvm::BasicBlock* finalAccessBB = builder->GetInsertBlock();
         builder->CreateBr(mergeBB);
 
         builder->SetInsertPoint(mergeBB);
         llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), 2);
         phi->addIncoming(undef, checkBB);
-        phi->addIncoming(boxValue(accessResult, node->inferredType), finalAccessBB);
+        phi->addIncoming(boxedAccessResult, finalAccessBB);
         boxedValues.insert(phi);
         lastValue = phi;
         return;
