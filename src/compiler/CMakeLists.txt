@@ -91,6 +91,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_FS.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Path.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Events.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_Promise.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Stream.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Buffer.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Net.cpp

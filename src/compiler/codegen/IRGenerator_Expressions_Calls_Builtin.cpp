@@ -173,6 +173,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateFSCall(node, prop)) return true;
     if (tryGeneratePathCall(node, prop)) return true;
     if (tryGenerateEventsCall(node, prop)) return true;
+    if (tryGeneratePromiseCall(node, prop)) return true;
     if (tryGenerateStreamCall(node, prop)) return true;
     if (tryGenerateBufferCall(node, prop)) return true;
     if (tryGenerateProcessCall(node, prop)) return true;
