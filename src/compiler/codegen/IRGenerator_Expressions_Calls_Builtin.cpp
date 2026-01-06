@@ -106,8 +106,8 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_json_stringify", {true}, false);  // boxed -> string
     
     // ========== Promise ==========
-    bp.registerRuntimeApi("ts_promise_resolve", {true}, true);  // value -> Promise
-    bp.registerRuntimeApi("ts_promise_reject", {true}, true);
+    bp.registerRuntimeApi("ts_promise_resolve", {false, true}, true);  // (context, value) -> Promise
+    bp.registerRuntimeApi("ts_promise_reject", {false, true}, true);  // (context, reason) -> Promise
     bp.registerRuntimeApi("ts_promise_all", {true}, true);  // array -> Promise
     bp.registerRuntimeApi("ts_promise_race", {true}, true);
     bp.registerRuntimeApi("ts_promise_any", {true}, true);
@@ -1062,9 +1062,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
             }
         } else if (obj->name == "Promise") {
             if (prop->name == "resolve") {
-                llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                // ts_promise_resolve(void* context, TsValue* value)
+                llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve", resolveFt);
-                
+
                 llvm::Value* val;
                 std::shared_ptr<Type> valType;
                 if (node->arguments.empty()) {
@@ -1075,12 +1076,14 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     val = lastValue;
                     valType = node->arguments[0]->inferredType;
                 }
-                
+
                 llvm::Value* boxedVal = boxValue(val, valType);
-                lastValue = createCall(resolveFt, resolveFn.getCallee(), { boxedVal });
+                llvm::Value* ctx = currentAsyncContext ? currentAsyncContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(resolveFt, resolveFn.getCallee(), { ctx, boxedVal });
                 return true;
             } else if (prop->name == "reject") {
-                llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                // ts_promise_reject(void* context, TsValue* reason)
+                llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee rejectFn = getRuntimeFunction("ts_promise_reject", rejectFt);
                 
                 llvm::Value* val;
@@ -1093,9 +1096,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     val = lastValue;
                     valType = node->arguments[0]->inferredType;
                 }
-                
+
                 llvm::Value* boxedVal = boxValue(val, valType);
-                lastValue = createCall(rejectFt, rejectFn.getCallee(), { boxedVal });
+                llvm::Value* ctx = currentAsyncContext ? currentAsyncContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(rejectFt, rejectFn.getCallee(), { ctx, boxedVal });
                 return true;
             } else if (prop->name == "all") {
                 if (node->arguments.empty()) return true;

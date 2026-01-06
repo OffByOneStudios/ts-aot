@@ -363,7 +363,7 @@ void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
     ts_queue_microtask(ts_promise_settle_microtask, task);
 }
 
-TsValue* ts_promise_resolve(TsValue* value) {
+TsValue* ts_promise_resolve(void* context, TsValue* value) {
     if (value && value->type == ValueType::PROMISE_PTR) {
         return value;
     }
@@ -375,7 +375,7 @@ TsValue* ts_promise_resolve(TsValue* value) {
     return res;
 }
 
-TsValue* ts_promise_reject(TsValue* reason) {
+TsValue* ts_promise_reject(void* context, TsValue* reason) {
     TsPromise* p = ts_promise_create();
     ts_promise_reject_internal(p, reason);
     TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
@@ -472,7 +472,7 @@ TsValue* ts_promise_all_rejected_helper(void* context, TsValue* reason) {
 
 TsValue* ts_promise_all(TsValue* iterableVal) {
     if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
-        return ts_promise_resolve(ts_value_make_array(TsArray::Create(0)));
+        return ts_promise_resolve(nullptr, ts_value_make_array(TsArray::Create(0)));
     }
     TsArray* iterable = (TsArray*)iterableVal->ptr_val;
     size_t total = iterable->Length();
@@ -490,7 +490,7 @@ TsValue* ts_promise_all(TsValue* iterableVal) {
 
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
-        TsValue* p = ts_promise_resolve(item);
+        TsValue* p = ts_promise_resolve(nullptr, item);
         
         PromiseAllElementContext* elCtx = (PromiseAllElementContext*)ts_alloc(sizeof(PromiseAllElementContext));
         elCtx->allCtx = allCtx;
@@ -528,7 +528,7 @@ TsValue* ts_promise_race(TsValue* iterableVal) {
 
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
-        TsValue* p = ts_promise_resolve(item);
+        TsValue* p = ts_promise_resolve(nullptr, item);
         
         TsValue* onFulfilled = ts_value_make_function((void*)ts_promise_race_fulfilled_helper, mainPromise);
         TsValue* onRejected = ts_value_make_function((void*)ts_promise_race_rejected_helper, mainPromise);
@@ -603,7 +603,7 @@ extern "C" TsValue* ts_promise_allSettled(TsValue* iterableVal) {
 
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
-        TsValue* p = ts_promise_resolve(item);
+        TsValue* p = ts_promise_resolve(nullptr, item);
         
         AllSettledElementContext* elCtx = (AllSettledElementContext*)ts_alloc(sizeof(AllSettledElementContext));
         elCtx->ctx = ctx;
@@ -660,7 +660,7 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
 
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
-        TsValue* p = ts_promise_resolve(item);
+        TsValue* p = ts_promise_resolve(nullptr, item);
         
         TsValue* onFulfilled = ts_value_make_function((void*)ts_promise_any_fulfilled_helper, ctx);
         TsValue* onRejected = ts_value_make_function((void*)ts_promise_any_rejected_helper, ctx);
