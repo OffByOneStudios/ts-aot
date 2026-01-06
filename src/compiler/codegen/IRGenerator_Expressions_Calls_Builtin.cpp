@@ -1391,7 +1391,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = getRuntimeFunction("ts_string_startsWith", startsWithFt);
          lastValue = createCall(startsWithFt, fn.getCallee(), { obj, prefix });
          return true;
-    } else if (prop->name == "includes") {
+    } else if (prop->name == "includes" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::String) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
@@ -1817,6 +1817,70 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;
          }
          lastValue = unboxValue(ret, elemType);
+         return true;
+    } else if (prop->name == "includes" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         visit(prop->expression.get());
+         llvm::Value* arrObj = lastValue;
+         if (arrObj->getType()->isIntegerTy(64)) {
+             arrObj = builder->CreateIntToPtr(arrObj, builder->getPtrTy());
+         }
+         
+         if (node->arguments.empty()) {
+             lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+             return true;
+         }
+         
+         visit(node->arguments[0].get());
+         llvm::Value* val = lastValue;
+         // ts_array_includes expects int64_t, not boxed value
+         if (val->getType()->isDoubleTy()) {
+             val = builder->CreateFPToSI(val, llvm::Type::getInt64Ty(*context));
+         } else if (val->getType()->isIntegerTy(1)) {
+             val = builder->CreateZExt(val, llvm::Type::getInt64Ty(*context));
+         } else if (!val->getType()->isIntegerTy(64)) {
+             val = builder->CreatePtrToInt(val, llvm::Type::getInt64Ty(*context));
+         }
+         
+         llvm::FunctionType* includesFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_includes", includesFt);
+         lastValue = createCall(includesFt, fn.getCallee(), { arrObj, val });
+         return true;
+    } else if (prop->name == "concat" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // JavaScript concat creates a NEW array - doesn't modify original
+         // 1. Create new empty array
+         // 2. Concat source array into it
+         // 3. Concat each argument array into it
+         // 4. Return new array
+         
+         visit(prop->expression.get());
+         llvm::Value* srcArr = lastValue;
+         if (srcArr->getType()->isIntegerTy(64)) {
+             srcArr = builder->CreateIntToPtr(srcArr, builder->getPtrTy());
+         }
+         
+         // Create new empty array
+         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+         llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+         llvm::Value* newArr = createCall(createFt, createFn.getCallee(), {});
+         
+         // Concat source array into new array
+         llvm::FunctionType* concatFt = llvm::FunctionType::get(builder->getVoidTy(),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee concatFn = getRuntimeFunction("ts_array_concat", concatFt);
+         createCall(concatFt, concatFn.getCallee(), { newArr, srcArr });
+         
+         // Concat each argument array
+         for (auto& arg : node->arguments) {
+             visit(arg.get());
+             llvm::Value* argArr = lastValue;
+             if (argArr->getType()->isIntegerTy(64)) {
+                 argArr = builder->CreateIntToPtr(argArr, builder->getPtrTy());
+             }
+             createCall(concatFt, concatFn.getCallee(), { newArr, argArr });
+         }
+         
+         lastValue = newArr;
          return true;
     } else if (prop->name == "unshift" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());

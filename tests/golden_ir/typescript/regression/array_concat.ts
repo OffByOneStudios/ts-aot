@@ -1,11 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Runtime panic - Null or undefined dereference
 // Test: Array.concat() with multiple arrays
-//
-// Bug: The Array.concat() method compiles but causes a runtime panic:
-// "Runtime Panic: Null or undefined dereference"
-// The IR may be missing proper ts_array_concat implementation or has
-// incorrect null checks.
 
 const arr1 = [1, 2];
 const arr2 = [3, 4];
