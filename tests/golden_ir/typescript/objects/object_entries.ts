@@ -1,7 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Object.entries() returns array with length 0
 // CHECK: define
-// CHECK: ts_map_create
+// CHECK: ts_object_entries
 // OUTPUT: 3
 
 const obj = { a: 1, b: 2, c: 3 };

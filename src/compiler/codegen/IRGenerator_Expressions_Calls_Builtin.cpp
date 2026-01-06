@@ -1162,10 +1162,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
             } else if (prop->name == "entries") {
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (!arg->getType()->isPointerTy()) {
-                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
-                }
+                llvm::Value* arg = boxValue(lastValue, node->arguments[0]->inferredType);
                 
                 llvm::FunctionType* entriesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee entriesFn = getRuntimeFunction("ts_object_entries", entriesFt);
