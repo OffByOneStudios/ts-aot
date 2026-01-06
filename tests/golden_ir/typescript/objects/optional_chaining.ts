@@ -1,5 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Optional chaining (?.) causes compilation error
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @user_main
 // OUTPUT: 42
 // OUTPUT: undefined

@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: Try-catch-finally exception handling
 // OUTPUT: caught
 // OUTPUT: finally

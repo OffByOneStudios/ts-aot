@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: IIFE (Immediately Invoked Function Expression) without closure
 // OUTPUT: 42
 

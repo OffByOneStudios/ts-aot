@@ -1,4 +1,4 @@
-// RUN: ts-aot %s --dump-ir -o %t.exe && %t.exe
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: Destructured parameters in function signature
 // OUTPUT: 3
 
