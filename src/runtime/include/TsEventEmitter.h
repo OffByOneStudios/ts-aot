@@ -37,6 +37,7 @@ public:
     int ListenerCount(const char* event);
     void SetMaxListeners(int n);
     int GetMaxListeners();
+    void* EventNames();
 
 protected:
     TsMap* listeners;
@@ -49,7 +50,11 @@ extern "C" {
     void ts_event_emitter_once(void* emitter, void* event, void* callback);
     void ts_event_emitter_prepend_listener(void* emitter, void* event, void* callback);
     void ts_event_emitter_prepend_once_listener(void* emitter, void* event, void* callback);
+    void ts_event_emitter_remove_listener(void* emitter, void* event, void* callback);
     void ts_event_emitter_remove_all_listeners(void* emitter, void* event);
     void ts_event_emitter_set_max_listeners(void* emitter, int n);
+    int ts_event_emitter_get_max_listeners(void* emitter);
+    int ts_event_emitter_listener_count(void* emitter, void* event);
     void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
+    void* ts_event_emitter_event_names(void* emitter);
 }
