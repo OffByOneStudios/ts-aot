@@ -5,7 +5,7 @@
 // CHECK: call {{.*}} @ts_value_div
 // OUTPUT: 5
 // OUTPUT: 50
-// OUTPUT: 2
+// OUTPUT: 2.000000
 
 var a = 10;
     var b = 5;
