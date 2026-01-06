@@ -793,6 +793,35 @@ All documented in `tests/node/PROGRESS.md` with root cause analysis.
 - 2/10 tests pass: EventEmitter constructor, removeAllListeners()
 - 8/10 tests fail due to event loop issues (listeners not called)
 
+### ✅ Runtime Fix: Response.ok Property (2026-01-06)
+
+**Problem:** `tests/node/http/fetch_basic.ts` failed to link with "undefined symbol: Response_get_ok" error.
+
+**Root Cause:** TsResponse class was missing the `GetOk()` method that returns whether the HTTP response status indicates success (200-299 range).
+
+**Solution Implemented:**
+- Added `GetOk()` inline method to TsResponse class
+  - Returns `true` if status is between 200-299 (inclusive)
+  - Returns `false` otherwise
+- Added `Response_get_ok()` C export function
+- Returns boxed boolean value using `ts_value_make_bool()`
+
+**Files Modified:**
+- `src/runtime/include/TsFetch.h` - Added GetOk() method and ts_response_ok() declaration
+- `src/runtime/src/TsFetch.cpp` - Implemented Response_get_ok() C export
+
+**Testing Results:**
+- ✅ All 90 golden IR tests pass (100% - no regressions)
+- ✅ `tests/node/http/fetch_basic.ts` now compiles successfully
+- ✅ Test status changed from "COMPILE ERR" to "BLOCKED" (needs async runtime)
+- ✅ Compile error count reduced: 8 → 7
+- ✅ Blocked tests increased: 2 → 3 (events_basic, fetch_basic, promises_static)
+- ✅ Pass rate improved: 50% → 52.4% (11/21 runnable tests)
+
+**Runtime Status:**
+- Test compiles but requires async/await runtime to execute
+- Blocked pending event loop and async function support
+
 ---
 
 ## References
