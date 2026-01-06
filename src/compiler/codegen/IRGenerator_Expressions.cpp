@@ -725,7 +725,20 @@ void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
     llvm::Value* obj = createCall(objectCreateFt, objectCreateFn.getCallee(), {});
 
     for (auto& prop : node->properties) {
-        if (auto kvPair = dynamic_cast<ast::KeyValuePair*>(prop.get())) {
+        if (auto method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+            // Method shorthand: { getValue() { return 42; } }
+            // Visit the method to generate its function and get the boxed TsValue*
+            visit(method);
+            llvm::Value* funcValue = lastValue;  // Should be TsValue* (already boxed)
+            
+            // Create the key string
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(method->name) });
+            llvm::Value* keyBoxed = boxValue(key, std::make_shared<Type>(TypeKind::String));
+            
+            emitInlineMapSet(obj, keyBoxed, funcValue);
+        } else if (auto kvPair = dynamic_cast<ast::KeyValuePair*>(prop.get())) {
             visit(kvPair->value.get());
             llvm::Value* value = boxValue(lastValue, kvPair->value->inferredType);
             
