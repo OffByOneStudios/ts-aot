@@ -458,6 +458,9 @@ extern "C" {
     void* Response_get_status(void* resp) {
         return ts_value_make_int(((TsResponse*)resp)->GetStatus());
     }
+    void* Response_get_ok(void* resp) {
+        return ts_value_make_bool(((TsResponse*)resp)->GetOk());
+    }
     void* Response_json(void* ctx, void* resp) {
         TsResponse* r = (TsResponse*)resp;
         TsString* str = r->GetBody()->ToString();

@@ -30,6 +30,7 @@ public:
     static TsResponse* Create(int status, TsString* statusText, TsHeaders* headers, TsBuffer* body);
 
     int GetStatus() { return status; }
+    bool GetOk() { return status >= 200 && status < 300; }
     TsString* GetStatusText() { return statusText; }
     TsHeaders* GetHeaders() { return headers; }
     TsBuffer* GetBody() { return body; }
@@ -57,6 +58,7 @@ extern "C" {
 
     void* ts_response_create(void* vtable, int32_t status, void* statusText, void* headers, void* body);
     int32_t ts_response_status(void* resp);
+    bool ts_response_ok(void* resp);
     void* ts_response_statusText(void* resp);
     void* ts_response_headers(void* resp);
     void* ts_response_text(void* resp);
