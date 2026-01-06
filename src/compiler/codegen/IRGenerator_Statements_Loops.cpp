@@ -464,19 +464,9 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         llvm::FunctionCallee substrFn = getRuntimeFunction("ts_string_substring", substrFt);
         llvm::Value* nextIndex = builder->CreateAdd(currIndex, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1));
         elementVal = createCall(substrFt, substrFn.getCallee(), { currIterable, currIndex, nextIndex });
-    } else if (elementType->kind == TypeKind::Int || elementType->kind == TypeKind::Double) {
-        // Specialized array access for Int/Double
-        llvm::Type* llvmElemType = (elementType->kind == TypeKind::Double) 
-            ? llvm::Type::getDoubleTy(*context) 
-            : llvm::Type::getInt64Ty(*context);
-        
-        llvm::StructType* tsArrayType = llvm::StructType::getTypeByName(*context, "TsArray");
-        llvm::Value* elementsPtrPtr = builder->CreateStructGEP(tsArrayType, currIterable, 1);
-        llvm::Value* elementsPtr = builder->CreateLoad(builder->getPtrTy(), elementsPtrPtr);
-        llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { currIndex });
-        elementVal = builder->CreateLoad(llvmElemType, ptr);
     } else {
-        // Use inline array get operation
+        // Always use inline array get operation which returns boxed TsValue*
+        // Arrays always store boxed values, even for Int/Double element types
         elementVal = emitInlineArrayGet(currIterable, currIndex);
         // Result is boxed TsValue* on stack, already marked as boxed
     }
