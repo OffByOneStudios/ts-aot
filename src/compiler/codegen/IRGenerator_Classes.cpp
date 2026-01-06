@@ -1072,8 +1072,14 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee assignFn = getRuntimeFunction("ts_object_assign", assignFt);
             
-            // ts_object_assign(target, source)
-            createCall(assignFt, assignFn.getCallee(), { boxValue(map, std::make_shared<Type>(TypeKind::Object)), boxedSource });
+            // ts_object_assign(target, source) - capture return and unbox to get updated map
+            llvm::Value* boxedMap = boxValue(map, std::make_shared<Type>(TypeKind::Object));
+            llvm::Value* resultBoxed = createCall(assignFt, assignFn.getCallee(), { boxedMap, boxedSource });
+            
+            // Unbox the result to get the raw map pointer
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
+            map = createCall(unboxFt, unboxFn.getCallee(), { resultBoxed });
         }
     }
 
