@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Array.some() returns false even when element exists
 // CHECK: define
 // CHECK: ts_array_create_specialized
 // OUTPUT: true

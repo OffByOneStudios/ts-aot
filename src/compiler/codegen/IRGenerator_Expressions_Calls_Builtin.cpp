@@ -1871,6 +1871,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
                  elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;
              }
+             // Mark as boxed so unboxValue will process it
+             boxedValues.insert(lastValue);
              lastValue = unboxValue(lastValue, elemType);
          }
          return true;

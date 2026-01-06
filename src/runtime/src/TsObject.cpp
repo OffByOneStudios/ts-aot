@@ -462,11 +462,22 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
         
-        // Types must match for strict equality, EXCEPT for FUNCTION_PTR vs OBJECT_PTR
-        // which can both represent the same underlying function
+        // Types must match for strict equality, EXCEPT for:
+        // 1. FUNCTION_PTR vs OBJECT_PTR which can both represent the same underlying function
+        // 2. NUMBER_INT vs NUMBER_DBL which JavaScript treats as the same type for strict equality
         bool bothFunctionLike = (lhsVal.type == ValueType::FUNCTION_PTR || lhsVal.type == ValueType::OBJECT_PTR) &&
                                 (rhsVal.type == ValueType::FUNCTION_PTR || rhsVal.type == ValueType::OBJECT_PTR);
-        if (lhsVal.type != rhsVal.type && !bothFunctionLike) return false;
+        bool bothNumeric = (lhsVal.type == ValueType::NUMBER_INT || lhsVal.type == ValueType::NUMBER_DBL) &&
+                           (rhsVal.type == ValueType::NUMBER_INT || rhsVal.type == ValueType::NUMBER_DBL);
+        if (lhsVal.type != rhsVal.type && !bothFunctionLike && !bothNumeric) return false;
+        
+        // For mixed numeric types, compare as doubles
+        if (bothNumeric && lhsVal.type != rhsVal.type) {
+            double lhsD = (lhsVal.type == ValueType::NUMBER_DBL) ? lhsVal.d_val : (double)lhsVal.i_val;
+            double rhsD = (rhsVal.type == ValueType::NUMBER_DBL) ? rhsVal.d_val : (double)rhsVal.i_val;
+            if (std::isnan(lhsD) && std::isnan(rhsD)) return false; // NaN !== NaN
+            return lhsD == rhsD;
+        }
         
         // For function-like types with mismatched wrapper types, compare underlying pointers
         if (lhsVal.type != rhsVal.type && bothFunctionLike) {

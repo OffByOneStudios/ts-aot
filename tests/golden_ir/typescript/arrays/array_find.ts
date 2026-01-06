@@ -1,5 +1,4 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: Array.find() returns garbage instead of found element
 // CHECK: define
 // CHECK: ts_array_create_specialized
 // OUTPUT: 30
