@@ -1472,6 +1472,41 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     lastValue = nullptr;
     anonVarCounter = 0;
     
+    // Pre-scan: find all variables that will be captured by inner closures
+    // These variables need to use cells for proper mutable capture semantics
+    // IMPORTANT: This must happen BEFORE parameter processing so that captured
+    // parameters are also wrapped in cells
+    {
+        // Collect all variable names that will be defined in this function
+        std::set<std::string> localVarNames;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                localVarNames.insert(id->name);
+            }
+        }
+        // Also need to scan body for let/const/var declarations
+        for (auto& stmt : node->body) {
+            if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                    localVarNames.insert(id->name);
+                }
+            }
+        }
+        
+        // Now scan for captured variables
+        for (auto& stmt : node->body) {
+            collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
+        }
+        
+        if (!cellVariables.empty()) {
+            SPDLOG_INFO("FunctionExpression {} has {} captured variables that will use cells", 
+                       name, cellVariables.size());
+            for (const auto& n : cellVariables) {
+                SPDLOG_INFO("  - {}", n);
+            }
+        }
+    }
+    
     // Force return type to Any for function expressions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
@@ -2083,9 +2118,29 @@ void IRGenerator::hoistVariableDeclarations(const std::vector<ast::StmtPtr>& stm
         }
         
         // Check if this variable will be captured by a nested closure
-        // If so, use pointer type (cells will be created later)
+        // If so, create a cell right now so it can be properly captured
         if (cellVariables.count(var.name)) {
-            allocaType = builder->getPtrTy();
+            // Create cell with undefined initial value
+            llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
+            llvm::Value* undefVal = createCall(undefFt, undefFn.getCallee(), {});
+            
+            llvm::FunctionType* cellCreateFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee cellCreateFn = getRuntimeFunction("ts_cell_create", cellCreateFt);
+            llvm::Value* cell = createCall(cellCreateFt, cellCreateFn.getCallee(), { undefVal });
+            
+            llvm::AllocaInst* cellAlloca = createEntryBlockAlloca(enclosingFn, var.name, builder->getPtrTy());
+            builder->CreateStore(cell, cellAlloca);
+            namedValues[var.name] = cellAlloca;
+            cellPointers[var.name] = cell;
+            boxedVariables.insert(var.name);
+            
+            if (var.type) {
+                variableTypes[var.name] = var.type;
+            }
+            
+            SPDLOG_DEBUG("Hoisted cell variable {} in function {}", var.name, enclosingFn->getName().str());
+            continue;
         }
         
         // Create alloca and initialize to undefined/null
