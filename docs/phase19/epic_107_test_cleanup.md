@@ -756,6 +756,43 @@ All documented in `tests/node/PROGRESS.md` with root cause analysis.
   - Workaround: Declare nested async functions at module scope, not inside other functions
   - Test case created: `tmp/test_nested_async.ts` (captures edge case for future fix)
 
+### ✅ Runtime Fix: EventEmitter Missing Methods (2026-01-06)
+
+**Problem:** `tests/node/events/events_basic.ts` failed to compile with "Operand is null" errors for `removeListener`, `listenerCount`, `getMaxListeners`, and `eventNames` method calls.
+
+**Root Cause:**
+1. Missing runtime exports for 4 EventEmitter methods
+2. Missing compiler codegen handlers for those methods
+3. Builtin method dispatch only checked Array/String/Object types, not Class types
+
+**Solution Implemented:**
+- Added 4 missing methods to TsEventEmitter class:
+  - `RemoveListener()` / `off()` - remove specific listener from event
+  - `ListenerCount()` - return number of listeners for an event
+  - `GetMaxListeners()` - return current max listener limit
+  - `EventNames()` - return array of event names with registered listeners
+- Added C exports: `ts_event_emitter_remove_listener`, `ts_event_emitter_listener_count`, `ts_event_emitter_get_max_listeners`, `ts_event_emitter_event_names`
+- Registered runtime functions in BoxingPolicy
+- Added codegen handlers for all 4 methods
+- Fixed builtin call dispatch to include `TypeKind::Class` (enables EventEmitter method recognition)
+
+**Files Modified:**
+- `src/runtime/include/TsEventEmitter.h` - Added method declarations and C exports
+- `src/runtime/src/node/EventEmitter.cpp` - Implemented methods and C export functions
+- `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_Events.cpp` - Added codegen handlers
+- `src/compiler/codegen/IRGenerator_Expressions_Calls.cpp` - Added TypeKind::Class to dispatch check
+
+**Testing Results:**
+- ✅ All 90 golden IR tests pass (100% - no regressions)
+- ✅ `tests/node/events/events_basic.ts` now compiles successfully
+- ✅ Test status changed from "COMPILE ERR" to "BLOCKED" (needs event loop runtime)
+- ✅ Pass rate maintained: 50% (11/22 runnable tests)
+
+**Runtime Status:**
+- Test compiles and runs but listeners don't execute (event loop not working)
+- 2/10 tests pass: EventEmitter constructor, removeAllListeners()
+- 8/10 tests fail due to event loop issues (listeners not called)
+
 ---
 
 ## References
