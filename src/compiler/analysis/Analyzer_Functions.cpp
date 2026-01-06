@@ -218,6 +218,7 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     }
 
     auto methodType = std::make_shared<FunctionType>();
+    bool needsReturnTypeInference = false;  // Track if we need to infer return type
     
     symbols.enterScope();
     // Register type parameters
@@ -243,11 +244,14 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         if (!node->returnType.empty()) {
             methodType->returnType = parseType(node->returnType, symbols);
         } else {
+            // Start with void, will be updated by return type inference
             methodType->returnType = std::make_shared<Type>(TypeKind::Void);
         }
 
+        needsReturnTypeInference = node->returnType.empty();  // Set the outer variable, not a new local
         if (currentModuleType == ModuleType::UntypedJavaScript) {
             methodType->returnType = std::make_shared<Type>(TypeKind::Any);
+            needsReturnTypeInference = false;
         }
 
         if (node->isGenerator) {
@@ -306,11 +310,26 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         declareBindingPattern(node->parameters[i]->name.get(), methodType->paramTypes[i]);
     }
 
+    // Track the inferred return type from return statements
+    std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
+
     functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
+        // Infer return type from return statements
+        if (needsReturnTypeInference && stmt->getKind() == "ReturnStatement") {
+            if (lastType) {
+                inferredReturnType = lastType;
+            }
+        }
     }
     functionDepth--;
+
+    // Update method return type if inferred
+    if (needsReturnTypeInference && inferredReturnType->kind != TypeKind::Void) {
+        methodType->returnType = inferredReturnType;
+    }
+
     symbols.exitScope();
 
     // Add to class
