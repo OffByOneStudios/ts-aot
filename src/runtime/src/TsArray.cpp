@@ -532,7 +532,9 @@ extern "C" {
     }
 
     void* ts_array_at(void* arr, int64_t index) {
-        return (void*)((TsArray*)arr)->At(index);
+        int64_t rawVal = ((TsArray*)arr)->At(index);
+        // Box the raw value as a TsValue so unboxValue can unwrap it properly
+        return (void*)ts_value_make_int(rawVal);
     }
 
     void* ts_array_join(void* arr, void* separator) {
