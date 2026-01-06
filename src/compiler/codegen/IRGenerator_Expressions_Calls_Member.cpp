@@ -10,10 +10,6 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
     auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (!prop) return false;
 
-    if (prop->expression->inferredType) {
-        SPDLOG_WARN("Member call: {}, prop->expression->inferredType->kind = {}",  prop->name, static_cast<int>(prop->expression->inferredType->kind));
-    }
-
     if (tryGenerateBuiltinCall(node, prop)) {
         return true;
     }
