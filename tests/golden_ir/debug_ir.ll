@@ -624,7 +624,7 @@ entry:
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
   call void @ts_module_register(ptr %12, ptr %__module_obj_05)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
-  %13 = call ptr @__module_init_9610421887249242215_any(ptr null, ptr %__module_obj_06)
+  %13 = call ptr @__module_init_9610421887249242215_any(ptr %context, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8
   %__module_res_07 = load ptr, ptr %__module_res_0, align 8
   %14 = call ptr @ts_value_box_any(ptr %__module_res_07)

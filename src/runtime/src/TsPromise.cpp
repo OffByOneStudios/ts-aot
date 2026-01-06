@@ -207,7 +207,12 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
 }
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
-    ctx->resumedValue = value;
+    // CRITICAL: value might be a stack pointer that becomes invalid after this function returns
+    // Allocate a heap copy to ensure it remains valid when the state machine resumes
+    TsValue* heapValue = (TsValue*)ts_alloc(sizeof(TsValue));
+    *heapValue = *value;
+    ctx->resumedValue = heapValue;
+
     if (ctx->resumeFn) {
         ctx->resumeFn(ctx);
     }
