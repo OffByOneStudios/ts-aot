@@ -564,7 +564,6 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             return;
         } else if (className.find("Promise") == 0 && !node->arguments.empty()) {
             // new Promise((resolve, reject) => { ... })
-            fprintf(stderr, "[CODEGEN] Handling new Promise(executor)\n");
             visit(node->arguments[0].get());
             llvm::Value* executor = lastValue;
 
