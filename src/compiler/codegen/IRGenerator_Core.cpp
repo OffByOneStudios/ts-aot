@@ -2201,11 +2201,18 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(type);
+
+        // NEVER unbox Promise types - they must always stay as boxed TsValue*
+        // Promises are reference types that ts_async_await expects to be boxed
+        if (classType->name.find("Promise") == 0) {
+            return val;  // Keep boxed
+        }
+
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
         if (classType->isStruct) {
             llvm::Value* objPtr = createCall(unboxFt, unboxFn.getCallee(), { val });
-            
+
             llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, classType->name);
             return builder->CreateLoad(classStruct, objPtr);
         }
