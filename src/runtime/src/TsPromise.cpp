@@ -242,16 +242,8 @@ struct PromiseCallbackTask {
 };
 
 void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValue& value) {
-    fprintf(stderr, "DEBUG: ts_promise_run_callback promise=%p, state=%d, asyncCtx=%p\n",
-            promise, (int)promise->state, cb.asyncCtx);
     if (cb.asyncCtx) {
-        fprintf(stderr, "DEBUG: AsyncContext callback - setting error flag to %d\n",
-                (promise->state == PromiseState::Rejected) ? 1 : 0);
         cb.asyncCtx->error = (promise->state == PromiseState::Rejected);
-        fprintf(stderr, "DEBUG: After setting, asyncCtx->error=%d (at offset %zu from base)\n",
-                (int)cb.asyncCtx->error,
-                (size_t)((char*)&cb.asyncCtx->error - (char*)cb.asyncCtx));
-        fprintf(stderr, "DEBUG: Calling ts_async_resume with asyncCtx=%p\n", cb.asyncCtx);
         ts_async_resume(cb.asyncCtx, &value);
         return;
     }
@@ -298,16 +290,12 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
 void ts_promise_settle_microtask(void* data) {
     auto task = static_cast<PromiseResolveTask*>(data);
     TsPromise* promise = task->promise;
-    fprintf(stderr, "DEBUG: ts_promise_settle_microtask promise=%p, state=%d, callbacks=%zu\n",
-            promise, (int)promise->state, promise->callbacks.size());
 
     if (promise->state == PromiseState::Rejected && !promise->handled) {
         ts_console_log_value(&promise->value);
     }
 
     for (auto& cb : promise->callbacks) {
-        fprintf(stderr, "DEBUG: Running callback %zu/%zu\n",
-                (&cb - &promise->callbacks[0]) + 1, promise->callbacks.size());
         ts_promise_run_callback(promise, cb, promise->value);
     }
     promise->callbacks.clear();
@@ -365,20 +353,16 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
 }
 
 void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
-    fprintf(stderr, "DEBUG: ts_promise_reject_internal promise=%p, state=%d\n", promise, (int)promise->state);
     if (promise->state != PromiseState::Pending) {
-        fprintf(stderr, "DEBUG: Promise already settled, returning\n");
         return;
     }
     promise->state = PromiseState::Rejected;
     promise->value = reason ? *reason : TsValue();
-    fprintf(stderr, "DEBUG: Promise state set to Rejected, callbacks=%zu\n", promise->callbacks.size());
 
     auto task = static_cast<PromiseResolveTask*>(ts_alloc(sizeof(PromiseResolveTask)));
     task->promise = promise;
     task->value = promise->value;
     ts_queue_microtask(ts_promise_settle_microtask, task);
-    fprintf(stderr, "DEBUG: Microtask queued for promise settlement\n");
 }
 
 TsValue* ts_promise_resolve(void* context, TsValue* value) {
@@ -453,14 +437,11 @@ TsValue* ts_promise_await(TsValue* promise) {
 }
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
-    fprintf(stderr, "DEBUG: ts_async_await promise=%p, ctx=%p\n", promise, ctx);
     if (!promise || promise->type != ValueType::PROMISE_PTR || !promise->ptr_val) {
-        fprintf(stderr, "DEBUG: Not a promise, resuming immediately\n");
         ts_async_resume(ctx, promise);
         return;
     }
     TsPromise* p = (TsPromise*)promise->ptr_val;
-    fprintf(stderr, "DEBUG: Calling then_async on promise=%p, state=%d\n", p, (int)p->state);
     p->then_async(ctx);
 }
 
@@ -740,8 +721,6 @@ TsPromise* TsPromise::finally(TsValue onFinally) {
 }
 
 void TsPromise::then_async(AsyncContext* asyncCtx) {
-    fprintf(stderr, "DEBUG: TsPromise::then_async this=%p, asyncCtx=%p, state=%d\n",
-            this, asyncCtx, (int)state);
     handled = true;
     Callback cb;
     cb.onFulfilled = TsValue();
@@ -751,14 +730,12 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
     cb.asyncCtx = asyncCtx;
 
     if (state != PromiseState::Pending) {
-        fprintf(stderr, "DEBUG: Promise already settled, queuing immediate callback\n");
         auto task = static_cast<PromiseCallbackTask*>(ts_alloc(sizeof(PromiseCallbackTask)));
         task->promise = this;
         task->cb = cb;
 
         ts_queue_microtask(ts_promise_callback_microtask, task);
     } else {
-        fprintf(stderr, "DEBUG: Promise pending, adding callback to queue\n");
         callbacks.push_back(cb);
     }
 }

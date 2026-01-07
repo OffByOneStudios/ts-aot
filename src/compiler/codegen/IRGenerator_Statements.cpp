@@ -361,9 +361,8 @@ void IRGenerator::visitTryStatement(ast::TryStatement* node) {
                     builder->CreateBr(finallyBB ? finallyBB : mergeBB);
                 }
             } else {
-                // Clear both block-specific and top-level pendingExc
-                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), pendingExc);
-                builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), namedValues["pendingExc"]);
+                // No catch clause - just pass through to finally
+                // Don't clear pendingExc since we need to rethrow after finally
                 builder->CreateBr(finallyBB ? finallyBB : mergeBB);
             }
         }
