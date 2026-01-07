@@ -1095,7 +1095,10 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
         }
     }
 
-    lastValue = boxValue(map, std::make_shared<Type>(TypeKind::Object));
+    // Return the raw map pointer, not boxed
+    // The caller will box it if needed (e.g., when passing to a function that expects boxed values)
+    // This prevents double-boxing when the object literal is stored to an async frame and then loaded back
+    lastValue = map;
 }
 
 void IRGenerator::visitPropertyAssignment(ast::PropertyAssignment* node) {

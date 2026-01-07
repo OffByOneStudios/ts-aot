@@ -1123,48 +1123,47 @@ try86:                                            ; preds = %try_merge69
   %unionPtr101 = getelementptr inbounds %TsValue, ptr %147, i32 0, i32 2
   %unionVal102 = load i64, ptr %unionPtr101, align 8
   call void @__ts_map_set_at(ptr %133, i64 %unionVal98, i8 %type96, i64 %unionVal98, i8 %type100, i64 %unionVal102)
-  %148 = call ptr @ts_value_make_object(ptr %133)
-  %149 = call ptr @ts_util_inspect(ptr %148, ptr null)
-  store ptr %149, ptr %inspected, align 8
+  %148 = call ptr @ts_util_inspect(ptr %133, ptr null)
+  store ptr %148, ptr %inspected, align 8
   %inspected103 = load ptr, ptr %inspected, align 8
-  %150 = call ptr @ts_typeof(ptr %inspected103)
-  %151 = call ptr @ts_string_create(ptr @62)
-  %152 = call i1 @ts_string_eq(ptr %150, ptr %151)
-  %153 = xor i1 %152, true
-  br i1 %153, label %then104, label %else107
+  %149 = call ptr @ts_typeof(ptr %inspected103)
+  %150 = call ptr @ts_string_create(ptr @62)
+  %151 = call i1 @ts_string_eq(ptr %149, ptr %150)
+  %152 = xor i1 %151, true
+  br i1 %152, label %then104, label %else107
 
 catch87:                                          ; preds = %try_merge69
-  %154 = call ptr @ts_get_exception()
-  %155 = call ptr @ts_push_exception_handler()
-  %156 = call i32 @_setjmp(ptr %155, ptr null)
-  %157 = icmp ne i32 %156, 0
-  br i1 %157, label %catch_throw111, label %catch_body110
+  %153 = call ptr @ts_get_exception()
+  %154 = call ptr @ts_push_exception_handler()
+  %155 = call i32 @_setjmp(ptr %154, ptr null)
+  %156 = icmp ne i32 %155, 0
+  br i1 %156, label %catch_throw111, label %catch_body110
 
 finally88:                                        ; preds = %catch_throw111, %catch_body110, %ifcont109
-  %158 = load ptr, ptr %pendingExc90, align 8
-  %159 = icmp ne ptr %158, null
-  br i1 %159, label %rethrow114, label %check_return115
+  %157 = load ptr, ptr %pendingExc90, align 8
+  %158 = icmp ne ptr %157, null
+  br i1 %158, label %rethrow114, label %check_return115
 
 try_merge89:                                      ; preds = %check_continue117
   store ptr null, ptr %pendingExc122, align 8
-  %160 = call ptr @ts_push_exception_handler()
-  %161 = call i32 @_setjmp(ptr %160, ptr null)
-  %162 = icmp ne i32 %161, 0
-  br i1 %162, label %catch119, label %try118
+  %159 = call ptr @ts_push_exception_handler()
+  %160 = call i32 @_setjmp(ptr %159, ptr null)
+  %161 = icmp ne i32 %160, 0
+  br i1 %161, label %catch119, label %try118
 
 then104:                                          ; preds = %try86
-  %163 = call ptr @ts_string_create(ptr @63)
-  call void @ts_console_log(ptr %163)
+  %162 = call ptr @ts_string_create(ptr @63)
+  call void @ts_console_log(ptr %162)
   %failures105 = load i64, ptr %failures, align 8
   %incdec106 = add i64 %failures105, 1
   store i64 %incdec106, ptr %failures, align 8
   br label %ifcont109
 
 else107:                                          ; preds = %try86
-  %164 = call ptr @ts_string_create(ptr @64)
+  %163 = call ptr @ts_string_create(ptr @64)
+  call void @ts_console_log(ptr %163)
+  %164 = call ptr @ts_string_create(ptr @65)
   call void @ts_console_log(ptr %164)
-  %165 = call ptr @ts_string_create(ptr @65)
-  call void @ts_console_log(ptr %165)
   %inspected108 = load ptr, ptr %inspected, align 8
   call void @ts_console_log(ptr %inspected108)
   br label %ifcont109
@@ -1174,9 +1173,9 @@ ifcont109:                                        ; preds = %else107, %then104
   br label %finally88
 
 catch_body110:                                    ; preds = %catch87
-  store ptr %154, ptr %e, align 8
-  %166 = call ptr @ts_string_create(ptr @66)
-  call void @ts_console_log(ptr %166)
+  store ptr %153, ptr %e, align 8
+  %165 = call ptr @ts_string_create(ptr @66)
+  call void @ts_console_log(ptr %165)
   %failures112 = load i64, ptr %failures, align 8
   %incdec113 = add i64 %failures112, 1
   store i64 %incdec113, ptr %failures, align 8
@@ -1184,71 +1183,71 @@ catch_body110:                                    ; preds = %catch87
   br label %finally88
 
 catch_throw111:                                   ; preds = %catch87
-  %167 = call ptr @ts_get_exception()
-  store ptr %167, ptr %pendingExc90, align 8
+  %166 = call ptr @ts_get_exception()
+  store ptr %166, ptr %pendingExc90, align 8
   br label %finally88
 
 rethrow114:                                       ; preds = %finally88
-  call void @ts_throw(ptr %158)
+  call void @ts_throw(ptr %157)
   unreachable
 
 check_return115:                                  ; preds = %finally88
-  %168 = load i1, ptr %shouldReturn, align 1
-  br i1 %168, label %return, label %check_break116
+  %167 = load i1, ptr %shouldReturn, align 1
+  br i1 %167, label %return, label %check_break116
 
 check_break116:                                   ; preds = %check_return115
-  %169 = load i1, ptr %shouldBreak, align 1
+  %168 = load i1, ptr %shouldBreak, align 1
   br label %check_continue117
 
 check_continue117:                                ; preds = %check_break116
-  %170 = load i1, ptr %shouldContinue, align 1
+  %169 = load i1, ptr %shouldContinue, align 1
   br label %try_merge89
 
 try118:                                           ; preds = %try_merge89
-  %171 = call ptr @ts_map_create()
-  store ptr %171, ptr %map, align 8
+  %170 = call ptr @ts_map_create()
+  store ptr %170, ptr %map, align 8
   %map123 = load ptr, ptr %map, align 8
-  %172 = call i1 @ts_util_types_is_map(ptr %map123)
-  store i1 %172, ptr %result, align 1
+  %171 = call i1 @ts_util_types_is_map(ptr %map123)
+  store i1 %171, ptr %result, align 1
   %result124 = load i1, ptr %result, align 1
-  %173 = call ptr @ts_string_create(ptr @67)
-  %174 = call ptr @ts_string_create(ptr @68)
-  %175 = call i1 @ts_string_eq(ptr %173, ptr %174)
-  %176 = xor i1 %175, true
-  br i1 %176, label %then125, label %else128
+  %172 = call ptr @ts_string_create(ptr @67)
+  %173 = call ptr @ts_string_create(ptr @68)
+  %174 = call i1 @ts_string_eq(ptr %172, ptr %173)
+  %175 = xor i1 %174, true
+  br i1 %175, label %then125, label %else128
 
 catch119:                                         ; preds = %try_merge89
-  %177 = call ptr @ts_get_exception()
-  %178 = call ptr @ts_push_exception_handler()
-  %179 = call i32 @_setjmp(ptr %178, ptr null)
-  %180 = icmp ne i32 %179, 0
-  br i1 %180, label %catch_throw132, label %catch_body131
+  %176 = call ptr @ts_get_exception()
+  %177 = call ptr @ts_push_exception_handler()
+  %178 = call i32 @_setjmp(ptr %177, ptr null)
+  %179 = icmp ne i32 %178, 0
+  br i1 %179, label %catch_throw132, label %catch_body131
 
 finally120:                                       ; preds = %catch_throw132, %catch_body131, %ifcont130
-  %181 = load ptr, ptr %pendingExc122, align 8
-  %182 = icmp ne ptr %181, null
-  br i1 %182, label %rethrow135, label %check_return136
+  %180 = load ptr, ptr %pendingExc122, align 8
+  %181 = icmp ne ptr %180, null
+  br i1 %181, label %rethrow135, label %check_return136
 
 try_merge121:                                     ; preds = %check_continue138
   store ptr null, ptr %pendingExc143, align 8
-  %183 = call ptr @ts_push_exception_handler()
-  %184 = call i32 @_setjmp(ptr %183, ptr null)
-  %185 = icmp ne i32 %184, 0
-  br i1 %185, label %catch140, label %try139
+  %182 = call ptr @ts_push_exception_handler()
+  %183 = call i32 @_setjmp(ptr %182, ptr null)
+  %184 = icmp ne i32 %183, 0
+  br i1 %184, label %catch140, label %try139
 
 then125:                                          ; preds = %try118
-  %186 = call ptr @ts_string_create(ptr @69)
-  call void @ts_console_log(ptr %186)
+  %185 = call ptr @ts_string_create(ptr @69)
+  call void @ts_console_log(ptr %185)
   %failures126 = load i64, ptr %failures, align 8
   %incdec127 = add i64 %failures126, 1
   store i64 %incdec127, ptr %failures, align 8
   br label %ifcont130
 
 else128:                                          ; preds = %try118
-  %187 = call ptr @ts_string_create(ptr @70)
+  %186 = call ptr @ts_string_create(ptr @70)
+  call void @ts_console_log(ptr %186)
+  %187 = call ptr @ts_string_create(ptr @71)
   call void @ts_console_log(ptr %187)
-  %188 = call ptr @ts_string_create(ptr @71)
-  call void @ts_console_log(ptr %188)
   %result129 = load i1, ptr %result, align 1
   call void @ts_console_log_bool(i1 %result129)
   br label %ifcont130
@@ -1258,9 +1257,9 @@ ifcont130:                                        ; preds = %else128, %then125
   br label %finally120
 
 catch_body131:                                    ; preds = %catch119
-  store ptr %177, ptr %e, align 8
-  %189 = call ptr @ts_string_create(ptr @72)
-  call void @ts_console_log(ptr %189)
+  store ptr %176, ptr %e, align 8
+  %188 = call ptr @ts_string_create(ptr @72)
+  call void @ts_console_log(ptr %188)
   %failures133 = load i64, ptr %failures, align 8
   %incdec134 = add i64 %failures133, 1
   store i64 %incdec134, ptr %failures, align 8
@@ -1268,71 +1267,71 @@ catch_body131:                                    ; preds = %catch119
   br label %finally120
 
 catch_throw132:                                   ; preds = %catch119
-  %190 = call ptr @ts_get_exception()
-  store ptr %190, ptr %pendingExc122, align 8
+  %189 = call ptr @ts_get_exception()
+  store ptr %189, ptr %pendingExc122, align 8
   br label %finally120
 
 rethrow135:                                       ; preds = %finally120
-  call void @ts_throw(ptr %181)
+  call void @ts_throw(ptr %180)
   unreachable
 
 check_return136:                                  ; preds = %finally120
-  %191 = load i1, ptr %shouldReturn, align 1
-  br i1 %191, label %return, label %check_break137
+  %190 = load i1, ptr %shouldReturn, align 1
+  br i1 %190, label %return, label %check_break137
 
 check_break137:                                   ; preds = %check_return136
-  %192 = load i1, ptr %shouldBreak, align 1
+  %191 = load i1, ptr %shouldBreak, align 1
   br label %check_continue138
 
 check_continue138:                                ; preds = %check_break137
-  %193 = load i1, ptr %shouldContinue, align 1
+  %192 = load i1, ptr %shouldContinue, align 1
   br label %try_merge121
 
 try139:                                           ; preds = %try_merge121
-  %194 = call ptr @ts_set_create()
-  store ptr %194, ptr %set, align 8
+  %193 = call ptr @ts_set_create()
+  store ptr %193, ptr %set, align 8
   %set144 = load ptr, ptr %set, align 8
-  %195 = call i1 @ts_util_types_is_set(ptr %set144)
-  store i1 %195, ptr %result, align 1
+  %194 = call i1 @ts_util_types_is_set(ptr %set144)
+  store i1 %194, ptr %result, align 1
   %result145 = load i1, ptr %result, align 1
-  %196 = call ptr @ts_string_create(ptr @73)
-  %197 = call ptr @ts_string_create(ptr @74)
-  %198 = call i1 @ts_string_eq(ptr %196, ptr %197)
-  %199 = xor i1 %198, true
-  br i1 %199, label %then146, label %else149
+  %195 = call ptr @ts_string_create(ptr @73)
+  %196 = call ptr @ts_string_create(ptr @74)
+  %197 = call i1 @ts_string_eq(ptr %195, ptr %196)
+  %198 = xor i1 %197, true
+  br i1 %198, label %then146, label %else149
 
 catch140:                                         ; preds = %try_merge121
-  %200 = call ptr @ts_get_exception()
-  %201 = call ptr @ts_push_exception_handler()
-  %202 = call i32 @_setjmp(ptr %201, ptr null)
-  %203 = icmp ne i32 %202, 0
-  br i1 %203, label %catch_throw153, label %catch_body152
+  %199 = call ptr @ts_get_exception()
+  %200 = call ptr @ts_push_exception_handler()
+  %201 = call i32 @_setjmp(ptr %200, ptr null)
+  %202 = icmp ne i32 %201, 0
+  br i1 %202, label %catch_throw153, label %catch_body152
 
 finally141:                                       ; preds = %catch_throw153, %catch_body152, %ifcont151
-  %204 = load ptr, ptr %pendingExc143, align 8
-  %205 = icmp ne ptr %204, null
-  br i1 %205, label %rethrow156, label %check_return157
+  %203 = load ptr, ptr %pendingExc143, align 8
+  %204 = icmp ne ptr %203, null
+  br i1 %204, label %rethrow156, label %check_return157
 
 try_merge142:                                     ; preds = %check_continue159
   store ptr null, ptr %pendingExc164, align 8
-  %206 = call ptr @ts_push_exception_handler()
-  %207 = call i32 @_setjmp(ptr %206, ptr null)
-  %208 = icmp ne i32 %207, 0
-  br i1 %208, label %catch161, label %try160
+  %205 = call ptr @ts_push_exception_handler()
+  %206 = call i32 @_setjmp(ptr %205, ptr null)
+  %207 = icmp ne i32 %206, 0
+  br i1 %207, label %catch161, label %try160
 
 then146:                                          ; preds = %try139
-  %209 = call ptr @ts_string_create(ptr @75)
-  call void @ts_console_log(ptr %209)
+  %208 = call ptr @ts_string_create(ptr @75)
+  call void @ts_console_log(ptr %208)
   %failures147 = load i64, ptr %failures, align 8
   %incdec148 = add i64 %failures147, 1
   store i64 %incdec148, ptr %failures, align 8
   br label %ifcont151
 
 else149:                                          ; preds = %try139
-  %210 = call ptr @ts_string_create(ptr @76)
+  %209 = call ptr @ts_string_create(ptr @76)
+  call void @ts_console_log(ptr %209)
+  %210 = call ptr @ts_string_create(ptr @77)
   call void @ts_console_log(ptr %210)
-  %211 = call ptr @ts_string_create(ptr @77)
-  call void @ts_console_log(ptr %211)
   %result150 = load i1, ptr %result, align 1
   call void @ts_console_log_bool(i1 %result150)
   br label %ifcont151
@@ -1342,9 +1341,9 @@ ifcont151:                                        ; preds = %else149, %then146
   br label %finally141
 
 catch_body152:                                    ; preds = %catch140
-  store ptr %200, ptr %e, align 8
-  %212 = call ptr @ts_string_create(ptr @78)
-  call void @ts_console_log(ptr %212)
+  store ptr %199, ptr %e, align 8
+  %211 = call ptr @ts_string_create(ptr @78)
+  call void @ts_console_log(ptr %211)
   %failures154 = load i64, ptr %failures, align 8
   %incdec155 = add i64 %failures154, 1
   store i64 %incdec155, ptr %failures, align 8
@@ -1352,71 +1351,71 @@ catch_body152:                                    ; preds = %catch140
   br label %finally141
 
 catch_throw153:                                   ; preds = %catch140
-  %213 = call ptr @ts_get_exception()
-  store ptr %213, ptr %pendingExc143, align 8
+  %212 = call ptr @ts_get_exception()
+  store ptr %212, ptr %pendingExc143, align 8
   br label %finally141
 
 rethrow156:                                       ; preds = %finally141
-  call void @ts_throw(ptr %204)
+  call void @ts_throw(ptr %203)
   unreachable
 
 check_return157:                                  ; preds = %finally141
-  %214 = load i1, ptr %shouldReturn, align 1
-  br i1 %214, label %return, label %check_break158
+  %213 = load i1, ptr %shouldReturn, align 1
+  br i1 %213, label %return, label %check_break158
 
 check_break158:                                   ; preds = %check_return157
-  %215 = load i1, ptr %shouldBreak, align 1
+  %214 = load i1, ptr %shouldBreak, align 1
   br label %check_continue159
 
 check_continue159:                                ; preds = %check_break158
-  %216 = load i1, ptr %shouldContinue, align 1
+  %215 = load i1, ptr %shouldContinue, align 1
   br label %try_merge142
 
 try160:                                           ; preds = %try_merge142
-  %217 = call ptr @ts_date_create()
-  store ptr %217, ptr %date, align 8
+  %216 = call ptr @ts_date_create()
+  store ptr %216, ptr %date, align 8
   %date165 = load ptr, ptr %date, align 8
-  %218 = call i1 @ts_util_types_is_date(ptr %date165)
-  store i1 %218, ptr %result, align 1
+  %217 = call i1 @ts_util_types_is_date(ptr %date165)
+  store i1 %217, ptr %result, align 1
   %result166 = load i1, ptr %result, align 1
-  %219 = call ptr @ts_string_create(ptr @79)
-  %220 = call ptr @ts_string_create(ptr @80)
-  %221 = call i1 @ts_string_eq(ptr %219, ptr %220)
-  %222 = xor i1 %221, true
-  br i1 %222, label %then167, label %else170
+  %218 = call ptr @ts_string_create(ptr @79)
+  %219 = call ptr @ts_string_create(ptr @80)
+  %220 = call i1 @ts_string_eq(ptr %218, ptr %219)
+  %221 = xor i1 %220, true
+  br i1 %221, label %then167, label %else170
 
 catch161:                                         ; preds = %try_merge142
-  %223 = call ptr @ts_get_exception()
-  %224 = call ptr @ts_push_exception_handler()
-  %225 = call i32 @_setjmp(ptr %224, ptr null)
-  %226 = icmp ne i32 %225, 0
-  br i1 %226, label %catch_throw174, label %catch_body173
+  %222 = call ptr @ts_get_exception()
+  %223 = call ptr @ts_push_exception_handler()
+  %224 = call i32 @_setjmp(ptr %223, ptr null)
+  %225 = icmp ne i32 %224, 0
+  br i1 %225, label %catch_throw174, label %catch_body173
 
 finally162:                                       ; preds = %catch_throw174, %catch_body173, %ifcont172
-  %227 = load ptr, ptr %pendingExc164, align 8
-  %228 = icmp ne ptr %227, null
-  br i1 %228, label %rethrow177, label %check_return178
+  %226 = load ptr, ptr %pendingExc164, align 8
+  %227 = icmp ne ptr %226, null
+  br i1 %227, label %rethrow177, label %check_return178
 
 try_merge163:                                     ; preds = %check_continue180
   store ptr null, ptr %pendingExc185, align 8
-  %229 = call ptr @ts_push_exception_handler()
-  %230 = call i32 @_setjmp(ptr %229, ptr null)
-  %231 = icmp ne i32 %230, 0
-  br i1 %231, label %catch182, label %try181
+  %228 = call ptr @ts_push_exception_handler()
+  %229 = call i32 @_setjmp(ptr %228, ptr null)
+  %230 = icmp ne i32 %229, 0
+  br i1 %230, label %catch182, label %try181
 
 then167:                                          ; preds = %try160
-  %232 = call ptr @ts_string_create(ptr @81)
-  call void @ts_console_log(ptr %232)
+  %231 = call ptr @ts_string_create(ptr @81)
+  call void @ts_console_log(ptr %231)
   %failures168 = load i64, ptr %failures, align 8
   %incdec169 = add i64 %failures168, 1
   store i64 %incdec169, ptr %failures, align 8
   br label %ifcont172
 
 else170:                                          ; preds = %try160
-  %233 = call ptr @ts_string_create(ptr @82)
+  %232 = call ptr @ts_string_create(ptr @82)
+  call void @ts_console_log(ptr %232)
+  %233 = call ptr @ts_string_create(ptr @83)
   call void @ts_console_log(ptr %233)
-  %234 = call ptr @ts_string_create(ptr @83)
-  call void @ts_console_log(ptr %234)
   %result171 = load i1, ptr %result, align 1
   call void @ts_console_log_bool(i1 %result171)
   br label %ifcont172
@@ -1426,9 +1425,9 @@ ifcont172:                                        ; preds = %else170, %then167
   br label %finally162
 
 catch_body173:                                    ; preds = %catch161
-  store ptr %223, ptr %e, align 8
-  %235 = call ptr @ts_string_create(ptr @84)
-  call void @ts_console_log(ptr %235)
+  store ptr %222, ptr %e, align 8
+  %234 = call ptr @ts_string_create(ptr @84)
+  call void @ts_console_log(ptr %234)
   %failures175 = load i64, ptr %failures, align 8
   %incdec176 = add i64 %failures175, 1
   store i64 %incdec176, ptr %failures, align 8
@@ -1436,72 +1435,72 @@ catch_body173:                                    ; preds = %catch161
   br label %finally162
 
 catch_throw174:                                   ; preds = %catch161
-  %236 = call ptr @ts_get_exception()
-  store ptr %236, ptr %pendingExc164, align 8
+  %235 = call ptr @ts_get_exception()
+  store ptr %235, ptr %pendingExc164, align 8
   br label %finally162
 
 rethrow177:                                       ; preds = %finally162
-  call void @ts_throw(ptr %227)
+  call void @ts_throw(ptr %226)
   unreachable
 
 check_return178:                                  ; preds = %finally162
-  %237 = load i1, ptr %shouldReturn, align 1
-  br i1 %237, label %return, label %check_break179
+  %236 = load i1, ptr %shouldReturn, align 1
+  br i1 %236, label %return, label %check_break179
 
 check_break179:                                   ; preds = %check_return178
-  %238 = load i1, ptr %shouldBreak, align 1
+  %237 = load i1, ptr %shouldBreak, align 1
   br label %check_continue180
 
 check_continue180:                                ; preds = %check_break179
-  %239 = load i1, ptr %shouldContinue, align 1
+  %238 = load i1, ptr %shouldContinue, align 1
   br label %try_merge163
 
 try181:                                           ; preds = %try_merge163
-  %240 = call ptr @ts_string_create(ptr @85)
-  %241 = call ptr @ts_buffer_from_string(ptr %240, ptr null)
-  store ptr %241, ptr %buf, align 8
+  %239 = call ptr @ts_string_create(ptr @85)
+  %240 = call ptr @ts_buffer_from_string(ptr %239, ptr null)
+  store ptr %240, ptr %buf, align 8
   %buf186 = load ptr, ptr %buf, align 8
-  %242 = call i1 @ts_util_types_is_typed_array(ptr %buf186)
-  store i1 %242, ptr %result, align 1
+  %241 = call i1 @ts_util_types_is_typed_array(ptr %buf186)
+  store i1 %241, ptr %result, align 1
   %result187 = load i1, ptr %result, align 1
-  %243 = call ptr @ts_string_create(ptr @86)
-  %244 = call ptr @ts_string_create(ptr @87)
-  %245 = call i1 @ts_string_eq(ptr %243, ptr %244)
-  %246 = xor i1 %245, true
-  br i1 %246, label %then188, label %else191
+  %242 = call ptr @ts_string_create(ptr @86)
+  %243 = call ptr @ts_string_create(ptr @87)
+  %244 = call i1 @ts_string_eq(ptr %242, ptr %243)
+  %245 = xor i1 %244, true
+  br i1 %245, label %then188, label %else191
 
 catch182:                                         ; preds = %try_merge163
-  %247 = call ptr @ts_get_exception()
-  %248 = call ptr @ts_push_exception_handler()
-  %249 = call i32 @_setjmp(ptr %248, ptr null)
-  %250 = icmp ne i32 %249, 0
-  br i1 %250, label %catch_throw195, label %catch_body194
+  %246 = call ptr @ts_get_exception()
+  %247 = call ptr @ts_push_exception_handler()
+  %248 = call i32 @_setjmp(ptr %247, ptr null)
+  %249 = icmp ne i32 %248, 0
+  br i1 %249, label %catch_throw195, label %catch_body194
 
 finally183:                                       ; preds = %catch_throw195, %catch_body194, %ifcont193
-  %251 = load ptr, ptr %pendingExc185, align 8
-  %252 = icmp ne ptr %251, null
-  br i1 %252, label %rethrow198, label %check_return199
+  %250 = load ptr, ptr %pendingExc185, align 8
+  %251 = icmp ne ptr %250, null
+  br i1 %251, label %rethrow198, label %check_return199
 
 try_merge184:                                     ; preds = %check_continue201
-  %253 = call ptr @ts_string_create(ptr @92)
-  call void @ts_console_log(ptr %253)
+  %252 = call ptr @ts_string_create(ptr @92)
+  call void @ts_console_log(ptr %252)
   %failures202 = load i64, ptr %failures, align 8
   %cmptmp = icmp eq i64 %failures202, 0
   br i1 %cmptmp, label %then203, label %else204
 
 then188:                                          ; preds = %try181
-  %254 = call ptr @ts_string_create(ptr @88)
-  call void @ts_console_log(ptr %254)
+  %253 = call ptr @ts_string_create(ptr @88)
+  call void @ts_console_log(ptr %253)
   %failures189 = load i64, ptr %failures, align 8
   %incdec190 = add i64 %failures189, 1
   store i64 %incdec190, ptr %failures, align 8
   br label %ifcont193
 
 else191:                                          ; preds = %try181
-  %255 = call ptr @ts_string_create(ptr @89)
+  %254 = call ptr @ts_string_create(ptr @89)
+  call void @ts_console_log(ptr %254)
+  %255 = call ptr @ts_string_create(ptr @90)
   call void @ts_console_log(ptr %255)
-  %256 = call ptr @ts_string_create(ptr @90)
-  call void @ts_console_log(ptr %256)
   %result192 = load i1, ptr %result, align 1
   call void @ts_console_log_bool(i1 %result192)
   br label %ifcont193
@@ -1511,9 +1510,9 @@ ifcont193:                                        ; preds = %else191, %then188
   br label %finally183
 
 catch_body194:                                    ; preds = %catch182
-  store ptr %247, ptr %e, align 8
-  %257 = call ptr @ts_string_create(ptr @91)
-  call void @ts_console_log(ptr %257)
+  store ptr %246, ptr %e, align 8
+  %256 = call ptr @ts_string_create(ptr @91)
+  call void @ts_console_log(ptr %256)
   %failures196 = load i64, ptr %failures, align 8
   %incdec197 = add i64 %failures196, 1
   store i64 %incdec197, ptr %failures, align 8
@@ -1521,43 +1520,43 @@ catch_body194:                                    ; preds = %catch182
   br label %finally183
 
 catch_throw195:                                   ; preds = %catch182
-  %258 = call ptr @ts_get_exception()
-  store ptr %258, ptr %pendingExc185, align 8
+  %257 = call ptr @ts_get_exception()
+  store ptr %257, ptr %pendingExc185, align 8
   br label %finally183
 
 rethrow198:                                       ; preds = %finally183
-  call void @ts_throw(ptr %251)
+  call void @ts_throw(ptr %250)
   unreachable
 
 check_return199:                                  ; preds = %finally183
-  %259 = load i1, ptr %shouldReturn, align 1
-  br i1 %259, label %return, label %check_break200
+  %258 = load i1, ptr %shouldReturn, align 1
+  br i1 %258, label %return, label %check_break200
 
 check_break200:                                   ; preds = %check_return199
-  %260 = load i1, ptr %shouldBreak, align 1
+  %259 = load i1, ptr %shouldBreak, align 1
   br label %check_continue201
 
 check_continue201:                                ; preds = %check_break200
-  %261 = load i1, ptr %shouldContinue, align 1
+  %260 = load i1, ptr %shouldContinue, align 1
   br label %try_merge184
 
 then203:                                          ; preds = %try_merge184
-  %262 = call ptr @ts_string_create(ptr @93)
-  call void @ts_console_log(ptr %262)
+  %261 = call ptr @ts_string_create(ptr @93)
+  call void @ts_console_log(ptr %261)
   br label %ifcont206
 
 else204:                                          ; preds = %try_merge184
   %failures205 = load i64, ptr %failures, align 8
-  %263 = call ptr @ts_string_create(ptr @94)
-  %264 = call ptr @ts_string_from_int(i64 %failures205)
-  %265 = call ptr @ts_string_concat(ptr %264, ptr %263)
-  call void @ts_console_log(ptr %265)
+  %262 = call ptr @ts_string_create(ptr @94)
+  %263 = call ptr @ts_string_from_int(i64 %failures205)
+  %264 = call ptr @ts_string_concat(ptr %263, ptr %262)
+  call void @ts_console_log(ptr %264)
   br label %ifcont206
 
 ifcont206:                                        ; preds = %else204, %then203
   %failures207 = load i64, ptr %failures, align 8
-  %266 = sitofp i64 %failures207 to double
-  ret double %266
+  %265 = sitofp i64 %failures207 to double
+  ret double %265
 
 dead:                                             ; No predecessors!
   br label %return
@@ -1596,12 +1595,12 @@ entry:
   %unionPtr3 = getelementptr inbounds %TsValue, ptr %9, i32 0, i32 2
   %unionVal4 = load i64, ptr %unionPtr3, align 8
   call void @__ts_map_set_at(ptr %1, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
-  %10 = call ptr @ts_value_make_object(ptr %1)
-  store ptr %10, ptr %__module_obj_0, align 8
-  %11 = call ptr @ts_string_create(ptr @96)
-  %12 = call ptr @ts_value_make_string(ptr %11)
+  store ptr %1, ptr %__module_obj_0, align 8
+  %10 = call ptr @ts_string_create(ptr @96)
+  %11 = call ptr @ts_value_make_string(ptr %10)
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
-  call void @ts_module_register(ptr %12, ptr %__module_obj_05)
+  %12 = call ptr @ts_value_box_any(ptr %__module_obj_05)
+  call void @ts_module_register(ptr %11, ptr %12)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
   %13 = call ptr @__module_init_13333308732889039661_any(ptr %context, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8
