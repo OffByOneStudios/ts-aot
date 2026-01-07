@@ -1040,7 +1040,19 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     checkedAllocas.clear();
     lastValue = nullptr;
     anonVarCounter = 0;
-    
+
+    // Clear async frame state to prevent lambdas from accessing parent frame
+    // This fixes SSA variable collision when lambdas try to use parent's frame pointer
+    currentAsyncFrame = nullptr;
+    currentAsyncFrameType = nullptr;
+    currentAsyncFrameMap.clear();
+    currentAsyncContext = nullptr;
+    currentAsyncResumedValue = nullptr;
+    asyncDispatcherBB = nullptr;
+    asyncStateBlocks.clear();
+    currentIsAsync = false;
+    currentIsGenerator = false;
+
     // Force return type to Any for arrow functions to ensure compatibility with runtime handlers
     auto oldReturnType = currentReturnType;
     currentReturnType = std::make_shared<Type>(TypeKind::Any);
