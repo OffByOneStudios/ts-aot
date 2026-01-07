@@ -319,18 +319,27 @@ TsValue* ts_promise_reject_internal_helper(void* context, TsValue* reason) {
     return nullptr;
 }
 
+// Native function wrappers for Promise constructor (variadic calling convention)
+TsValue* ts_promise_resolve_wrapper(void* context, int argc, TsValue** argv) {
+    TsValue* value = (argc > 0) ? argv[0] : nullptr;
+    ts_promise_resolve_internal((TsPromise*)context, value);
+    return nullptr;
+}
+
+TsValue* ts_promise_reject_wrapper(void* context, int argc, TsValue** argv) {
+    TsValue* reason = (argc > 0) ? argv[0] : nullptr;
+    ts_promise_reject_internal((TsPromise*)context, reason);
+    return nullptr;
+}
+
 void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
-    fprintf(stderr, "[RESOLVE] ts_promise_resolve_internal called, promise=%p, value=%p\n", (void*)promise, (void*)value);
     if (!promise) {
-        fprintf(stderr, "[RESOLVE] promise is NULL, returning\n");
         return;
     }
     if (promise->state != PromiseState::Pending) {
-        fprintf(stderr, "[RESOLVE] promise state is not Pending (%d), returning\n", (int)promise->state);
         return;
     }
 
-    fprintf(stderr, "[RESOLVE] Checking if value is a Promise...\n");
     if (value && value->type == ValueType::PROMISE_PTR) {
         TsPromise* other = (TsPromise*)value->ptr_val;
         TsValue onFulfilled;
@@ -351,17 +360,13 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
         return;
     }
 
-    fprintf(stderr, "[RESOLVE] Value is not a Promise, resolving directly\n");
     promise->state = PromiseState::Fulfilled;
     promise->value = value ? *value : TsValue();
-    fprintf(stderr, "[RESOLVE] Promise state set to Fulfilled, value stored\n");
 
     auto task = static_cast<PromiseResolveTask*>(ts_alloc(sizeof(PromiseResolveTask)));
     task->promise = promise;
     task->value = promise->value;
-    fprintf(stderr, "[RESOLVE] Queuing microtask to settle promise\n");
     ts_queue_microtask(ts_promise_settle_microtask, task);
-    fprintf(stderr, "[RESOLVE] Microtask queued, returning\n");
 }
 
 void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
@@ -429,55 +434,28 @@ TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
 }
 
 TsValue* ts_promise_new(TsValue* executor) {
-    fprintf(stderr, "[DEBUG] ts_promise_new called, executor=%p\n", (void*)executor);
-
     if (!executor) {
-        fprintf(stderr, "[DEBUG] executor is NULL!\n");
         return nullptr;
     }
 
-    fprintf(stderr, "[DEBUG] executor type=%d\n", (int)executor->type);
-
     // Create a new promise
     TsPromise* promise = ts_promise_create();
-    fprintf(stderr, "[DEBUG] Created promise=%p\n", (void*)promise);
 
-    // Create resolve and reject functions that will be passed to the executor
-    // These are simple wrappers that capture the promise
+    // Create resolve and reject functions using the variadic wrappers
+    TsValue* resolveArg = ts_value_make_native_function(
+        (void*)ts_promise_resolve_wrapper,
+        promise
+    );
 
-    // Resolve function: (value) => void
-    TsValue resolveFunc;
-    resolveFunc.type = ValueType::OBJECT_PTR;
-    TsFunction* resolveFn = (TsFunction*)ts_alloc(sizeof(TsFunction));
-    resolveFn->funcPtr = (void*)ts_promise_resolve_internal_helper;
-    resolveFn->context = promise;
-    resolveFn->type = FunctionType::NATIVE;
-    resolveFunc.ptr_val = resolveFn;
-
-    // Reject function: (reason) => void
-    TsValue rejectFunc;
-    rejectFunc.type = ValueType::OBJECT_PTR;
-    TsFunction* rejectFn = (TsFunction*)ts_alloc(sizeof(TsFunction));
-    rejectFn->funcPtr = (void*)ts_promise_reject_internal_helper;
-    rejectFn->context = promise;
-    rejectFn->type = FunctionType::NATIVE;
-    rejectFunc.ptr_val = rejectFn;
-
-    // Box them for passing to executor
-    TsValue* resolveArg = (TsValue*)ts_alloc(sizeof(TsValue));
-    *resolveArg = resolveFunc;
-    TsValue* rejectArg = (TsValue*)ts_alloc(sizeof(TsValue));
-    *rejectArg = rejectFunc;
-
-    fprintf(stderr, "[DEBUG] About to call executor with resolve=%p, reject=%p\n", (void*)resolveArg, (void*)rejectArg);
+    TsValue* rejectArg = ts_value_make_native_function(
+        (void*)ts_promise_reject_wrapper,
+        promise
+    );
 
     // Call the executor with (resolve, reject)
     if (executor) {
-        TsValue* result = ts_call_2(executor, resolveArg, rejectArg);
-        fprintf(stderr, "[DEBUG] Executor returned %p\n", (void*)result);
+        ts_call_2(executor, resolveArg, rejectArg);
     }
-
-    fprintf(stderr, "[DEBUG] Returning promise\n");
 
     // Return the promise
     TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
