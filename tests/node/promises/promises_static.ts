@@ -1,10 +1,8 @@
 // Promise Static Methods Tests - Promise.all, Promise.race, Promise.allSettled, Promise.any
-// NOTE: These tests require async/await runtime support (currently blocked)
 
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== Promise Static Methods Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await runtime fixes\n');
 
   // Test 1: Promise.all with all resolved
   try {

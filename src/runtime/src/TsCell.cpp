@@ -17,26 +17,12 @@ TsCell* ts_cell_create(TsValue* initialValue) {
 }
 
 TsValue* ts_cell_get(TsCell* cell) {
-    if (!cell) {
-        fprintf(stderr, "[ts_cell_get] cell is null!\n");
-        return nullptr;
-    }
-    TsValue* val = cell->value;
-    if (val) {
-        fprintf(stderr, "[ts_cell_get] cell=%p value=%p type=%d\n", (void*)cell, (void*)val, (int)val->type);
-    } else {
-        fprintf(stderr, "[ts_cell_get] cell=%p value=null\n", (void*)cell);
-    }
-    return val;
+    if (!cell) return nullptr;
+    return cell->value;
 }
 
 void ts_cell_set(TsCell* cell, TsValue* value) {
     if (!cell) return;
-    if (value) {
-        fprintf(stderr, "[ts_cell_set] cell=%p value=%p type=%d\n", (void*)cell, (void*)value, (int)value->type);
-    } else {
-        fprintf(stderr, "[ts_cell_set] cell=%p value=null\n", (void*)cell);
-    }
     cell->value = value;
 }
 

@@ -1,5 +1,4 @@
 // Async/Await Basic Tests
-// NOTE: These tests require async/await runtime support (currently blocked)
 
 async function addAsync(a: number, b: number): Promise<number> {
   return a + b;
@@ -12,7 +11,6 @@ async function multiplyAsync(a: number, b: number): Promise<number> {
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== Async/Await Basic Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await runtime fixes\n');
 
   // Test 1: Simple async function call
   try {

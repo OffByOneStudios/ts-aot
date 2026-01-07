@@ -1,10 +1,8 @@
 // Promise Basic Tests - Promise.resolve, Promise.reject, then, catch
-// NOTE: These tests require async/await runtime support (currently blocked)
 
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== Promise Basic Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await runtime fixes\n');
 
   // Test 1: Promise.resolve
   try {

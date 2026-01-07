@@ -11,18 +11,18 @@ static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     if (eventsFunctionsRegistered) return;
     eventsFunctionsRegistered = true;
 
-    bp.registerRuntimeApi("ts_event_emitter_on", {true, false, true}, true);  // (emitter, event, listener) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_once", {true, false, true}, true);  // (emitter, event, listener) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_emit", {true, false, false, true}, false);  // (emitter, event, argc, argv) -> bool
-    bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_remove_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {true, false}, true);  // (emitter, event?) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {true, false}, true);  // (emitter, n) -> void*
-    bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {true}, false);  // (emitter) -> int
-    bp.registerRuntimeApi("ts_event_emitter_listener_count", {true, false}, false);  // (emitter, event) -> int
-    bp.registerRuntimeApi("ts_event_emitter_event_names", {true}, true);  // (emitter) -> array
-    bp.registerRuntimeApi("ts_event_emitter_static_once", {true, false}, true);  // (emitter, event) -> promise
+    bp.registerRuntimeApi("ts_event_emitter_on", {false, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_once", {false, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_emit", {false, false, false, true}, false);  // (emitter, event, argc, argv) -> bool
+    bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {false, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {false, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_remove_listener", {false, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {false, false}, true);  // (emitter, event?) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {false, false}, true);  // (emitter, n) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {false}, false);  // (emitter) -> int
+    bp.registerRuntimeApi("ts_event_emitter_listener_count", {false, false}, false);  // (emitter, event) -> int
+    bp.registerRuntimeApi("ts_event_emitter_event_names", {false}, true);  // (emitter) -> array
+    bp.registerRuntimeApi("ts_event_emitter_static_once", {false, false}, true);  // (emitter, event) -> promise
 }
 
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -50,9 +50,13 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         prop->name == "prependListener" || prop->name == "prependOnceListener" ||
         prop->name == "removeListener" || prop->name == "off") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
-        
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
+
         if (node->arguments.size() < 2) return true;
         visit(node->arguments[0].get());
         llvm::Value* event = lastValue;
@@ -65,10 +69,10 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         } else {
             callback = boxValue(callback, node->arguments[1]->inferredType);
         }
-        
+
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
                 { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-        
+
         const char* fnName = "ts_event_emitter_on";
         if (prop->name == "once") fnName = "ts_event_emitter_once";
         else if (prop->name == "prependListener") fnName = "ts_event_emitter_prepend_listener";
@@ -77,15 +81,19 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
 
         llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
         createCall(ft, fn.getCallee(), { obj, event, callback });
-        
+
         // Return 'this' for chaining
-        lastValue = boxedObj;
+        lastValue = obj;
         return true;
     } else if (prop->name == "removeAllListeners") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
-        
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
+
         llvm::Value* event = nullptr;
         if (!node->arguments.empty()) {
             visit(node->arguments[0].get());
@@ -93,40 +101,48 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         } else {
             event = llvm::ConstantPointerNull::get(builder->getPtrTy());
         }
-        
+
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_remove_all_listeners", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, event });
-        
+
         // Return 'this' for chaining
-        lastValue = boxedObj;
+        lastValue = obj;
         return true;
     } else if (prop->name == "setMaxListeners") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
-        
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
+
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* n = lastValue;
-        
+
         // Ensure n is an i32
         n = builder->CreateIntCast(n, llvm::Type::getInt32Ty(*context), true);
-        
+
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_set_max_listeners", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, n });
-        
+
         // Return 'this' for chaining
-        lastValue = boxedObj;
+        lastValue = obj;
         return true;
     } else if (prop->name == "emit") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
-        
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
+
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* event = lastValue;
@@ -156,8 +172,12 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         return true;
     } else if (prop->name == "listenerCount") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
 
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
@@ -173,8 +193,12 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         return true;
     } else if (prop->name == "getMaxListeners") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
 
         llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context),
                 { builder->getPtrTy() }, false);
@@ -186,8 +210,12 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         return true;
     } else if (prop->name == "eventNames") {
         visit(prop->expression.get());
-        llvm::Value* boxedObj = lastValue;
-        llvm::Value* obj = unboxValue(boxedObj, prop->expression->inferredType);
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
 
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy() }, false);
