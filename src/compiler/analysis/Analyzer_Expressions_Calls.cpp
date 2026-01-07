@@ -593,6 +593,57 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
     node->inferredType = lastType;
 }
 
+// Helper: Infer Promise<T> type from resolve() calls in executor body
+std::shared_ptr<Type> Analyzer::inferPromiseTypeFromExecutor(ast::Node* body, const std::string& resolveParamName) {
+    if (!body) return nullptr;
+
+    // Handle block statement (arrow function with braces)
+    if (auto block = dynamic_cast<BlockStatement*>(body)) {
+        return inferPromiseTypeFromFunctionBody(block->statements, resolveParamName);
+    }
+
+    // Handle expression body (arrow function without braces: resolve => resolve(100))
+    if (auto expr = dynamic_cast<Expression*>(body)) {
+        // Check if this is a call to resolve
+        if (auto callExpr = dynamic_cast<CallExpression*>(expr)) {
+            if (auto callee = dynamic_cast<Identifier*>(callExpr->callee.get())) {
+                if (callee->name == resolveParamName && !callExpr->arguments.empty()) {
+                    // Found resolve(arg) - return the type of the first argument
+                    if (callExpr->arguments[0]->inferredType) {
+                        return callExpr->arguments[0]->inferredType;
+                    }
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+// Helper: Scan function body statements for resolve() calls
+std::shared_ptr<Type> Analyzer::inferPromiseTypeFromFunctionBody(
+    const std::vector<ast::StmtPtr>& statements,
+    const std::string& resolveParamName) {
+
+    for (const auto& stmt : statements) {
+        // Check expression statements for calls
+        if (auto exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
+            if (auto callExpr = dynamic_cast<CallExpression*>(exprStmt->expression.get())) {
+                if (auto callee = dynamic_cast<Identifier*>(callExpr->callee.get())) {
+                    if (callee->name == resolveParamName && !callExpr->arguments.empty()) {
+                        // Found resolve(arg) - return the type of the first argument
+                        if (callExpr->arguments[0]->inferredType) {
+                            return callExpr->arguments[0]->inferredType;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
 void Analyzer::visitNewExpression(ast::NewExpression* node) {
     if (currentModule && currentModule->type == ModuleType::UntypedJavaScript) {
         // Skip type checking for JS
@@ -605,10 +656,41 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // Check if this is Promise constructor before visiting arguments
+    std::string constructorName;
+    if (auto id = dynamic_cast<Identifier*>(node->expression.get())) {
+        constructorName = id->name;
+    }
+
     std::vector<std::shared_ptr<Type>> ctorArgTypes;
-    for (auto& arg : node->arguments) {
-        visit(arg.get());
-        ctorArgTypes.push_back(lastType);
+    for (size_t i = 0; i < node->arguments.size(); ++i) {
+        auto& arg = node->arguments[i];
+
+        // Provide contextual typing for Promise executor
+        if (constructorName == "Promise" && i == 0) {
+            // Executor type: (resolve: (value: any) => void, reject: (reason: any) => void) => void
+            // We use 'any' initially; later we'll infer the actual type from usage
+            auto resolveParam = std::make_shared<FunctionType>();
+            resolveParam->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            resolveParam->returnType = std::make_shared<Type>(TypeKind::Void);
+
+            auto rejectParam = std::make_shared<FunctionType>();
+            rejectParam->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            rejectParam->returnType = std::make_shared<Type>(TypeKind::Void);
+
+            auto executorType = std::make_shared<FunctionType>();
+            executorType->paramTypes.push_back(resolveParam);
+            executorType->paramTypes.push_back(rejectParam);
+            executorType->returnType = std::make_shared<Type>(TypeKind::Void);
+
+            pushContextualType(executorType);
+            visit(arg.get());
+            popContextualType();
+            ctorArgTypes.push_back(lastType);
+        } else {
+            visit(arg.get());
+            ctorArgTypes.push_back(lastType);
+        }
     }
 
     // Resolve type arguments if any
@@ -677,13 +759,58 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
         auto type = symbols.lookupType(id->name);
         if (type && type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
+
+            // Special handling for Promise constructor: infer T from executor callback
+            if (classType->name == "Promise" && resolvedTypeArguments.empty() && !classType->typeParameters.empty() && !ctorArgTypes.empty()) {
+                std::shared_ptr<Type> inferredT;
+
+                // Get the executor argument (should be an arrow function or function expression)
+                if (!node->arguments.empty()) {
+                    auto executorArg = node->arguments[0].get();
+
+                    // Try to extract type from executor body
+                    if (auto arrowFunc = dynamic_cast<ArrowFunction*>(executorArg)) {
+                        // Scan the body for calls to the first parameter (resolve)
+                        if (!arrowFunc->parameters.empty()) {
+                            auto paramName = arrowFunc->parameters[0]->name.get();
+                            if (auto paramId = dynamic_cast<Identifier*>(paramName)) {
+                                std::string resolveParamName = paramId->name;
+                                inferredT = inferPromiseTypeFromExecutor(arrowFunc->body.get(), resolveParamName);
+                            }
+                        }
+                    } else if (auto funcExpr = dynamic_cast<FunctionExpression*>(executorArg)) {
+                        if (!funcExpr->parameters.empty()) {
+                            auto paramName = funcExpr->parameters[0]->name.get();
+                            if (auto paramId = dynamic_cast<Identifier*>(paramName)) {
+                                std::string resolveParamName = paramId->name;
+                                inferredT = inferPromiseTypeFromFunctionBody(funcExpr->body, resolveParamName);
+                            }
+                        }
+                    }
+                }
+
+                // If we inferred a type, use it; otherwise default to any
+                if (inferredT) {
+                    auto instantiated = std::make_shared<ClassType>(classType->name);
+                    instantiated->typeArguments.push_back(inferredT);
+                    instantiated->typeParameters = classType->typeParameters;
+                    instantiated->methods = classType->methods;
+                    instantiated->fields = classType->fields;
+                    instantiated->staticMethods = classType->staticMethods;
+                    lastType = instantiated;
+                    node->inferredType = lastType;
+                    classUsages[id->name].push_back({inferredT});
+                    return;
+                }
+            }
+
             if (!resolvedTypeArguments.empty() && !classType->typeParameters.empty() && classType->node) {
                 // Validate constraints
                 for (size_t i = 0; i < classType->typeParameters.size() && i < resolvedTypeArguments.size(); ++i) {
                     auto param = classType->typeParameters[i];
                     auto arg = resolvedTypeArguments[i];
                     if (param->constraint && !arg->isAssignableTo(param->constraint)) {
-                        reportError(fmt::format("Type '{}' does not satisfy the constraint '{}' for type parameter '{}'", 
+                        reportError(fmt::format("Type '{}' does not satisfy the constraint '{}' for type parameter '{}'",
                             arg->toString(), param->constraint->toString(), param->name));
                     }
                 }
@@ -715,7 +842,19 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
                     }
                 }
 
-                lastType = classType;
+                // Apply resolved type arguments to generic classes
+                if (!resolvedTypeArguments.empty()) {
+                    auto instantiated = std::make_shared<ClassType>(classType->name);
+                    instantiated->typeArguments = resolvedTypeArguments;
+                    // Copy other relevant fields
+                    instantiated->methods = classType->methods;
+                    instantiated->fields = classType->fields;
+                    instantiated->staticMethods = classType->staticMethods;
+                    lastType = instantiated;
+                } else {
+                    lastType = classType;
+                }
+                node->inferredType = lastType;
                 return;
             }
         }

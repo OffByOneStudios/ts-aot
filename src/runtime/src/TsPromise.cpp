@@ -363,6 +363,13 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
     promise->state = PromiseState::Fulfilled;
     promise->value = value ? *value : TsValue();
 
+    fprintf(stderr, "[RESOLVE] Promise fulfilled, value type=%d\n", (int)promise->value.type);
+    if (promise->value.type == ValueType::INT) {
+        fprintf(stderr, "[RESOLVE] Value is INT: %lld\n", (long long)promise->value.int_val);
+    } else if (promise->value.type == ValueType::OBJECT_PTR || promise->value.type == ValueType::FUNCTION_PTR) {
+        fprintf(stderr, "[RESOLVE] Value is pointer: %p\n", (void*)promise->value.ptr_val);
+    }
+
     auto task = static_cast<PromiseResolveTask*>(ts_alloc(sizeof(PromiseResolveTask)));
     task->promise = promise;
     task->value = promise->value;
