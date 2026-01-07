@@ -1787,7 +1787,134 @@ public:
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression*) override {}
 };
 
-void IRGenerator::collectCapturedVariableNames(ast::Node* node, 
+// Recursively collect all variable declarations in a statement list (including nested blocks)
+class AllVariableNameCollector : public ast::Visitor {
+public:
+    std::set<std::string>& varNames;
+
+    AllVariableNameCollector(std::set<std::string>& names) : varNames(names) {}
+
+    void visitVariableDeclaration(ast::VariableDeclaration* node) override {
+        if (auto id = dynamic_cast<ast::Identifier*>(node->name.get())) {
+            varNames.insert(id->name);
+        }
+        // Don't recurse into initializer - we only care about declared names
+    }
+
+    // Recurse into all blocks to find nested variable declarations
+    void visitBlockStatement(ast::BlockStatement* node) override {
+        for (auto& stmt : node->statements) stmt->accept(this);
+    }
+    void visitIfStatement(ast::IfStatement* node) override {
+        node->thenStatement->accept(this);
+        if (node->elseStatement) node->elseStatement->accept(this);
+    }
+    void visitWhileStatement(ast::WhileStatement* node) override {
+        node->body->accept(this);
+    }
+    void visitForStatement(ast::ForStatement* node) override {
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    void visitForOfStatement(ast::ForOfStatement* node) override {
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    void visitForInStatement(ast::ForInStatement* node) override {
+        if (node->initializer) node->initializer->accept(this);
+        node->body->accept(this);
+    }
+    void visitTryStatement(ast::TryStatement* node) override {
+        // CRITICAL: Scan try block for variable declarations
+        for (auto& stmt : node->tryBlock) stmt->accept(this);
+        if (node->catchClause) {
+            // Also scan catch clause variable
+            if (node->catchClause->variable) {
+                if (auto id = dynamic_cast<ast::Identifier*>(node->catchClause->variable.get())) {
+                    varNames.insert(id->name);
+                }
+            }
+            for (auto& stmt : node->catchClause->block) stmt->accept(this);
+        }
+        for (auto& stmt : node->finallyBlock) stmt->accept(this);
+    }
+    void visitSwitchStatement(ast::SwitchStatement* node) override {
+        for (auto& clause : node->clauses) {
+            if (auto cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                for (auto& stmt : cc->statements) stmt->accept(this);
+            } else if (auto dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                for (auto& stmt : dc->statements) stmt->accept(this);
+            }
+        }
+    }
+    void visitExpressionStatement(ast::ExpressionStatement* node) override {
+        // Don't recurse - expressions don't declare variables
+    }
+
+    // All other node types - no-op (they don't contain variable declarations)
+    void visitFunctionDeclaration(ast::FunctionDeclaration*) override {}
+    void visitClassDeclaration(ast::ClassDeclaration*) override {}
+    void visitReturnStatement(ast::ReturnStatement*) override {}
+    void visitThrowStatement(ast::ThrowStatement*) override {}
+    void visitBreakStatement(ast::BreakStatement*) override {}
+    void visitContinueStatement(ast::ContinueStatement*) override {}
+    void visitIdentifier(ast::Identifier*) override {}
+    void visitNumericLiteral(ast::NumericLiteral*) override {}
+    void visitStringLiteral(ast::StringLiteral*) override {}
+    void visitBooleanLiteral(ast::BooleanLiteral*) override {}
+    void visitNullLiteral(ast::NullLiteral*) override {}
+    void visitUndefinedLiteral(ast::UndefinedLiteral*) override {}
+    void visitBigIntLiteral(ast::BigIntLiteral*) override {}
+    void visitRegularExpressionLiteral(ast::RegularExpressionLiteral*) override {}
+    void visitProgram(ast::Program*) override {}
+    void visitInterfaceDeclaration(ast::InterfaceDeclaration*) override {}
+    void visitTypeAliasDeclaration(ast::TypeAliasDeclaration*) override {}
+    void visitEnumDeclaration(ast::EnumDeclaration*) override {}
+    void visitImportDeclaration(ast::ImportDeclaration*) override {}
+    void visitExportDeclaration(ast::ExportDeclaration*) override {}
+    void visitExportAssignment(ast::ExportAssignment*) override {}
+    void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment*) override {}
+    void visitComputedPropertyName(ast::ComputedPropertyName*) override {}
+    void visitMethodDefinition(ast::MethodDefinition*) override {}
+    void visitStaticBlock(ast::StaticBlock*) override {}
+    void visitSuperExpression(ast::SuperExpression*) override {}
+    void visitObjectBindingPattern(ast::ObjectBindingPattern*) override {}
+    void visitArrayBindingPattern(ast::ArrayBindingPattern*) override {}
+    void visitBindingElement(ast::BindingElement*) override {}
+    void visitOmittedExpression(ast::OmittedExpression*) override {}
+    void visitTaggedTemplateExpression(ast::TaggedTemplateExpression*) override {}
+    void visitArrowFunction(ast::ArrowFunction*) override {}
+    void visitFunctionExpression(ast::FunctionExpression*) override {}
+    void visitCallExpression(ast::CallExpression*) override {}
+    void visitParenthesizedExpression(ast::ParenthesizedExpression*) override {}
+    void visitBinaryExpression(ast::BinaryExpression*) override {}
+    void visitAssignmentExpression(ast::AssignmentExpression*) override {}
+    void visitConditionalExpression(ast::ConditionalExpression*) override {}
+    void visitArrayLiteralExpression(ast::ArrayLiteralExpression*) override {}
+    void visitObjectLiteralExpression(ast::ObjectLiteralExpression*) override {}
+    void visitPropertyAssignment(ast::PropertyAssignment*) override {}
+    void visitPropertyAccessExpression(ast::PropertyAccessExpression*) override {}
+    void visitElementAccessExpression(ast::ElementAccessExpression*) override {}
+    void visitPrefixUnaryExpression(ast::PrefixUnaryExpression*) override {}
+    void visitDeleteExpression(ast::DeleteExpression*) override {}
+    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression*) override {}
+    void visitNewExpression(ast::NewExpression*) override {}
+    void visitAwaitExpression(ast::AwaitExpression*) override {}
+    void visitYieldExpression(ast::YieldExpression*) override {}
+    void visitTemplateExpression(ast::TemplateExpression*) override {}
+    void visitSpreadElement(ast::SpreadElement*) override {}
+    void visitAsExpression(ast::AsExpression*) override {}
+};
+
+void IRGenerator::collectAllVariableNames(const std::vector<ast::StmtPtr>& statements,
+                                          std::set<std::string>& varNames) {
+    AllVariableNameCollector collector(varNames);
+    for (auto& stmt : statements) {
+        stmt->accept(&collector);
+    }
+}
+
+void IRGenerator::collectCapturedVariableNames(ast::Node* node,
                                                const std::set<std::string>& outerScope,
                                                std::set<std::string>& capturedNames) {
     CapturedNameCollector collector(outerScope);

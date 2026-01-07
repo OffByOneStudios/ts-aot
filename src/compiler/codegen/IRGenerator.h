@@ -244,9 +244,13 @@ private:
     void collectFreeVariables(ast::Node* node, 
                               const std::set<std::string>& localScope,
                               std::vector<CapturedVariable>& captured);
-    
+
+    // Recursively collect all variable names declared in a statement list (including nested blocks)
+    void collectAllVariableNames(const std::vector<ast::StmtPtr>& statements,
+                                 std::set<std::string>& varNames);
+
     // Pre-scan a function body to find all variables that will be captured by inner closures
-    void collectCapturedVariableNames(ast::Node* node, 
+    void collectCapturedVariableNames(ast::Node* node,
                                       const std::set<std::string>& outerScope,
                                       std::set<std::string>& capturedNames);
 

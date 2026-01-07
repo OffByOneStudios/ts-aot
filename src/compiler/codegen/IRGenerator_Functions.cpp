@@ -269,22 +269,16 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
             cellPointers.clear();
             {
                 // Collect all variable names that will be defined in this function
+                // IMPORTANT: Must scan recursively to find variables in nested blocks (try, if, for, etc.)
                 std::set<std::string> localVarNames;
                 for (auto& param : funcNode->parameters) {
                     if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                         localVarNames.insert(id->name);
                     }
                 }
-                // Also need to scan body for let/const/var declarations
-                for (auto& stmt : funcNode->body) {
-                    if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                        // VariableDeclaration has a 'name' field, not 'declarations'
-                        if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                            localVarNames.insert(id->name);
-                        }
-                    }
-                }
-                
+                // Recursively scan body for let/const/var declarations in all nested blocks
+                collectAllVariableNames(funcNode->body, localVarNames);
+
                 // Now scan for captured variables
                 for (auto& stmt : funcNode->body) {
                     collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
@@ -1522,28 +1516,23 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     // parameters are also wrapped in cells
     {
         // Collect all variable names that will be defined in this function
+        // IMPORTANT: Must scan recursively to find variables in nested blocks (try, if, for, etc.)
         std::set<std::string> localVarNames;
         for (auto& param : node->parameters) {
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 localVarNames.insert(id->name);
             }
         }
-        // Also need to scan body for let/const/var declarations
-        for (auto& stmt : node->body) {
-            if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                if (auto id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                    localVarNames.insert(id->name);
-                }
-            }
-        }
-        
+        // Recursively scan body for let/const/var declarations in all nested blocks
+        collectAllVariableNames(node->body, localVarNames);
+
         // Now scan for captured variables
         for (auto& stmt : node->body) {
             collectCapturedVariableNames(stmt.get(), localVarNames, cellVariables);
         }
-        
+
         if (!cellVariables.empty()) {
-            SPDLOG_INFO("FunctionExpression {} has {} captured variables that will use cells", 
+            SPDLOG_INFO("FunctionExpression {} has {} captured variables that will use cells",
                        name, cellVariables.size());
             for (const auto& n : cellVariables) {
                 SPDLOG_INFO("  - {}", n);
