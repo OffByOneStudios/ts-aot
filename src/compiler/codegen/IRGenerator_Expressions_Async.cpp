@@ -76,13 +76,17 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     
     // Handle error
     builder->SetInsertPoint(errorBB);
-    
+
     if (!catchStack.empty()) {
-        // Set exception
+        // Store exception in pendingExc (frame variable used by catch block)
+        llvm::Value* pendingExc = catchStack.back().pendingExc;
+        builder->CreateStore(currentAsyncResumedValue, pendingExc);
+
+        // Also set global exception for compatibility
         llvm::FunctionType* setExcFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee setExcFn = getRuntimeFunction("ts_set_exception", setExcFt);
         createCall(setExcFt, setExcFn.getCallee(), { currentAsyncResumedValue });
-        
+
         // Branch to catch
         builder->CreateBr(catchStack.back().catchBB);
     } else {
