@@ -30,6 +30,8 @@ TsValue* once_wrapper_func(void* context, int argc, TsValue** argv) {
 }
 
 void TsEventEmitter::On(const char* event, void* callback) {
+    fprintf(stderr, "[On] event='%s', callback=%p\n", event, callback);
+
     // Emit 'newListener' BEFORE adding the listener
     if (strcmp(event, "newListener") != 0 && strcmp(event, "removeListener") != 0) {
         TsValue eventNameVal = TsValue(TsString::Create(event));
@@ -41,15 +43,20 @@ void TsEventEmitter::On(const char* event, void* callback) {
     eventVal.type = ValueType::STRING_PTR;
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
-    
+
+    fprintf(stderr, "[On] Existing listeners type=%d\n", (int)listenersVal.type);
+
     TsArray* arr;
     if (listenersVal.type == ValueType::UNDEFINED) {
         arr = TsArray::Create();
+        fprintf(stderr, "[On] Created new listener array at %p\n", arr);
         this->listeners->Set(eventVal, TsValue(arr));
     } else {
         arr = (TsArray*)listenersVal.ptr_val;
+        fprintf(stderr, "[On] Using existing listener array at %p\n", arr);
     }
     arr->Push((int64_t)callback);
+    fprintf(stderr, "[On] Pushed callback, array length=%d\n", (int)arr->Length());
 
     if (maxListeners > 0 && arr->Length() > maxListeners) {
         char buf[256];
@@ -182,12 +189,17 @@ void TsEventEmitter::RemoveAllListeners(const char* event) {
 }
 
 void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
+    fprintf(stderr, "[Emit] event='%s', argc=%d\n", event, argc);
+
     TsValue eventVal;
     eventVal.type = ValueType::STRING_PTR;
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
-    
+
+    fprintf(stderr, "[Emit] listenersVal.type=%d\n", (int)listenersVal.type);
+
     if (listenersVal.type == ValueType::UNDEFINED) {
+        fprintf(stderr, "[Emit] No listeners for event '%s'\n", event);
         if (strcmp(event, "error") == 0) {
             if (argc > 0) {
                 ts_throw((TsValue*)argv[0]);
@@ -199,6 +211,8 @@ void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
     }
 
     TsArray* arr = (TsArray*)listenersVal.ptr_val;
+    fprintf(stderr, "[Emit] Found %d listeners\n", (int)arr->Length());
+
     // We must copy the array before iterating because listeners might remove themselves
     TsArray* copy = TsArray::Create();
     for (int i = 0; i < arr->Length(); i++) {
@@ -207,10 +221,12 @@ void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
 
     for (int i = 0; i < copy->Length(); i++) {
         TsValue* callback = (TsValue*)copy->Get(i);
+        fprintf(stderr, "[Emit] Calling listener %d, callback=%p\n", i, callback);
         if (callback) {
             ts_function_call(callback, argc, (TsValue**)argv);
         }
     }
+    fprintf(stderr, "[Emit] Done\n");
 }
 
 int TsEventEmitter::ListenerCount(const char* event) {
@@ -246,38 +262,52 @@ extern "C" {
     }
 
     void ts_event_emitter_on(void* emitter, void* event, void* callback) {
-        if (!emitter) return;
-        
+        fprintf(stderr, "[ts_event_emitter_on] Called: emitter=%p, event=%p, callback=%p\n", emitter, event, callback);
+        if (!emitter) {
+            fprintf(stderr, "[ts_event_emitter_on] emitter is NULL\n");
+            return;
+        }
+
         // Check if emitter is a boxed TsValue* and unbox it
         TsValue* val = (TsValue*)emitter;
         void* rawPtr = nullptr;
-        
+
         // Check for boxed TsValue by seeing if type is a valid ValueType (0-10)
         if ((uint8_t)val->type <= 10) {
+            fprintf(stderr, "[ts_event_emitter_on] Emitter is boxed, type=%d\n", (int)val->type);
             if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
                 rawPtr = val->ptr_val;
+                fprintf(stderr, "[ts_event_emitter_on] Unboxed to %p\n", rawPtr);
             } else {
+                fprintf(stderr, "[ts_event_emitter_on] Boxed but not OBJECT_PTR\n");
                 return;
             }
         } else {
             // Assume it's a raw pointer
             rawPtr = emitter;
+            fprintf(stderr, "[ts_event_emitter_on] Emitter is raw pointer\n");
         }
-        
-        if (!rawPtr) return;
-        
+
+        if (!rawPtr) {
+            fprintf(stderr, "[ts_event_emitter_on] rawPtr is NULL after unboxing\n");
+            return;
+        }
+
         // Use dynamic_cast to handle virtual inheritance correctly
         // First try casting from TsObject base
         TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
-        
+
         if (!e) {
+            fprintf(stderr, "[ts_event_emitter_on] dynamic_cast failed, trying AsEventEmitter\n");
             // Try using the virtual AsEventEmitter method as fallback
             e = obj->AsEventEmitter();
             if (!e) {
+                fprintf(stderr, "[ts_event_emitter_on] AsEventEmitter also failed\n");
                 return;
             }
         }
+        fprintf(stderr, "[ts_event_emitter_on] Got TsEventEmitter at %p\n", e);
         TsString* s = (TsString*)event;
         if (!s) {
             return;

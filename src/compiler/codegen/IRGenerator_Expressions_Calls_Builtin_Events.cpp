@@ -11,18 +11,18 @@ static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     if (eventsFunctionsRegistered) return;
     eventsFunctionsRegistered = true;
 
-    bp.registerRuntimeApi("ts_event_emitter_on", {true, false, true}, true);  // emitter, event, listener
-    bp.registerRuntimeApi("ts_event_emitter_once", {true, false, true}, true);
-    bp.registerRuntimeApi("ts_event_emitter_emit", {true, false, true}, false);  // returns bool
-    bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {true, false, true}, true);
-    bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {true, false, true}, true);
-    bp.registerRuntimeApi("ts_event_emitter_remove_listener", {true, false, true}, true);  // emitter, event, listener
-    bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {true, false}, true);
-    bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {true, false}, true);  // emitter, n
-    bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {true}, false);  // returns int
-    bp.registerRuntimeApi("ts_event_emitter_listener_count", {true, false}, false);  // returns int
-    bp.registerRuntimeApi("ts_event_emitter_event_names", {true}, true);  // returns array
-    bp.registerRuntimeApi("ts_event_emitter_static_once", {true, false}, true);  // events.once()
+    bp.registerRuntimeApi("ts_event_emitter_on", {true, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_once", {true, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_emit", {true, false, false, true}, false);  // (emitter, event, argc, argv) -> bool
+    bp.registerRuntimeApi("ts_event_emitter_prepend_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_prepend_once_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_remove_listener", {true, false, true}, true);  // (emitter, event, listener) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_remove_all_listeners", {true, false}, true);  // (emitter, event?) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_set_max_listeners", {true, false}, true);  // (emitter, n) -> void*
+    bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {true}, false);  // (emitter) -> int
+    bp.registerRuntimeApi("ts_event_emitter_listener_count", {true, false}, false);  // (emitter, event) -> int
+    bp.registerRuntimeApi("ts_event_emitter_event_names", {true}, true);  // (emitter) -> array
+    bp.registerRuntimeApi("ts_event_emitter_static_once", {true, false}, true);  // (emitter, event) -> promise
 }
 
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
