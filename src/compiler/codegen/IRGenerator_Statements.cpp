@@ -45,7 +45,7 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
         }
 
         if (currentIsAsync && !currentIsGenerator) {
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 8);
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 9);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -61,12 +61,12 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
             } else {
                 // Set ctx->yieldedValue = boxedVal
                 // Set ctx->done = true
-                llvm::Value* yieldedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 7);
+                llvm::Value* yieldedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 8);
                 // TsValue is a struct { type, data }
                 // boxedVal is a TsValue*
                 builder->CreateMemCpy(yieldedValuePtr, llvm::MaybeAlign(8), boxedVal, llvm::MaybeAlign(8), 16);
 
-                llvm::Value* donePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+                llvm::Value* donePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 5);
                 builder->CreateStore(builder->getInt1(true), donePtr);
             }
         }

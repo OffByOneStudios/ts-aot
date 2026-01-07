@@ -1832,18 +1832,19 @@ void IRGenerator::initTsValueType() {
             builder->getPtrTy(),              // 0: implicit vtable pointer (C++ virtual destructor)
             builder->getPtrTy(),              // 1: explicit vtable field (TsObject::vtable)
             llvm::Type::getInt32Ty(*context), // 2: magic (TsObject::magic)
-            llvm::Type::getInt32Ty(*context), // 3: state (AsyncContext::state)
-            llvm::Type::getInt8Ty(*context),  // 4: error (AsyncContext::error)
-            llvm::Type::getInt8Ty(*context),  // 5: yielded (AsyncContext::yielded)
-            llvm::ArrayType::get(builder->getInt8Ty(), 6), // 6: padding (6 bytes to align to offset 32)
-            tsValueType,                      // 7: yieldedValue (AsyncContext::yieldedValue) - at offset 32
-            builder->getPtrTy(),              // 8: promise
-            builder->getPtrTy(),              // 9: pendingNextPromise
-            builder->getPtrTy(),              // 10: generator
-            builder->getPtrTy(),              // 11: resumeFn
-            builder->getPtrTy(),              // 12: data
-            builder->getPtrTy(),              // 13: resumedValue
-            builder->getPtrTy()               // 14: execContext
+            llvm::ArrayType::get(builder->getInt8Ty(), 4), // 3: padding after TsObject (align to 8 bytes)
+            llvm::Type::getInt32Ty(*context), // 4: state (AsyncContext::state) - at offset 24
+            llvm::Type::getInt8Ty(*context),  // 5: error (AsyncContext::error) - at offset 28
+            llvm::Type::getInt8Ty(*context),  // 6: yielded (AsyncContext::yielded) - at offset 29
+            llvm::ArrayType::get(builder->getInt8Ty(), 2), // 7: padding (2 bytes to align to offset 32)
+            tsValueType,                      // 8: yieldedValue (AsyncContext::yieldedValue) - at offset 32
+            builder->getPtrTy(),              // 9: promise
+            builder->getPtrTy(),              // 10: pendingNextPromise
+            builder->getPtrTy(),              // 11: generator
+            builder->getPtrTy(),              // 12: resumeFn
+            builder->getPtrTy(),              // 13: data
+            builder->getPtrTy(),              // 14: resumedValue
+            builder->getPtrTy()               // 15: execContext
         });
     }
 }
