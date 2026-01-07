@@ -2229,7 +2229,14 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
                 std::string name;
                 if (type->kind == TypeKind::Class) name = std::static_pointer_cast<ClassType>(type)->name;
                 else name = std::static_pointer_cast<InterfaceType>(type)->name;
-                funcName = (name.find("Promise") == 0) ? "ts_value_make_promise" : "ts_value_make_object";
+                // Promise values are ALWAYS already boxed TsValue* from runtime.
+                // Never box them again - just return the value as-is.
+                if (name.find("Promise") == 0) {
+                    // Mark as boxed in case it wasn't already tracked
+                    boxedValues.insert(val);
+                    return val;
+                }
+                funcName = "ts_value_make_object";
                 break;
             }
             case TypeKind::Enum:      funcName = "ts_value_make_int"; break;

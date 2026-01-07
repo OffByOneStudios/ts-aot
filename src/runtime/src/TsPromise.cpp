@@ -527,7 +527,7 @@ TsValue* ts_promise_all(TsValue* iterableVal) {
     TsArray* iterable = (TsArray*)iterableVal->ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
-    
+
     if (total == 0) {
         ts_promise_resolve_internal(mainPromise, ts_value_make_array(TsArray::Create(0)));
         return ts_value_make_promise(mainPromise);
@@ -541,17 +541,17 @@ TsValue* ts_promise_all(TsValue* iterableVal) {
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
         TsValue* p = ts_promise_resolve(nullptr, item);
-        
+
         PromiseAllElementContext* elCtx = (PromiseAllElementContext*)ts_alloc(sizeof(PromiseAllElementContext));
         elCtx->allCtx = allCtx;
         elCtx->index = i;
 
         TsValue* onFulfilled = ts_value_make_function((void*)ts_promise_all_fulfilled_helper, elCtx);
         TsValue* onRejected = ts_value_make_function((void*)ts_promise_all_rejected_helper, elCtx);
-        
+
         ts_promise_then(p, onFulfilled, onRejected);
     }
-    
+
     return ts_value_make_promise(mainPromise);
 }
 
