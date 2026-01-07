@@ -127,6 +127,11 @@ private:
     void visitReturnStatement(ast::ReturnStatement* node) override;
     void visitCallExpression(ast::CallExpression* node) override;
     void visitNewExpression(ast::NewExpression* node) override;
+
+    // Helper functions for Promise type inference
+    std::shared_ptr<Type> inferPromiseTypeFromExecutor(ast::Node* body, const std::string& resolveParamName);
+    std::shared_ptr<Type> inferPromiseTypeFromFunctionBody(const std::vector<ast::StmtPtr>& statements, const std::string& resolveParamName);
+
     void visitParenthesizedExpression(ast::ParenthesizedExpression* node) override;
     void visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) override;
     void visitPropertyAssignment(ast::PropertyAssignment* node) override;
