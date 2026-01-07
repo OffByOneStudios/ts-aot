@@ -323,12 +323,44 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
 
     if (auto funcNode = dynamic_cast<ast::FunctionDeclaration*>(node)) {
         for (size_t i = 0; i < funcNode->parameters.size(); ++i) {
-            if (argIt == entryFunc->arg_end()) break;
+            if (argIt == entryFunc->arg_end()) {
+                break;
+            }
             auto param = funcNode->parameters[i].get();
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 int idx = frameMap[id->name];
                 llvm::Value* ptr = builder->CreateStructGEP(frameType, frame, idx);
-                builder->CreateStore(argIt, ptr);
+
+                // Unbox parameter if needed (ts_call_N passes boxed TsValue*)
+                llvm::Value* paramValue = argIt;
+                std::shared_ptr<Type> paramType = (i < argTypes.size()) ? argTypes[i] : nullptr;
+                if (paramType && argIt->getType()->isPointerTy()) {
+                    // Check if frame field expects unboxed value
+                    llvm::Type* fieldType = frameType->getElementType(idx);
+                    if (!fieldType->isPointerTy()) {
+                        // Frame expects unboxed primitive, but parameter is boxed TsValue*
+                        // Force unboxing with direct runtime call (don't rely on boxedValues tracking)
+                        if (paramType->kind == TypeKind::Int) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Double) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Boolean) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::String) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        }
+                    }
+                }
+
+                builder->CreateStore(paramValue, ptr);
             }
             argIt++;
         }
@@ -339,7 +371,37 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 int idx = frameMap[id->name];
                 llvm::Value* ptr = builder->CreateStructGEP(frameType, frame, idx);
-                builder->CreateStore(argIt, ptr);
+
+                // Unbox parameter if needed (ts_call_N passes boxed TsValue*)
+                llvm::Value* paramValue = argIt;
+                std::shared_ptr<Type> paramType = (i < argTypes.size()) ? argTypes[i] : nullptr;
+                if (paramType && argIt->getType()->isPointerTy()) {
+                    // Check if frame field expects unboxed value
+                    llvm::Type* fieldType = frameType->getElementType(idx);
+                    if (!fieldType->isPointerTy()) {
+                        // Frame expects unboxed primitive, but parameter is boxed TsValue*
+                        // Force unboxing with direct runtime call (don't rely on boxedValues tracking)
+                        if (paramType->kind == TypeKind::Int) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Double) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Boolean) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::String) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        }
+                    }
+                }
+
+                builder->CreateStore(paramValue, ptr);
             }
             argIt++;
         }
@@ -350,7 +412,37 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
                 int idx = frameMap[id->name];
                 llvm::Value* ptr = builder->CreateStructGEP(frameType, frame, idx);
-                builder->CreateStore(argIt, ptr);
+
+                // Unbox parameter if needed (ts_call_N passes boxed TsValue*)
+                llvm::Value* paramValue = argIt;
+                std::shared_ptr<Type> paramType = (i < argTypes.size()) ? argTypes[i] : nullptr;
+                if (paramType && argIt->getType()->isPointerTy()) {
+                    // Check if frame field expects unboxed value
+                    llvm::Type* fieldType = frameType->getElementType(idx);
+                    if (!fieldType->isPointerTy()) {
+                        // Frame expects unboxed primitive, but parameter is boxed TsValue*
+                        // Force unboxing with direct runtime call (don't rely on boxedValues tracking)
+                        if (paramType->kind == TypeKind::Int) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_int", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Double) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_double", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::Boolean) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        } else if (paramType->kind == TypeKind::String) {
+                            llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                            llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+                            paramValue = createCall(unboxFt, unboxFn.getCallee(), { argIt });
+                        }
+                    }
+                }
+
+                builder->CreateStore(paramValue, ptr);
             }
             argIt++;
         }

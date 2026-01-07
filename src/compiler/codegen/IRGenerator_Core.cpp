@@ -1193,6 +1193,13 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
                 }
             }
         }
+    } else if (auto funcDecl = dynamic_cast<ast::FunctionDeclaration*>(node)) {
+        // Add nested function declarations to frame (for async function hoisting)
+        if (!funcDecl->name.empty()) {
+            // Functions are always stored as boxed TsValue* (ptr type)
+            auto funcType = std::make_shared<FunctionType>();
+            vars.push_back({funcDecl->name, funcType, builder->getPtrTy()});
+        }
     } else if (auto block = dynamic_cast<ast::BlockStatement*>(node)) {
         for (auto& stmt : block->statements) collectVariables(stmt.get(), vars);
     } else if (auto ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
