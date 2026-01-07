@@ -1789,7 +1789,6 @@ static void read_file_worker(uv_work_t* req) {
     ReadFileWork* work = (ReadFileWork*)req->data;
     std::ifstream t(work->path);
     if (!t.is_open()) {
-        std::cerr << "read_file_worker failed to open: " << work->path << std::endl;
         work->success = false;
         return;
     }
