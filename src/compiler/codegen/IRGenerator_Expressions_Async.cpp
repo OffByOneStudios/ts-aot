@@ -45,7 +45,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     asyncStateBlocks.push_back(nextBB);
 
     // Update ctx->state
-    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 3);
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), statePtr);
 
     // 3. Call ts_async_await
@@ -60,12 +60,12 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     builder->SetInsertPoint(nextBB);
 
     // Reload resumedValue from context at start of this state
-    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 13);
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 14);
     currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
     boxedValues.insert(currentAsyncResumedValue);
 
     // Check for error
-    llvm::Value* errorPtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+    llvm::Value* errorPtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 5);
     llvm::Value* errorVal = builder->CreateLoad(llvm::Type::getInt8Ty(*context), errorPtr);
     llvm::Value* isError = builder->CreateICmpNE(errorVal, builder->getInt8(0));
     
@@ -91,7 +91,7 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
         builder->CreateBr(catchStack.back().catchBB);
     } else {
         // Reject promise and return
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 8);
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 9);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         
         llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -132,7 +132,7 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     asyncStateBlocks.push_back(nextBB);
 
     // Update ctx->state
-    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 3);
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), statePtr);
 
     // 3. Call ts_async_yield
@@ -147,7 +147,7 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     builder->SetInsertPoint(nextBB);
 
     // Reload resumedValue from context at start of this state
-    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 13);
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 14);
     currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
     boxedValues.insert(currentAsyncResumedValue);
 
@@ -291,7 +291,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     llvm::Value* ctx = createCall(createCtxFt, createCtxFn.getCallee(), {});
     
     // Set resumeFn
-    llvm::Value* resumeFnPtr = builder->CreateStructGEP(asyncContextType, ctx, 11);
+    llvm::Value* resumeFnPtr = builder->CreateStructGEP(asyncContextType, ctx, 12);
     builder->CreateStore(smFunc, resumeFnPtr);
 
     // Allocate Frame on heap
@@ -301,11 +301,11 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     llvm::Value* frame = createCall(allocFt, allocFn.getCallee(), { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), frameSize) });
     
     // Store Frame in ctx->data
-    llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 12);
+    llvm::Value* dataPtr = builder->CreateStructGEP(asyncContextType, ctx, 13);
     builder->CreateStore(frame, dataPtr);
 
     // Store execution context in ctx->execContext
-    llvm::Value* execContextPtr = builder->CreateStructGEP(asyncContextType, ctx, 14);
+    llvm::Value* execContextPtr = builder->CreateStructGEP(asyncContextType, ctx, 15);
     builder->CreateStore(entryFunc->getArg(0), execContextPtr);
 
     // Initialize all frame variables to null/zero
@@ -455,7 +455,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     // Call SM function for the first time (only for non-generators)
     if (!isGenerator) {
         // Initialize resumedValue to null
-        llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, ctx, 10);
+        llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, ctx, 11);
         builder->CreateStore(llvm::ConstantPointerNull::get(builder->getPtrTy()), resumedValuePtr);
         createCall(smFunc->getFunctionType(), smFunc, { ctx });
     }
@@ -480,7 +480,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         }
     } else {
         // Return the promise from the context (field 8: promise)
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, ctx, 8);
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, ctx, 9);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         
         llvm::FunctionType* makePromiseFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -520,7 +520,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     currentAsyncContext = smCtx;
 
     // Load resumedValue from context instead of function parameter
-    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, smCtx, 13);
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, smCtx, 14);
     currentAsyncResumedValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
     boxedValues.insert(currentAsyncResumedValue);
     currentAsyncFrameType = frameType;
@@ -532,7 +532,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     currentContinueBB = nullptr;
 
     // Load Frame from ctx->data
-    llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 12);
+    llvm::Value* smDataPtr = builder->CreateStructGEP(asyncContextType, smCtx, 13);
     currentAsyncFrame = builder->CreateLoad(builder->getPtrTy(), smDataPtr);
 
     // Load execution context from ctx->execContext and set as currentContext
@@ -589,7 +589,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         }
     }
 
-    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smCtx, 3);
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, smCtx, 4);
     llvm::Value* state = builder->CreateLoad(llvm::Type::getInt32Ty(*context), statePtr);
 
     llvm::BasicBlock* state0 = llvm::BasicBlock::Create(*context, "state0", smFunc);
@@ -616,7 +616,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             visit(arrowNode->body.get());
             // Resolve promise with result
             llvm::Value* res = boxValue(lastValue, nullptr);
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 8);
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
@@ -641,7 +641,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
             llvm::Value* res = currentAsyncResumedValue;
             if (!res) res = getUndefinedValue();
             
-            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 8);
+            llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
             llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
             llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
@@ -660,7 +660,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->SetInsertPoint(handleExcBB);
     if (isAsync && !isGenerator) {
         // Reject promise
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 8);
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         llvm::FunctionType* rejectFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee rejectFn = getRuntimeFunction("ts_promise_reject_internal", rejectFt);
@@ -688,7 +688,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
         llvm::Value* isNull = builder->CreateIsNull(retVal);
         llvm::Value* finalVal = builder->CreateSelect(isNull, undefinedVal, retVal);
 
-        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 8);
+        llvm::Value* promisePtr = builder->CreateStructGEP(asyncContextType, smCtx, 9);
         llvm::Value* promise = builder->CreateLoad(builder->getPtrTy(), promisePtr);
         llvm::FunctionType* resolveFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee resolveFn = getRuntimeFunction("ts_promise_resolve_internal", resolveFt);
