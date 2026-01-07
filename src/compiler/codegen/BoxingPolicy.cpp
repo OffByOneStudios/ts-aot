@@ -245,6 +245,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // =========================================================================
     // Promise operations
     // =========================================================================
+    {"ts_promise_new",              {true}},                  // (executor) -> promise*
     {"ts_promise_then",             {false, true}},           // (promise*, callback) -> promise*
     {"ts_promise_catch",            {false, true}},           // (promise*, callback) -> promise*
     {"ts_promise_finally",          {false, true}},           // (promise*, callback) -> promise*
