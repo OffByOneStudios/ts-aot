@@ -1,5 +1,4 @@
 // Async/Await Error Handling Tests
-// NOTE: These tests require async/await runtime support (currently blocked)
 
 async function throwErrorAsync(): Promise<number> {
   throw new Error('Async error');
@@ -12,7 +11,6 @@ async function rejectPromise(): Promise<number> {
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== Async/Await Error Handling Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await runtime fixes\n');
 
   // Test 1: Try-catch with async error
   try {

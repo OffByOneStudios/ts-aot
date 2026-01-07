@@ -1,10 +1,8 @@
 // Fetch API Tests
-// NOTE: These tests require async/await support (currently blocked)
 
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== Fetch API Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await runtime fixes\n');
 
   // Test 1: fetch() creates request
   try {
