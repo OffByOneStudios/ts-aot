@@ -603,7 +603,40 @@ void IRGenerator::visitArrowFunctionExpression(ast::ArrowFunctionExpression* nod
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
-    visit(node->callee.get());
+    fprintf(stderr, "[CODEGEN] visitNewExpression called\n");
+
+    // Special handling for new Promise(executor)
+    if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        fprintf(stderr, "[CODEGEN] NewExpression expression IS Identifier, name='%s'\n", id->name.c_str());
+        if (id->name == "Promise" && !node->arguments.empty()) {
+            fprintf(stderr, "[CODEGEN] Matched 'new Promise(...)' - using special handler\n");
+            // new Promise((resolve, reject) => { ... })
+            visit(node->arguments[0].get());  // The executor callback
+            llvm::Value* executor = lastValue;
+
+            // Call ts_promise_new(executor)
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_promise_new", ft);
+            lastValue = createCall(ft, fn.getCallee(), { executor });
+            boxedValues.insert(lastValue);
+
+            if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
+                fprintf(stderr, "[CODEGEN] NewExpression inferred type: %s\n", cls->name.c_str());
+                concreteTypes[lastValue] = cls;
+            }
+            return;
+        } else {
+            fprintf(stderr, "[CODEGEN] Identifier name='%s', args.size=%zu (not Promise or no args)\n",
+                    id->name.c_str(), node->arguments.size());
+        }
+    } else {
+        fprintf(stderr, "[CODEGEN] NewExpression expression is NOT an Identifier, kind=%s\n",
+                node->expression ? node->expression->getKind() : "null");
+    }
+
+    // Generic new expression handling
+    visit(node->expression.get());
     llvm::Value* callee = lastValue;
 
     std::vector<llvm::Value*> args;

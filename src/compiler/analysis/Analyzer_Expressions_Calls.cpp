@@ -187,7 +187,36 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             
             // First try known API patterns
             expectedCb = getExpectedCallbackType(objName, methodName, i);
-            
+
+            // Check for Promise.then() / Promise.catch() contextual typing
+            if (!expectedCb) {
+                if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
+                    // Get the type of the object (the promise)
+                    visit(prop->expression.get());
+                    auto promiseType = lastType;
+
+                    if (promiseType && promiseType->kind == TypeKind::Class) {
+                        auto cls = std::static_pointer_cast<ClassType>(promiseType);
+                        if (cls->name.find("Promise") == 0 && !cls->typeArguments.empty()) {
+                            auto valueType = cls->typeArguments[0];
+
+                            // promise.then(onFulfilled, onRejected)
+                            if (methodName == "then") {
+                                expectedCb = std::make_shared<FunctionType>();
+                                expectedCb->paramTypes.push_back(valueType);  // value: T
+                                expectedCb->returnType = std::make_shared<Type>(TypeKind::Any);
+                            }
+                            // promise.catch(onRejected)
+                            else if (methodName == "catch" && i == 0) {
+                                expectedCb = std::make_shared<FunctionType>();
+                                expectedCb->paramTypes.push_back(valueType);  // error: T
+                                expectedCb->returnType = std::make_shared<Type>(TypeKind::Any);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Then try from callee's function type
             if (!expectedCb && i < expectedParamTypes.size() && expectedParamTypes[i]->kind == TypeKind::Function) {
                 expectedCb = std::static_pointer_cast<FunctionType>(expectedParamTypes[i]);
@@ -462,6 +491,16 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 }
                 
                 if (methodType) {
+                    // Special handling for Promise.resolve and Promise.reject - infer generic type from argument
+                    if (cls->name.find("Promise") == 0 && (prop->name == "resolve" || prop->name == "reject")) {
+                        if (!argTypes.empty() && argTypes[0]->kind != TypeKind::Undefined) {
+                            // Promise.resolve(value) -> Promise<typeof value>
+                            auto promiseType = std::make_shared<ClassType>("Promise");
+                            promiseType->typeArguments.push_back(argTypes[0]);
+                            lastType = promiseType;
+                            return;
+                        }
+                    }
                     lastType = methodType->returnType;
                     return;
                 }

@@ -556,11 +556,28 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 llvm::FunctionCallee createFn = getRuntimeFunction("ts_string_create", createFt);
                 message = createCall(createFt, createFn.getCallee(), { emptyStr });
             }
-            
+
             llvm::FunctionType* createErrorFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createErrorFn = getRuntimeFunction("ts_error_create", createErrorFt);
             lastValue = createCall(createErrorFt, createErrorFn.getCallee(), { message });
             nonNullValues.insert(lastValue);
+            return;
+        } else if (className.find("Promise") == 0 && !node->arguments.empty()) {
+            // new Promise((resolve, reject) => { ... })
+            fprintf(stderr, "[CODEGEN] Handling new Promise(executor)\n");
+            visit(node->arguments[0].get());
+            llvm::Value* executor = lastValue;
+
+            llvm::FunctionType* createPromiseFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createPromiseFn = getRuntimeFunction("ts_promise_new", createPromiseFt);
+            lastValue = createCall(createPromiseFt, createPromiseFn.getCallee(), { executor });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+
+            if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+                auto promiseClassType = std::static_pointer_cast<ClassType>(node->inferredType);
+                concreteTypes[lastValue] = promiseClassType.get();
+            }
             return;
         } else if (className == "RegExp") {
             llvm::Value* pattern = nullptr;
