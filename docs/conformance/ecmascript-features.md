@@ -383,7 +383,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Dynamic `import()` | ❌ | |
 | Nullish coalescing (`??`) | ✅ | |
 | Optional chaining (`?.`) | ✅ | Property access only |
-| `Promise.allSettled()` | ❌ | |
+| `Promise.allSettled()` | ✅ | |
 | `String.prototype.matchAll()` | ❌ | |
 | `globalThis` | ⚠️ | |
 | `import.meta` | ❌ | |
@@ -462,14 +462,14 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2017 | 6 | 1 | 2 | 9 | 67% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
 | ES2019 | 4 | 0 | 5 | 9 | 44% |
-| ES2020 | 2 | 1 | 7 | 10 | 20% |
+| ES2020 | 3 | 1 | 6 | 10 | 30% |
 | ES2021 | 3 | 0 | 3 | 6 | 50% |
 | ES2022 | 2 | 0 | 8 | 10 | 20% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **98** | **24** | **104** | **226** | **43%** |
+| **TOTAL** | **99** | **24** | **103** | **226** | **44%** |
 
-**Overall ECMAScript Conformance: 98/226 features (43%)**
+**Overall ECMAScript Conformance: 99/226 features (44%)**
 
 ---
 
