@@ -169,14 +169,16 @@ extern "C" {
     TsValue* ts_object_entries(TsValue* obj);
     TsValue* ts_object_assign(TsValue* target, TsValue* source);
     bool ts_object_has_own(TsValue* obj, TsValue* prop);
-    TsValue* ts_object_freeze(TsValue* obj);
-    TsValue* ts_object_seal(TsValue* obj);
-    bool ts_object_is_frozen(TsValue* obj);
-    bool ts_object_is_sealed(TsValue* obj);
     TsValue* ts_object_from_entries(TsValue* entries);
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
     TsValue* ts_object_getPrototypeOf(TsValue* obj);
     TsValue* ts_object_create(TsValue* proto);
+    TsValue* ts_object_freeze(TsValue* obj);
+    TsValue* ts_object_seal(TsValue* obj);
+    TsValue* ts_object_preventExtensions(TsValue* obj);
+    TsValue* ts_object_isFrozen(TsValue* obj);
+    TsValue* ts_object_isSealed(TsValue* obj);
+    TsValue* ts_object_isExtensible(TsValue* obj);
 
     void ts_runtime_init();
     extern TsValue* Object;

@@ -670,6 +670,18 @@ Analyzer::Analyzer() {
     createType->returnType = std::make_shared<Type>(TypeKind::Object);
     objectType->fields["create"] = createType;
 
+    // Object.preventExtensions(obj) => object
+    auto preventExtType = std::make_shared<FunctionType>();
+    preventExtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    preventExtType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["preventExtensions"] = preventExtType;
+
+    // Object.isExtensible(obj) => boolean
+    auto isExtensibleType = std::make_shared<FunctionType>();
+    isExtensibleType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    isExtensibleType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    objectType->fields["isExtensible"] = isExtensibleType;
+
     symbols.define("Object", objectType);
 
     // Register Array global (for static methods like Array.isArray)

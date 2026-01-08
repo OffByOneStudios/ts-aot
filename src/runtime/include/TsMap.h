@@ -24,10 +24,21 @@ public:
     
     void* impl; // Pointer to std::unordered_map - public for inline IR helpers
 
+    // Object state flags
+    void Freeze() { frozen = true; }
+    void Seal() { sealed = true; }
+    void PreventExtensions() { extensible = false; }
+    bool IsFrozen() const { return frozen; }
+    bool IsSealed() const { return sealed; }
+    bool IsExtensible() const { return extensible; }
+
 protected:
     TsMap();
 private:
     uint32_t magic = MAGIC;
+    bool frozen = false;
+    bool sealed = false;
+    bool extensible = true;
 };
 
 extern "C" {
