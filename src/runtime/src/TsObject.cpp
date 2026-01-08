@@ -1382,6 +1382,162 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_bool(true);
     }
 
+    // Object.defineProperty(obj, prop, descriptor) - defines a property on an object
+    // Simplified implementation: only supports 'value' from descriptor
+    TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
+        if (!obj || !prop) return obj;
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic != 0x4D415053) {  // TsMap::MAGIC
+            return obj;
+        }
+
+        TsMap* map = (TsMap*)rawPtr;
+
+        // Get the descriptor object
+        void* descRaw = ts_value_get_object(descriptor);
+        if (!descRaw) descRaw = descriptor;
+
+        uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
+        if (descMagic != 0x4D415053) {
+            return obj;  // descriptor must be an object
+        }
+
+        TsMap* descMap = (TsMap*)descRaw;
+
+        // Extract 'value' from descriptor
+        TsValue valueKey;
+        valueKey.type = ValueType::STRING_PTR;
+        valueKey.ptr_val = TsString::Create("value");
+
+        if (descMap->Has(valueKey)) {
+            TsValue value = descMap->Get(valueKey);
+
+            // Get property key (convert to string if needed)
+            TsValue propKey = *prop;
+            if (prop->type != ValueType::STRING_PTR) {
+                // Convert prop to string key
+                propKey.type = ValueType::STRING_PTR;
+                propKey.ptr_val = __ts_value_to_property_key((uint8_t)prop->type, prop->i_val);
+            }
+
+            map->Set(propKey, value);
+        }
+
+        return obj;
+    }
+
+    // Object.defineProperties(obj, descriptors) - defines multiple properties
+    TsValue* ts_object_defineProperties(TsValue* obj, TsValue* descriptors) {
+        if (!obj || !descriptors) return obj;
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if target is a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic != 0x4D415053) {
+            return obj;
+        }
+
+        // Get the descriptors object
+        void* descRaw = ts_value_get_object(descriptors);
+        if (!descRaw) descRaw = descriptors;
+
+        uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
+        if (descMagic != 0x4D415053) {
+            return obj;
+        }
+
+        TsMap* descMap = (TsMap*)descRaw;
+
+        // Iterate over descriptor properties
+        TsArray* keys = (TsArray*)descMap->GetKeys();
+        int64_t len = keys->Length();
+
+        for (int64_t i = 0; i < len; i++) {
+            TsValue* key = (TsValue*)keys->Get(i);
+            TsValue desc = descMap->Get(*key);
+
+            // Call defineProperty for each
+            TsValue descVal;
+            descVal.type = ValueType::OBJECT_PTR;
+            descVal.ptr_val = ts_value_get_object(&desc);
+            if (!descVal.ptr_val) descVal.ptr_val = &desc;
+
+            ts_object_defineProperty(obj, key, &descVal);
+        }
+
+        return obj;
+    }
+
+    // Object.getOwnPropertyDescriptor(obj, prop) - gets the descriptor for a property
+    // Returns { value: ..., writable: true, enumerable: true, configurable: true }
+    TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
+        if (!obj || !prop) return ts_value_make_object(nullptr);
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic != 0x4D415053) {
+            return ts_value_make_object(nullptr);  // undefined for non-objects
+        }
+
+        TsMap* map = (TsMap*)rawPtr;
+
+        // Get property key
+        TsValue propKey = *prop;
+        if (prop->type != ValueType::STRING_PTR) {
+            propKey.type = ValueType::STRING_PTR;
+            propKey.ptr_val = __ts_value_to_property_key((uint8_t)prop->type, prop->i_val);
+        }
+
+        // Check if property exists
+        if (!map->Has(propKey)) {
+            return ts_value_make_object(nullptr);  // undefined if not found
+        }
+
+        TsValue value = map->Get(propKey);
+
+        // Create descriptor object
+        TsMap* desc = TsMap::Create();
+
+        // Set value
+        TsValue valueKey;
+        valueKey.type = ValueType::STRING_PTR;
+        valueKey.ptr_val = TsString::Create("value");
+        desc->Set(valueKey, value);
+
+        // Set writable: true (we always allow writes in our simplified model)
+        TsValue writableKey;
+        writableKey.type = ValueType::STRING_PTR;
+        writableKey.ptr_val = TsString::Create("writable");
+        TsValue trueVal;
+        trueVal.type = ValueType::BOOLEAN;
+        trueVal.b_val = true;
+        desc->Set(writableKey, trueVal);
+
+        // Set enumerable: true
+        TsValue enumKey;
+        enumKey.type = ValueType::STRING_PTR;
+        enumKey.ptr_val = TsString::Create("enumerable");
+        desc->Set(enumKey, trueVal);
+
+        // Set configurable: true
+        TsValue configKey;
+        configKey.type = ValueType::STRING_PTR;
+        configKey.ptr_val = TsString::Create("configurable");
+        desc->Set(configKey, trueVal);
+
+        return ts_value_make_object(desc);
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -1951,6 +2107,21 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_isExtensible(argv[0]);
     }
 
+    TsValue* ts_object_defineProperty_native(void* context, int argc, TsValue** argv) {
+        if (argc < 3) return (argc > 0) ? argv[0] : ts_value_make_undefined();
+        return ts_object_defineProperty(argv[0], argv[1], argv[2]);
+    }
+
+    TsValue* ts_object_defineProperties_native(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return (argc > 0) ? argv[0] : ts_value_make_undefined();
+        return ts_object_defineProperties(argv[0], argv[1]);
+    }
+
+    TsValue* ts_object_getOwnPropertyDescriptor_native(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return ts_value_make_undefined();
+        return ts_object_getOwnPropertyDescriptor(argv[0], argv[1]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -2236,6 +2407,18 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.isExtensible
         TsValue isExtensibleKey; isExtensibleKey.type = ValueType::STRING_PTR; isExtensibleKey.ptr_val = TsString::Create("isExtensible");
         objectFunc->properties->Set(isExtensibleKey, *ts_value_make_native_function((void*)ts_object_isExtensible_native, nullptr));
+
+        // Object.defineProperty
+        TsValue dpKey; dpKey.type = ValueType::STRING_PTR; dpKey.ptr_val = TsString::Create("defineProperty");
+        objectFunc->properties->Set(dpKey, *ts_value_make_native_function((void*)ts_object_defineProperty_native, nullptr));
+
+        // Object.defineProperties
+        TsValue dpsKey; dpsKey.type = ValueType::STRING_PTR; dpsKey.ptr_val = TsString::Create("defineProperties");
+        objectFunc->properties->Set(dpsKey, *ts_value_make_native_function((void*)ts_object_defineProperties_native, nullptr));
+
+        // Object.getOwnPropertyDescriptor
+        TsValue gopdKey; gopdKey.type = ValueType::STRING_PTR; gopdKey.ptr_val = TsString::Create("getOwnPropertyDescriptor");
+        objectFunc->properties->Set(gopdKey, *ts_value_make_native_function((void*)ts_object_getOwnPropertyDescriptor_native, nullptr));
 
         Object = objectConstructor;
 

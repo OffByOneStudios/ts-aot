@@ -179,6 +179,9 @@ extern "C" {
     TsValue* ts_object_isFrozen(TsValue* obj);
     TsValue* ts_object_isSealed(TsValue* obj);
     TsValue* ts_object_isExtensible(TsValue* obj);
+    TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor);
+    TsValue* ts_object_defineProperties(TsValue* obj, TsValue* descriptors);
+    TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
 
     void ts_runtime_init();
     extern TsValue* Object;
