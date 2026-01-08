@@ -207,6 +207,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_object_delete_prop", {true, true}},       // (obj, key) -> bool
     {"ts_object_keys",        {true}},             // (obj) -> TsValue* (Array)
     {"ts_object_getOwnPropertyNames", {true}},    // (obj) -> TsValue* (Array)
+    {"ts_object_getPrototypeOf", {true}},         // (obj) -> TsValue* (null)
     {"ts_object_assign",      {true, true}},       // (target, source) -> TsValue*
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
