@@ -63,6 +63,40 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     if (node->op == "++" || node->op == "--") {
         // Prefix increment/decrement: increment first, then return new value
         if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            // Check if this is a cell variable (captured mutable variable in closure)
+            if (cellVariables.count(id->name) && namedValues.count(id->name)) {
+                SPDLOG_DEBUG("visitPrefixUnaryExpression: {} is a cell variable", id->name);
+                llvm::Value* cellAlloca = namedValues[id->name];
+                llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+
+                // Get current value from cell (returns boxed TsValue*)
+                llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellGetFn = getRuntimeFunction("ts_cell_get", cellGetFt);
+                llvm::Value* currentBoxed = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
+
+                // Create boxed 1 for arithmetic
+                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+                llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+                // Compute new value using runtime arithmetic (boxed values)
+                const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+                llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+                llvm::Value* newBoxed = createCall(arithFt, arithFn.getCallee(), { currentBoxed, oneBoxed });
+
+                // Store new value back to cell
+                llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellSetFn = getRuntimeFunction("ts_cell_set", cellSetFt);
+                createCall(cellSetFt, cellSetFn.getCallee(), { cell, newBoxed });
+
+                // Prefix returns new value
+                lastValue = newBoxed;
+                boxedValues.insert(lastValue);
+                SPDLOG_DEBUG("visitPrefixUnaryExpression: {} cell variable updated via ts_cell_set", id->name);
+                return;
+            }
+
             llvm::Value* variable = nullptr;
             if (namedValues.count(id->name)) {
                 variable = namedValues[id->name];
@@ -162,13 +196,49 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
     SPDLOG_DEBUG("visitPostfixUnaryExpression: {}", node->op);
     visit(node->operand.get());
     llvm::Value* val = lastValue;
-    
+
     if (!val) {
         SPDLOG_ERROR("visitPostfixUnaryExpression: operand did not produce a value");
         return;
     }
 
     if (node->op == "++" || node->op == "--") {
+        // Check if this is a cell variable (captured mutable variable in closure)
+        if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
+            if (cellVariables.count(id->name) && namedValues.count(id->name)) {
+                SPDLOG_DEBUG("visitPostfixUnaryExpression: {} is a cell variable", id->name);
+                llvm::Value* cellAlloca = namedValues[id->name];
+                llvm::Value* cell = builder->CreateLoad(builder->getPtrTy(), cellAlloca);
+
+                // Get current value from cell (returns boxed TsValue*)
+                llvm::FunctionType* cellGetFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellGetFn = getRuntimeFunction("ts_cell_get", cellGetFt);
+                llvm::Value* currentBoxed = createCall(cellGetFt, cellGetFn.getCallee(), { cell });
+
+                // Create boxed 1 for arithmetic
+                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
+                llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
+
+                // Compute new value using runtime arithmetic (boxed values)
+                const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
+                llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
+                llvm::Value* newBoxed = createCall(arithFt, arithFn.getCallee(), { currentBoxed, oneBoxed });
+
+                // Store new value back to cell
+                llvm::FunctionType* cellSetFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee cellSetFn = getRuntimeFunction("ts_cell_set", cellSetFt);
+                createCall(cellSetFt, cellSetFn.getCallee(), { cell, newBoxed });
+
+                // Postfix returns old value
+                lastValue = currentBoxed;
+                boxedValues.insert(lastValue);
+                SPDLOG_DEBUG("visitPostfixUnaryExpression: {} cell variable updated via ts_cell_set", id->name);
+                return;
+            }
+        }
+
         llvm::Value* next;
         if (val->getType()->isPointerTy()) {
             // Boxed runtime value: increment/decrement via runtime helpers.
@@ -187,7 +257,7 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
             int64_t delta = (node->op == "++") ? 1 : -1;
             next = builder->CreateAdd(val, llvm::ConstantInt::get(val->getType(), delta), "incdec");
         }
-        
+
         // Store back
         if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
             llvm::Value* variable = nullptr;

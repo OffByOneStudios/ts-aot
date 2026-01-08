@@ -1,11 +1,9 @@
 // EventEmitter Basic Tests
-// NOTE: These tests require event loop runtime support (currently blocked)
 import { EventEmitter } from 'events';
 
 function user_main(): number {
   let failures = 0;
   console.log('=== EventEmitter Basic Tests ===\n');
-  console.log('NOTE: These tests are blocked pending event loop runtime fixes\n');
 
   const ee = new EventEmitter();
 
