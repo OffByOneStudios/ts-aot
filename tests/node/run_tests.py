@@ -74,14 +74,17 @@ class NodeTestRunner:
         return True
 
     def find_test_files(self) -> List[Path]:
-        """Find all test TypeScript files."""
+        """Find all test TypeScript and JavaScript files."""
         test_files = []
 
-        # Find all .ts files in subdirectories, excluding test_template.ts
+        # Find all .ts and .js files in subdirectories, excluding templates
         for category_dir in self.script_dir.iterdir():
             if category_dir.is_dir() and not category_dir.name.startswith('.'):
                 for test_file in category_dir.glob("*.ts"):
                     if test_file.name != 'test_template.ts':
+                        test_files.append(test_file)
+                for test_file in category_dir.glob("*.js"):
+                    if test_file.name != 'test_template.js':
                         test_files.append(test_file)
 
         return sorted(test_files)
