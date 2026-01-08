@@ -41,15 +41,13 @@ void ts_console_error_bool(bool val) {
     std::fflush(stderr);
 }
 
+// Forward declaration - implemented after ts_console_log_bool
+static void ts_console_print_value_to_stream(TsValue* val, FILE* stream);
+
 void ts_console_error_value(TsValue* val) {
-    // For now, just use the same logic as log_value but to stderr
-    // We should probably implement a proper toString/inspect
-    if (!val) {
-        std::fprintf(stderr, "undefined\n");
-        std::fflush(stderr);
-        return;
-    }
-    ts_console_log_value(val); // Fallback to stdout for now if complex
+    ts_console_print_value_to_stream(val, stderr);
+    std::fprintf(stderr, "\n");
+    std::fflush(stderr);
 }
 
 void ts_console_time(TsString* label) {
@@ -111,90 +109,91 @@ void ts_console_log_bool(bool val) {
     std::fflush(stdout);
 }
 
-extern "C" void ts_console_log_value_no_newline(TsValue* val) {
+// Internal helper to print value to any stream (stdout or stderr)
+static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
     if (!val) {
-        std::printf("undefined");
+        std::fprintf(stream, "undefined");
         return;
     }
 
     uint32_t magic = *(uint32_t*)val;
     if (magic == 0x53545247) {
-        std::printf("%s", ((TsString*)val)->ToUtf8());
+        std::fprintf(stream, "%s", ((TsString*)val)->ToUtf8());
         return;
     }
-    
+
     if (magic == 0x4D415053) { // MAPS
-        std::printf("Map(%lld)", ((TsMap*)val)->Size());
+        std::fprintf(stream, "Map(%lld)", ((TsMap*)val)->Size());
         return;
     }
 
     if (magic == 0x53455453) { // SETS
-        std::printf("Set(%lld)", ((TsSet*)val)->Size());
+        std::fprintf(stream, "Set(%lld)", ((TsSet*)val)->Size());
         return;
     }
 
     if (magic == 0x41525259) {
         TsArray* arr = (TsArray*)val;
         int64_t len = arr->Length();
-        std::printf("[ ");
+        std::fprintf(stream, "[ ");
         for (int64_t i = 0; i < len; i++) {
             int64_t rawElem = arr->Get(i);
-            if (i > 0) std::printf(", ");
-            
+            if (i > 0) std::fprintf(stream, ", ");
+
             // Check if this looks like a raw integer (small value) or a pointer
             if (rawElem == 0) {
-                std::printf("undefined");
+                std::fprintf(stream, "undefined");
             } else if (rawElem > 0 && rawElem <= 0xFFFFFFFF) {
                 // Small positive value - treat as integer
-                std::printf("%lld", rawElem);
+                std::fprintf(stream, "%lld", rawElem);
             } else {
                 // Large value or negative - likely a pointer, try to access
                 void* elem = (void*)rawElem;
                 __try {
                     TsValue* elemVal = (TsValue*)elem;
                     if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
-                        std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                        std::fprintf(stream, "'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
                     } else if (elemVal->type == ValueType::NUMBER_INT) {
-                        std::printf("%lld", elemVal->i_val);
+                        std::fprintf(stream, "%lld", elemVal->i_val);
                     } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                        std::printf("%f", elemVal->d_val);
+                        std::fprintf(stream, "%f", elemVal->d_val);
                     } else {
                         uint32_t elemMagic = *(uint32_t*)elem;
                         if (elemMagic == 0x53545247) {
-                            std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                            std::fprintf(stream, "'%s'", ((TsString*)elem)->ToUtf8());
                         } else {
-                            std::printf("[object Object]");
+                            std::fprintf(stream, "[object Object]");
                         }
                     }
                 } __except(EXCEPTION_EXECUTE_HANDLER) {
                     // Not a valid pointer, treat as integer
-                    std::printf("%lld", rawElem);
+                    std::fprintf(stream, "%lld", rawElem);
                 }
             }
         }
-        std::printf(" ]");
+        std::fprintf(stream, " ]");
         return;
     }
 
     switch (val->type) {
-        case ValueType::UNDEFINED: std::printf("undefined"); break;
-        case ValueType::NUMBER_INT: std::printf("%lld", val->i_val); break;
-        case ValueType::NUMBER_DBL: std::printf("%f", val->d_val); break;
-        case ValueType::BOOLEAN: std::printf("%s", val->b_val ? "true" : "false"); break;
-        case ValueType::STRING_PTR: std::printf("%s", ((TsString*)val->ptr_val)->ToUtf8()); break;
+        case ValueType::UNDEFINED: std::fprintf(stream, "undefined"); break;
+        case ValueType::NUMBER_INT: std::fprintf(stream, "%lld", val->i_val); break;
+        case ValueType::NUMBER_DBL: std::fprintf(stream, "%f", val->d_val); break;
+        case ValueType::BOOLEAN: std::fprintf(stream, "%s", val->b_val ? "true" : "false"); break;
+        case ValueType::STRING_PTR: std::fprintf(stream, "%s", ((TsString*)val->ptr_val)->ToUtf8()); break;
         case ValueType::OBJECT_PTR: {
             if (!val->ptr_val) {
-                std::printf("null");
+                std::fprintf(stream, "null");
             } else {
                 uint32_t objMagic = *(uint32_t*)val->ptr_val;
                 if (objMagic == 0x4D415053) { // MAPS
-                    std::printf("Map(%lld)", ((TsMap*)val->ptr_val)->Size());
+                    std::fprintf(stream, "Map(%lld)", ((TsMap*)val->ptr_val)->Size());
                 } else if (objMagic == 0x53455453) { // SETS
-                    std::printf("Set(%lld)", ((TsSet*)val->ptr_val)->Size());
+                    std::fprintf(stream, "Set(%lld)", ((TsSet*)val->ptr_val)->Size());
                 } else if (objMagic == 0x53545247) { // STRG
-                    std::printf("%s", ((TsString*)val->ptr_val)->ToUtf8());
+                    std::fprintf(stream, "%s", ((TsString*)val->ptr_val)->ToUtf8());
                 } else {
-                    std::printf("[object Object]");
+                    std::fprintf(stream, "[object Object]");
                 }
             }
             break;
@@ -202,18 +201,18 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
         case ValueType::ARRAY_PTR: {
             TsArray* arr = (TsArray*)val->ptr_val;
             int64_t len = arr->Length();
-            std::printf("[ ");
+            std::fprintf(stream, "[ ");
             for (int64_t i = 0; i < len; i++) {
                 int64_t rawElem = arr->Get(i);
-                if (i > 0) std::printf(", ");
-                
+                if (i > 0) std::fprintf(stream, ", ");
+
                 // Check if this looks like a raw integer (small value) or a pointer
                 // Pointers on Windows x64 are typically > 0x10000 and have high bits set
                 if (rawElem == 0) {
-                    std::printf("undefined");
+                    std::fprintf(stream, "undefined");
                 } else if (rawElem > 0 && rawElem <= 0xFFFFFFFF) {
                     // Small positive value - treat as integer
-                    std::printf("%lld", rawElem);
+                    std::fprintf(stream, "%lld", rawElem);
                 } else if (rawElem < 0) {
                     // Could be negative number or pointer
                     // Try to detect if it's a valid pointer
@@ -221,58 +220,62 @@ extern "C" void ts_console_log_value_no_newline(TsValue* val) {
                     __try {
                         TsValue* elemVal = (TsValue*)elem;
                         if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
-                            std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                            std::fprintf(stream, "'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
                         } else if (elemVal->type == ValueType::NUMBER_INT) {
-                            std::printf("%lld", elemVal->i_val);
+                            std::fprintf(stream, "%lld", elemVal->i_val);
                         } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                            std::printf("%f", elemVal->d_val);
+                            std::fprintf(stream, "%f", elemVal->d_val);
                         } else {
                             uint32_t elemMagic = *(uint32_t*)elem;
                             if (elemMagic == 0x53545247) {
-                                std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                                std::fprintf(stream, "'%s'", ((TsString*)elem)->ToUtf8());
                             } else {
-                                std::printf("[object Object]");
+                                std::fprintf(stream, "[object Object]");
                             }
                         }
                     } __except(EXCEPTION_EXECUTE_HANDLER) {
                         // Not a valid pointer, treat as negative integer
-                        std::printf("%lld", rawElem);
+                        std::fprintf(stream, "%lld", rawElem);
                     }
                 } else {
                     // Large positive value - likely a pointer
                     void* elem = (void*)rawElem;
                     TsValue* elemVal = (TsValue*)elem;
                     if (elemVal->type == ValueType::STRING_PTR && elemVal->ptr_val) {
-                        std::printf("'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
+                        std::fprintf(stream, "'%s'", ((TsString*)elemVal->ptr_val)->ToUtf8());
                     } else if (elemVal->type == ValueType::NUMBER_INT) {
-                        std::printf("%lld", elemVal->i_val);
+                        std::fprintf(stream, "%lld", elemVal->i_val);
                     } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                        std::printf("%f", elemVal->d_val);
+                        std::fprintf(stream, "%f", elemVal->d_val);
                     } else {
                         uint32_t elemMagic = *(uint32_t*)elem;
                         if (elemMagic == 0x53545247) {
-                            std::printf("'%s'", ((TsString*)elem)->ToUtf8());
+                            std::fprintf(stream, "'%s'", ((TsString*)elem)->ToUtf8());
                         } else {
-                            std::printf("[object Object]");
+                            std::fprintf(stream, "[object Object]");
                         }
                     }
                 }
             }
-            std::printf(" ]");
+            std::fprintf(stream, " ]");
             break;
         }
-        case ValueType::PROMISE_PTR: std::printf("[object Promise]"); break;
-        case ValueType::BIGINT_PTR: std::printf("%sn", ((TsBigInt*)val->ptr_val)->ToString()); break;
+        case ValueType::PROMISE_PTR: std::fprintf(stream, "[object Promise]"); break;
+        case ValueType::BIGINT_PTR: std::fprintf(stream, "%sn", ((TsBigInt*)val->ptr_val)->ToString()); break;
         case ValueType::SYMBOL_PTR: {
             TsSymbol* sym = (TsSymbol*)val->ptr_val;
             if (sym->description) {
-                std::printf("Symbol(%s)", sym->description->ToUtf8());
+                std::fprintf(stream, "Symbol(%s)", sym->description->ToUtf8());
             } else {
-                std::printf("Symbol()");
+                std::fprintf(stream, "Symbol()");
             }
             break;
         }
     }
+}
+
+extern "C" void ts_console_log_value_no_newline(TsValue* val) {
+    ts_console_print_value_to_stream(val, stdout);
 }
 
 extern "C" void ts_console_log_value(TsValue* val) {
