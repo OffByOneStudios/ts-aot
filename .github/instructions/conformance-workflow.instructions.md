@@ -166,25 +166,60 @@ Follow the standard development workflow:
    ```
    ```
 
-### Step 5: Archive Ticket and Commit
+### Step 5: Update Conformance Matrix (MANDATORY)
 
-1. **Update the conformance matrix:**
-   - Change ❌ to ✅ or ⚠️ as appropriate
-   - Add notes about any limitations
-   - Update coverage percentages
+**⚠️ CRITICAL: This step is MANDATORY. The conformance matrices are the single source of truth for project progress. Agents may not remember past work, so these matrices MUST be kept in sync.**
 
-2. **Move ticket to archive:**
+1. **Open the relevant conformance matrix:**
+   - TypeScript: `docs/conformance/typescript-features.md`
+   - ECMAScript: `docs/conformance/ecmascript-features.md`
+   - Node.js: `docs/conformance/nodejs-features.md`
+
+2. **Update the feature status:**
+   - Change ❌ to ✅ (fully implemented) or ⚠️ (partial)
+   - Add notes in the Notes column explaining any limitations
+   - Example: `| \`Array.find()\` | ✅ | |` or `| \`Array.find()\` | ⚠️ | No thisArg support |`
+
+3. **Update the coverage summary:**
+   - Find the summary section at the bottom of the file
+   - Recalculate: `Implemented / Total = XX%`
+   - Update both the category total and overall total
+
+4. **Verify the update:**
+   ```powershell
+   # Check your changes
+   git diff docs/conformance/
+   ```
+
+**Example matrix update:**
+```markdown
+# Before
+| `Array.find()` | ❌ | |
+
+# After
+| `Array.find()` | ✅ | |
+
+# Summary section - before
+| Arrays | 15 | 20 | 75% |
+
+# Summary section - after
+| Arrays | 16 | 20 | 80% |
+```
+
+### Step 6: Archive Ticket and Commit
+
+1. **Move ticket to archive:**
    ```powershell
    mv docs/tickets/CONF-XXX-feature-name.md docs/tickets/archive/
    ```
 
-3. **Update ticket status:**
+2. **Update ticket status:**
    ```markdown
    **Status:** Complete
    **Completed:** YYYY-MM-DD
    ```
 
-4. **Commit all changes:**
+3. **Commit all changes (including conformance matrix!):**
    ```powershell
    git add .
    git commit -m "$(cat <<'EOF'
@@ -200,6 +235,8 @@ Follow the standard development workflow:
    EOF
    )"
    ```
+
+**⚠️ The commit MUST include changes to `docs/conformance/*.md`. If it doesn't, the workflow is incomplete.**
 
 ## Directory Structure
 
@@ -226,11 +263,14 @@ docs/
 
 | Step | Action | Command/Location |
 |------|--------|------------------|
-| 1 | Choose feature | `docs/conformance/*.md` |
+| 1 | Choose feature | `docs/conformance/*.md` (find ❌ or ⚠️) |
 | 2 | Create ticket | `docs/tickets/CONF-XXX-name.md` |
 | 3 | Implement | `src/compiler/`, `src/runtime/` |
 | 4 | Test | `python tests/node/run_tests.py` |
-| 5 | Archive & commit | `docs/tickets/archive/`, `git commit` |
+| 5 | **Update matrix** | `docs/conformance/*.md` (change ❌ to ✅) |
+| 6 | Archive & commit | `docs/tickets/archive/`, `git commit` |
+
+**Remember:** Step 5 is MANDATORY. The conformance matrix is our only persistent record of progress.
 
 ## Example Ticket
 

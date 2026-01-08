@@ -86,7 +86,10 @@ docs/
 2. **Ticket:** Create `docs/tickets/CONF-XXX-feature-name.md` with baseline test results
 3. **Implement:** Make changes to Analyzer → Codegen → Runtime
 4. **Test:** Run full test suite, verify no regressions
-5. **Archive:** Move ticket to `docs/tickets/archive/`, update conformance matrix, commit
+5. **Update Matrix:** Change ❌ to ✅ in `docs/conformance/*.md` **(MANDATORY)**
+6. **Archive:** Move ticket to `docs/tickets/archive/`, commit
+
+**⚠️ CRITICAL:** Always update the conformance matrix (Step 5). It is the single source of truth for project progress. Agents may not remember past work.
 
 See @.github/instructions/conformance-workflow.instructions.md for detailed steps.
 
