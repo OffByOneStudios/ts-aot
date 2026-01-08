@@ -363,7 +363,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Array.prototype.flat()` | ❌ | |
+| `Array.prototype.flat()` | ✅ | |
 | `Array.prototype.flatMap()` | ❌ | |
 | `Object.fromEntries()` | ❌ | |
 | `String.prototype.trimStart()` | ❌ | |
@@ -461,15 +461,15 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 4 | 1 | 4 | 9 | 44% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
-| ES2019 | 1 | 0 | 8 | 9 | 11% |
+| ES2019 | 2 | 0 | 7 | 9 | 22% |
 | ES2020 | 2 | 1 | 7 | 10 | 20% |
 | ES2021 | 2 | 0 | 4 | 6 | 33% |
 | ES2022 | 1 | 0 | 9 | 10 | 10% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **91** | **24** | **111** | **226** | **40%** |
+| **TOTAL** | **92** | **24** | **110** | **226** | **41%** |
 
-**Overall ECMAScript Conformance: 91/226 features (40%)**
+**Overall ECMAScript Conformance: 92/226 features (41%)**
 
 ---
 
@@ -487,7 +487,7 @@ These features should be prioritized for implementation:
 ### High Priority
 6. ❌ Generator functions
 7. ✅ `Array.from()` - Implemented
-8. ❌ `Array.prototype.flat()`
+8. ✅ `Array.prototype.flat()` - Implemented
 9. ❌ `WeakMap` / `WeakSet`
 10. ❌ `Proxy` / `Reflect`
 
