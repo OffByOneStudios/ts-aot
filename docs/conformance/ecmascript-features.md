@@ -395,7 +395,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `String.prototype.replaceAll()` | ❌ | |
+| `String.prototype.replaceAll()` | ✅ | |
 | `Promise.any()` | ✅ | |
 | `WeakRef` | ❌ | |
 | `FinalizationRegistry` | ❌ | |
@@ -463,13 +463,13 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
 | ES2019 | 4 | 0 | 5 | 9 | 44% |
 | ES2020 | 2 | 1 | 7 | 10 | 20% |
-| ES2021 | 2 | 0 | 4 | 6 | 33% |
+| ES2021 | 3 | 0 | 3 | 6 | 50% |
 | ES2022 | 2 | 0 | 8 | 10 | 20% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **95** | **24** | **107** | **226** | **42%** |
+| **TOTAL** | **96** | **24** | **106** | **226** | **42%** |
 
-**Overall ECMAScript Conformance: 95/226 features (42%)**
+**Overall ECMAScript Conformance: 96/226 features (42%)**
 
 ---
 
