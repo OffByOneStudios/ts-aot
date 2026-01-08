@@ -413,7 +413,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Class fields (private `#`) | ❌ | |
 | Private methods | ❌ | |
 | Static class blocks | ❌ | |
-| `Array.prototype.at()` | ❌ | |
+| `Array.prototype.at()` | ✅ | |
 | `String.prototype.at()` | ❌ | |
 | `Object.hasOwn()` | ❌ | |
 | RegExp match indices (`d` flag) | ❌ | |
@@ -464,12 +464,12 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2019 | 4 | 0 | 5 | 9 | 44% |
 | ES2020 | 2 | 1 | 7 | 10 | 20% |
 | ES2021 | 2 | 0 | 4 | 6 | 33% |
-| ES2022 | 1 | 0 | 9 | 10 | 10% |
+| ES2022 | 2 | 0 | 8 | 10 | 20% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **94** | **24** | **108** | **226** | **42%** |
+| **TOTAL** | **95** | **24** | **107** | **226** | **42%** |
 
-**Overall ECMAScript Conformance: 94/226 features (42%)**
+**Overall ECMAScript Conformance: 95/226 features (42%)**
 
 ---
 
