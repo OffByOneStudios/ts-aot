@@ -159,7 +159,8 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_is_sealed", {true}, false);  // obj -> bool
     bp.registerRuntimeApi("ts_object_has_own", {true, false}, false);  // obj, key -> bool
     bp.registerRuntimeApi("ts_object_from_entries", {true}, true);  // entries -> obj
-    
+    bp.registerRuntimeApi("ts_object_getOwnPropertyNames", {true}, true);  // obj -> array
+
     // ========== Value boxing helpers ==========
     bp.registerRuntimeApi("ts_value_make_int", {false}, true);
     bp.registerRuntimeApi("ts_value_make_double", {false}, true);
@@ -1279,10 +1280,22 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (!arg->getType()->isPointerTy()) {
                     arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
                 }
-                
+
                 llvm::FunctionType* fromEntriesFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fromEntriesFn = getRuntimeFunction("ts_object_from_entries", fromEntriesFt);
                 lastValue = createCall(fromEntriesFt, fromEntriesFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "getOwnPropertyNames") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+
+                llvm::FunctionType* gopnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee gopnFn = getRuntimeFunction("ts_object_getOwnPropertyNames", gopnFt);
+                lastValue = createCall(gopnFt, gopnFn.getCallee(), { arg });
                 return true;
             }
         } else if (obj->name == "Array") {
