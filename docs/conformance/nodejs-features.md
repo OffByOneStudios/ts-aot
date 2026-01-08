@@ -159,8 +159,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `console.log()` | ✅ | |
-| `console.error()` | ❌ | |
-| `console.warn()` | ❌ | |
+| `console.error()` | ✅ | Outputs to stderr |
+| `console.warn()` | ✅ | Outputs to stderr |
 | `console.info()` | ❌ | |
 | `console.debug()` | ❌ | |
 | `console.trace()` | ❌ | |
@@ -178,7 +178,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console.assert()` | ❌ | |
 | `console.clear()` | ❌ | |
 
-**Console Coverage: 1/19 (5%)**
+**Console Coverage: 3/19 (16%)**
 
 ---
 
@@ -955,7 +955,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
 | Buffer | 7 | 67 | 10% |
-| Console | 1 | 19 | 5% |
+| Console | 3 | 19 | 16% |
 | Crypto | 1 | 28 | 4% |
 | Events | 8 | 21 | 38% |
 | File System | 32 | 112 | 29% |
@@ -970,7 +970,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 6 | 38 | 16% |
 | Util | 2 | 62 | 3% |
 | Global | 1 | 7 | 14% |
-| **Total** | **119** | **610** | **20%** |
+| **Total** | **121** | **610** | **20%** |
 
 ### Priority Implementation Targets
 
