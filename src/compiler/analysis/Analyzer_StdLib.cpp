@@ -664,6 +664,12 @@ Analyzer::Analyzer() {
     getPrototypeOfType->returnType = std::make_shared<Type>(TypeKind::Any);  // Can be null
     objectType->fields["getPrototypeOf"] = getPrototypeOfType;
 
+    // Object.create(proto) => object
+    auto createType = std::make_shared<FunctionType>();
+    createType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // Can be null
+    createType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["create"] = createType;
+
     symbols.define("Object", objectType);
 
     // Register Array global (for static methods like Array.isArray)
