@@ -42,6 +42,7 @@ public:
     void SetUTCMilliseconds(int64_t ms);
 
     class TsString* ToISOString();
+    class TsString* ToJSON();
     class TsString* ToString();
     class TsString* ToDateString();
 
@@ -93,6 +94,7 @@ extern "C" {
     void Date_setUTCMilliseconds(void* date, int64_t ms);
 
     void* Date_toISOString(void* date);
+    void* Date_toJSON(void* date);
     void* Date_toString(void* date);
     void* Date_toDateString(void* date);
 

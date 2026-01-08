@@ -332,7 +332,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
             llvm::Type* retType = llvm::Type::getInt64Ty(*context);
             std::vector<llvm::Type*> paramTypes = { builder->getPtrTy() };
             
-            if (methodName == "toISOString" || methodName == "toString" || methodName == "toDateString") {
+            if (methodName == "toISOString" || methodName == "toJSON" || methodName == "toString" || methodName == "toDateString") {
                 retType = builder->getPtrTy();
             } else if (methodName.substr(0, 3) == "set") {
                 retType = llvm::Type::getVoidTy(*context);

@@ -194,6 +194,11 @@ TsString* TsDate::ToISOString() {
     return TsString::Create(utf8.c_str());
 }
 
+TsString* TsDate::ToJSON() {
+    // toJSON returns the same as toISOString for Date objects
+    return ToISOString();
+}
+
 TsString* TsDate::ToString() {
     UErrorCode status = U_ZERO_ERROR;
     std::unique_ptr<icu::DateFormat> fmt(icu::DateFormat::createDateTimeInstance(icu::DateFormat::MEDIUM, icu::DateFormat::LONG, icu::Locale::getDefault()));
@@ -259,6 +264,7 @@ extern "C" {
     void Date_setUTCMilliseconds(void* date, int64_t ms) { ((TsDate*)date)->SetUTCMilliseconds(ms); }
 
     void* Date_toISOString(void* date) { return ((TsDate*)date)->ToISOString(); }
+    void* Date_toJSON(void* date) { return ((TsDate*)date)->ToJSON(); }
     void* Date_toString(void* date) { return ((TsDate*)date)->ToString(); }
     void* Date_toDateString(void* date) { return ((TsDate*)date)->ToDateString(); }
 

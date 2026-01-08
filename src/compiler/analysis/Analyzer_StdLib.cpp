@@ -334,6 +334,10 @@ Analyzer::Analyzer() {
     toISOString->returnType = std::make_shared<Type>(TypeKind::String);
     dateClass->methods["toISOString"] = toISOString;
 
+    auto toJSON = std::make_shared<FunctionType>();
+    toJSON->returnType = std::make_shared<Type>(TypeKind::String);
+    dateClass->methods["toJSON"] = toJSON;
+
     auto toString = std::make_shared<FunctionType>();
     toString->returnType = std::make_shared<Type>(TypeKind::String);
     dateClass->methods["toString"] = toString;
