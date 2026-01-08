@@ -120,6 +120,29 @@ TsMap::TsMap() {
 }
 
 void TsMap::Set(TsValue key, TsValue value) {
+    // If frozen, silently ignore all modifications
+    if (frozen) return;
+
+    // If sealed, only allow modification of existing properties
+    if (sealed) {
+        auto* map = (MapType*)impl;
+        auto it = map->find(key);
+        if (it != map->end()) {
+            it->second = value;  // Modify existing
+        }
+        return;  // Silently ignore adding new properties
+    }
+
+    // If not extensible, don't allow adding new properties
+    if (!extensible) {
+        auto* map = (MapType*)impl;
+        auto it = map->find(key);
+        if (it != map->end()) {
+            it->second = value;  // Modify existing OK
+        }
+        return;  // Silently ignore adding new properties
+    }
+
     ((MapType*)impl)->insert_or_assign(key, value);
 }
 
@@ -138,11 +161,17 @@ bool TsMap::Has(TsValue key) {
 }
 
 bool TsMap::Delete(TsValue key) {
+    // If frozen or sealed, deletion is not allowed
+    if (frozen || sealed) return false;
+
     MapType* map = static_cast<MapType*>(impl);
     return map->erase(key) > 0;
 }
 
 void TsMap::Clear() {
+    // If frozen or sealed, don't allow clearing
+    if (frozen || sealed) return;
+
     MapType* map = static_cast<MapType*>(impl);
     map->clear();
 }

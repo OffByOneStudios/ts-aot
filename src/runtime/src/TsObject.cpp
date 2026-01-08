@@ -1280,6 +1280,108 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(newObj);
     }
 
+    // Object.freeze(obj) - freezes an object, preventing modifications
+    TsValue* ts_object_freeze(TsValue* obj) {
+        if (!obj) return obj;
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            map->Freeze();
+        }
+
+        return obj;  // Return the same object (frozen)
+    }
+
+    // Object.seal(obj) - seals an object, preventing new properties
+    TsValue* ts_object_seal(TsValue* obj) {
+        if (!obj) return obj;
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            map->Seal();
+        }
+
+        return obj;  // Return the same object (sealed)
+    }
+
+    // Object.preventExtensions(obj) - prevents new properties from being added
+    TsValue* ts_object_preventExtensions(TsValue* obj) {
+        if (!obj) return obj;
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            map->PreventExtensions();
+        }
+
+        return obj;
+    }
+
+    // Object.isFrozen(obj) - returns true if object is frozen
+    TsValue* ts_object_isFrozen(TsValue* obj) {
+        if (!obj) return ts_value_make_bool(true);  // null/undefined considered frozen
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            return ts_value_make_bool(map->IsFrozen());
+        }
+
+        return ts_value_make_bool(false);
+    }
+
+    // Object.isSealed(obj) - returns true if object is sealed
+    TsValue* ts_object_isSealed(TsValue* obj) {
+        if (!obj) return ts_value_make_bool(true);  // null/undefined considered sealed
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            return ts_value_make_bool(map->IsSealed() || map->IsFrozen());
+        }
+
+        return ts_value_make_bool(false);
+    }
+
+    // Object.isExtensible(obj) - returns true if object is extensible
+    TsValue* ts_object_isExtensible(TsValue* obj) {
+        if (!obj) return ts_value_make_bool(false);  // null/undefined not extensible
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) {  // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+            return ts_value_make_bool(map->IsExtensible());
+        }
+
+        return ts_value_make_bool(true);
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -1332,31 +1434,7 @@ TsValue* ts_value_make_int(int64_t i) {
         
         return false;
     }
-    
-    // Object.freeze(obj) - mark object as frozen (no-op for now, returns obj)
-    TsValue* ts_object_freeze(TsValue* obj) {
-        // TODO: Implement actual freezing when we have property descriptors
-        return obj;
-    }
-    
-    // Object.seal(obj) - mark object as sealed (no-op for now, returns obj)
-    TsValue* ts_object_seal(TsValue* obj) {
-        // TODO: Implement actual sealing when we have property descriptors
-        return obj;
-    }
-    
-    // Object.isFrozen(obj) - check if object is frozen
-    bool ts_object_is_frozen(TsValue* obj) {
-        // TODO: Implement when we have property descriptors
-        return false;
-    }
-    
-    // Object.isSealed(obj) - check if object is sealed
-    bool ts_object_is_sealed(TsValue* obj) {
-        // TODO: Implement when we have property descriptors
-        return false;
-    }
-    
+
     // Object.fromEntries(iterable) - create object from key-value pairs
     TsValue* ts_object_from_entries(TsValue* entries) {
         TsMap* result = TsMap::Create();
@@ -1843,6 +1921,36 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_create(argv[0]);
     }
 
+    TsValue* ts_object_freeze_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+        return ts_object_freeze(argv[0]);
+    }
+
+    TsValue* ts_object_seal_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+        return ts_object_seal(argv[0]);
+    }
+
+    TsValue* ts_object_preventExtensions_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+        return ts_object_preventExtensions(argv[0]);
+    }
+
+    TsValue* ts_object_isFrozen_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_bool(true);
+        return ts_object_isFrozen(argv[0]);
+    }
+
+    TsValue* ts_object_isSealed_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_bool(true);
+        return ts_object_isSealed(argv[0]);
+    }
+
+    TsValue* ts_object_isExtensible_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_bool(false);
+        return ts_object_isExtensible(argv[0]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -2104,6 +2212,30 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.create
         TsValue createKey; createKey.type = ValueType::STRING_PTR; createKey.ptr_val = TsString::Create("create");
         objectFunc->properties->Set(createKey, *ts_value_make_native_function((void*)ts_object_create_native, nullptr));
+
+        // Object.freeze
+        TsValue freezeKey; freezeKey.type = ValueType::STRING_PTR; freezeKey.ptr_val = TsString::Create("freeze");
+        objectFunc->properties->Set(freezeKey, *ts_value_make_native_function((void*)ts_object_freeze_native, nullptr));
+
+        // Object.seal
+        TsValue sealKey; sealKey.type = ValueType::STRING_PTR; sealKey.ptr_val = TsString::Create("seal");
+        objectFunc->properties->Set(sealKey, *ts_value_make_native_function((void*)ts_object_seal_native, nullptr));
+
+        // Object.preventExtensions
+        TsValue peKey; peKey.type = ValueType::STRING_PTR; peKey.ptr_val = TsString::Create("preventExtensions");
+        objectFunc->properties->Set(peKey, *ts_value_make_native_function((void*)ts_object_preventExtensions_native, nullptr));
+
+        // Object.isFrozen
+        TsValue isFrozenKey; isFrozenKey.type = ValueType::STRING_PTR; isFrozenKey.ptr_val = TsString::Create("isFrozen");
+        objectFunc->properties->Set(isFrozenKey, *ts_value_make_native_function((void*)ts_object_isFrozen_native, nullptr));
+
+        // Object.isSealed
+        TsValue isSealedKey; isSealedKey.type = ValueType::STRING_PTR; isSealedKey.ptr_val = TsString::Create("isSealed");
+        objectFunc->properties->Set(isSealedKey, *ts_value_make_native_function((void*)ts_object_isSealed_native, nullptr));
+
+        // Object.isExtensible
+        TsValue isExtensibleKey; isExtensibleKey.type = ValueType::STRING_PTR; isExtensibleKey.ptr_val = TsString::Create("isExtensible");
+        objectFunc->properties->Set(isExtensibleKey, *ts_value_make_native_function((void*)ts_object_isExtensible_native, nullptr));
 
         Object = objectConstructor;
 

@@ -155,8 +155,10 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_assign", {true, true}, true);  // target, source
     bp.registerRuntimeApi("ts_object_freeze", {true}, true);  // obj -> obj
     bp.registerRuntimeApi("ts_object_seal", {true}, true);  // obj -> obj
-    bp.registerRuntimeApi("ts_object_is_frozen", {true}, false);  // obj -> bool
-    bp.registerRuntimeApi("ts_object_is_sealed", {true}, false);  // obj -> bool
+    bp.registerRuntimeApi("ts_object_preventExtensions", {true}, true);  // obj -> obj
+    bp.registerRuntimeApi("ts_object_isFrozen", {true}, true);  // obj -> bool (boxed)
+    bp.registerRuntimeApi("ts_object_isSealed", {true}, true);  // obj -> bool (boxed)
+    bp.registerRuntimeApi("ts_object_isExtensible", {true}, true);  // obj -> bool (boxed)
     bp.registerRuntimeApi("ts_object_has_own", {true, false}, false);  // obj, key -> bool
     bp.registerRuntimeApi("ts_object_from_entries", {true}, true);  // entries -> obj
     bp.registerRuntimeApi("ts_object_getOwnPropertyNames", {true}, true);  // obj -> array
@@ -1206,56 +1208,6 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 
                 lastValue = target;
                 return true;
-            } else if (prop->name == "freeze") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (!arg->getType()->isPointerTy()) {
-                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
-                }
-                
-                llvm::FunctionType* freezeFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee freezeFn = getRuntimeFunction("ts_object_freeze", freezeFt);
-                lastValue = createCall(freezeFt, freezeFn.getCallee(), { arg });
-                return true;
-            } else if (prop->name == "seal") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (!arg->getType()->isPointerTy()) {
-                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
-                }
-                
-                llvm::FunctionType* sealFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee sealFn = getRuntimeFunction("ts_object_seal", sealFt);
-                lastValue = createCall(sealFt, sealFn.getCallee(), { arg });
-                return true;
-            } else if (prop->name == "isFrozen") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (!arg->getType()->isPointerTy()) {
-                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
-                }
-                
-                llvm::FunctionType* isFrozenFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee isFrozenFn = getRuntimeFunction("ts_object_is_frozen", isFrozenFt);
-                lastValue = createCall(isFrozenFt, isFrozenFn.getCallee(), { arg });
-                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
-                return true;
-            } else if (prop->name == "isSealed") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (!arg->getType()->isPointerTy()) {
-                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
-                }
-                
-                llvm::FunctionType* isSealedFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee isSealedFn = getRuntimeFunction("ts_object_is_sealed", isSealedFt);
-                lastValue = createCall(isSealedFt, isSealedFn.getCallee(), { arg });
-                lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
-                return true;
             } else if (prop->name == "hasOwn") {
                 if (node->arguments.size() < 2) return true;
                 visit(node->arguments[0].get());
@@ -1328,6 +1280,96 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee createFn = getRuntimeFunction("ts_object_create", createFt);
                 lastValue = createCall(createFt, createFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "freeze") {
+                // Handle Object.freeze(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_freeze", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "seal") {
+                // Handle Object.seal(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_seal", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "preventExtensions") {
+                // Handle Object.preventExtensions(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_preventExtensions", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "isFrozen") {
+                // Handle Object.isFrozen(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);  // true for undefined
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_isFrozen", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "isSealed") {
+                // Handle Object.isSealed(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);  // true for undefined
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_isSealed", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "isExtensible") {
+                // Handle Object.isExtensible(obj)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);  // false for undefined
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_isExtensible", ft);
+                lastValue = createCall(ft, fn.getCallee(), { arg });
                 return true;
             }
         } else if (obj->name == "Array") {
