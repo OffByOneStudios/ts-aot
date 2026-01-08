@@ -360,7 +360,7 @@ class GoldenIRRunner:
                 
                 # Check if this was expected to fail
                 if test.expected_failure:
-                    print(color_text('  ✓ XFAIL (Expected failure)', Colors.YELLOW))
+                    print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
                     self.xfail_tests += 1
                 else:
                     self.failed_tests += 1
@@ -382,7 +382,7 @@ class GoldenIRRunner:
 
                     # Check if this was expected to fail
                     if test.expected_failure:
-                        print(color_text('  ✓ XFAIL (Expected failure)', Colors.YELLOW))
+                        print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
                         self.xfail_tests += 1
                     else:
                         self.failed_tests += 1
@@ -409,7 +409,7 @@ class GoldenIRRunner:
 
                     # Check if this was expected to fail
                     if test.expected_failure:
-                        print(color_text('  ✓ XFAIL (Expected failure)', Colors.YELLOW))
+                        print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
                         self.xfail_tests += 1
                     else:
                         self.failed_tests += 1

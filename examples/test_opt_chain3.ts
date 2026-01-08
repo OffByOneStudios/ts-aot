@@ -2,7 +2,6 @@
 // CHECK: define {{.*}} @user_main
 // OUTPUT: 42
 // OUTPUT: undefined
-// XFAIL: Path-dependent runtime bug - works from examples/ but crashes from tests/golden_ir/
 
 function user_main(): number {
     const obj1 = { nested: { value: 42 } };
