@@ -337,8 +337,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `await` expression | ✅ | |
 | `Object.values()` | ✅ | |
 | `Object.entries()` | ⚠️ | Known bug |
-| `String.prototype.padStart()` | ❌ | |
-| `String.prototype.padEnd()` | ❌ | |
+| `String.prototype.padStart()` | ✅ | |
+| `String.prototype.padEnd()` | ✅ | |
 | `Object.getOwnPropertyDescriptors()` | ❌ | |
 | Trailing commas in function params | ✅ | |
 | Shared memory and atomics | ❌ | |
@@ -459,7 +459,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES5 | 30 | 7 | 7 | 44 | 68% |
 | ES2015 | 49 | 14 | 48 | 111 | 44% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
-| ES2017 | 4 | 1 | 4 | 9 | 44% |
+| ES2017 | 6 | 1 | 2 | 9 | 67% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
 | ES2019 | 4 | 0 | 5 | 9 | 44% |
 | ES2020 | 2 | 1 | 7 | 10 | 20% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 2 | 0 | 8 | 10 | 20% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **96** | **24** | **106** | **226** | **42%** |
+| **TOTAL** | **98** | **24** | **104** | **226** | **43%** |
 
-**Overall ECMAScript Conformance: 96/226 features (42%)**
+**Overall ECMAScript Conformance: 98/226 features (43%)**
 
 ---
 
