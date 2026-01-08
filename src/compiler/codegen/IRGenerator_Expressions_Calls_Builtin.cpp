@@ -160,6 +160,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_has_own", {true, false}, false);  // obj, key -> bool
     bp.registerRuntimeApi("ts_object_from_entries", {true}, true);  // entries -> obj
     bp.registerRuntimeApi("ts_object_getOwnPropertyNames", {true}, true);  // obj -> array
+    bp.registerRuntimeApi("ts_object_getPrototypeOf", {true}, true);  // obj -> any (null)
 
     // ========== Value boxing helpers ==========
     bp.registerRuntimeApi("ts_value_make_int", {false}, true);
@@ -1296,6 +1297,18 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* gopnFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee gopnFn = getRuntimeFunction("ts_object_getOwnPropertyNames", gopnFt);
                 lastValue = createCall(gopnFt, gopnFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "getPrototypeOf") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg = lastValue;
+                if (!arg->getType()->isPointerTy()) {
+                    arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                }
+
+                llvm::FunctionType* gpoFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee gpoFn = getRuntimeFunction("ts_object_getPrototypeOf", gpoFt);
+                lastValue = createCall(gpoFt, gpoFn.getCallee(), { arg });
                 return true;
             }
         } else if (obj->name == "Array") {

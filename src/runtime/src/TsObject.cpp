@@ -1233,6 +1233,18 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_array(TsArray::Create(0));
     }
 
+    // Object.getPrototypeOf(obj) - returns the prototype of an object
+    // In our runtime, we don't have a full prototype chain, so we return null
+    // for most objects. This provides basic ES5 conformance.
+    TsValue* ts_object_getPrototypeOf(TsValue* obj) {
+        if (!obj) return ts_value_make_undefined();
+
+        // For now, return null for all objects since we don't have prototype chains
+        // A proper implementation would check the object type and return the
+        // appropriate prototype (Object.prototype, Array.prototype, etc.)
+        return ts_value_make_undefined();
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -1786,6 +1798,11 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_getOwnPropertyNames(argv[0]);
     }
 
+    TsValue* ts_object_getPrototypeOf_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_undefined();
+        return ts_object_getPrototypeOf(argv[0]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -2039,6 +2056,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.getOwnPropertyNames
         TsValue gopnKey; gopnKey.type = ValueType::STRING_PTR; gopnKey.ptr_val = TsString::Create("getOwnPropertyNames");
         objectFunc->properties->Set(gopnKey, *ts_value_make_native_function((void*)ts_object_getOwnPropertyNames_native, nullptr));
+
+        // Object.getPrototypeOf
+        TsValue gpoKey; gpoKey.type = ValueType::STRING_PTR; gpoKey.ptr_val = TsString::Create("getPrototypeOf");
+        objectFunc->properties->Set(gpoKey, *ts_value_make_native_function((void*)ts_object_getPrototypeOf_native, nullptr));
 
         Object = objectConstructor;
 

@@ -658,6 +658,12 @@ Analyzer::Analyzer() {
     getOwnPropertyNamesType->returnType = stringArrayType;
     objectType->fields["getOwnPropertyNames"] = getOwnPropertyNamesType;
 
+    // Object.getPrototypeOf(obj) => object | null
+    auto getPrototypeOfType = std::make_shared<FunctionType>();
+    getPrototypeOfType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    getPrototypeOfType->returnType = std::make_shared<Type>(TypeKind::Any);  // Can be null
+    objectType->fields["getPrototypeOf"] = getPrototypeOfType;
+
     symbols.define("Object", objectType);
 
     // Register Array global (for static methods like Array.isArray)
