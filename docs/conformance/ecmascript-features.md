@@ -29,14 +29,14 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Array.isArray()` | ✅ | |
 | `Array.prototype.indexOf()` | ✅ | |
-| `Array.prototype.lastIndexOf()` | ❌ | |
+| `Array.prototype.lastIndexOf()` | ✅ | |
 | `Array.prototype.every()` | ⚠️ | Known bug |
 | `Array.prototype.some()` | ⚠️ | Known bug |
 | `Array.prototype.forEach()` | ✅ | |
 | `Array.prototype.map()` | ✅ | |
 | `Array.prototype.filter()` | ✅ | |
 | `Array.prototype.reduce()` | ✅ | |
-| `Array.prototype.reduceRight()` | ❌ | |
+| `Array.prototype.reduceRight()` | ✅ | |
 
 ### Object Methods
 | Feature | Status | Notes |

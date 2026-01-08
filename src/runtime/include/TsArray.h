@@ -22,6 +22,7 @@ public:
     int64_t Length();
     void Sort();
     int64_t IndexOf(int64_t value);
+    int64_t LastIndexOf(int64_t value);
     bool Includes(int64_t value);
     void Remove(int64_t value);
     int64_t At(int64_t index);
@@ -39,6 +40,7 @@ public:
     void* Map(void* callback, void* thisArg = nullptr);
     void* Filter(void* callback, void* thisArg = nullptr);
     void* Reduce(void* callback, void* initialValue = nullptr);
+    void* ReduceRight(void* callback, void* initialValue = nullptr);
     bool Some(void* callback, void* thisArg = nullptr);
     bool Every(void* callback, void* thisArg = nullptr);
     struct TaggedValue* Find(void* callback, void* thisArg = nullptr);
@@ -80,6 +82,7 @@ extern "C" {
     void* ts_array_flat(void* arr, int64_t depth);
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg);
     int64_t ts_array_indexOf(void* arr, int64_t value);
+    int64_t ts_array_lastIndexOf(void* arr, int64_t value);
     bool ts_array_includes(void* arr, int64_t value);
     void* ts_array_at(void* arr, int64_t index);
     void* ts_array_join(void* arr, void* separator);
@@ -89,6 +92,7 @@ extern "C" {
     void* ts_array_map(void* arr, void* callback, void* thisArg);
     void* ts_array_filter(void* arr, void* callback, void* thisArg);
     void* ts_array_reduce(void* arr, void* callback, void* initialValue);
+    void* ts_array_reduceRight(void* arr, void* callback, void* initialValue);
     bool ts_array_some(void* arr, void* callback, void* thisArg);
     bool ts_array_every(void* arr, void* callback, void* thisArg);
     struct TaggedValue* ts_array_find(void* arr, void* callback, void* thisArg);

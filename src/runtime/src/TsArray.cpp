@@ -118,6 +118,13 @@ int64_t TsArray::IndexOf(int64_t value) {
     return -1;
 }
 
+int64_t TsArray::LastIndexOf(int64_t value) {
+    for (size_t i = length; i > 0; --i) {
+        if (((int64_t*)elements)[i - 1] == value) return (int64_t)(i - 1);
+    }
+    return -1;
+}
+
 bool TsArray::Includes(int64_t value) {
     return IndexOf(value) != -1;
 }
@@ -219,6 +226,26 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
     for (size_t i = startIdx; i < length; ++i) {
         TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
         TsValue* idx = ts_value_make_int(i);
+        TsValue* arr = ts_value_make_object(this);
+        accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
+    }
+    return accumulator;
+}
+
+void* TsArray::ReduceRight(void* callback, void* initialValue) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
+
+    TsValue* accumulator = (TsValue*)initialValue;
+    size_t startIdx = length;
+    if (!accumulator && length > 0) {
+        accumulator = (((int64_t*)elements)[length - 1] > 0xFFFFFFFF || ((int64_t*)elements)[length - 1] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[length - 1]) : ts_value_make_int(((int64_t*)elements)[length - 1]);
+        startIdx = length - 1;
+    }
+
+    for (size_t i = startIdx; i > 0; --i) {
+        TsValue* v = (((int64_t*)elements)[i - 1] > 0xFFFFFFFF || ((int64_t*)elements)[i - 1] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i - 1]) : ts_value_make_int(((int64_t*)elements)[i - 1]);
+        TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(this);
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
     }
@@ -529,6 +556,10 @@ extern "C" {
         return ((TsArray*)arr)->IndexOf(value);
     }
 
+    int64_t ts_array_lastIndexOf(void* arr, int64_t value) {
+        return ((TsArray*)arr)->LastIndexOf(value);
+    }
+
     void* ts_array_flat(void* arr, int64_t depth) {
         return ((TsArray*)arr)->Flat(depth);
     }
@@ -569,6 +600,10 @@ extern "C" {
 
     void* ts_array_reduce(void* arr, void* callback, void* initialValue) {
         return ((TsArray*)arr)->Reduce(callback, initialValue);
+    }
+
+    void* ts_array_reduceRight(void* arr, void* callback, void* initialValue) {
+        return ((TsArray*)arr)->ReduceRight(callback, initialValue);
     }
 
     bool ts_array_some(void* arr, void* callback, void* thisArg) {

@@ -325,7 +325,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "includes") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
-        } else if (prop->name == "indexOf") {
+        } else if (prop->name == "indexOf" || prop->name == "lastIndexOf") {
              lastType = std::make_shared<Type>(TypeKind::Int);
              return;
         } else if (prop->name == "toLowerCase") {
@@ -357,7 +357,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "filter") {
              visit(prop->expression.get());
              return;
-        } else if (prop->name == "reduce") {
+        } else if (prop->name == "reduce" || prop->name == "reduceRight") {
              // For now, assume reduce returns the same type as the array elements or initial value
              lastType = std::make_shared<Type>(TypeKind::Any);
              return;
