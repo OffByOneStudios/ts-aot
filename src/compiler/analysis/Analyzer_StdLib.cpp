@@ -682,6 +682,28 @@ Analyzer::Analyzer() {
     isExtensibleType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     objectType->fields["isExtensible"] = isExtensibleType;
 
+    // Object.defineProperty(obj, prop, descriptor) => obj
+    auto definePropertyType = std::make_shared<FunctionType>();
+    definePropertyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    definePropertyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    definePropertyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));  // descriptor
+    definePropertyType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["defineProperty"] = definePropertyType;
+
+    // Object.defineProperties(obj, descriptors) => obj
+    auto definePropertiesType = std::make_shared<FunctionType>();
+    definePropertiesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    definePropertiesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));  // descriptors
+    definePropertiesType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["defineProperties"] = definePropertiesType;
+
+    // Object.getOwnPropertyDescriptor(obj, prop) => descriptor | undefined
+    auto getOwnPropertyDescriptorType = std::make_shared<FunctionType>();
+    getOwnPropertyDescriptorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    getOwnPropertyDescriptorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    getOwnPropertyDescriptorType->returnType = std::make_shared<Type>(TypeKind::Any);  // Can be undefined
+    objectType->fields["getOwnPropertyDescriptor"] = getOwnPropertyDescriptorType;
+
     symbols.define("Object", objectType);
 
     // Register Array global (for static methods like Array.isArray)

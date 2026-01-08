@@ -164,6 +164,9 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_getOwnPropertyNames", {true}, true);  // obj -> array
     bp.registerRuntimeApi("ts_object_getPrototypeOf", {true}, true);  // obj -> any (null)
     bp.registerRuntimeApi("ts_object_create", {true}, true);  // proto -> obj
+    bp.registerRuntimeApi("ts_object_defineProperty", {true, true, true}, true);  // obj, prop, desc -> obj
+    bp.registerRuntimeApi("ts_object_defineProperties", {true, true}, true);  // obj, descs -> obj
+    bp.registerRuntimeApi("ts_object_getOwnPropertyDescriptor", {true, true}, true);  // obj, prop -> desc
 
     // ========== Value boxing helpers ==========
     bp.registerRuntimeApi("ts_value_make_int", {false}, true);
@@ -1370,6 +1373,78 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_object_isExtensible", ft);
                 lastValue = createCall(ft, fn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "defineProperty") {
+                // Handle Object.defineProperty(obj, prop, descriptor)
+                if (node->arguments.size() < 3) {
+                    lastValue = node->arguments.empty()
+                        ? llvm::ConstantPointerNull::get(builder->getPtrTy())
+                        : (visit(node->arguments[0].get()), lastValue);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* objArg = lastValue;
+                if (!objArg->getType()->isPointerTy()) {
+                    objArg = builder->CreateIntToPtr(objArg, builder->getPtrTy());
+                }
+                visit(node->arguments[1].get());
+                llvm::Value* propArg = lastValue;
+                if (!propArg->getType()->isPointerTy()) {
+                    propArg = builder->CreateIntToPtr(propArg, builder->getPtrTy());
+                }
+                visit(node->arguments[2].get());
+                llvm::Value* descArg = lastValue;
+                if (!descArg->getType()->isPointerTy()) {
+                    descArg = builder->CreateIntToPtr(descArg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_defineProperty", ft);
+                lastValue = createCall(ft, fn.getCallee(), { objArg, propArg, descArg });
+                return true;
+            } else if (prop->name == "defineProperties") {
+                // Handle Object.defineProperties(obj, descriptors)
+                if (node->arguments.size() < 2) {
+                    lastValue = node->arguments.empty()
+                        ? llvm::ConstantPointerNull::get(builder->getPtrTy())
+                        : (visit(node->arguments[0].get()), lastValue);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* objArg = lastValue;
+                if (!objArg->getType()->isPointerTy()) {
+                    objArg = builder->CreateIntToPtr(objArg, builder->getPtrTy());
+                }
+                visit(node->arguments[1].get());
+                llvm::Value* descsArg = lastValue;
+                if (!descsArg->getType()->isPointerTy()) {
+                    descsArg = builder->CreateIntToPtr(descsArg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_defineProperties", ft);
+                lastValue = createCall(ft, fn.getCallee(), { objArg, descsArg });
+                return true;
+            } else if (prop->name == "getOwnPropertyDescriptor") {
+                // Handle Object.getOwnPropertyDescriptor(obj, prop)
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* objArg = lastValue;
+                if (!objArg->getType()->isPointerTy()) {
+                    objArg = builder->CreateIntToPtr(objArg, builder->getPtrTy());
+                }
+                visit(node->arguments[1].get());
+                llvm::Value* propArg = lastValue;
+                if (!propArg->getType()->isPointerTy()) {
+                    propArg = builder->CreateIntToPtr(propArg, builder->getPtrTy());
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_getOwnPropertyDescriptor", ft);
+                lastValue = createCall(ft, fn.getCallee(), { objArg, propArg });
                 return true;
             }
         } else if (obj->name == "Array") {

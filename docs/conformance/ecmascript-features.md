@@ -45,9 +45,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Object.values()` | ✅ | |
 | `Object.entries()` | ⚠️ | Known bug |
 | `Object.create()` | ⚠️ | Copies properties (no prototype chain) |
-| `Object.defineProperty()` | ❌ | |
-| `Object.defineProperties()` | ❌ | |
-| `Object.getOwnPropertyDescriptor()` | ❌ | |
+| `Object.defineProperty()` | ⚠️ | Value only, no writable/enumerable enforcement |
+| `Object.defineProperties()` | ⚠️ | Value only, no writable/enumerable enforcement |
+| `Object.getOwnPropertyDescriptor()` | ✅ | |
 | `Object.getOwnPropertyNames()` | ✅ | |
 | `Object.getPrototypeOf()` | ⚠️ | Returns undefined (no prototype chain) |
 | `Object.freeze()` | ✅ | |
@@ -449,7 +449,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
-| ES5 | 29 | 5 | 10 | 44 | 66% |
+| ES5 | 30 | 7 | 7 | 44 | 68% |
 | ES2015 | 48 | 13 | 47 | 108 | 44% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 4 | 1 | 4 | 9 | 44% |
@@ -460,9 +460,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 1 | 0 | 9 | 10 | 10% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **87** | **21** | **115** | **223** | **39%** |
+| **TOTAL** | **88** | **23** | **112** | **223** | **39%** |
 
-**Overall ECMAScript Conformance: 87/223 features (39%)**
+**Overall ECMAScript Conformance: 88/223 features (39%)**
 
 ---
 
