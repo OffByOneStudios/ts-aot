@@ -145,7 +145,17 @@ void* TsArray::Flat(int64_t depth) {
     for (size_t i = 0; i < length; ++i) {
         int64_t val = ((int64_t*)elements)[i];
         if (depth > 0 && val > 0x1000 && !((val & 0xFFFF000000000000) == 0x7FF8000000000000)) {
-            // Heuristic for pointer, and not a NaN-boxed double
+            // Check if it's a TsValue* with ARRAY_PTR type
+            TsValue* maybeBoxed = (TsValue*)val;
+            if (maybeBoxed->type == ValueType::ARRAY_PTR && maybeBoxed->ptr_val) {
+                TsArray* sub = (TsArray*)maybeBoxed->ptr_val;
+                TsArray* flattenedSub = (TsArray*)sub->Flat(depth - 1);
+                for (size_t j = 0; j < flattenedSub->length; ++j) {
+                    result->Push(((int64_t*)flattenedSub->elements)[j]);
+                }
+                continue;
+            }
+            // Also check for raw TsArray* pointer (legacy/fallback)
             uint32_t* magicPtr = (uint32_t*)val;
             if (*magicPtr == TsArray::MAGIC) {
                 TsArray* sub = (TsArray*)val;
