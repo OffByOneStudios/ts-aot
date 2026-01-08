@@ -442,6 +442,18 @@ int64_t TsString::IndexOf(TsString* searchString) {
     return s.indexOf(search);
 }
 
+int64_t TsString::LastIndexOf(TsString* searchString) {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString search;
+    if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
+    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+
+    return s.lastIndexOf(search);
+}
+
 TsString* TsString::ToLowerCase() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -757,6 +769,10 @@ extern "C" {
 
     int64_t ts_string_indexOf(void* str, void* searchString) {
         return ((TsString*)str)->IndexOf((TsString*)searchString);
+    }
+
+    int64_t ts_string_lastIndexOf(void* str, void* searchString) {
+        return ((TsString*)str)->LastIndexOf((TsString*)searchString);
     }
 
     void* ts_string_toLowerCase(void* str) {

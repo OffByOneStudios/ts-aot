@@ -233,6 +233,12 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             idxFn->returnType = std::make_shared<Type>(TypeKind::Int);
             lastType = idxFn;
             return;
+        } else if (node->name == "lastIndexOf") {
+            auto idxFn = std::make_shared<FunctionType>();
+            idxFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            idxFn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = idxFn;
+            return;
         } else if (node->name == "includes") {
             auto incFn = std::make_shared<FunctionType>();
             incFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
@@ -258,8 +264,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             sliceFn->returnType = objType;
             lastType = sliceFn;
             return;
-        } else if (node->name == "forEach" || node->name == "map" || node->name == "filter" || 
-                   node->name == "reduce" || node->name == "some" || node->name == "every" || 
+        } else if (node->name == "forEach" || node->name == "map" || node->name == "filter" ||
+                   node->name == "reduce" || node->name == "reduceRight" || node->name == "some" || node->name == "every" ||
                    node->name == "find" || node->name == "findIndex") {
             auto fn = std::make_shared<FunctionType>();
             fn->returnType = std::make_shared<Type>(TypeKind::Any);
@@ -659,7 +665,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
 
         // Built-in methods fallback
-        if (node->name == "includes" || node->name == "indexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
+        if (node->name == "includes" || node->name == "indexOf" || node->name == "lastIndexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
             lastType = std::make_shared<Type>(TypeKind::Any); // Or more specific function type
             return;
         }

@@ -22,10 +22,12 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_array_slice", {true, false, false}, false);  // arr, start, end -> raw TsArray*
     bp.registerRuntimeApi("ts_array_join", {true, false}, false);  // arr, separator -> string
     bp.registerRuntimeApi("ts_array_indexOf", {true, true, false}, false);  // arr, value, fromIndex -> int
+    bp.registerRuntimeApi("ts_array_lastIndexOf", {true, true, false}, false);  // arr, value, fromIndex -> int
     bp.registerRuntimeApi("ts_array_flat", {true, false}, true);  // arr, depth
     bp.registerRuntimeApi("ts_array_sort", {true}, true);  // arr
     bp.registerRuntimeApi("ts_array_sort_with_comparator", {true, true}, true);  // arr, comparator
     bp.registerRuntimeApi("ts_array_reduce", {true, true, true}, true);  // arr, callback, initialValue
+    bp.registerRuntimeApi("ts_array_reduceRight", {true, true, true}, true);  // arr, callback, initialValue
     bp.registerRuntimeApi("ts_array_is_specialized", {true}, false);  // arr -> bool
     
     // ========== Map methods ==========
@@ -49,6 +51,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_charCodeAt", {false, false}, false);  // str, index -> int
     bp.registerRuntimeApi("ts_string_includes", {false, false, false}, false);  // str, search, position -> bool
     bp.registerRuntimeApi("ts_string_indexOf", {false, false, false}, false);  // str, search, start -> int
+    bp.registerRuntimeApi("ts_string_lastIndexOf", {false, false, false}, false);  // str, search, start -> int
     bp.registerRuntimeApi("ts_string_substring", {false, false, false}, false);  // str, start, end
     bp.registerRuntimeApi("ts_string_toLowerCase", {false}, false);
     bp.registerRuntimeApi("ts_string_toUpperCase", {false}, false);
@@ -1425,17 +1428,19 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = getRuntimeFunction("ts_string_includes", includesFt);
          lastValue = createCall(includesFt, fn.getCallee(), { obj, search });
          return true;
-    } else if (prop->name == "indexOf") {
+    } else if (prop->name == "indexOf" || prop->name == "lastIndexOf") {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
          llvm::Value* search = lastValue;
-         
+
+         bool isLastIndexOf = (prop->name == "lastIndexOf");
+
          if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
              if (search->getType()->isPointerTy()) {
                  // If it's a pointer (string), we need to cast it to i64 for the generic array storage
@@ -1445,7 +1450,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              }
              llvm::FunctionType* indexOfFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-             llvm::FunctionCallee fn = getRuntimeFunction("ts_array_indexOf", indexOfFt);
+             std::string fnName = isLastIndexOf ? "ts_array_lastIndexOf" : "ts_array_indexOf";
+             llvm::FunctionCallee fn = getRuntimeFunction(fnName, indexOfFt);
              lastValue = createCall(indexOfFt, fn.getCallee(), { obj, search });
          } else {
              if (search->getType()->isIntegerTy(64)) {
@@ -1453,7 +1459,9 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              }
              llvm::FunctionType* indexOfFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { builder->getPtrTy(), builder->getPtrTy() }, false);
-             llvm::FunctionCallee fn = getRuntimeFunction("ts_string_indexOf", indexOfFt);
+             // String lastIndexOf not implemented yet, fall back to indexOf
+             std::string fnName = isLastIndexOf ? "ts_string_lastIndexOf" : "ts_string_indexOf";
+             llvm::FunctionCallee fn = getRuntimeFunction(fnName, indexOfFt);
              lastValue = createCall(indexOfFt, fn.getCallee(), { obj, search });
          }
          return true;
@@ -2013,26 +2021,27 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fn = getRuntimeFunction("ts_array_flat", flatFt);
          lastValue = createCall(flatFt, fn.getCallee(), { obj, depth });
          return true;
-    } else if (prop->name == "reduce" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+    } else if ((prop->name == "reduce" || prop->name == "reduceRight") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
          llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
-         
+
          llvm::Value* initialValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
          if (node->arguments.size() > 1) {
              visit(node->arguments[1].get());
              initialValue = boxValue(lastValue, node->arguments[1]->inferredType);
          }
-         
+
          llvm::FunctionType* reduceFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
-         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_reduce", reduceFt);
+         std::string fnName = prop->name == "reduceRight" ? "ts_array_reduceRight" : "ts_array_reduce";
+         llvm::FunctionCallee fn = getRuntimeFunction(fnName, reduceFt);
          lastValue = createCall(reduceFt, fn.getCallee(), { obj, callback, initialValue });
          return true;
     } else if (prop->name == "set" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Map) {

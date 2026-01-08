@@ -32,6 +32,7 @@ public:
     bool StartsWith(TsString* prefix);
     bool Includes(TsString* searchString);
     int64_t IndexOf(TsString* searchString);
+    int64_t LastIndexOf(TsString* searchString);
     TsString* ToLowerCase();
     TsString* ToUpperCase();
     
@@ -80,6 +81,7 @@ extern "C" {
     bool ts_string_startsWith(void* str, void* prefix);
     bool ts_string_includes(void* str, void* searchString);
     int64_t ts_string_indexOf(void* str, void* searchString);
+    int64_t ts_string_lastIndexOf(void* str, void* searchString);
     void* ts_string_toLowerCase(void* str);
     void* ts_string_toUpperCase(void* str);
     void* ts_string_match_regexp(void* str, void* regexp);

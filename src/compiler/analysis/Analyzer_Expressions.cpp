@@ -76,7 +76,7 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "includes") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
-        } else if (prop->name == "indexOf") {
+        } else if (prop->name == "indexOf" || prop->name == "lastIndexOf") {
              lastType = std::make_shared<Type>(TypeKind::Int);
              return;
         } else if (prop->name == "toLowerCase") {
@@ -824,7 +824,7 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
         }
 
         // Built-in methods fallback
-        if (node->name == "includes" || node->name == "indexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
+        if (node->name == "includes" || node->name == "indexOf" || node->name == "lastIndexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
             lastType = std::make_shared<Type>(TypeKind::Any); // Or more specific function type
             return;
         }
