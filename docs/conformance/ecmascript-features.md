@@ -304,6 +304,13 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.keys()` | ❌ | |
 | `Array.prototype.values()` | ❌ | |
 
+### Object (ES6)
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `Object.assign()` | ⚠️ | Works but property access on result crashes compiler |
+| `Object.is()` | ❌ | |
+| `Object.setPrototypeOf()` | ❌ | |
+
 ### RegExp (ES6)
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -374,8 +381,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `BigInt` | ❌ | |
 | Dynamic `import()` | ❌ | |
-| Nullish coalescing (`??`) | ❌ | |
-| Optional chaining (`?.`) | ❌ | |
+| Nullish coalescing (`??`) | ✅ | |
+| Optional chaining (`?.`) | ✅ | Property access only |
 | `Promise.allSettled()` | ❌ | |
 | `String.prototype.matchAll()` | ❌ | |
 | `globalThis` | ⚠️ | |
@@ -450,19 +457,19 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 30 | 7 | 7 | 44 | 68% |
-| ES2015 | 48 | 13 | 47 | 108 | 44% |
+| ES2015 | 48 | 14 | 49 | 111 | 43% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 4 | 1 | 4 | 9 | 44% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
 | ES2019 | 1 | 0 | 8 | 9 | 11% |
-| ES2020 | 0 | 1 | 9 | 10 | 0% |
+| ES2020 | 2 | 1 | 7 | 10 | 20% |
 | ES2021 | 2 | 0 | 4 | 6 | 33% |
 | ES2022 | 1 | 0 | 9 | 10 | 10% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **88** | **23** | **112** | **223** | **39%** |
+| **TOTAL** | **90** | **24** | **112** | **226** | **40%** |
 
-**Overall ECMAScript Conformance: 88/223 features (39%)**
+**Overall ECMAScript Conformance: 90/226 features (40%)**
 
 ---
 
@@ -472,10 +479,10 @@ These features should be prioritized for implementation:
 
 ### Critical (Blocking Real-World Code)
 1. ❌ Destructuring (array and object)
-2. ❌ Optional chaining (`?.`)
-3. ❌ Nullish coalescing (`??`)
+2. ✅ Optional chaining (`?.`) - Property access implemented
+3. ✅ Nullish coalescing (`??`) - Implemented
 4. ❌ Object spread (`{...obj}`)
-5. ❌ `Object.assign()`
+5. ⚠️ `Object.assign()` - Works but property access on result crashes
 
 ### High Priority
 6. ❌ Generator functions
