@@ -1,5 +1,6 @@
 #include "TsArray.h"
 #include "TsObject.h"
+#include "TsMap.h"
 #include "TsRuntime.h"
 #include "GC.h"
 #include <cstring>
@@ -474,10 +475,7 @@ extern "C" {
     void ts_array_set_v(void* arr, int64_t index, TsValue value) {
         if (!arr) return;
         TsArray* array = (TsArray*)arr;
-        
-        printf("[ts_array_set_v] arr=%p index=%lld value.type=%d value.i_val=%lld\n",
-               arr, index, (int)value.type, value.i_val);
-        
+
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
                 double d = (value.type == ValueType::NUMBER_DBL) ? value.d_val : (double)value.i_val;
@@ -492,7 +490,6 @@ extern "C" {
             // For non-specialized, we need to allocate a TsValue
             TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
             *v = value;
-            printf("[ts_array_set_v] Storing TsValue* %p at index %lld\n", v, index);
             array->Set(index, (int64_t)v);
         }
     }
@@ -632,7 +629,7 @@ extern "C" {
 
     bool ts_array_is_array(void* value) {
         if (!value) return false;
-        
+
         // Check if the value is a TsValue* with ARRAY_PTR type
         TsValue* v = (TsValue*)value;
         if (v->type == ValueType::ARRAY_PTR && v->ptr_val) {
@@ -640,13 +637,156 @@ extern "C" {
             uint32_t* magic_ptr = (uint32_t*)v->ptr_val;
             return *magic_ptr == TsArray::MAGIC;
         }
-        
+
         // Check if the value has the TsArray magic number directly
         // The magic is the first field of TsArray (at offset 0)
         uint32_t* magic_ptr = (uint32_t*)value;
         return *magic_ptr == TsArray::MAGIC;
     }
-    
+
+    void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg) {
+        if (!arrayLike) {
+            return ts_array_create();
+        }
+
+        // Unbox if it's a TsValue*
+        void* rawPtr = ts_value_get_object((TsValue*)arrayLike);
+        if (!rawPtr) rawPtr = arrayLike;
+
+        // Get map function as TsValue* for calling
+        TsValue* mapFnVal = (TsValue*)mapFn;
+        bool hasMapFn = mapFnVal && mapFnVal->type == ValueType::FUNCTION_PTR;
+
+        // Check if it's already an array
+        if (ts_array_is_array(rawPtr)) {
+            TsArray* srcArr = (TsArray*)rawPtr;
+            TsArray* result = TsArray::Create(srcArr->Length());
+
+            for (int64_t i = 0; i < srcArr->Length(); i++) {
+                TsValue elem = ts_array_get_v(srcArr, i);
+
+                if (hasMapFn) {
+                    // Call the map function: mapFn(elem, index)
+                    TsValue* elemBoxed = ts_value_box_any(&elem);
+                    TsValue* indexVal = ts_value_make_int(i);
+                    TsValue* mapped = ts_call_2(mapFnVal, elemBoxed, indexVal);
+                    if (mapped) {
+                        result->Push((int64_t)mapped);
+                    } else {
+                        ts_array_set_v(result, i, elem);
+                    }
+                } else {
+                    ts_array_set_v(result, i, elem);
+                }
+            }
+            return result;
+        }
+
+        // Check if it's a string - convert to character array
+        TsValue* val = (TsValue*)arrayLike;
+        if (val->type == ValueType::STRING_PTR && val->ptr_val) {
+            TsString* str = (TsString*)val->ptr_val;
+            const char* utf8 = str->ToUtf8();
+            int64_t len = str->Length();
+
+            TsArray* result = TsArray::Create(len);
+            for (int64_t i = 0; i < len; i++) {
+                // Get each character as a string
+                char charBuf[5] = {0}; // UTF-8 char can be up to 4 bytes
+
+                // Simple ASCII extraction for now
+                // TODO: proper Unicode codepoint extraction
+                const char* p = utf8;
+                int64_t idx = 0;
+                while (*p && idx < i) {
+                    if ((*p & 0x80) == 0) p += 1;
+                    else if ((*p & 0xE0) == 0xC0) p += 2;
+                    else if ((*p & 0xF0) == 0xE0) p += 3;
+                    else if ((*p & 0xF8) == 0xF0) p += 4;
+                    else p += 1;
+                    idx++;
+                }
+
+                if (*p) {
+                    if ((*p & 0x80) == 0) { charBuf[0] = *p; }
+                    else if ((*p & 0xE0) == 0xC0) { memcpy(charBuf, p, 2); }
+                    else if ((*p & 0xF0) == 0xE0) { memcpy(charBuf, p, 3); }
+                    else if ((*p & 0xF8) == 0xF0) { memcpy(charBuf, p, 4); }
+                }
+
+                TsString* charStr = TsString::Create(charBuf);
+                TsValue* charVal = ts_value_make_string(charStr);
+
+                if (hasMapFn) {
+                    TsValue* indexVal = ts_value_make_int(i);
+                    TsValue* mapped = ts_call_2(mapFnVal, charVal, indexVal);
+                    if (mapped) {
+                        result->Push((int64_t)mapped);
+                    } else {
+                        result->Push((int64_t)charVal);
+                    }
+                } else {
+                    result->Push((int64_t)charVal);
+                }
+            }
+            return result;
+        }
+
+        // Check if it's an object with a 'length' property (array-like)
+        TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawPtr);
+        if (map) {
+            // Try to get 'length' property
+            TsValue lengthKey;
+            lengthKey.type = ValueType::STRING_PTR;
+            lengthKey.ptr_val = TsString::Create("length");
+            TsValue lengthVal = map->Get(lengthKey);
+
+            if (lengthVal.type == ValueType::NUMBER_INT || lengthVal.type == ValueType::NUMBER_DBL) {
+                int64_t len = (lengthVal.type == ValueType::NUMBER_INT) ?
+                              lengthVal.i_val : (int64_t)lengthVal.d_val;
+
+                if (len > 0) {
+                    TsArray* result = TsArray::Create(len);
+
+                    for (int64_t i = 0; i < len; i++) {
+                        // Get element at index i
+                        TsValue indexKey;
+                        indexKey.type = ValueType::NUMBER_INT;
+                        indexKey.i_val = i;
+                        TsValue elem = map->Get(indexKey);
+
+                        // Also try string key (some array-likes use string keys)
+                        if (elem.type == ValueType::UNDEFINED) {
+                            char buf[32];
+                            snprintf(buf, sizeof(buf), "%lld", (long long)i);
+                            TsValue strKey;
+                            strKey.type = ValueType::STRING_PTR;
+                            strKey.ptr_val = TsString::Create(buf);
+                            elem = map->Get(strKey);
+                        }
+
+                        if (hasMapFn) {
+                            TsValue* elemBoxed = ts_value_box_any(&elem);
+                            TsValue* indexVal = ts_value_make_int(i);
+                            TsValue* mapped = ts_call_2(mapFnVal, elemBoxed, indexVal);
+                            if (mapped) {
+                                result->Push((int64_t)mapped);
+                            } else {
+                                ts_array_set_v(result, i, elem);
+                            }
+                        } else {
+                            ts_array_set_v(result, i, elem);
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+
+        // Fallback: return empty array
+        return ts_array_create();
+    }
+
     // ============================================================
     // Inline IR Helpers - Scalar-based API to avoid struct passing
     // ============================================================

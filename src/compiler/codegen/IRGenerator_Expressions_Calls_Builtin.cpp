@@ -1452,17 +1452,56 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* arg = lastValue;
-                
+
                 // For primitives, always return false
                 if (!arg->getType()->isPointerTy()) {
                     lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
                     return true;
                 }
-                
+
                 llvm::FunctionType* isArrayFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee isArrayFn = getRuntimeFunction("ts_array_is_array", isArrayFt);
                 lastValue = createCall(isArrayFt, isArrayFn.getCallee(), { arg });
                 lastValue = builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
+                return true;
+            } else if (prop->name == "from") {
+                // Array.from(arrayLike, mapFn?, thisArg?)
+                llvm::Value* arrayLike = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                llvm::Value* mapFn = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                if (!node->arguments.empty()) {
+                    visit(node->arguments[0].get());
+                    arrayLike = lastValue;
+                    if (!arrayLike->getType()->isPointerTy()) {
+                        arrayLike = builder->CreateIntToPtr(arrayLike, builder->getPtrTy());
+                    }
+                    // Box the value if needed
+                    if (node->arguments[0]->inferredType) {
+                        arrayLike = boxValue(arrayLike, node->arguments[0]->inferredType);
+                    }
+                }
+
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    mapFn = lastValue;
+                    if (!mapFn->getType()->isPointerTy()) {
+                        mapFn = builder->CreateIntToPtr(mapFn, builder->getPtrTy());
+                    }
+                }
+
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    thisArg = lastValue;
+                    if (!thisArg->getType()->isPointerTy()) {
+                        thisArg = builder->CreateIntToPtr(thisArg, builder->getPtrTy());
+                    }
+                }
+
+                llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fromFn = getRuntimeFunction("ts_array_from", fromFt);
+                lastValue = createCall(fromFt, fromFn.getCallee(), { arrayLike, mapFn, thisArg });
                 return true;
             }
         }

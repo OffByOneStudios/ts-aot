@@ -127,6 +127,45 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
                         implName = "ts_buffer_from_string";
                     } else if (current->name == "Buffer" && prop->name == "alloc") {
                         implName = "ts_buffer_alloc";
+                    } else if (current->name == "Array" && prop->name == "from") {
+                        // Handle Array.from specially
+                        llvm::Value* arrayLike = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        llvm::Value* mapFn = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                        llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                        if (!node->arguments.empty()) {
+                            visit(node->arguments[0].get());
+                            arrayLike = lastValue;
+                            if (!arrayLike->getType()->isPointerTy()) {
+                                arrayLike = builder->CreateIntToPtr(arrayLike, builder->getPtrTy());
+                            }
+                            // Box the value if needed
+                            if (node->arguments[0]->inferredType) {
+                                arrayLike = boxValue(arrayLike, node->arguments[0]->inferredType);
+                            }
+                        }
+
+                        if (node->arguments.size() > 1) {
+                            visit(node->arguments[1].get());
+                            mapFn = lastValue;
+                            if (!mapFn->getType()->isPointerTy()) {
+                                mapFn = builder->CreateIntToPtr(mapFn, builder->getPtrTy());
+                            }
+                        }
+
+                        if (node->arguments.size() > 2) {
+                            visit(node->arguments[2].get());
+                            thisArg = lastValue;
+                            if (!thisArg->getType()->isPointerTy()) {
+                                thisArg = builder->CreateIntToPtr(thisArg, builder->getPtrTy());
+                            }
+                        }
+
+                        llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(),
+                            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                        llvm::FunctionCallee fromFn = getRuntimeFunction("ts_array_from", fromFt);
+                        lastValue = createCall(fromFt, fromFn.getCallee(), { arrayLike, mapFn, thisArg });
+                        return true;
                     }
                     auto methodType = current->staticMethods[prop->name];
                     
