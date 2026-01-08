@@ -30,8 +30,6 @@ TsValue* once_wrapper_func(void* context, int argc, TsValue** argv) {
 }
 
 void TsEventEmitter::On(const char* event, void* callback) {
-    fprintf(stderr, "[On] event='%s', callback=%p\n", event, callback);
-
     // Emit 'newListener' BEFORE adding the listener
     if (strcmp(event, "newListener") != 0 && strcmp(event, "removeListener") != 0) {
         TsValue eventNameVal = TsValue(TsString::Create(event));
@@ -44,19 +42,14 @@ void TsEventEmitter::On(const char* event, void* callback) {
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
 
-    fprintf(stderr, "[On] Existing listeners type=%d\n", (int)listenersVal.type);
-
     TsArray* arr;
     if (listenersVal.type == ValueType::UNDEFINED) {
         arr = TsArray::Create();
-        fprintf(stderr, "[On] Created new listener array at %p\n", arr);
         this->listeners->Set(eventVal, TsValue(arr));
     } else {
         arr = (TsArray*)listenersVal.ptr_val;
-        fprintf(stderr, "[On] Using existing listener array at %p\n", arr);
     }
     arr->Push((int64_t)callback);
-    fprintf(stderr, "[On] Pushed callback, array length=%d\n", (int)arr->Length());
 
     if (maxListeners > 0 && arr->Length() > maxListeners) {
         char buf[256];
@@ -188,18 +181,13 @@ void TsEventEmitter::RemoveAllListeners(const char* event) {
     }
 }
 
-void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
-    fprintf(stderr, "[Emit] event='%s', argc=%d\n", event, argc);
-
+bool TsEventEmitter::Emit(const char* event, int argc, void** argv) {
     TsValue eventVal;
     eventVal.type = ValueType::STRING_PTR;
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
 
-    fprintf(stderr, "[Emit] listenersVal.type=%d\n", (int)listenersVal.type);
-
     if (listenersVal.type == ValueType::UNDEFINED) {
-        fprintf(stderr, "[Emit] No listeners for event '%s'\n", event);
         if (strcmp(event, "error") == 0) {
             if (argc > 0) {
                 ts_throw((TsValue*)argv[0]);
@@ -207,11 +195,10 @@ void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
                 ts_throw(ts_value_make_string(TsString::Create("Unhandled error event")));
             }
         }
-        return;
+        return false;
     }
 
     TsArray* arr = (TsArray*)listenersVal.ptr_val;
-    fprintf(stderr, "[Emit] Found %d listeners\n", (int)arr->Length());
 
     // We must copy the array before iterating because listeners might remove themselves
     TsArray* copy = TsArray::Create();
@@ -221,12 +208,11 @@ void TsEventEmitter::Emit(const char* event, int argc, void** argv) {
 
     for (int i = 0; i < copy->Length(); i++) {
         TsValue* callback = (TsValue*)copy->Get(i);
-        fprintf(stderr, "[Emit] Calling listener %d, callback=%p\n", i, callback);
         if (callback) {
             ts_function_call(callback, argc, (TsValue**)argv);
         }
     }
-    fprintf(stderr, "[Emit] Done\n");
+    return true;
 }
 
 int TsEventEmitter::ListenerCount(const char* event) {
@@ -262,11 +248,7 @@ extern "C" {
     }
 
     void ts_event_emitter_on(void* emitter, void* event, void* callback) {
-        fprintf(stderr, "[ts_event_emitter_on] Called: emitter=%p, event=%p, callback=%p\n", emitter, event, callback);
-        if (!emitter) {
-            fprintf(stderr, "[ts_event_emitter_on] emitter is NULL\n");
-            return;
-        }
+        if (!emitter) return;
 
         // Check if emitter is a boxed TsValue* and unbox it
         TsValue* val = (TsValue*)emitter;
@@ -274,50 +256,49 @@ extern "C" {
 
         // Check for boxed TsValue by seeing if type is a valid ValueType (0-10)
         if ((uint8_t)val->type <= 10) {
-            fprintf(stderr, "[ts_event_emitter_on] Emitter is boxed, type=%d\n", (int)val->type);
             if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
                 rawPtr = val->ptr_val;
-                fprintf(stderr, "[ts_event_emitter_on] Unboxed to %p\n", rawPtr);
             } else {
-                fprintf(stderr, "[ts_event_emitter_on] Boxed but not OBJECT_PTR\n");
                 return;
             }
         } else {
             // Assume it's a raw pointer
             rawPtr = emitter;
-            fprintf(stderr, "[ts_event_emitter_on] Emitter is raw pointer\n");
         }
 
-        if (!rawPtr) {
-            fprintf(stderr, "[ts_event_emitter_on] rawPtr is NULL after unboxing\n");
-            return;
-        }
+        if (!rawPtr) return;
 
         // Use dynamic_cast to handle virtual inheritance correctly
-        // First try casting from TsObject base
         TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return;
 
-        if (!e) {
-            fprintf(stderr, "[ts_event_emitter_on] dynamic_cast failed, trying AsEventEmitter\n");
-            // Try using the virtual AsEventEmitter method as fallback
-            e = obj->AsEventEmitter();
-            if (!e) {
-                fprintf(stderr, "[ts_event_emitter_on] AsEventEmitter also failed\n");
-                return;
-            }
-        }
-        fprintf(stderr, "[ts_event_emitter_on] Got TsEventEmitter at %p\n", e);
         TsString* s = (TsString*)event;
-        if (!s) {
-            return;
-        }
+        if (!s) return;
         e->On(s->ToUtf8(), callback);
     }
 
     void ts_event_emitter_once(void* emitter, void* event, void* callback) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -328,7 +309,24 @@ extern "C" {
 
     void ts_event_emitter_prepend_listener(void* emitter, void* event, void* callback) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -339,7 +337,24 @@ extern "C" {
 
     void ts_event_emitter_prepend_once_listener(void* emitter, void* event, void* callback) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -350,7 +365,24 @@ extern "C" {
 
     void ts_event_emitter_remove_listener(void* emitter, void* event, void* callback) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -361,7 +393,24 @@ extern "C" {
 
     void ts_event_emitter_remove_all_listeners(void* emitter, void* event) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -371,7 +420,24 @@ extern "C" {
 
     void ts_event_emitter_set_max_listeners(void* emitter, int n) {
         if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return;
@@ -380,7 +446,24 @@ extern "C" {
 
     int ts_event_emitter_get_max_listeners(void* emitter) {
         if (!emitter) return 0;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return 0;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return 0;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return 0;
@@ -389,7 +472,24 @@ extern "C" {
 
     int ts_event_emitter_listener_count(void* emitter, void* event) {
         if (!emitter) return 0;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return 0;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return 0;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return 0;
@@ -398,15 +498,35 @@ extern "C" {
         return e->ListenerCount(s->ToUtf8());
     }
 
-    void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {
-        if (!emitter) return;
-        TsObject* obj = (TsObject*)emitter;
+    bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {
+        if (!emitter) return false;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        // Check for boxed TsValue by seeing if type is a valid ValueType (0-10)
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return false;
+            }
+        } else {
+            // Assume it's a raw pointer
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return false;
+
+        // Use dynamic_cast to handle virtual inheritance correctly
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
-        if (!e) return;
+        if (!e) return false;
         TsString* s = (TsString*)event;
-        if (!s) return;
-        e->Emit(s->ToUtf8(), argc, argv);
+        if (!s) return false;
+        return e->Emit(s->ToUtf8(), argc, argv);
     }
 
     struct StaticOnceContext {
@@ -425,7 +545,24 @@ extern "C" {
 
     TsValue* ts_event_emitter_static_once(void* emitter, void* event) {
         if (!emitter) return ts_value_make_undefined();
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return ts_value_make_undefined();
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return ts_value_make_undefined();
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return ts_value_make_undefined();
@@ -444,7 +581,24 @@ extern "C" {
 
     void* ts_event_emitter_event_names(void* emitter) {
         if (!emitter) return nullptr;
-        TsObject* obj = (TsObject*)emitter;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return nullptr;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return nullptr;
+
+        TsObject* obj = (TsObject*)rawPtr;
         TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
         if (!e) e = obj->AsEventEmitter();
         if (!e) return nullptr;

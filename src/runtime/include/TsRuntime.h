@@ -256,7 +256,7 @@ void ts_event_emitter_prepend_once_listener(void* emitter, void* event, void* ca
 void ts_event_emitter_remove_listener(void* emitter, void* event, void* callback);
 void ts_event_emitter_remove_all_listeners(void* emitter, void* event);
 void ts_event_emitter_set_max_listeners(void* emitter, int n);
-void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
+bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
 
 void* ts_fs_chown_async(void* path, double uid, double gid);
 

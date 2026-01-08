@@ -33,7 +33,7 @@ public:
     void PrependOnceListener(const char* event, void* callback);
     void RemoveListener(const char* event, void* callback);
     void RemoveAllListeners(const char* event = nullptr);
-    void Emit(const char* event, int argc, void** argv);
+    bool Emit(const char* event, int argc, void** argv);
     int ListenerCount(const char* event);
     void SetMaxListeners(int n);
     int GetMaxListeners();
@@ -55,6 +55,6 @@ extern "C" {
     void ts_event_emitter_set_max_listeners(void* emitter, int n);
     int ts_event_emitter_get_max_listeners(void* emitter);
     int ts_event_emitter_listener_count(void* emitter, void* event);
-    void ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
+    bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
     void* ts_event_emitter_event_names(void* emitter);
 }
