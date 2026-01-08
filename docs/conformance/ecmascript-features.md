@@ -82,8 +82,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `Date.now()` | ✅ | |
-| `Date.prototype.toISOString()` | ❌ | |
-| `Date.prototype.toJSON()` | ❌ | |
+| `Date.prototype.toISOString()` | ✅ | |
+| `Date.prototype.toJSON()` | ✅ | |
 | `Function.prototype.bind()` | ❌ | |
 | Property getters/setters | ❌ | |
 
