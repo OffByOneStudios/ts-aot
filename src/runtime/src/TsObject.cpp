@@ -1245,6 +1245,41 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_undefined();
     }
 
+    // Object.create(proto) - creates new object with specified prototype
+    // In our runtime, we don't have prototype chains, so:
+    // - Object.create(null) returns an empty object
+    // - Object.create(proto) copies properties from proto to new object
+    TsValue* ts_object_create(TsValue* proto) {
+        // Create a new empty map
+        TsMap* newObj = TsMap::Create();
+
+        // If proto is null/undefined, just return empty object
+        if (!proto || ts_value_is_undefined(proto)) {
+            return ts_value_make_object(newObj);
+        }
+
+        // Unbox proto if needed
+        void* protoRaw = ts_value_get_object(proto);
+        if (!protoRaw) protoRaw = proto;
+
+        // Check if proto is a TsMap
+        uint32_t magic = *(uint32_t*)((char*)protoRaw + 16);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            // Copy all properties from proto to new object
+            TsMap* protoMap = (TsMap*)protoRaw;
+            TsArray* entries = (TsArray*)protoMap->GetEntries();
+            int64_t len = entries->Length();
+            for (int64_t i = 0; i < len; i++) {
+                TsArray* entry = (TsArray*)entries->Get(i);
+                TsValue* key = (TsValue*)entry->Get(0);
+                TsValue* val = (TsValue*)entry->Get(1);
+                newObj->Set(*key, *val);
+            }
+        }
+
+        return ts_value_make_object(newObj);
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -1803,6 +1838,11 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_getPrototypeOf(argv[0]);
     }
 
+    TsValue* ts_object_create_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_object_create(nullptr);
+        return ts_object_create(argv[0]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -2060,6 +2100,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.getPrototypeOf
         TsValue gpoKey; gpoKey.type = ValueType::STRING_PTR; gpoKey.ptr_val = TsString::Create("getPrototypeOf");
         objectFunc->properties->Set(gpoKey, *ts_value_make_native_function((void*)ts_object_getPrototypeOf_native, nullptr));
+
+        // Object.create
+        TsValue createKey; createKey.type = ValueType::STRING_PTR; createKey.ptr_val = TsString::Create("create");
+        objectFunc->properties->Set(createKey, *ts_value_make_native_function((void*)ts_object_create_native, nullptr));
 
         Object = objectConstructor;
 

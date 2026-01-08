@@ -176,6 +176,7 @@ extern "C" {
     TsValue* ts_object_from_entries(TsValue* entries);
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
     TsValue* ts_object_getPrototypeOf(TsValue* obj);
+    TsValue* ts_object_create(TsValue* proto);
 
     void ts_runtime_init();
     extern TsValue* Object;
