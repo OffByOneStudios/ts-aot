@@ -1204,18 +1204,35 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.entries(obj) - returns array of [key, value] pairs
     TsValue* ts_object_entries(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
-        
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
-        
+
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_entries(rawPtr));
         }
-        
+
         return ts_value_make_array(TsArray::Create(0));
     }
-    
+
+    // Object.getOwnPropertyNames(obj) - returns array of all own property names
+    // In our runtime, this is the same as Object.keys() since we don't have
+    // non-enumerable properties
+    TsValue* ts_object_getOwnPropertyNames(TsValue* obj) {
+        if (!obj) return ts_value_make_array(TsArray::Create(0));
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            return ts_value_make_array(ts_map_keys(rawPtr));
+        }
+
+        return ts_value_make_array(TsArray::Create(0));
+    }
+
     // Object.assign(target, source) - copies properties from source to target
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
@@ -1764,6 +1781,11 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_entries(argv[0]);
     }
 
+    TsValue* ts_object_getOwnPropertyNames_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_array(TsArray::Create(0));
+        return ts_object_getOwnPropertyNames(argv[0]);
+    }
+
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_undefined();
 
@@ -2013,7 +2035,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.entries
         TsValue entriesKey; entriesKey.type = ValueType::STRING_PTR; entriesKey.ptr_val = TsString::Create("entries");
         objectFunc->properties->Set(entriesKey, *ts_value_make_native_function((void*)ts_object_entries_native, nullptr));
-        
+
+        // Object.getOwnPropertyNames
+        TsValue gopnKey; gopnKey.type = ValueType::STRING_PTR; gopnKey.ptr_val = TsString::Create("getOwnPropertyNames");
+        objectFunc->properties->Set(gopnKey, *ts_value_make_native_function((void*)ts_object_getOwnPropertyNames_native, nullptr));
+
         Object = objectConstructor;
 
         // Initialize console

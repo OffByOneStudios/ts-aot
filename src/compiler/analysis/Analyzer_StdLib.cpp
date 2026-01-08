@@ -651,7 +651,13 @@ Analyzer::Analyzer() {
     fromEntriesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
     fromEntriesType->returnType = std::make_shared<Type>(TypeKind::Object);
     objectType->fields["fromEntries"] = fromEntriesType;
-    
+
+    // Object.getOwnPropertyNames(obj) => string[]
+    auto getOwnPropertyNamesType = std::make_shared<FunctionType>();
+    getOwnPropertyNamesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    getOwnPropertyNamesType->returnType = stringArrayType;
+    objectType->fields["getOwnPropertyNames"] = getOwnPropertyNamesType;
+
     symbols.define("Object", objectType);
 
     // Register Array global (for static methods like Array.isArray)
