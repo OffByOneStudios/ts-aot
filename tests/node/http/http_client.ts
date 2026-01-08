@@ -1,11 +1,9 @@
 // HTTP Client Tests
-// NOTE: These tests require async/await and event loop support (currently blocked)
 import * as http from 'http';
 
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== HTTP Client Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await and event loop fixes\n');
 
   // Test 1: http.request creates request object
   try {

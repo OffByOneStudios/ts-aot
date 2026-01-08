@@ -1,11 +1,9 @@
 // HTTPS Client Tests
-// NOTE: These tests require async/await and event loop support (currently blocked)
 import * as https from 'https';
 
 async function user_main(): Promise<number> {
   let failures = 0;
   console.log('=== HTTPS Client Tests ===\n');
-  console.log('NOTE: These tests are blocked pending async/await and event loop fixes\n');
 
   // Test 1: https.request creates request object
   try {
