@@ -267,8 +267,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Math.pow()` | ✅ | |
 | `Math.sqrt()` | ✅ | |
 | `Math.random()` | ✅ | |
-| `Math.sign()` | ❌ | |
-| `Math.trunc()` | ❌ | |
+| `Math.sign()` | ✅ | |
+| `Math.trunc()` | ✅ | |
 | `Math.cbrt()` | ❌ | |
 | `Math.log10()` | ❌ | |
 | `Math.log2()` | ❌ | |
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 30 | 7 | 7 | 44 | 68% |
-| ES2015 | 49 | 14 | 48 | 111 | 44% |
+| ES2015 | 51 | 14 | 46 | 111 | 46% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 6 | 1 | 2 | 9 | 67% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 2 | 0 | 8 | 10 | 20% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **99** | **24** | **103** | **226** | **44%** |
+| **TOTAL** | **101** | **24** | **101** | **226** | **45%** |
 
-**Overall ECMAScript Conformance: 99/226 features (44%)**
+**Overall ECMAScript Conformance: 101/226 features (45%)**
 
 ---
 
