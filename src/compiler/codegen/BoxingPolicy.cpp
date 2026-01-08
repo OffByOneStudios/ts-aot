@@ -212,6 +212,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
     {"ts_array_is_array",     {true}},             // (TsValue*) -> bool
+    {"ts_array_from",         {true, true, true}}, // (arrayLike, mapFn, thisArg) -> TsArray*
     
     // =========================================================================
     // Value-passing variants (_v) - pass TsValue by value, avoid heap alloc

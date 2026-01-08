@@ -294,7 +294,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Array (ES6)
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Array.from()` | ❌ | |
+| `Array.from()` | ✅ | Supports arrays, mapFn |
 | `Array.of()` | ❌ | |
 | `Array.prototype.find()` | ⚠️ | Known bug |
 | `Array.prototype.findIndex()` | ✅ | |
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 30 | 7 | 7 | 44 | 68% |
-| ES2015 | 48 | 14 | 49 | 111 | 43% |
+| ES2015 | 49 | 14 | 48 | 111 | 44% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 4 | 1 | 4 | 9 | 44% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 1 | 0 | 9 | 10 | 10% |
 | ES2023 | 0 | 0 | 8 | 8 | 0% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **90** | **24** | **112** | **226** | **40%** |
+| **TOTAL** | **91** | **24** | **111** | **226** | **40%** |
 
-**Overall ECMAScript Conformance: 90/226 features (40%)**
+**Overall ECMAScript Conformance: 91/226 features (40%)**
 
 ---
 
@@ -486,7 +486,7 @@ These features should be prioritized for implementation:
 
 ### High Priority
 6. ❌ Generator functions
-7. ❌ `Array.from()`
+7. ✅ `Array.from()` - Implemented
 8. ❌ `Array.prototype.flat()`
 9. ❌ `WeakMap` / `WeakSet`
 10. ❌ `Proxy` / `Reflect`

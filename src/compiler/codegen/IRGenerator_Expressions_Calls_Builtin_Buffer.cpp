@@ -49,11 +49,13 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle Buffer.from(data, encoding?)
-    if (prop->name == "from") {
+    // Must check it's actually Buffer.from, not Array.from or other X.from
+    auto* bufferId = dynamic_cast<ast::Identifier*>(prop->expression.get());
+    if (prop->name == "from" && bufferId && bufferId->name == "Buffer") {
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* data = lastValue;
-        
+
         llvm::Value* encoding;
         if (node->arguments.size() > 1) {
             visit(node->arguments[1].get());
@@ -61,8 +63,8 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         } else {
             encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
         }
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
             { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_string", ft);
         lastValue = createCall(ft, fn.getCallee(), { data, encoding });
@@ -70,7 +72,6 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     }
     
     // Handle Buffer.concat(list, totalLength?) - static method on Buffer
-    auto* bufferId = dynamic_cast<ast::Identifier*>(prop->expression.get());
     if (prop->name == "concat" && bufferId && bufferId->name == "Buffer") {
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
