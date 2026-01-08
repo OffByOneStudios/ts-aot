@@ -6,14 +6,18 @@ You are an expert C++ and TypeScript developer working on `ts-aot`, an Ahead-of-
 
 This is an LLVM-based ahead-of-time compiler that compiles TypeScript directly to native executables. The compiler generates optimized machine code while maintaining JavaScript semantics and Node.js API compatibility.
 
-**Current Status:** Phase 19 - Ecosystem Validation (just completed Epic 106: Golden IR Tests)
+**Current Status:** Conformance-driven development
 
 ## Essential Documentation
 
 **Read these at the start of every session:**
 - @.github/context/active_state.md - Current phase, recent accomplishments, active tasks
-- @docs/phase19/meta_epic.md - Current phase objectives and progress
-- @docs/phase19/epic_106_golden_ir_tests.md - Latest completed epic
+- @.github/instructions/conformance-workflow.instructions.md - **Feature implementation workflow**
+
+**Conformance Matrices (feature tracking):**
+- @docs/conformance/typescript-features.md - TypeScript features (174 total, 41% implemented)
+- @docs/conformance/ecmascript-features.md - ECMAScript features (223 total, 36% implemented)
+- @docs/conformance/nodejs-features.md - Node.js APIs (610 total, 20% implemented)
 
 **Reference documentation (consult as needed):**
 - @.github/DEVELOPMENT.md - Detailed development guidelines
@@ -61,19 +65,34 @@ src/
 │   └── src/           # Runtime implementation
 examples/              # Test programs
 tests/
+├── node/             # Node.js API tests (.ts and .js)
 └── golden_ir/        # Golden IR regression tests
     ├── typescript/   # Typed code tests
     └── javascript/   # Dynamic code tests
 docs/
-├── phase*/           # Phase-specific documentation
-└── roadmap/          # Long-term planning
+├── conformance/      # Feature conformance matrices
+├── tickets/          # Active implementation tickets
+│   └── archive/      # Completed tickets
+└── archive/          # Archived phase documentation
 ```
 
 ## Core Development Workflow
 
-**Follow this cycle for all development tasks:**
+### Conformance Feature Implementation
 
-1. **Context:** Read `.github/context/active_state.md` to understand current phase and tasks
+**Follow this cycle when implementing conformance features:**
+
+1. **Choose:** Pick a feature from `docs/conformance/*.md` (marked ❌ or ⚠️)
+2. **Ticket:** Create `docs/tickets/CONF-XXX-feature-name.md` with baseline test results
+3. **Implement:** Make changes to Analyzer → Codegen → Runtime
+4. **Test:** Run full test suite, verify no regressions
+5. **Archive:** Move ticket to `docs/tickets/archive/`, update conformance matrix, commit
+
+See @.github/instructions/conformance-workflow.instructions.md for detailed steps.
+
+### General Development Cycle
+
+1. **Context:** Read `.github/context/active_state.md` to understand current tasks
 2. **Plan:** Use TodoWrite tool to break down tasks
 3. **Search:** Use `/ctags-search` skill for symbol lookups
 4. **Implement:** Write code following technical constraints
@@ -82,10 +101,8 @@ docs/
    - Run compiler: `build/src/compiler/Release/ts-aot.exe examples/test.ts -o examples/test.exe`
    - Debug crashes: Use `/auto-debug` skill
    - Check types: Use `--dump-types` flag
-   - Run golden tests: Use `/golden-ir-tests` skill
-7. **Commit:** `git add . && git commit` with descriptive message referencing task
-8. **Update:** Check off completed tasks in epic markdown files
-9. **Loop:** Report completion and ask to proceed
+   - Run tests: `python tests/node/run_tests.py` and `python tests/golden_ir/runner.py`
+7. **Commit:** `git add . && git commit` with descriptive message referencing ticket
 
 ## Code Style and Standards
 
