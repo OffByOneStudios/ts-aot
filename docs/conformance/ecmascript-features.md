@@ -399,7 +399,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Promise.any()` | ✅ | |
 | `WeakRef` | ❌ | |
 | `FinalizationRegistry` | ❌ | |
-| Logical assignment (`&&=`, `\|\|=`, `??=`) | ❌ | |
+| Logical assignment (`&&=`, `\|\|=`, `??=`) | ✅ | Short-circuit semantics |
 | Numeric separators (`1_000_000`) | ✅ | |
 
 ---
@@ -427,10 +427,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Array.prototype.findLast()` | ✅ | |
 | `Array.prototype.findLastIndex()` | ✅ | |
-| `Array.prototype.toReversed()` | ❌ | |
-| `Array.prototype.toSorted()` | ❌ | |
-| `Array.prototype.toSpliced()` | ❌ | |
-| `Array.prototype.with()` | ❌ | |
+| `Array.prototype.toReversed()` | ✅ | |
+| `Array.prototype.toSorted()` | ✅ | |
+| `Array.prototype.toSpliced()` | ✅ | |
+| `Array.prototype.with()` | ✅ | |
 | Hashbang (`#!`) support | ❌ | |
 | Symbols as WeakMap keys | ❌ | |
 
@@ -463,13 +463,13 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
 | ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
-| ES2021 | 3 | 0 | 3 | 6 | 50% |
+| ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
-| ES2023 | 2 | 0 | 6 | 8 | 25% |
+| ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **125** | **24** | **77** | **226** | **55%** |
+| **TOTAL** | **130** | **24** | **72** | **226** | **58%** |
 
-**Overall ECMAScript Conformance: 125/226 features (55%)**
+**Overall ECMAScript Conformance: 130/226 features (58%)**
 
 ---
 
