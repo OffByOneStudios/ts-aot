@@ -12,6 +12,16 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    if (node->name == "Infinity") {
+        lastValue = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), false);
+        return;
+    }
+
+    if (node->name == "NaN") {
+        lastValue = llvm::ConstantFP::getNaN(builder->getDoubleTy());
+        return;
+    }
+
     if (node->name == "this") {
         if (currentAsyncFrame) {
             auto it = currentAsyncFrameMap.find("this");

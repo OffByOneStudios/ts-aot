@@ -213,7 +213,26 @@ TsString* TsString::CharAt(int64_t index) {
         char buf[2] = { data.inlineBuffer[index], 0 };
         return TsString::Create(buf);
     }
-    
+
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
+    icu::UnicodeString charStr = s->tempSubString((int32_t)index, 1);
+    std::string utf8;
+    charStr.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
+TsString* TsString::At(int64_t index) {
+    // at() supports negative indices (relative to end)
+    if (index < 0) {
+        index = length + index;
+    }
+    // Out of bounds returns undefined (represented as empty string for now)
+    if (index < 0 || index >= length) return nullptr;
+    if (isSmall) {
+        char buf[2] = { data.inlineBuffer[index], 0 };
+        return TsString::Create(buf);
+    }
+
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     icu::UnicodeString charStr = s->tempSubString((int32_t)index, 1);
     std::string utf8;
@@ -276,7 +295,48 @@ TsString* TsString::Trim() {
     else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
 
     s.trim();
-    
+
+    std::string utf8;
+    s.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
+TsString* TsString::TrimStart() {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    // Find first non-whitespace character
+    int32_t start = 0;
+    int32_t len = s.length();
+    while (start < len && u_isWhitespace(s.charAt(start))) {
+        start++;
+    }
+
+    if (start == 0) return this; // No leading whitespace
+
+    s.remove(0, start);
+
+    std::string utf8;
+    s.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
+TsString* TsString::TrimEnd() {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    // Find last non-whitespace character
+    int32_t end = s.length();
+    while (end > 0 && u_isWhitespace(s.charAt(end - 1))) {
+        end--;
+    }
+
+    if (end == s.length()) return this; // No trailing whitespace
+
+    s.truncate(end);
+
     std::string utf8;
     s.toUTF8String(utf8);
     return TsString::Create(utf8.c_str());
@@ -727,6 +787,12 @@ extern "C" {
         return ((TsString*)str)->CharAt(index);
     }
 
+    void* ts_string_at(void* str, int64_t index) {
+        TsString* result = ((TsString*)str)->At(index);
+        if (!result) return ts_value_make_undefined();
+        return result;
+    }
+
     void* ts_string_concat(void* a, void* b) {
         return TsString::Concat((TsString*)a, (TsString*)b);
     }
@@ -737,6 +803,14 @@ extern "C" {
 
     void* ts_string_trim(void* str) {
         return ((TsString*)str)->Trim();
+    }
+
+    void* ts_string_trimStart(void* str) {
+        return ((TsString*)str)->TrimStart();
+    }
+
+    void* ts_string_trimEnd(void* str) {
+        return ((TsString*)str)->TrimEnd();
     }
 
     void* ts_string_substring(void* str, int64_t start, int64_t end) {

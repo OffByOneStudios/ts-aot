@@ -321,6 +321,38 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     return -1;
 }
 
+TsValue* TsArray::FindLast(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
+
+    for (size_t i = length; i > 0; --i) {
+        size_t idx = i - 1;
+        TsValue* v = (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+        TsValue* idxVal = ts_value_make_int(idx);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
+        if (res->type == ValueType::BOOLEAN && res->b_val) {
+            return (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+        }
+    }
+    return ts_value_make_undefined();
+}
+
+int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
+    TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
+
+    for (size_t i = length; i > 0; --i) {
+        size_t idx = i - 1;
+        TsValue* v = (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+        TsValue* idxVal = ts_value_make_int(idx);
+        TsValue* arr = ts_value_make_object(this);
+        TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
+        if (res->type == ValueType::BOOLEAN && res->b_val) return (int64_t)idx;
+    }
+    return -1;
+}
+
 int64_t TsArray::At(int64_t index) {
     if (index < 0) index = length + index;
     if (index < 0 || index >= (int64_t)length) return 0;
@@ -629,6 +661,14 @@ extern "C" {
         return ((TsArray*)arr)->FindIndex(callback, thisArg);
     }
 
+    TsValue* ts_array_findLast(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->FindLast(callback, thisArg);
+    }
+
+    int64_t ts_array_findLastIndex(void* arr, void* callback, void* thisArg) {
+        return ((TsArray*)arr)->FindLastIndex(callback, thisArg);
+    }
+
     void ts_array_concat(void* arr, void* other) {
         TsArray* target = (TsArray*)arr;
         TsArray* source = (TsArray*)other;
@@ -868,5 +908,28 @@ extern "C" {
     int64_t __ts_array_length(void* arr) {
         if (!arr) return 0;
         return ((TsArray*)arr)->Length();
+    }
+
+    // Fill array with a value from start to end index
+    // Returns the modified array (for chaining)
+    void* ts_array_fill(void* arr, void* value, int64_t start, int64_t end) {
+        if (!arr) return arr;
+
+        TsArray* array = (TsArray*)arr;
+        int64_t len = (int64_t)array->Length();
+
+        // Handle negative indices and clamp to valid range
+        if (start < 0) start = std::max((int64_t)0, len + start);
+        if (end < 0) end = std::max((int64_t)0, len + end);
+        if (start >= len) return arr;
+        if (end > len) end = len;
+        if (start >= end) return arr;
+
+        // Fill the range with the value
+        for (int64_t i = start; i < end; i++) {
+            array->Set(i, (int64_t)value);
+        }
+
+        return arr;
     }
 }

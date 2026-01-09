@@ -167,6 +167,7 @@ extern "C" {
     TsValue* ts_object_keys(TsValue* obj);
     TsValue* ts_object_values(TsValue* obj);
     TsValue* ts_object_entries(TsValue* obj);
+    bool ts_object_is(TsValue* val1, TsValue* val2);
     TsValue* ts_object_assign(TsValue* target, TsValue* source);
     bool ts_object_has_own(TsValue* obj, TsValue* prop);
     TsValue* ts_object_from_entries(TsValue* entries);

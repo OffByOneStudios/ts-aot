@@ -80,4 +80,10 @@ int32_t ts_math_clz32(int32_t a) {
 #endif
 }
 
+int32_t ts_math_imul(int32_t a, int32_t b) {
+    // C-style multiplication that matches JavaScript's Math.imul semantics
+    // Returns the result of the C-like 32-bit multiplication of the two parameters
+    return a * b;
+}
+
 }

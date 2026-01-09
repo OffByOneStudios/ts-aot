@@ -45,6 +45,8 @@ public:
     bool Every(void* callback, void* thisArg = nullptr);
     struct TaggedValue* Find(void* callback, void* thisArg = nullptr);
     int64_t FindIndex(void* callback, void* thisArg = nullptr);
+    struct TaggedValue* FindLast(void* callback, void* thisArg = nullptr);
+    int64_t FindLastIndex(void* callback, void* thisArg = nullptr);
 
 private:
     TsArray(size_t initialCapacity, size_t elementSize = 8);
@@ -97,8 +99,11 @@ extern "C" {
     bool ts_array_every(void* arr, void* callback, void* thisArg);
     struct TaggedValue* ts_array_find(void* arr, void* callback, void* thisArg);
     int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg);
+    struct TaggedValue* ts_array_findLast(void* arr, void* callback, void* thisArg);
+    int64_t ts_array_findLastIndex(void* arr, void* callback, void* thisArg);
     bool ts_array_is_array(void* value);
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg);
+    void* ts_array_fill(void* arr, void* value, int64_t start, int64_t end);
 
     // Value-based API variants
     void ts_array_set_v(void* arr, int64_t index, TsValue value);

@@ -186,6 +186,47 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     }
                     lastValue = createCall(sliceFt, sliceFn.getCallee(), { arrObj, start, end });
                     return;
+                } else if (methodName == "fill") {
+                    // arr.fill(value, start?, end?)
+                    llvm::FunctionType* fillFt = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fillFn = getRuntimeFunction("ts_array_fill", fillFt);
+
+                    // Get value to fill (required)
+                    llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    if (!node->arguments.empty()) {
+                        visit(node->arguments[0].get());
+                        value = lastValue;
+                        // Box the value
+                        if (node->arguments[0]->inferredType) {
+                            value = boxValue(value, node->arguments[0]->inferredType);
+                        } else if (!value->getType()->isPointerTy()) {
+                            value = builder->CreateIntToPtr(value, builder->getPtrTy());
+                        }
+                    }
+
+                    // Start index (optional, defaults to 0)
+                    llvm::Value* start = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+                    if (node->arguments.size() >= 2) {
+                        visit(node->arguments[1].get());
+                        start = lastValue;
+                        if (start->getType()->isDoubleTy()) {
+                            start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+                        }
+                    }
+
+                    // End index (optional, defaults to array length - use large number)
+                    llvm::Value* end = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), INT64_MAX);
+                    if (node->arguments.size() >= 3) {
+                        visit(node->arguments[2].get());
+                        end = lastValue;
+                        if (end->getType()->isDoubleTy()) {
+                            end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+                        }
+                    }
+
+                    lastValue = createCall(fillFt, fillFn.getCallee(), { arrObj, value, start, end });
+                    return;
                 } else if (methodName == "forEach" || methodName == "map" || methodName == "filter" || methodName == "some" || methodName == "every" || methodName == "find" || methodName == "findIndex") {
                     std::string fnName = "ts_array_" + methodName;
                     llvm::Type* retTy = builder->getPtrTy();
@@ -255,6 +296,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     llvm::FunctionType* trimFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                     llvm::FunctionCallee trimFn = getRuntimeFunction("ts_string_trim", trimFt);
                     lastValue = createCall(trimFt, trimFn.getCallee(), { strObj });
+                    return;
+                } else if (methodName == "trimStart" || methodName == "trimLeft") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_string_trimStart", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { strObj });
+                    return;
+                } else if (methodName == "trimEnd" || methodName == "trimRight") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_string_trimEnd", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { strObj });
                     return;
                 } else if (methodName == "substring" || methodName == "slice") {
                     llvm::FunctionType* subFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);

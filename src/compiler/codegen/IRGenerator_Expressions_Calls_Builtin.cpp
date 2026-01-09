@@ -48,6 +48,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     // ========== String methods ==========
     bp.registerRuntimeApi("ts_string_length", {false}, false);  // str -> int
     bp.registerRuntimeApi("ts_string_charAt", {false, false}, false);  // str, index -> string
+    bp.registerRuntimeApi("ts_string_at", {false, false}, false);  // str, index -> string (supports negative indices)
     bp.registerRuntimeApi("ts_string_charCodeAt", {false, false}, false);  // str, index -> int
     bp.registerRuntimeApi("ts_string_includes", {false, false, false}, false);  // str, search, position -> bool
     bp.registerRuntimeApi("ts_string_indexOf", {false, false, false}, false);  // str, search, start -> int
@@ -56,6 +57,8 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_toLowerCase", {false}, false);
     bp.registerRuntimeApi("ts_string_toUpperCase", {false}, false);
     bp.registerRuntimeApi("ts_string_trim", {false}, false);
+    bp.registerRuntimeApi("ts_string_trimStart", {false}, false);
+    bp.registerRuntimeApi("ts_string_trimEnd", {false}, false);
     bp.registerRuntimeApi("ts_string_split", {false, false}, true);  // str, separator -> array
     bp.registerRuntimeApi("ts_string_split_regexp", {false, true}, true);  // str, regexp
     bp.registerRuntimeApi("ts_string_replace", {false, false, false}, false);  // str, search, replacement
@@ -103,6 +106,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_math_clz32", {false}, false);
     bp.registerRuntimeApi("ts_math_fround", {false}, false);
     bp.registerRuntimeApi("ts_math_hypot", {true}, false);  // array of numbers
+    bp.registerRuntimeApi("ts_math_imul", {false, false}, false);  // (a, b) -> i32
     
     // ========== JSON ==========
     bp.registerRuntimeApi("ts_json_parse", {false}, true);  // string -> boxed
@@ -200,10 +204,29 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* obj = boxValue(lastValue, node->arguments[0]->inferredType);
-                
+
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_object_keys", ft);
                 lastValue = createCall(ft, fn.getCallee(), { obj });
+                return true;
+            } else if (prop->name == "is") {
+                // Object.is(value1, value2) - ES6 SameValue comparison
+                // Differs from === in that:
+                // - Object.is(NaN, NaN) returns true
+                // - Object.is(0, -0) returns false
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* val1 = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* val2 = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_is", ft);
+                lastValue = createCall(ft, fn.getCallee(), { val1, val2 });
                 return true;
             }
         }
@@ -221,10 +244,123 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* sym = lastValue;
-                
+
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_symbol_key_for", ft);
                 lastValue = createCall(ft, fn.getCallee(), { sym });
+                return true;
+            }
+        }
+        if (id->name == "Number") {
+            if (prop->name == "isFinite") {
+                // Number.isFinite(value) - returns true if value is finite (not NaN, not Infinity)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* val = castValue(lastValue, builder->getDoubleTy());
+
+                // A number is finite if it's not NaN and not infinite
+                // Check: val == val (false for NaN) && val != Infinity && val != -Infinity
+                llvm::Value* isNotNaN = builder->CreateFCmpOEQ(val, val);
+                llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), false);
+                llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), true);
+                llvm::Value* notPosInf = builder->CreateFCmpONE(val, posInf);
+                llvm::Value* notNegInf = builder->CreateFCmpONE(val, negInf);
+
+                lastValue = builder->CreateAnd(isNotNaN, builder->CreateAnd(notPosInf, notNegInf));
+                return true;
+            } else if (prop->name == "isNaN") {
+                // Number.isNaN(value) - returns true only if value is NaN
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* val = castValue(lastValue, builder->getDoubleTy());
+
+                // NaN is the only value that is not equal to itself
+                lastValue = builder->CreateFCmpUNO(val, val);
+                return true;
+            } else if (prop->name == "isInteger") {
+                // Number.isInteger(value) - returns true if value is an integer
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* val = castValue(lastValue, builder->getDoubleTy());
+
+                // isInteger: value is finite and floor(value) == value
+                llvm::Value* isNotNaN = builder->CreateFCmpOEQ(val, val);
+                llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), false);
+                llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), true);
+                llvm::Value* notPosInf = builder->CreateFCmpONE(val, posInf);
+                llvm::Value* notNegInf = builder->CreateFCmpONE(val, negInf);
+                llvm::Value* isFinite = builder->CreateAnd(isNotNaN, builder->CreateAnd(notPosInf, notNegInf));
+
+                // Check floor(val) == val using intrinsic
+                llvm::Function* floorFn = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::floor, {builder->getDoubleTy()});
+                llvm::Value* floorVal = builder->CreateCall(floorFn, {val});
+                llvm::Value* isWholeNumber = builder->CreateFCmpOEQ(val, floorVal);
+
+                lastValue = builder->CreateAnd(isFinite, isWholeNumber);
+                return true;
+            } else if (prop->name == "isSafeInteger") {
+                // Number.isSafeInteger(value) - returns true if value is a safe integer (-2^53+1 to 2^53-1)
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* val = castValue(lastValue, builder->getDoubleTy());
+
+                // First check if it's an integer
+                llvm::Value* isNotNaN = builder->CreateFCmpOEQ(val, val);
+                llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), false);
+                llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), true);
+                llvm::Value* notPosInf = builder->CreateFCmpONE(val, posInf);
+                llvm::Value* notNegInf = builder->CreateFCmpONE(val, negInf);
+                llvm::Value* isFinite = builder->CreateAnd(isNotNaN, builder->CreateAnd(notPosInf, notNegInf));
+
+                llvm::Function* floorFn = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::floor, {builder->getDoubleTy()});
+                llvm::Value* floorVal = builder->CreateCall(floorFn, {val});
+                llvm::Value* isWholeNumber = builder->CreateFCmpOEQ(val, floorVal);
+                llvm::Value* isInteger = builder->CreateAnd(isFinite, isWholeNumber);
+
+                // Check range: -9007199254740991 <= val <= 9007199254740991 (2^53 - 1)
+                llvm::Value* maxSafe = llvm::ConstantFP::get(builder->getDoubleTy(), 9007199254740991.0);
+                llvm::Value* minSafe = llvm::ConstantFP::get(builder->getDoubleTy(), -9007199254740991.0);
+                llvm::Value* leMax = builder->CreateFCmpOLE(val, maxSafe);
+                llvm::Value* geMin = builder->CreateFCmpOGE(val, minSafe);
+                llvm::Value* inRange = builder->CreateAnd(leMax, geMin);
+
+                lastValue = builder->CreateAnd(isInteger, inRange);
+                return true;
+            } else if (prop->name == "MAX_SAFE_INTEGER") {
+                lastValue = llvm::ConstantInt::get(builder->getInt64Ty(), 9007199254740991LL);
+                return true;
+            } else if (prop->name == "MIN_SAFE_INTEGER") {
+                lastValue = llvm::ConstantInt::get(builder->getInt64Ty(), -9007199254740991LL);
+                return true;
+            } else if (prop->name == "POSITIVE_INFINITY") {
+                lastValue = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), false);
+                return true;
+            } else if (prop->name == "NEGATIVE_INFINITY") {
+                lastValue = llvm::ConstantFP::getInfinity(builder->getDoubleTy(), true);
+                return true;
+            } else if (prop->name == "NaN") {
+                lastValue = llvm::ConstantFP::getNaN(builder->getDoubleTy());
+                return true;
+            } else if (prop->name == "EPSILON") {
+                lastValue = llvm::ConstantFP::get(builder->getDoubleTy(), 2.220446049250313e-16);
+                return true;
+            } else if (prop->name == "MAX_VALUE") {
+                lastValue = llvm::ConstantFP::get(builder->getDoubleTy(), 1.7976931348623157e+308);
+                return true;
+            } else if (prop->name == "MIN_VALUE") {
+                lastValue = llvm::ConstantFP::get(builder->getDoubleTy(), 5e-324);
                 return true;
             }
         }
@@ -1063,6 +1199,32 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
                 }
                 return true;
+            } else if (prop->name == "imul") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* arg1 = lastValue;
+                visit(node->arguments[1].get());
+                llvm::Value* arg2 = lastValue;
+                // Convert to i32
+                if (arg1->getType()->isDoubleTy()) {
+                    arg1 = builder->CreateFPToSI(arg1, llvm::Type::getInt32Ty(*context));
+                } else if (arg1->getType()->isIntegerTy(64)) {
+                    arg1 = builder->CreateTrunc(arg1, llvm::Type::getInt32Ty(*context));
+                }
+                if (arg2->getType()->isDoubleTy()) {
+                    arg2 = builder->CreateFPToSI(arg2, llvm::Type::getInt32Ty(*context));
+                } else if (arg2->getType()->isIntegerTy(64)) {
+                    arg2 = builder->CreateTrunc(arg2, llvm::Type::getInt32Ty(*context));
+                }
+                llvm::FunctionType* imulFt = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context),
+                        { llvm::Type::getInt32Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_math_imul", imulFt);
+                lastValue = createCall(imulFt, fn.getCallee(), { arg1, arg2 });
+                lastValue = builder->CreateSExt(lastValue, llvm::Type::getInt64Ty(*context));
+                if (!node->inferredType || node->inferredType->kind != TypeKind::Int) {
+                    lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+                }
+                return true;
             }
         } else if (obj->name == "Date") {
             if (prop->name == "now") {
@@ -1503,6 +1665,34 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionCallee fromFn = getRuntimeFunction("ts_array_from", fromFt);
                 lastValue = createCall(fromFt, fromFn.getCallee(), { arrayLike, mapFn, thisArg });
                 return true;
+            } else if (prop->name == "of") {
+                // Array.of(...items) - create array from arguments
+                // First create an empty array
+                llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+                llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
+
+                // Push each argument onto the array
+                llvm::FunctionType* pushFt = llvm::FunctionType::get(builder->getVoidTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+
+                for (size_t i = 0; i < node->arguments.size(); i++) {
+                    visit(node->arguments[i].get());
+                    llvm::Value* val = lastValue;
+
+                    // Box the value
+                    if (node->arguments[i]->inferredType) {
+                        val = boxValue(val, node->arguments[i]->inferredType);
+                    } else if (!val->getType()->isPointerTy()) {
+                        val = builder->CreateIntToPtr(val, builder->getPtrTy());
+                    }
+
+                    createCall(pushFt, pushFn.getCallee(), { arr, val });
+                }
+
+                lastValue = arr;
+                return true;
             }
         }
     }
@@ -1528,25 +1718,26 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          
          lastValue = createCall(charCodeAtFt, fn.getCallee(), { obj, index });
          return true;
-    } else if (prop->name == "charAt") {
+    } else if (prop->name == "charAt" || prop->name == "at") {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
          llvm::Value* index = lastValue;
-         
+
          if (index->getType()->isDoubleTy()) {
              index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
          }
 
+         std::string fnName = (prop->name == "at") ? "ts_string_at" : "ts_string_charAt";
          llvm::FunctionType* charAtFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-         llvm::FunctionCallee fn = getRuntimeFunction("ts_string_charAt", charAtFt);
-         
+         llvm::FunctionCallee fn = getRuntimeFunction(fnName, charAtFt);
+
          lastValue = createCall(charAtFt, fn.getCallee(), { obj, index });
          return true;
     } else if (prop->name == "split") {
@@ -1583,11 +1774,35 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          llvm::FunctionType* trimFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = getRuntimeFunction("ts_string_trim", trimFt);
          lastValue = createCall(trimFt, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "trimStart" || prop->name == "trimLeft") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_string_trimStart", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "trimEnd" || prop->name == "trimRight") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_string_trimEnd", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
          return true;
     } else if (prop->name == "startsWith") {
          visit(prop->expression.get());
@@ -1701,6 +1916,80 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
          llvm::FunctionCallee fn = getRuntimeFunction("ts_array_slice", sliceFt);
          lastValue = createCall(sliceFt, fn.getCallee(), { obj, start, end });
+         return true;
+    } else if (prop->name == "fill" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // arr.fill(value, start?, end?)
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         // Get the array's element type to determine storage format
+         auto arrType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType);
+         std::shared_ptr<Type> elemType = arrType->elementType;
+
+         // Value argument (required)
+         llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+         if (node->arguments.size() >= 1) {
+             visit(node->arguments[0].get());
+             llvm::Value* val = lastValue;
+             std::shared_ptr<Type> argType = node->arguments[0]->inferredType;
+
+             // For specialized arrays (int[], double[]), store raw values without boxing
+             // This matches how push() handles specialized storage
+             if (elemType->kind == TypeKind::Int) {
+                 // For int arrays, cast the value to i64 then to ptr (raw storage)
+                 if (val->getType()->isPointerTy()) {
+                     val = unboxValue(val, elemType);
+                 }
+                 if (!val->getType()->isIntegerTy(64)) {
+                     val = builder->CreateIntCast(val, builder->getInt64Ty(), true);
+                 }
+                 value = builder->CreateIntToPtr(val, builder->getPtrTy());
+             } else if (elemType->kind == TypeKind::Double) {
+                 // For double arrays, bitcast double to i64 then to ptr
+                 if (val->getType()->isPointerTy()) {
+                     val = unboxValue(val, elemType);
+                 }
+                 llvm::Value* asInt = builder->CreateBitCast(val, builder->getInt64Ty());
+                 value = builder->CreateIntToPtr(asInt, builder->getPtrTy());
+             } else {
+                 // For all other types (Any, Class, String, etc.), box the value
+                 value = boxValue(val, argType);
+             }
+         }
+
+         // Start argument (default 0)
+         llvm::Value* start = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+         if (node->arguments.size() >= 2) {
+             visit(node->arguments[1].get());
+             start = lastValue;
+             if (start->getType()->isDoubleTy()) {
+                 start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+             }
+         }
+
+         // End argument (default length)
+         llvm::Value* end = nullptr;
+         if (node->arguments.size() >= 3) {
+             visit(node->arguments[2].get());
+             end = lastValue;
+             if (end->getType()->isDoubleTy()) {
+                 end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+             }
+         } else {
+             // Default end to length
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = getRuntimeFunction("ts_array_length", lenFt);
+             end = createCall(lenFt, lenFn.getCallee(), { obj });
+         }
+
+         llvm::FunctionType* fillFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fillFn = getRuntimeFunction("ts_array_fill", fillFt);
+         lastValue = createCall(fillFt, fillFn.getCallee(), { obj, value, start, end });
          return true;
     } else if (prop->name == "at" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
@@ -2166,35 +2455,35 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          }
          lastValue = obj;  // sort() returns the array for chaining
          return true;
-    } else if ((prop->name == "forEach" || prop->name == "map" || prop->name == "filter" || prop->name == "some" || prop->name == "every" || prop->name == "find" || prop->name == "findIndex" || prop->name == "flatMap") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+    } else if ((prop->name == "forEach" || prop->name == "map" || prop->name == "filter" || prop->name == "some" || prop->name == "every" || prop->name == "find" || prop->name == "findIndex" || prop->name == "findLast" || prop->name == "findLastIndex" || prop->name == "flatMap") && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          if (node->arguments.empty()) return true;
          visit(node->arguments[0].get());
          llvm::Value* callback = boxValue(lastValue, node->arguments[0]->inferredType);
-         
+
          llvm::Value* thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
          if (node->arguments.size() > 1) {
              visit(node->arguments[1].get());
              thisArg = boxValue(lastValue, node->arguments[1]->inferredType);
          }
-         
+
          std::string fnName = "ts_array_" + prop->name;
          llvm::Type* retTy = builder->getPtrTy();
          if (prop->name == "forEach") retTy = llvm::Type::getVoidTy(*context);
          else if (prop->name == "some" || prop->name == "every") retTy = llvm::Type::getInt1Ty(*context);
-         else if (prop->name == "findIndex") retTy = llvm::Type::getInt64Ty(*context);
+         else if (prop->name == "findIndex" || prop->name == "findLastIndex") retTy = llvm::Type::getInt64Ty(*context);
 
          llvm::FunctionType* arrayFt = llvm::FunctionType::get(retTy,
                  { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, arrayFt);
          lastValue = createCall(arrayFt, fn.getCallee(), { obj, callback, thisArg });
-         
-         if (prop->name == "find") {
+
+         if (prop->name == "find" || prop->name == "findLast") {
              std::shared_ptr<Type> elemType = std::make_shared<Type>(TypeKind::Any);
              if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
                  elemType = std::static_pointer_cast<ArrayType>(prop->expression->inferredType)->elementType;

@@ -364,13 +364,13 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "some" || prop->name == "every") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
-        } else if (prop->name == "find") {
+        } else if (prop->name == "find" || prop->name == "findLast") {
              visit(prop->expression.get());
              if (lastType->kind == TypeKind::Array) {
                  lastType = std::static_pointer_cast<ArrayType>(lastType)->elementType;
              }
              return;
-        } else if (prop->name == "findIndex") {
+        } else if (prop->name == "findIndex" || prop->name == "findLastIndex") {
              lastType = std::make_shared<Type>(TypeKind::Int);
              return;
         } else if (prop->name == "flat" || prop->name == "flatMap") {
@@ -379,6 +379,10 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "slice") {
              visit(prop->expression.get());
              // lastType is now the type of the array, which is what slice returns
+             return;
+        } else if (prop->name == "fill") {
+             visit(prop->expression.get());
+             // fill() returns the modified array
              return;
         } else if (prop->name == "join") {
              lastType = std::make_shared<Type>(TypeKind::String);
@@ -411,7 +415,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         // Check for Math methods
         if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
             if (obj->name == "Math") {
-                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round" || prop->name == "clz32") {
+                if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round" || prop->name == "clz32" || prop->name == "imul") {
                     lastType = std::make_shared<Type>(TypeKind::Int);
                     return;
                 } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random" ||

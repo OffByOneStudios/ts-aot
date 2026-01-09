@@ -92,6 +92,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
              visit(prop->expression.get());
              // lastType is now the type of the array, which is what slice returns
              return;
+        } else if (prop->name == "fill") {
+             visit(prop->expression.get());
+             // fill() returns the modified array
+             return;
         } else if (prop->name == "join") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
@@ -540,6 +544,17 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             sliceFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
             sliceFn->returnType = objType;
             lastType = sliceFn;
+            return;
+        } else if (node->name == "fill") {
+            auto fillFn = std::make_shared<FunctionType>();
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // start
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // end
+            fillFn->isOptional.push_back(false);
+            fillFn->isOptional.push_back(true);
+            fillFn->isOptional.push_back(true);
+            fillFn->returnType = objType;
+            lastType = fillFn;
             return;
         }
     }

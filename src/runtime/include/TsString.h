@@ -22,8 +22,11 @@ public:
     int64_t Length();
     int64_t CharCodeAt(int64_t index);
     TsString* CharAt(int64_t index);
+    TsString* At(int64_t index);
     void* Split(TsString* separator);
     TsString* Trim();
+    TsString* TrimStart();
+    TsString* TrimEnd();
     TsString* Substring(int64_t start, int64_t end);
     TsString* Slice(int64_t start, int64_t end);
     TsString* Repeat(int64_t count);
@@ -70,9 +73,12 @@ extern "C" {
     int64_t ts_string_length(void* str);
     int64_t ts_string_charCodeAt(void* str, int64_t index);
     void* ts_string_charAt(void* str, int64_t index);
+    void* ts_string_at(void* str, int64_t index);
     void* ts_string_split(void* str, void* separator);
     void* ts_string_split_regexp(void* str, void* regexp);
     void* ts_string_trim(void* str);
+    void* ts_string_trimStart(void* str);
+    void* ts_string_trimEnd(void* str);
     void* ts_string_substring(void* str, int64_t start, int64_t end);
     void* ts_string_slice(void* str, int64_t start, int64_t end);
     void* ts_string_repeat(void* str, int64_t count);

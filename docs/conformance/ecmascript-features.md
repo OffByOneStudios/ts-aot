@@ -245,13 +245,13 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Number
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Number.isFinite()` | ❌ | |
-| `Number.isNaN()` | ❌ | |
-| `Number.isInteger()` | ❌ | |
-| `Number.isSafeInteger()` | ❌ | |
-| `Number.EPSILON` | ❌ | |
-| `Number.MAX_SAFE_INTEGER` | ❌ | |
-| `Number.MIN_SAFE_INTEGER` | ❌ | |
+| `Number.isFinite()` | ✅ | |
+| `Number.isNaN()` | ✅ | |
+| `Number.isInteger()` | ✅ | |
+| `Number.isSafeInteger()` | ✅ | |
+| `Number.EPSILON` | ✅ | |
+| `Number.MAX_SAFE_INTEGER` | ✅ | |
+| `Number.MIN_SAFE_INTEGER` | ✅ | |
 | Binary literals (`0b`) | ✅ | |
 | Octal literals (`0o`) | ✅ | |
 
@@ -277,7 +277,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Math.hypot()` | ✅ | |
 | `Math.fround()` | ✅ | |
 | `Math.clz32()` | ✅ | |
-| `Math.imul()` | ❌ | |
+| `Math.imul()` | ✅ | |
 
 ### String (ES6)
 | Feature | Status | Notes |
@@ -295,10 +295,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `Array.from()` | ✅ | Supports arrays, mapFn |
-| `Array.of()` | ❌ | |
+| `Array.of()` | ✅ | |
 | `Array.prototype.find()` | ⚠️ | Known bug |
 | `Array.prototype.findIndex()` | ✅ | |
-| `Array.prototype.fill()` | ❌ | |
+| `Array.prototype.fill()` | ✅ | |
 | `Array.prototype.copyWithin()` | ❌ | |
 | `Array.prototype.entries()` | ❌ | |
 | `Array.prototype.keys()` | ❌ | |
@@ -308,7 +308,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `Object.assign()` | ⚠️ | Works but property access on result crashes compiler |
-| `Object.is()` | ❌ | |
+| `Object.is()` | ✅ | SameValue comparison (NaN=NaN, 0≠-0) |
 | `Object.setPrototypeOf()` | ❌ | |
 
 ### RegExp (ES6)
@@ -366,8 +366,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.flat()` | ✅ | |
 | `Array.prototype.flatMap()` | ✅ | |
 | `Object.fromEntries()` | ✅ | |
-| `String.prototype.trimStart()` | ❌ | |
-| `String.prototype.trimEnd()` | ❌ | |
+| `String.prototype.trimStart()` | ✅ | Also supports trimLeft alias |
+| `String.prototype.trimEnd()` | ✅ | Also supports trimRight alias |
 | Optional catch binding | ❌ | |
 | `Symbol.prototype.description` | ❌ | |
 | Well-formed `JSON.stringify` | ✅ | |
@@ -414,8 +414,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Private methods | ❌ | |
 | Static class blocks | ❌ | |
 | `Array.prototype.at()` | ✅ | |
-| `String.prototype.at()` | ❌ | |
-| `Object.hasOwn()` | ❌ | |
+| `String.prototype.at()` | ✅ | Supports negative indices |
+| `Object.hasOwn()` | ✅ | |
 | RegExp match indices (`d` flag) | ❌ | |
 | Error `.cause` property | ❌ | |
 
@@ -425,8 +425,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Array.prototype.findLast()` | ❌ | |
-| `Array.prototype.findLastIndex()` | ❌ | |
+| `Array.prototype.findLast()` | ✅ | |
+| `Array.prototype.findLastIndex()` | ✅ | |
 | `Array.prototype.toReversed()` | ❌ | |
 | `Array.prototype.toSorted()` | ❌ | |
 | `Array.prototype.toSpliced()` | ❌ | |
@@ -457,19 +457,19 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 30 | 7 | 7 | 44 | 68% |
-| ES2015 | 59 | 14 | 38 | 111 | 53% |
+| ES2015 | 70 | 14 | 27 | 111 | 63% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 6 | 1 | 2 | 9 | 67% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
-| ES2019 | 4 | 0 | 5 | 9 | 44% |
+| ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
 | ES2021 | 3 | 0 | 3 | 6 | 50% |
-| ES2022 | 2 | 0 | 8 | 10 | 20% |
-| ES2023 | 0 | 0 | 8 | 8 | 0% |
+| ES2022 | 3 | 0 | 7 | 10 | 30% |
+| ES2023 | 2 | 0 | 6 | 8 | 25% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **109** | **24** | **93** | **226** | **48%** |
+| **TOTAL** | **125** | **24** | **77** | **226** | **55%** |
 
-**Overall ECMAScript Conformance: 109/226 features (48%)**
+**Overall ECMAScript Conformance: 125/226 features (55%)**
 
 ---
 
