@@ -119,10 +119,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Destructuring
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Array destructuring | ❌ | Compilation error |
-| Object destructuring | ❌ | Compilation error |
-| Default values | ❌ | |
-| Rest elements | ❌ | |
+| Array destructuring | ✅ | |
+| Object destructuring | ✅ | |
+| Default values | ✅ | |
+| Rest elements | ✅ | Array rest only |
 | Nested destructuring | ❌ | |
 | Parameter destructuring | ❌ | |
 
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 30 | 7 | 7 | 44 | 68% |
-| ES2015 | 70 | 14 | 27 | 111 | 63% |
+| ES2015 | 74 | 14 | 23 | 111 | 67% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 6 | 1 | 2 | 9 | 67% |
 | ES2018 | 1 | 0 | 7 | 8 | 13% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **130** | **24** | **72** | **226** | **58%** |
+| **TOTAL** | **134** | **24** | **68** | **226** | **59%** |
 
-**Overall ECMAScript Conformance: 130/226 features (58%)**
+**Overall ECMAScript Conformance: 134/226 features (59%)**
 
 ---
 
@@ -478,7 +478,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 These features should be prioritized for implementation:
 
 ### Critical (Blocking Real-World Code)
-1. ❌ Destructuring (array and object)
+1. ✅ Destructuring (array and object) - Implemented
 2. ✅ Optional chaining (`?.`) - Property access implemented
 3. ✅ Nullish coalescing (`??`) - Implemented
 4. ❌ Object spread (`{...obj}`)

@@ -131,7 +131,10 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
         for (size_t i = 0; i < node->elements.size(); ++i) {
             visit(node->elements[i].get());
             llvm::Value* val = lastValue;
-            
+
+            // Cast value to match element type
+            val = castValue(val, llvmElemType);
+
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i) });
             builder->CreateStore(val, ptr);
         }
