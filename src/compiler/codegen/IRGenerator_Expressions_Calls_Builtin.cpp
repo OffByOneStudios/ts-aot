@@ -2430,6 +2430,162 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(reverseFt, fn.getCallee(), { obj });
          lastValue = obj;  // reverse() returns the array for chaining
          return true;
+    } else if (prop->name == "toReversed" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // ES2023 toReversed() - returns new reversed array
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_toReversed", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "toSorted" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // ES2023 toSorted() - returns new sorted array
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_toSorted", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "toSpliced" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // ES2023 toSpliced(start, deleteCount, ...items) - returns new array with splice applied
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         // Get start (required)
+         llvm::Value* start = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+         if (node->arguments.size() > 0) {
+             visit(node->arguments[0].get());
+             start = lastValue;
+             if (start->getType()->isDoubleTy()) {
+                 start = builder->CreateFPToSI(start, builder->getInt64Ty());
+             }
+         }
+
+         // Get deleteCount (optional, defaults to array length - start)
+         llvm::Value* deleteCount = llvm::ConstantInt::get(builder->getInt64Ty(), INT64_MAX);
+         if (node->arguments.size() > 1) {
+             visit(node->arguments[1].get());
+             deleteCount = lastValue;
+             if (deleteCount->getType()->isDoubleTy()) {
+                 deleteCount = builder->CreateFPToSI(deleteCount, builder->getInt64Ty());
+             }
+         }
+
+         // Collect remaining arguments as items to insert
+         llvm::Value* itemsPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+         llvm::Value* itemCount = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+
+         if (node->arguments.size() > 2) {
+             size_t numItems = node->arguments.size() - 2;
+
+             // Determine if array is a number[] (specialized double array)
+             auto arrType = std::dynamic_pointer_cast<ArrayType>(prop->expression->inferredType);
+             bool isDoubleArray = arrType && arrType->elementType &&
+                                  arrType->elementType->kind == TypeKind::Double;
+
+             // Create a temporary array for items (use ts_array_create with length=0 so Push works)
+             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
+                     {}, false);  // No arguments for ts_array_create
+             llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+             itemsPtr = createCall(createFt, createFn.getCallee(),
+                     {});  // No arguments needed
+
+             for (size_t i = 2; i < node->arguments.size(); ++i) {
+                 visit(node->arguments[i].get());
+                 llvm::Value* item = lastValue;
+
+                 // Convert value to int64 for storage
+                 llvm::Value* itemAsInt64;
+                 if (item->getType()->isPointerTy()) {
+                     itemAsInt64 = builder->CreatePtrToInt(item, builder->getInt64Ty());
+                 } else if (item->getType()->isDoubleTy()) {
+                     // Bitcast double to int64 to preserve bit pattern
+                     itemAsInt64 = builder->CreateBitCast(item, builder->getInt64Ty());
+                 } else if (item->getType()->isIntegerTy(64) && isDoubleArray) {
+                     // For number[] arrays, convert int to double first, then bitcast
+                     llvm::Value* asDouble = builder->CreateSIToFP(item, builder->getDoubleTy());
+                     itemAsInt64 = builder->CreateBitCast(asDouble, builder->getInt64Ty());
+                 } else if (item->getType()->isIntegerTy()) {
+                     itemAsInt64 = builder->CreateZExtOrBitCast(item, builder->getInt64Ty());
+                 } else {
+                     itemAsInt64 = item;
+                 }
+
+                 llvm::Value* itemAsPtr = builder->CreateIntToPtr(itemAsInt64, builder->getPtrTy());
+                 llvm::FunctionType* pushFt = llvm::FunctionType::get(builder->getVoidTy(),
+                         { builder->getPtrTy(), builder->getPtrTy() }, false);
+                 llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+                 createCall(pushFt, pushFn.getCallee(), { itemsPtr, itemAsPtr });
+             }
+             itemCount = llvm::ConstantInt::get(builder->getInt64Ty(), numItems);
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(),
+                   builder->getPtrTy(), builder->getInt64Ty() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_toSpliced", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj, start, deleteCount, itemsPtr, itemCount });
+         return true;
+    } else if (prop->name == "with" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // ES2023 with(index, value) - returns new array with element at index replaced
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         if (node->arguments.size() < 2) return true;
+
+         // Get index
+         visit(node->arguments[0].get());
+         llvm::Value* index = lastValue;
+         if (index->getType()->isDoubleTy()) {
+             index = builder->CreateFPToSI(index, builder->getInt64Ty());
+         }
+
+         // Get value - runtime expects it as int64 (cast from void*)
+         visit(node->arguments[1].get());
+         llvm::Value* value = lastValue;
+
+         // Determine if array is a number[] (specialized double array)
+         auto arrType = std::dynamic_pointer_cast<ArrayType>(prop->expression->inferredType);
+         bool isDoubleArray = arrType && arrType->elementType &&
+                              arrType->elementType->kind == TypeKind::Double;
+
+         // Convert value to int64 for passing to runtime
+         if (value->getType()->isPointerTy()) {
+             value = builder->CreatePtrToInt(value, builder->getInt64Ty());
+         } else if (value->getType()->isIntegerTy(1)) {
+             value = builder->CreateZExt(value, builder->getInt64Ty());
+         } else if (value->getType()->isDoubleTy()) {
+             value = builder->CreateBitCast(value, builder->getInt64Ty());
+         } else if (value->getType()->isIntegerTy(64) && isDoubleArray) {
+             // For number[] arrays, convert int to double first, then bitcast
+             // This ensures we pass the double bit pattern, not the raw integer
+             llvm::Value* asDouble = builder->CreateSIToFP(value, builder->getDoubleTy());
+             value = builder->CreateBitCast(asDouble, builder->getInt64Ty());
+         }
+         // Convert to pointer for the call (will be cast back to int64 in runtime)
+         llvm::Value* valueAsPtr = builder->CreateIntToPtr(value, builder->getPtrTy());
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_array_with", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj, index, valueAsPtr });
+         return true;
     } else if (prop->name == "sort" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;

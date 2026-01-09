@@ -370,6 +370,192 @@ void TsArray::Reverse() {
     }
 }
 
+// ES2023 "change array by copy" methods
+TsArray* TsArray::ToReversed() {
+    TsArray* result;
+    if (isSpecialized) {
+        result = TsArray::CreateSpecialized(length, elementSize, isDouble);
+        if (isDouble) {
+            double* srcElems = (double*)elements;
+            double* dstElems = (double*)result->elements;
+            for (size_t i = 0; i < length; ++i) {
+                dstElems[i] = srcElems[length - 1 - i];
+            }
+        } else {
+            int64_t* srcElems = (int64_t*)elements;
+            int64_t* dstElems = (int64_t*)result->elements;
+            for (size_t i = 0; i < length; ++i) {
+                dstElems[i] = srcElems[length - 1 - i];
+            }
+        }
+    } else {
+        result = TsArray::Create(length);
+        int64_t* srcElems = (int64_t*)elements;
+        for (size_t i = 0; i < length; ++i) {
+            result->Push(srcElems[length - 1 - i]);
+        }
+    }
+    return result;
+}
+
+TsArray* TsArray::ToSorted() {
+    TsArray* result;
+    if (isSpecialized) {
+        result = TsArray::CreateSpecialized(length, elementSize, isDouble);
+        if (isDouble) {
+            double* srcElems = (double*)elements;
+            double* dstElems = (double*)result->elements;
+            for (size_t i = 0; i < length; ++i) {
+                dstElems[i] = srcElems[i];
+            }
+        } else {
+            int64_t* srcElems = (int64_t*)elements;
+            int64_t* dstElems = (int64_t*)result->elements;
+            for (size_t i = 0; i < length; ++i) {
+                dstElems[i] = srcElems[i];
+            }
+        }
+    } else {
+        result = TsArray::Create(length);
+        int64_t* srcElems = (int64_t*)elements;
+        for (size_t i = 0; i < length; ++i) {
+            result->Push(srcElems[i]);
+        }
+    }
+    result->Sort();
+    return result;
+}
+
+TsArray* TsArray::ToSpliced(int64_t start, int64_t deleteCount, void* items, int64_t itemCount) {
+    // Normalize start
+    if (start < 0) start = length + start;
+    if (start < 0) start = 0;
+    if (start > (int64_t)length) start = length;
+
+    // Normalize deleteCount
+    if (deleteCount < 0) deleteCount = 0;
+    if (start + deleteCount > (int64_t)length) deleteCount = length - start;
+
+    // Calculate new length
+    size_t newLength = length - deleteCount + itemCount;
+
+    // items is a TsArray* containing the items to insert
+    TsArray* itemsArr = items ? (TsArray*)items : nullptr;
+
+    TsArray* result;
+    if (isSpecialized) {
+        result = TsArray::CreateSpecialized(newLength, elementSize, isDouble);
+        size_t dstIdx = 0;
+
+        if (isDouble) {
+            double* srcElems = (double*)elements;
+            double* dstElems = (double*)result->elements;
+
+            // Copy elements before start
+            for (int64_t i = 0; i < start; ++i) {
+                dstElems[dstIdx++] = srcElems[i];
+            }
+            // Insert new items - items from generic array need conversion
+            for (int64_t i = 0; i < itemCount && itemsArr; ++i) {
+                // Get item as int64 (stored as pointer in generic array)
+                int64_t* itemElems = (int64_t*)itemsArr->GetElementsPtr();
+                int64_t rawVal = itemElems[i];
+                // Convert to double (rawVal is the bit pattern of the double)
+                double val = *reinterpret_cast<double*>(&rawVal);
+                dstElems[dstIdx++] = val;
+            }
+            // Copy elements after deleted section
+            for (size_t i = start + deleteCount; i < length; ++i) {
+                dstElems[dstIdx++] = srcElems[i];
+            }
+        } else {
+            int64_t* srcElems = (int64_t*)elements;
+            int64_t* dstElems = (int64_t*)result->elements;
+
+            // Copy elements before start
+            for (int64_t i = 0; i < start; ++i) {
+                dstElems[dstIdx++] = srcElems[i];
+            }
+            // Insert new items
+            for (int64_t i = 0; i < itemCount && itemsArr; ++i) {
+                int64_t* itemElems = (int64_t*)itemsArr->GetElementsPtr();
+                dstElems[dstIdx++] = itemElems[i];
+            }
+            // Copy elements after deleted section
+            for (size_t i = start + deleteCount; i < length; ++i) {
+                dstElems[dstIdx++] = srcElems[i];
+            }
+        }
+    } else {
+        result = TsArray::Create(newLength);
+        int64_t* srcElems = (int64_t*)elements;
+
+        // Copy elements before start
+        for (int64_t i = 0; i < start; ++i) {
+            result->Push(srcElems[i]);
+        }
+        // Insert new items
+        for (int64_t i = 0; i < itemCount && itemsArr; ++i) {
+            int64_t* itemElems = (int64_t*)itemsArr->GetElementsPtr();
+            result->Push(itemElems[i]);
+        }
+        // Copy elements after deleted section
+        for (size_t i = start + deleteCount; i < length; ++i) {
+            result->Push(srcElems[i]);
+        }
+    }
+
+    return result;
+}
+
+TsArray* TsArray::With(int64_t index, int64_t value) {
+    // Normalize index (negative indices count from end)
+    if (index < 0) index = length + index;
+
+    // Out of bounds throws RangeError in JS, but we'll return a copy unchanged
+    if (index < 0 || index >= (int64_t)length) {
+        TsArray* result;
+        if (isSpecialized) {
+            result = TsArray::CreateSpecialized(length, elementSize, isDouble);
+            std::memcpy(result->elements, elements, length * elementSize);
+        } else {
+            result = TsArray::Create(length);
+            int64_t* srcElems = (int64_t*)elements;
+            for (size_t i = 0; i < length; ++i) {
+                result->Push(srcElems[i]);
+            }
+        }
+        return result;
+    }
+
+    TsArray* result;
+    if (isSpecialized) {
+        result = TsArray::CreateSpecialized(length, elementSize, isDouble);
+        // Copy all elements first
+        std::memcpy(result->elements, elements, length * elementSize);
+        // Then replace the element at index
+        if (isDouble) {
+            double* dstElems = (double*)result->elements;
+            // value is passed as int64_t but represents a double bit pattern for specialized double arrays
+            dstElems[index] = *reinterpret_cast<double*>(&value);
+        } else {
+            int64_t* dstElems = (int64_t*)result->elements;
+            dstElems[index] = value;
+        }
+    } else {
+        result = TsArray::Create(length);
+        int64_t* srcElems = (int64_t*)elements;
+        for (size_t i = 0; i < length; ++i) {
+            if ((int64_t)i == index) {
+                result->Push(value);
+            } else {
+                result->Push(srcElems[i]);
+            }
+        }
+    }
+    return result;
+}
+
 void* TsArray::Slice(int64_t start, int64_t end) {
     if (start < 0) start = length + start;
     if (start < 0) start = 0;
@@ -393,14 +579,28 @@ void* TsArray::Slice(int64_t start, int64_t end) {
 void* TsArray::Join(void* separator) {
     TsString* sep = (TsString*)separator;
     const char* sepStr = sep ? sep->ToUtf8() : ",";
-    
+
     std::stringstream ss;
     for (size_t i = 0; i < length; ++i) {
         if (i > 0) ss << sepStr;
-        
-        // This is tricky because elements can be anything (int, double, pointer to TsString)
-        // For now, assume they are either ints or pointers to TsString
-        // We need a way to check if it's a pointer to TsString
+
+        // Handle specialized arrays - output numeric values directly
+        if (isSpecialized) {
+            if (isDouble) {
+                double val = ((double*)elements)[i];
+                // Format to avoid trailing zeros (like JavaScript)
+                if (val == (int64_t)val) {
+                    ss << (int64_t)val;  // Whole number, print as int
+                } else {
+                    ss << val;
+                }
+            } else {
+                ss << ((int64_t*)elements)[i];
+            }
+            continue;
+        }
+
+        // Generic array - elements can be anything (int, double, pointer to TsString)
         int64_t val = ((int64_t*)elements)[i];
         if (val == 0) {
             ss << "null";
@@ -623,6 +823,24 @@ extern "C" {
 
     void ts_array_reverse(void* arr) {
         ((TsArray*)arr)->Reverse();
+    }
+
+    // ES2023 "change array by copy" methods
+    void* ts_array_toReversed(void* arr) {
+        return ((TsArray*)arr)->ToReversed();
+    }
+
+    void* ts_array_toSorted(void* arr) {
+        return ((TsArray*)arr)->ToSorted();
+    }
+
+    void* ts_array_toSpliced(void* arr, int64_t start, int64_t deleteCount, void* items, int64_t itemCount) {
+        // items is a TsArray*, we need to pass it as-is so ToSpliced can properly extract values
+        return ((TsArray*)arr)->ToSpliced(start, deleteCount, items, itemCount);
+    }
+
+    void* ts_array_with(void* arr, int64_t index, void* value) {
+        return ((TsArray*)arr)->With(index, (int64_t)value);
     }
 
     void ts_array_forEach(void* arr, void* callback, void* thisArg) {

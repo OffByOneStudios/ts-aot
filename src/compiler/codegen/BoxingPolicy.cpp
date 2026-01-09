@@ -71,6 +71,12 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_sort_with_comparator", {false, true}},          // (arr*, comparator) - comparator is boxed
     {"ts_array_reverse",            {false}},                  // (arr*) - modifies in place
 
+    // ES2023 "change array by copy" methods
+    {"ts_array_toReversed",         {false}},                  // (arr*) -> arr*
+    {"ts_array_toSorted",           {false}},                  // (arr*) -> arr*
+    {"ts_array_toSpliced",          {false, false, false, false, false}},  // (arr*, start, deleteCount, items, itemCount) -> arr*
+    {"ts_array_with",               {false, false, false}},    // (arr*, index, value) -> arr*
+
     // =========================================================================
     // Console - optimized paths use raw values
     // =========================================================================
