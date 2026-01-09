@@ -448,6 +448,14 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                     lastType = std::make_shared<Type>(TypeKind::String);
                     return;
                 }
+            } else if (obj->name == "Object") {
+                // Object.assign(target, ...sources) returns the type of target
+                if (prop->name == "assign" && node->arguments.size() > 0) {
+                    visit(node->arguments[0].get());
+                    // Return the type of the first argument (target)
+                    node->inferredType = lastType;
+                    return;
+                }
             }
         }
 
