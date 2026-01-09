@@ -75,7 +75,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Constructor | ✅ | |
 | Properties | ✅ | |
 | Methods | ✅ | |
-| Getters/Setters | ❌ | |
+| Getters/Setters | ✅ | Object literals only |
 | `public` modifier | ✅ | |
 | `private` modifier | ✅ | |
 | `protected` modifier | ✅ | |
@@ -304,7 +304,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
-| Classes | 14 | 1 | 4 | 1 |
+| Classes | 15 | 1 | 3 | 1 |
 | Functions | 9 | 2 | 0 | 0 |
 | Generics | 2 | 1 | 2 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **58** | **17** | **65** | **34** |
+| **TOTAL** | **59** | **17** | **64** | **34** |
 
-**Conformance: 58/140 runtime features (41%)**
+**Conformance: 59/140 runtime features (42%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

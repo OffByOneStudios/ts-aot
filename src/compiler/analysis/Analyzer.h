@@ -99,6 +99,8 @@ private:
     int functionDepth = 0;
     bool verbose = false;
     bool skipUntypedSemantic = false; // Skip expensive semantic checks for raw JS
+    bool strictMode = false; // JavaScript strict mode ("use strict")
+    bool globalStrictMode = false; // Strict mode at program level
 
     // Contextual typing stack - used to propagate expected types to arrow functions
     std::vector<std::shared_ptr<Type>> contextualTypeStack;

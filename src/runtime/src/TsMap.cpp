@@ -546,7 +546,31 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
     TsMap* tsmap = (TsMap*)map;
     TsValue key = __ts_value_from_scalars(key_type, key_val);
     TsValue val = __ts_value_from_scalars(val_type, val_val);
-    
+
+    // Check for setter (__setter_<propertyName>) if key is a string
+    if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+        TsString* keyStr = (TsString*)key.ptr_val;
+        const char* keyUtf8 = keyStr->ToUtf8();
+        if (keyUtf8) {
+            std::string setterKeyName = std::string("__setter_") + keyUtf8;
+            TsValue setterKey;
+            setterKey.type = ValueType::STRING_PTR;
+            setterKey.ptr_val = TsString::GetInterned(setterKeyName.c_str());
+            TsValue setterVal = tsmap->Get(setterKey);
+            if (setterVal.type != ValueType::UNDEFINED) {
+                // Found a setter - invoke it with 'this' as the object and value as argument
+                TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                boxedObj->type = ValueType::OBJECT_PTR;
+                boxedObj->ptr_val = map;
+                TsValue* boxedVal = (TsValue*)ts_alloc(sizeof(TsValue));
+                *boxedVal = val;
+                TsValue* args[] = { boxedVal };
+                ts_function_call_with_this(&setterVal, boxedObj, 1, args);
+                return;  // Don't store the value directly - the setter handles it
+            }
+        }
+    }
+
     tsmap->Set(key, val);
 }
 

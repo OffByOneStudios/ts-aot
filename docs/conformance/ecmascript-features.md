@@ -19,7 +19,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Syntax
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Strict mode (`"use strict"`) | ⚠️ | Parsed, not enforced |
+| Strict mode (`"use strict"`) | ✅ | Duplicate params, reserved names, duplicate props |
 | Trailing commas in objects/arrays | ✅ | |
 | Multiline strings (backslash) | ✅ | |
 | Reserved words as property names | ✅ | |
@@ -43,10 +43,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Object.keys()` | ✅ | |
 | `Object.values()` | ✅ | |
-| `Object.entries()` | ⚠️ | Known bug |
+| `Object.entries()` | ✅ | |
 | `Object.create()` | ⚠️ | Copies properties (no prototype chain) |
-| `Object.defineProperty()` | ⚠️ | Value only, no writable/enumerable enforcement |
-| `Object.defineProperties()` | ⚠️ | Value only, no writable/enumerable enforcement |
+| `Object.defineProperty()` | ✅ | Supports value/get/set descriptors |
+| `Object.defineProperties()` | ✅ | Supports value/get/set descriptors |
 | `Object.getOwnPropertyDescriptor()` | ✅ | |
 | `Object.getOwnPropertyNames()` | ✅ | |
 | `Object.getPrototypeOf()` | ⚠️ | Returns undefined (no prototype chain) |
@@ -70,7 +70,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `String.prototype.slice()` | ✅ | |
 | `String.prototype.toLowerCase()` | ✅ | |
 | `String.prototype.toUpperCase()` | ✅ | |
-| `String.prototype.replace()` | ⚠️ | Basic support |
+| `String.prototype.replace()` | ✅ | String and regex replacement |
 
 ### JSON
 | Feature | Status | Notes |
@@ -84,8 +84,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Date.now()` | ✅ | |
 | `Date.prototype.toISOString()` | ✅ | |
 | `Date.prototype.toJSON()` | ✅ | |
-| `Function.prototype.bind()` | ❌ | |
-| Property getters/setters | ❌ | |
+| `Function.prototype.bind()` | ✅ | Partial application and `this` binding work |
+| Property getters/setters | ✅ | Object literals supported |
 
 ---
 
@@ -336,7 +336,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `async` functions | ✅ | |
 | `await` expression | ✅ | |
 | `Object.values()` | ✅ | |
-| `Object.entries()` | ⚠️ | Known bug |
+| `Object.entries()` | ✅ | |
 | `String.prototype.padStart()` | ✅ | |
 | `String.prototype.padEnd()` | ✅ | |
 | `Object.getOwnPropertyDescriptors()` | ❌ | |
@@ -456,10 +456,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
-| ES5 | 32 | 5 | 7 | 44 | 73% |
+| ES5 | 45 | 2 | 0 | 47 | 96% |
 | ES2015 | 75 | 13 | 23 | 111 | 68% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
-| ES2017 | 6 | 1 | 2 | 9 | 67% |
+| ES2017 | 7 | 0 | 2 | 9 | 78% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
 | ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **139** | **20** | **67** | **226** | **62%** |
+| **TOTAL** | **150** | **19** | **60** | **229** | **66%** |
 
-**Overall ECMAScript Conformance: 139/226 features (62%)**
+**Overall ECMAScript Conformance: 150/229 features (66%)**
 
 ---
 

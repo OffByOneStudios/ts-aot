@@ -2,6 +2,7 @@
 #include "../ast/AstNodes.h"
 #include <fmt/core.h>
 #include <iostream>
+#include <set>
 
 namespace ts {
 using namespace ast;
@@ -82,11 +83,22 @@ void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 
 void Analyzer::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
     auto objType = std::make_shared<ObjectType>();
+    std::set<std::string> seenProperties; // For strict mode duplicate check
+
     for (auto& prop : node->properties) {
         visit(prop.get());
         if (auto pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+            // Strict mode: check for duplicate properties
+            if (strictMode && seenProperties.count(pa->name)) {
+                reportError("Strict mode: Duplicate data property '" + pa->name + "' in object literal");
+            }
+            seenProperties.insert(pa->name);
             objType->fields[pa->name] = lastType;
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+            if (strictMode && seenProperties.count(spa->name)) {
+                reportError("Strict mode: Duplicate data property '" + spa->name + "' in object literal");
+            }
+            seenProperties.insert(spa->name);
             objType->fields[spa->name] = lastType;
         } else if (auto md = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
             if (md->isGetter) {

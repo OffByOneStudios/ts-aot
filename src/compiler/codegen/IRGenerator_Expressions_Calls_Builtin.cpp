@@ -1544,18 +1544,30 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         : (visit(node->arguments[0].get()), lastValue);
                     return true;
                 }
+                // obj argument - box it
                 visit(node->arguments[0].get());
                 llvm::Value* objArg = lastValue;
+                if (!boxedValues.count(objArg) && node->arguments[0]->inferredType) {
+                    objArg = boxValue(objArg, node->arguments[0]->inferredType);
+                }
                 if (!objArg->getType()->isPointerTy()) {
                     objArg = builder->CreateIntToPtr(objArg, builder->getPtrTy());
                 }
+                // prop argument - box it (string)
                 visit(node->arguments[1].get());
                 llvm::Value* propArg = lastValue;
+                if (!boxedValues.count(propArg) && node->arguments[1]->inferredType) {
+                    propArg = boxValue(propArg, node->arguments[1]->inferredType);
+                }
                 if (!propArg->getType()->isPointerTy()) {
                     propArg = builder->CreateIntToPtr(propArg, builder->getPtrTy());
                 }
+                // descriptor argument - box it
                 visit(node->arguments[2].get());
                 llvm::Value* descArg = lastValue;
+                if (!boxedValues.count(descArg) && node->arguments[2]->inferredType) {
+                    descArg = boxValue(descArg, node->arguments[2]->inferredType);
+                }
                 if (!descArg->getType()->isPointerTy()) {
                     descArg = builder->CreateIntToPtr(descArg, builder->getPtrTy());
                 }

@@ -1,5 +1,8 @@
-// Test Object.assign property access
-const obj1 = { a: 1, b: 2 };
-const obj2 = Object.assign({}, obj1);
-console.log("obj2.a:", obj2.a);
-console.log("obj2.b:", obj2.b);
+function user_main(): number {
+    const obj1 = { a: 1 };
+    const obj2 = { b: 2 };
+    const result = Object.assign(obj1, obj2);
+    console.log("assigned");
+    console.log(result.a);
+    return 0;
+}

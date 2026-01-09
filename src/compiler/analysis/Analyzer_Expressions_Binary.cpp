@@ -83,6 +83,15 @@ void Analyzer::visitConditionalExpression(ast::ConditionalExpression* node) {
 }
 
 void Analyzer::visitAssignmentExpression(ast::AssignmentExpression* node) {
+    // Strict mode check: cannot assign to eval or arguments
+    if (strictMode) {
+        if (auto id = dynamic_cast<Identifier*>(node->left.get())) {
+            if (id->name == "eval" || id->name == "arguments") {
+                reportError("Strict mode: Cannot assign to '" + id->name + "'");
+            }
+        }
+    }
+
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->left.get())) {
         visit(prop->expression.get());
         auto objType = lastType;

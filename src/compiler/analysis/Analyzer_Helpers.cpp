@@ -279,7 +279,13 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
 }
 
 void Analyzer::reportError(const std::string& message) {
-    // Temporarily suppress analyzer errors to allow untyped CommonJS (lodash) to progress.
+    // Strict mode errors should always be reported
+    if (message.starts_with("Strict mode:")) {
+        std::cerr << "Error: " << message << std::endl;
+        errorCount++;
+        return;
+    }
+    // Temporarily suppress other analyzer errors to allow untyped CommonJS (lodash) to progress.
     SPDLOG_DEBUG("Suppressing analyzer error: {}", message);
 }
 
