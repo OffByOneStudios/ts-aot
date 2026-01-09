@@ -44,6 +44,100 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         return;
     }
 
+    // Handle logical assignment operators (||=, &&=, ??=)
+    // These require short-circuit evaluation AND assignment
+    if (node->op == "||=" || node->op == "&&=" || node->op == "??=") {
+        SPDLOG_DEBUG("Generating {} operator", node->op);
+
+        // Get the variable we're assigning to
+        auto* id = dynamic_cast<ast::Identifier*>(node->left.get());
+        if (!id) {
+            SPDLOG_WARN("Logical assignment with non-identifier LHS not supported");
+            lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
+            return;
+        }
+
+        llvm::Value* variable = nullptr;
+        llvm::Type* varType = nullptr;
+
+        if (namedValues.count(id->name)) {
+            variable = namedValues[id->name];
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
+                varType = alloca->getAllocatedType();
+            }
+        } else {
+            llvm::GlobalVariable* gv = module->getGlobalVariable(id->name);
+            if (gv) {
+                variable = gv;
+                varType = gv->getValueType();
+            }
+        }
+
+        if (!variable) {
+            SPDLOG_WARN("Could not find variable {} for logical assignment", id->name);
+            lastValue = llvm::Constant::getNullValue(builder->getPtrTy());
+            return;
+        }
+
+        // Load current value
+        llvm::Value* currentVal = builder->CreateLoad(varType, variable, id->name + "_val");
+
+        // Convert to boolean for condition check
+        llvm::Value* cond = nullptr;
+        if (node->op == "??=") {
+            // For ??=, check if nullish
+            llvm::Value* boxed = boxValue(currentVal, node->left->inferredType);
+            llvm::FunctionType* isNullishFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee isNullishFn = getRuntimeFunction("ts_value_is_nullish", isNullishFt);
+            cond = createCall(isNullishFt, isNullishFn.getCallee(), { boxed });
+            // For ??=, assign if nullish (condition is already correct)
+        } else {
+            // For ||= and &&=, convert to boolean
+            if (currentVal->getType()->isIntegerTy(64)) {
+                cond = builder->CreateICmpNE(currentVal, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0));
+            } else if (currentVal->getType()->isDoubleTy()) {
+                cond = builder->CreateFCmpONE(currentVal, llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 0.0));
+            } else if (currentVal->getType()->isIntegerTy(1)) {
+                cond = currentVal;
+            } else if (currentVal->getType()->isPointerTy()) {
+                llvm::FunctionType* toBoolFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee toBool = getRuntimeFunction("ts_value_to_bool", toBoolFt);
+                cond = createCall(toBoolFt, toBool.getCallee(), { currentVal });
+            }
+
+            // For ||=, assign if falsy (invert condition)
+            // For &&=, assign if truthy (condition as-is)
+            if (node->op == "||=") {
+                cond = builder->CreateNot(cond, "not_cond");
+            }
+        }
+
+        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* assignBB = llvm::BasicBlock::Create(*context, "logical_assign", currentFunc);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "logical_merge", currentFunc);
+
+        llvm::BasicBlock* entryBB = builder->GetInsertBlock();
+        builder->CreateCondBr(cond, assignBB, mergeBB);
+
+        // Assignment block - evaluate RHS and store
+        builder->SetInsertPoint(assignBB);
+        visit(node->right.get());
+        llvm::Value* rightVal = lastValue;
+        llvm::Value* rightValCast = castValue(rightVal, varType);
+        builder->CreateStore(rightValCast, variable);
+        llvm::BasicBlock* assignEndBB = builder->GetInsertBlock();
+        builder->CreateBr(mergeBB);
+
+        // Merge block - PHI node for result value
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(varType, 2, "logical_res");
+        phi->addIncoming(currentVal, entryBB);
+        phi->addIncoming(rightValCast, assignEndBB);
+
+        lastValue = phi;
+        return;
+    }
+
     if (node->op == "instanceof") {
         // ... existing code ...
         lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);

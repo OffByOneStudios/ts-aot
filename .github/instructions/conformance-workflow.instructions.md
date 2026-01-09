@@ -231,12 +231,27 @@ Follow the standard development workflow:
 
    Ticket: CONF-XXX
 
+   ```yaml
+   kind: Conformance
+   env: ecma|node|typescript
+   name: <Feature Name>
+   test: <path to test file>
+   ```
+
    Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
    EOF
    )"
    ```
 
-**⚠️ The commit MUST include changes to `docs/conformance/*.md`. If it doesn't, the workflow is incomplete.**
+**⚠️ The commit MUST include:**
+- Changes to `docs/conformance/*.md`
+- The YAML conformance block with `kind`, `env`, `name`, and `test` fields
+
+**YAML Field Values:**
+- `kind`: Always `Conformance`
+- `env`: One of `ecma`, `node`, or `typescript`
+- `name`: The feature name as it appears in the conformance matrix
+- `test`: Relative path to the test file (e.g., `tests/node/array/array_change_by_copy.ts`)
 
 ## Directory Structure
 
