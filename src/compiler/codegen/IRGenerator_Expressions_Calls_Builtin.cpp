@@ -2004,6 +2004,95 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionCallee fillFn = getRuntimeFunction("ts_array_fill", fillFt);
          lastValue = createCall(fillFt, fillFn.getCallee(), { obj, value, start, end });
          return true;
+    } else if (prop->name == "copyWithin" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // arr.copyWithin(target, start?, end?)
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         // Target argument (required)
+         if (node->arguments.empty()) {
+             lastValue = obj; // No target, return array unchanged
+             return true;
+         }
+         visit(node->arguments[0].get());
+         llvm::Value* target = lastValue;
+         if (target->getType()->isDoubleTy()) {
+             target = builder->CreateFPToSI(target, llvm::Type::getInt64Ty(*context));
+         }
+
+         // Start argument (default 0)
+         llvm::Value* start = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+         if (node->arguments.size() >= 2) {
+             visit(node->arguments[1].get());
+             start = lastValue;
+             if (start->getType()->isDoubleTy()) {
+                 start = builder->CreateFPToSI(start, llvm::Type::getInt64Ty(*context));
+             }
+         }
+
+         // End argument (default length)
+         llvm::Value* end = nullptr;
+         if (node->arguments.size() >= 3) {
+             visit(node->arguments[2].get());
+             end = lastValue;
+             if (end->getType()->isDoubleTy()) {
+                 end = builder->CreateFPToSI(end, llvm::Type::getInt64Ty(*context));
+             }
+         } else {
+             // Default end to length
+             llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                     { builder->getPtrTy() }, false);
+             llvm::FunctionCallee lenFn = getRuntimeFunction("ts_array_length", lenFt);
+             end = createCall(lenFt, lenFn.getCallee(), { obj });
+         }
+
+         llvm::FunctionType* copyWithinFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee copyWithinFn = getRuntimeFunction("ts_array_copyWithin", copyWithinFt);
+         lastValue = createCall(copyWithinFt, copyWithinFn.getCallee(), { obj, target, start, end });
+         return true;
+    } else if (prop->name == "entries" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // arr.entries() - returns an array of [index, value] pairs
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* entriesFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee entriesFn = getRuntimeFunction("ts_array_entries", entriesFt);
+         lastValue = createCall(entriesFt, entriesFn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "keys" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // arr.keys() - returns an array of indices
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* keysFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee keysFn = getRuntimeFunction("ts_array_keys", keysFt);
+         lastValue = createCall(keysFt, keysFn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "values" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
+         // arr.values() - returns an array of values
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* valuesFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee valuesFn = getRuntimeFunction("ts_array_values", valuesFt);
+         lastValue = createCall(valuesFt, valuesFn.getCallee(), { obj });
+         return true;
     } else if (prop->name == "at" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
