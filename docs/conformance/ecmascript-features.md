@@ -299,10 +299,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.find()` | ✅ | |
 | `Array.prototype.findIndex()` | ✅ | |
 | `Array.prototype.fill()` | ✅ | |
-| `Array.prototype.copyWithin()` | ❌ | |
-| `Array.prototype.entries()` | ❌ | |
-| `Array.prototype.keys()` | ❌ | |
-| `Array.prototype.values()` | ❌ | |
+| `Array.prototype.copyWithin()` | ✅ | |
+| `Array.prototype.entries()` | ⚠️ | Returns array, not iterator |
+| `Array.prototype.keys()` | ✅ | Returns array (iterator-like) |
+| `Array.prototype.values()` | ✅ | Returns array (iterator-like) |
 
 ### Object (ES6)
 | Feature | Status | Notes |
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 77 | 12 | 22 | 111 | 69% |
+| ES2015 | 80 | 13 | 18 | 111 | 72% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 7 | 0 | 2 | 9 | 78% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **152** | **17** | **60** | **229** | **66%** |
+| **TOTAL** | **155** | **18** | **56** | **229** | **68%** |
 
-**Overall ECMAScript Conformance: 152/229 features (66%)**
+**Overall ECMAScript Conformance: 155/229 features (68%)**
 
 ---
 

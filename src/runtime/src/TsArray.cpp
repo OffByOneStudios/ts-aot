@@ -1215,4 +1215,112 @@ extern "C" {
 
         return arr;
     }
+
+    // Copy a sequence of array elements within the array to another position
+    // Returns the modified array (for chaining)
+    void* ts_array_copyWithin(void* arr, int64_t target, int64_t start, int64_t end) {
+        if (!arr) return arr;
+
+        TsArray* array = (TsArray*)arr;
+        int64_t len = (int64_t)array->Length();
+
+        // Handle negative indices
+        if (target < 0) target = std::max((int64_t)0, len + target);
+        if (start < 0) start = std::max((int64_t)0, len + start);
+        if (end < 0) end = std::max((int64_t)0, len + end);
+
+        // Clamp to valid range
+        if (target >= len) return arr;
+        if (start >= len) return arr;
+        if (end > len) end = len;
+        if (start >= end) return arr;
+
+        // Calculate the number of elements to copy
+        int64_t count = std::min(end - start, len - target);
+        if (count <= 0) return arr;
+
+        // Copy elements (handle overlapping regions correctly)
+        if (start < target && target < start + count) {
+            // Overlapping: copy backwards to avoid overwriting
+            for (int64_t i = count - 1; i >= 0; i--) {
+                int64_t val = array->Get(start + i);
+                array->Set(target + i, val);
+            }
+        } else {
+            // Non-overlapping or source after target: copy forwards
+            for (int64_t i = 0; i < count; i++) {
+                int64_t val = array->Get(start + i);
+                array->Set(target + i, val);
+            }
+        }
+
+        return arr;
+    }
+
+    // Returns an array of [index, value] pairs (iterator-like behavior)
+    void* ts_array_entries(void* arr) {
+        if (!arr) return nullptr;
+
+        TsArray* array = (TsArray*)arr;
+        int64_t len = (int64_t)array->Length();
+        TsArray* entries = TsArray::Create(len);
+
+        for (int64_t i = 0; i < len; i++) {
+            // Create [index, value] pair as a 2-element array
+            TsArray* pair = TsArray::Create(2);
+
+            // Box the index
+            TsValue* idxVal = (TsValue*)ts_alloc(sizeof(TsValue));
+            idxVal->type = ValueType::NUMBER_INT;
+            idxVal->i_val = i;
+            pair->Push((int64_t)idxVal);
+
+            // Get the value (already boxed for non-specialized arrays)
+            int64_t val = array->Get(i);
+            pair->Push(val);
+
+            // Box the pair array as ARRAY_PTR
+            TsValue* pairVal = (TsValue*)ts_alloc(sizeof(TsValue));
+            pairVal->type = ValueType::ARRAY_PTR;
+            pairVal->ptr_val = pair;
+            entries->Push((int64_t)pairVal);
+        }
+
+        return entries;
+    }
+
+    // Returns an array of indices (iterator-like behavior)
+    void* ts_array_keys(void* arr) {
+        if (!arr) return nullptr;
+
+        TsArray* array = (TsArray*)arr;
+        int64_t len = (int64_t)array->Length();
+        TsArray* keys = TsArray::Create(len);
+
+        for (int64_t i = 0; i < len; i++) {
+            // Box the index
+            TsValue* idxVal = (TsValue*)ts_alloc(sizeof(TsValue));
+            idxVal->type = ValueType::NUMBER_INT;
+            idxVal->i_val = i;
+            keys->Push((int64_t)idxVal);
+        }
+
+        return keys;
+    }
+
+    // Returns an array of values (iterator-like behavior)
+    void* ts_array_values(void* arr) {
+        if (!arr) return nullptr;
+
+        TsArray* array = (TsArray*)arr;
+        int64_t len = (int64_t)array->Length();
+        TsArray* values = TsArray::Create(len);
+
+        for (int64_t i = 0; i < len; i++) {
+            int64_t val = array->Get(i);
+            values->Push(val);
+        }
+
+        return values;
+    }
 }

@@ -176,6 +176,10 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_concat",   {false, false}},         // (arr*, arr*) -> arr*
     {"ts_array_includes", {false, true}},          // (arr*, value) -> bool
     {"ts_array_fill",     {false, false, false, false}},  // (arr*, value, start, end) -> arr*
+    {"ts_array_copyWithin", {false, false, false, false}},  // (arr*, target, start, end) -> arr*
+    {"ts_array_entries", {false}},                          // (arr*) -> arr*
+    {"ts_array_keys", {false}},                             // (arr*) -> arr*
+    {"ts_array_values", {false}},                           // (arr*) -> arr*
 
     // =========================================================================
     // Map operations - additional
