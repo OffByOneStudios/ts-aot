@@ -307,7 +307,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Object (ES6)
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Object.assign()` | ⚠️ | Works but property access on result crashes compiler |
+| `Object.assign()` | ✅ | |
 | `Object.is()` | ✅ | SameValue comparison (NaN=NaN, 0≠-0) |
 | `Object.setPrototypeOf()` | ❌ | |
 
@@ -482,7 +482,7 @@ These features should be prioritized for implementation:
 2. ✅ Optional chaining (`?.`) - Property access implemented
 3. ✅ Nullish coalescing (`??`) - Implemented
 4. ✅ Object spread (`{...obj}`) - Implemented
-5. ⚠️ `Object.assign()` - Works but property access on result crashes
+5. ✅ `Object.assign()` - Implemented
 
 ### High Priority
 6. ❌ Generator functions
