@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include <fmt/core.h>
 #include <iostream>
+#include <set>
 #include <spdlog/spdlog.h>
 
 namespace ts {
@@ -10,6 +11,46 @@ using namespace ast;
 void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     auto funcType = std::make_shared<FunctionType>();
     funcType->node = node;
+
+    // Check for function-level "use strict" directive
+    bool functionStrictMode = globalStrictMode;
+    if (!node->body.empty()) {
+        if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node->body[0].get())) {
+            if (auto strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get())) {
+                if (strLit->value == "use strict") {
+                    functionStrictMode = true;
+                }
+            }
+        }
+    }
+
+    // Strict mode checks for parameters
+    if (functionStrictMode) {
+        std::set<std::string> paramNames;
+        for (const auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                // Check for duplicate parameter names
+                if (paramNames.count(id->name)) {
+                    reportError("Strict mode: Duplicate parameter name '" + id->name + "' in function '" + node->name + "'");
+                }
+                paramNames.insert(id->name);
+
+                // Check for reserved names
+                if (id->name == "eval" || id->name == "arguments") {
+                    reportError("Strict mode: '" + id->name + "' cannot be used as a parameter name");
+                }
+            }
+        }
+
+        // Check for reserved function names
+        if (node->name == "eval" || node->name == "arguments") {
+            reportError("Strict mode: '" + node->name + "' cannot be used as a function name");
+        }
+    }
+
+    // Save/restore strict mode for this function's scope
+    bool savedStrictMode = strictMode;
+    strictMode = functionStrictMode;
 
     for (const auto& decorator : node->decorators) {
         if (decorator == "ts_aot.comptime") {
@@ -169,6 +210,9 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     currentReturnType = oldReturnType;
     functionDepth--;
     symbols.exitScope();
+
+    // Restore strict mode
+    strictMode = savedStrictMode;
 }
 
 

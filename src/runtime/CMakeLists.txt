@@ -67,6 +67,7 @@ add_library(tsruntime STATIC
     src/TsMap.cpp
     src/TsSet.cpp
     src/TsObject.cpp
+    src/TsBoundFunction.cpp
     src/TsBigInt.cpp
     src/TsSymbol.cpp
     src/Crypto.cpp

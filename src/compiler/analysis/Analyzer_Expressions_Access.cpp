@@ -480,6 +480,36 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Function.prototype methods: bind, call, apply
+    if (objType->kind == TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<FunctionType>(objType);
+        if (node->name == "bind") {
+            // bind(thisArg, ...args) returns a function with the same signature
+            auto bindType = std::make_shared<FunctionType>();
+            bindType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // thisArg
+            bindType->hasRest = true; // ...args for partial application
+            bindType->returnType = funcType; // Returns the bound function
+            lastType = bindType;
+            return;
+        } else if (node->name == "call") {
+            // call(thisArg, ...args) returns the function's return type
+            auto callType = std::make_shared<FunctionType>();
+            callType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // thisArg
+            callType->hasRest = true; // ...args
+            callType->returnType = funcType->returnType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
+            lastType = callType;
+            return;
+        } else if (node->name == "apply") {
+            // apply(thisArg, argsArray) returns the function's return type
+            auto applyType = std::make_shared<FunctionType>();
+            applyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // thisArg
+            applyType->paramTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any))); // argsArray
+            applyType->returnType = funcType->returnType ? funcType->returnType : std::make_shared<Type>(TypeKind::Any);
+            lastType = applyType;
+            return;
+        }
+    }
+
     if (objType->kind == TypeKind::Namespace) {
         auto ns = std::static_pointer_cast<NamespaceType>(objType);
         auto sym = ns->module->exports->lookup(node->name);

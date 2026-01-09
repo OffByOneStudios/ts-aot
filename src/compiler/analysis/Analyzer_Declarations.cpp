@@ -13,6 +13,20 @@ namespace ts {
 
 using namespace ast;
 void Analyzer::visitProgram(ast::Program* node) {
+    // Check for "use strict" directive at the beginning of the program
+    globalStrictMode = false;
+    strictMode = false;
+    if (!node->body.empty()) {
+        if (auto exprStmt = dynamic_cast<ast::ExpressionStatement*>(node->body[0].get())) {
+            if (auto strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get())) {
+                if (strLit->value == "use strict") {
+                    globalStrictMode = true;
+                    strictMode = true;
+                }
+            }
+        }
+    }
+
     // Pass 1: Hoist declarations to support circular dependencies
     for (auto& stmt : node->body) {
         if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {

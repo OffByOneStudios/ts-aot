@@ -10,6 +10,7 @@
 #include "TsEventEmitter.h"
 #include "TsHttp.h"
 #include "TsRegExp.h"
+#include "TsBoundFunction.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
@@ -726,6 +727,22 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsMap* map = (TsMap*)obj;
+
+            // First check for a getter (__getter_<propertyName>)
+            std::string getterKey = std::string("__getter_") + keyStr;
+            TsValue gk;
+            gk.type = ValueType::STRING_PTR;
+            gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+            TsValue getterVal = map->Get(gk);
+            if (getterVal.type != ValueType::UNDEFINED) {
+                // Found a getter - invoke it with 'this' as the object
+                TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                boxedObj->type = ValueType::OBJECT_PTR;
+                boxedObj->ptr_val = obj;
+                return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+            }
+
+            // No getter - look up the property directly
             TsValue k;
             k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::GetInterned(keyStr);
@@ -733,7 +750,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (val.type != ValueType::UNDEFINED) {
                 return ts_property_return_value(val);
             }
-            
+
             // If not found in the map, check Object.prototype methods
             // This provides prototype chain behavior for plain objects
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
@@ -745,7 +762,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "valueOf") == 0) {
                 return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
             }
-            
+
             return ts_value_make_undefined();
         }
 
@@ -847,9 +864,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
             }
 
-            // Function.prototype.bind: not implemented yet; return undefined to avoid crashes.
+            // Function.prototype.bind: create a bound function wrapper
             if (strcmp(keyStr, "bind") == 0) {
-                return ts_value_make_undefined();
+                TsValue* target = (TsValue*)ts_alloc(sizeof(TsValue));
+                target->type = ValueType::OBJECT_PTR;
+                target->ptr_val = func;
+                return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
             
             return ts_value_make_undefined();
@@ -1459,7 +1479,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Object.defineProperty(obj, prop, descriptor) - defines a property on an object
-    // Simplified implementation: only supports 'value' from descriptor
+    // Supports: value, get, set, writable (partial), enumerable (partial), configurable (partial)
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         if (!obj || !prop) return obj;
 
@@ -1474,6 +1494,14 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsMap* map = (TsMap*)rawPtr;
 
+        // Check if object is extensible (for new properties) or frozen/sealed
+        if (!map->IsExtensible()) {
+            // Can only modify existing properties
+        }
+        if (map->IsFrozen()) {
+            return obj;  // Cannot modify frozen objects
+        }
+
         // Get the descriptor object
         void* descRaw = ts_value_get_object(descriptor);
         if (!descRaw) descRaw = descriptor;
@@ -1485,22 +1513,63 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsMap* descMap = (TsMap*)descRaw;
 
-        // Extract 'value' from descriptor
+        // Get property key as string
+        TsString* propStr = nullptr;
+        if (prop->type == ValueType::STRING_PTR) {
+            propStr = (TsString*)prop->ptr_val;
+        } else {
+            propStr = (TsString*)__ts_value_to_property_key((uint8_t)prop->type, prop->i_val);
+        }
+        if (!propStr) return obj;
+
+        const char* propName = propStr->ToUtf8();
+        if (!propName) return obj;
+
+        TsValue propKey;
+        propKey.type = ValueType::STRING_PTR;
+        propKey.ptr_val = propStr;
+
+        // Check for getter
+        TsValue getKey;
+        getKey.type = ValueType::STRING_PTR;
+        getKey.ptr_val = TsString::GetInterned("get");
+
+        if (descMap->Has(getKey)) {
+            TsValue getter = descMap->Get(getKey);
+            if (getter.type != ValueType::UNDEFINED) {
+                // Store getter as __getter_<propName>
+                std::string getterKey = std::string("__getter_") + propName;
+                TsValue gk;
+                gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+                map->Set(gk, getter);
+            }
+        }
+
+        // Check for setter
+        TsValue setKey;
+        setKey.type = ValueType::STRING_PTR;
+        setKey.ptr_val = TsString::GetInterned("set");
+
+        if (descMap->Has(setKey)) {
+            TsValue setter = descMap->Get(setKey);
+            if (setter.type != ValueType::UNDEFINED) {
+                // Store setter as __setter_<propName>
+                std::string setterKey = std::string("__setter_") + propName;
+                TsValue sk;
+                sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(setterKey.c_str());
+                map->Set(sk, setter);
+            }
+        }
+
+        // Check for value (data descriptor)
         TsValue valueKey;
         valueKey.type = ValueType::STRING_PTR;
-        valueKey.ptr_val = TsString::Create("value");
+        valueKey.ptr_val = TsString::GetInterned("value");
 
         if (descMap->Has(valueKey)) {
             TsValue value = descMap->Get(valueKey);
-
-            // Get property key (convert to string if needed)
-            TsValue propKey = *prop;
-            if (prop->type != ValueType::STRING_PTR) {
-                // Convert prop to string key
-                propKey.type = ValueType::STRING_PTR;
-                propKey.ptr_val = __ts_value_to_property_key((uint8_t)prop->type, prop->i_val);
-            }
-
             map->Set(propKey, value);
         }
 
@@ -1908,6 +1977,44 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic16 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 16);
         if (magic16 == TsFunction::MAGIC) {
             TsFunction* func = (TsFunction*)rawObj;
+
+            // Handle Function.prototype methods (bind, call, apply)
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        if (strcmp(k, "bind") == 0) {
+                            TsValue* target = (TsValue*)ts_alloc(sizeof(TsValue));
+                            target->type = ValueType::OBJECT_PTR;
+                            target->ptr_val = func;
+                            return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
+                        }
+                        if (strcmp(k, "call") == 0) {
+                            TsValue* target = (TsValue*)ts_alloc(sizeof(TsValue));
+                            target->type = ValueType::OBJECT_PTR;
+                            target->ptr_val = func;
+                            return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
+                        }
+                        if (strcmp(k, "apply") == 0) {
+                            TsValue* target = (TsValue*)ts_alloc(sizeof(TsValue));
+                            target->type = ValueType::OBJECT_PTR;
+                            target->ptr_val = func;
+                            return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
+                        }
+                        if (strcmp(k, "toString") == 0) {
+                            return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
+                        }
+                        if (strcmp(k, "length") == 0) {
+                            return ts_value_make_int(0);
+                        }
+                        if (strcmp(k, "name") == 0) {
+                            return ts_value_make_string(TsString::Create(""));
+                        }
+                    }
+                }
+            }
+
             if (!func->properties) {
                 return ts_value_make_undefined();  // No properties set yet
             }
@@ -1929,11 +2036,32 @@ TsValue* ts_value_make_int(int64_t i) {
             // Not a map - return undefined
             return ts_value_make_undefined();
         }
-        
+
         // Use TsMap::Get which handles hashing correctly (by string content, not pointer address)
         TsMap* map = (TsMap*)rawObj;
+
+        // First check for a getter (__getter_<propertyName>)
+        if (key->type == ValueType::STRING_PTR && key->ptr_val) {
+            TsString* keyStr = (TsString*)key->ptr_val;
+            const char* propName = keyStr->ToUtf8();
+            if (propName) {
+                std::string getterKey = std::string("__getter_") + propName;
+                TsValue gk;
+                gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+                TsValue getterVal = map->Get(gk);
+                if (getterVal.type != ValueType::UNDEFINED) {
+                    // Found a getter - invoke it with 'this' as the object
+                    TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                    boxedObj->type = ValueType::OBJECT_PTR;
+                    boxedObj->ptr_val = rawObj;
+                    return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+                }
+            }
+        }
+
         TsValue result = map->Get(*key);
-        
+
         if (result.type == ValueType::UNDEFINED) {
             // If not found in the map, check Object.prototype methods
             // This provides prototype chain behavior for plain objects
@@ -1956,7 +2084,7 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             return ts_value_make_undefined();
         }
-        
+
         TsValue* heapResult = (TsValue*)ts_alloc(sizeof(TsValue));
         *heapResult = result;
         return heapResult;
@@ -2077,6 +2205,30 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if it's a map
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawObj;
+
+            // First check for a setter (__setter_<propertyName>)
+            const char* keyCStr = keyStr->ToUtf8();
+            if (keyCStr) {
+                std::string setterKey = std::string("__setter_") + keyCStr;
+                TsValue sk;
+                sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(setterKey.c_str());
+                TsValue setterVal = map->Get(sk);
+                if (setterVal.type != ValueType::UNDEFINED) {
+                    // Found a setter - invoke it with 'this' as the object and value as argument
+                    TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                    boxedObj->type = ValueType::OBJECT_PTR;
+                    boxedObj->ptr_val = rawObj;
+                    TsValue* boxedVal = (TsValue*)ts_alloc(sizeof(TsValue));
+                    *boxedVal = value;
+                    TsValue* args[] = { boxedVal };
+                    ts_function_call_with_this(&setterVal, boxedObj, 1, args);
+                    return value;
+                }
+            }
+
+            // No setter - set property directly
             ts_map_set_v(rawObj, key, value);
             return value;
         }
