@@ -169,6 +169,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_at",       {false, false}},         // (arr*, index) -> raw
     {"ts_array_concat",   {false, false}},         // (arr*, arr*) -> arr*
     {"ts_array_includes", {false, true}},          // (arr*, value) -> bool
+    {"ts_array_fill",     {false, false, false, false}},  // (arr*, value, start, end) -> arr*
 
     // =========================================================================
     // Map operations - additional
@@ -206,9 +207,11 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_object_has_prop",    {true, true}},       // (obj, key) -> bool
     {"ts_object_delete_prop", {true, true}},       // (obj, key) -> bool
     {"ts_object_keys",        {true}},             // (obj) -> TsValue* (Array)
+    {"ts_object_is",          {true, true}},       // (val1, val2) -> bool (SameValue comparison)
     {"ts_object_getOwnPropertyNames", {true}},    // (obj) -> TsValue* (Array)
     {"ts_object_getPrototypeOf", {true}},         // (obj) -> TsValue* (null)
     {"ts_object_assign",      {true, true}},       // (target, source) -> TsValue*
+    {"ts_object_has_own",     {true, false}},      // (obj, key) -> bool
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
     {"ts_array_is_array",     {true}},             // (TsValue*) -> bool

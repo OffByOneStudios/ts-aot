@@ -1216,6 +1216,82 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_array(TsArray::Create(0));
     }
 
+    // Object.is(value1, value2) - ES6 SameValue comparison
+    // Differs from === in that:
+    // - Object.is(NaN, NaN) returns true
+    // - Object.is(0, -0) returns false
+    bool ts_object_is(TsValue* val1, TsValue* val2) {
+        if (!val1 && !val2) return true;
+        if (!val1 || !val2) return false;
+
+        // If they're the exact same pointer, they're the same
+        if (val1 == val2) return true;
+
+        // Get the types
+        ValueType type1 = val1->type;
+        ValueType type2 = val2->type;
+
+        // Different types are never the same value
+        if (type1 != type2) return false;
+
+        switch (type1) {
+            case ValueType::UNDEFINED:
+                // undefined === undefined
+                return true;
+
+            case ValueType::BOOLEAN:
+                return val1->b_val == val2->b_val;
+
+            case ValueType::NUMBER_INT:
+                return val1->i_val == val2->i_val;
+
+            case ValueType::NUMBER_DBL: {
+                double d1 = val1->d_val;
+                double d2 = val2->d_val;
+
+                // Handle NaN - NaN is equal to NaN in SameValue
+                bool isNaN1 = (d1 != d1);
+                bool isNaN2 = (d2 != d2);
+                if (isNaN1 && isNaN2) return true;
+                if (isNaN1 || isNaN2) return false;
+
+                // Handle +0 and -0 - they are different in SameValue
+                if (d1 == 0.0 && d2 == 0.0) {
+                    // Check sign bit using bit manipulation
+                    // 1/+0 = +Infinity, 1/-0 = -Infinity
+                    bool isNeg1 = (1.0 / d1) < 0.0;
+                    bool isNeg2 = (1.0 / d2) < 0.0;
+                    return isNeg1 == isNeg2;
+                }
+
+                return d1 == d2;
+            }
+
+            case ValueType::STRING_PTR: {
+                TsString* str1 = (TsString*)val1->ptr_val;
+                TsString* str2 = (TsString*)val2->ptr_val;
+                if (!str1 && !str2) return true;
+                if (!str1 || !str2) return false;
+                // Compare strings by value
+                const char* s1 = str1->ToUtf8();
+                const char* s2 = str2->ToUtf8();
+                return strcmp(s1, s2) == 0;
+            }
+
+            case ValueType::OBJECT_PTR:
+            case ValueType::ARRAY_PTR:
+            case ValueType::FUNCTION_PTR:
+            case ValueType::PROMISE_PTR:
+            case ValueType::BIGINT_PTR:
+            case ValueType::SYMBOL_PTR:
+                // For objects, arrays, functions, etc. compare by reference
+                return val1->ptr_val == val2->ptr_val;
+
+            default:
+                return false;
+        }
+    }
+
     // Object.getOwnPropertyNames(obj) - returns array of all own property names
     // In our runtime, this is the same as Object.keys() since we don't have
     // non-enumerable properties
@@ -1576,18 +1652,28 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.hasOwn(obj, prop) - check if object has own property
     bool ts_object_has_own(TsValue* obj, TsValue* prop) {
         if (!obj || !prop) return false;
-        
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
-        
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 24);
-        if (magic == 0x4D415053) { // TsMap::MAGIC
+
+        // Check for TsMap (magic at offset 16, 20, or 24 depending on object layout)
+        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)rawPtr + 20);
+        uint32_t magic24 = *(uint32_t*)((char*)rawPtr + 24);
+
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* map = (TsMap*)rawPtr;
+
+            // Get the property name as a string
+            void* propRaw = ts_value_get_object((TsValue*)prop);
+            if (!propRaw) propRaw = prop;
+
             TsValue propVal;
             propVal.type = ValueType::STRING_PTR;
-            propVal.ptr_val = prop;
-            return ts_map_has_v(rawPtr, propVal);
+            propVal.ptr_val = propRaw;
+            return ts_map_has_v(map, propVal);
         }
-        
+
         return false;
     }
 

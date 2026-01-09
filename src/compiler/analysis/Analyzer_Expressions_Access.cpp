@@ -264,9 +264,20 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             sliceFn->returnType = objType;
             lastType = sliceFn;
             return;
+        } else if (node->name == "fill") {
+            auto fillFn = std::make_shared<FunctionType>();
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // start
+            fillFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // end
+            fillFn->isOptional.push_back(false);
+            fillFn->isOptional.push_back(true);
+            fillFn->isOptional.push_back(true);
+            fillFn->returnType = objType;
+            lastType = fillFn;
+            return;
         } else if (node->name == "forEach" || node->name == "map" || node->name == "filter" ||
                    node->name == "reduce" || node->name == "reduceRight" || node->name == "some" || node->name == "every" ||
-                   node->name == "find" || node->name == "findIndex") {
+                   node->name == "find" || node->name == "findIndex" || node->name == "findLast" || node->name == "findLastIndex") {
             auto fn = std::make_shared<FunctionType>();
             fn->returnType = std::make_shared<Type>(TypeKind::Any);
             lastType = fn;
@@ -281,7 +292,7 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             charAtFn->returnType = std::make_shared<Type>(TypeKind::Int);
             lastType = charAtFn;
             return;
-        } else if (node->name == "charAt") {
+        } else if (node->name == "charAt" || node->name == "at") {
             auto charAtFn = std::make_shared<FunctionType>();
             charAtFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
             charAtFn->returnType = std::make_shared<Type>(TypeKind::String);

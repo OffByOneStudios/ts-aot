@@ -71,6 +71,10 @@ Analyzer::Analyzer() {
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));
 
+    // Register global Infinity and NaN
+    symbols.define("Infinity", std::make_shared<Type>(TypeKind::Double));
+    symbols.define("NaN", std::make_shared<Type>(TypeKind::Double));
+
     // Register Symbol global
     auto symbolType = std::make_shared<ObjectType>();
     symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::Symbol);
@@ -645,7 +649,14 @@ Analyzer::Analyzer() {
     hasOwnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     hasOwnType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     objectType->fields["hasOwn"] = hasOwnType;
-    
+
+    // Object.is(value1, value2) => boolean - ES6 SameValue comparison
+    auto isType = std::make_shared<FunctionType>();
+    isType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    isType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    isType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    objectType->fields["is"] = isType;
+
     // Object.fromEntries(iterable) => object
     auto fromEntriesType = std::make_shared<FunctionType>();
     fromEntriesType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));
@@ -720,7 +731,13 @@ Analyzer::Analyzer() {
     arrayFromType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     arrayFromType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
     arrayGlobalType->fields["from"] = arrayFromType;
-    
+
+    // Array.of(...items) => any[] - creates array from arguments
+    auto arrayOfType = std::make_shared<FunctionType>();
+    arrayOfType->hasRest = true;
+    arrayOfType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    arrayGlobalType->fields["of"] = arrayOfType;
+
     symbols.define("Array", arrayGlobalType);
 
     // Register Math global
@@ -910,6 +927,12 @@ Analyzer::Analyzer() {
     clz32Type->returnType = std::make_shared<Type>(TypeKind::Int);
     mathType->fields["clz32"] = clz32Type;
 
+    auto imulType = std::make_shared<FunctionType>();
+    imulType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    imulType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    imulType->returnType = std::make_shared<Type>(TypeKind::Int);
+    mathType->fields["imul"] = imulType;
+
     mathType->fields["PI"] = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["E"] = std::make_shared<Type>(TypeKind::Double);
     mathType->fields["LN10"] = std::make_shared<Type>(TypeKind::Double);
@@ -920,6 +943,58 @@ Analyzer::Analyzer() {
     mathType->fields["SQRT2"] = std::make_shared<Type>(TypeKind::Double);
     
     symbols.define("Math", mathType);
+
+    // Register Number object with static methods
+    auto numberType = std::make_shared<ObjectType>();
+
+    // Number.isFinite(value: number): boolean
+    auto isFiniteType = std::make_shared<FunctionType>();
+    isFiniteType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isFiniteType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    numberType->fields["isFinite"] = isFiniteType;
+
+    // Number.isNaN(value: number): boolean
+    auto isNaNType = std::make_shared<FunctionType>();
+    isNaNType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isNaNType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    numberType->fields["isNaN"] = isNaNType;
+
+    // Number.isInteger(value: number): boolean
+    auto isIntegerType = std::make_shared<FunctionType>();
+    isIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isIntegerType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    numberType->fields["isInteger"] = isIntegerType;
+
+    // Number.isSafeInteger(value: number): boolean
+    auto isSafeIntegerType = std::make_shared<FunctionType>();
+    isSafeIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isSafeIntegerType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    numberType->fields["isSafeInteger"] = isSafeIntegerType;
+
+    // Number.parseFloat(string: string): number
+    auto parseFloatType = std::make_shared<FunctionType>();
+    parseFloatType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    parseFloatType->returnType = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["parseFloat"] = parseFloatType;
+
+    // Number.parseInt(string: string, radix?: number): number
+    auto parseIntType = std::make_shared<FunctionType>();
+    parseIntType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    parseIntType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    parseIntType->returnType = std::make_shared<Type>(TypeKind::Int);
+    numberType->fields["parseInt"] = parseIntType;
+
+    // Number constants
+    numberType->fields["MAX_VALUE"] = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["MIN_VALUE"] = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["MAX_SAFE_INTEGER"] = std::make_shared<Type>(TypeKind::Int);
+    numberType->fields["MIN_SAFE_INTEGER"] = std::make_shared<Type>(TypeKind::Int);
+    numberType->fields["POSITIVE_INFINITY"] = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["NEGATIVE_INFINITY"] = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["NaN"] = std::make_shared<Type>(TypeKind::Double);
+    numberType->fields["EPSILON"] = std::make_shared<Type>(TypeKind::Double);
+
+    symbols.define("Number", numberType);
 
     // Register URL class
 
