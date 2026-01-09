@@ -31,9 +31,25 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
                 return;
             }
         }
-        // In methods, 'this' is always the first argument (context)
+        // In methods, 'this' is stored in namedValues (set up during function prologue)
+        if (namedValues.count("this")) {
+            llvm::Value* val = namedValues["this"];
+            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
+                lastValue = builder->CreateLoad(alloca->getAllocatedType(), alloca);
+            } else {
+                lastValue = val;
+            }
+            return;
+        }
+        // Fallback: second argument is 'this' (first is context)
         llvm::Function* func = builder->GetInsertBlock()->getParent();
-        lastValue = func->getArg(0);
+        if (func->arg_size() >= 2) {
+            lastValue = func->getArg(1);
+        } else if (func->arg_size() >= 1) {
+            lastValue = func->getArg(0);
+        } else {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
         return;
     }
 
@@ -1350,15 +1366,15 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             emitNullCheckForExpression(node->expression.get(), objPtr);
             
             int methodIdx = classLayouts[className].methodIndices[vname];
-            
+
             // Load VTable pointer (first field of the struct)
             llvm::Value* vptr = builder->CreateLoad(builder->getPtrTy(), objPtr);
-            
+
             llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
             if (!vtableStruct) return;
-            
-            // Load function pointer from VTable
-            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIdx);
+
+            // Load function pointer from VTable (methodIdx + 1 because slot 0 is parent VTable)
+            llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIdx + 1);
             
             // Get the getter type
             std::shared_ptr<FunctionType> getterType;
@@ -1373,11 +1389,14 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             
             if (getterType) {
                 std::vector<llvm::Type*> paramTypes;
+                paramTypes.push_back(builder->getPtrTy()); // context
                 paramTypes.push_back(builder->getPtrTy()); // this
                 llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(getterType->returnType), paramTypes, false);
-                
+
                 llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
-                lastValue = createCall(ft, funcPtr, { objPtr });
+                // Pass context (null or currentAsyncContext) and this
+                llvm::Value* contextArg = currentAsyncContext ? currentAsyncContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, funcPtr, { contextArg, objPtr });
                 return;
             }
         }

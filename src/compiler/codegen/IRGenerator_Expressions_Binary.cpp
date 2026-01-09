@@ -1269,15 +1269,15 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 llvm::Value* objPtr = lastValue;
                 
                 int methodIdx = classLayouts[className].methodIndices[vname];
-                
+
                 // Load VTable pointer
                 llvm::Value* vptr = builder->CreateLoad(builder->getPtrTy(), objPtr);
-                
+
                 llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
                 if (!vtableStruct) return;
-                
-                // Load function pointer from VTable
-                llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIdx);
+
+                // Load function pointer from VTable (methodIdx + 1 because slot 0 is parent VTable)
+                llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIdx + 1);
                 
                 // Get the setter type
                 std::shared_ptr<FunctionType> setterType;
@@ -1292,13 +1292,15 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 
                 if (setterType) {
                     std::vector<llvm::Type*> paramTypes;
+                    paramTypes.push_back(builder->getPtrTy()); // context
                     paramTypes.push_back(builder->getPtrTy()); // this
                     paramTypes.push_back(getLLVMType(setterType->paramTypes[0])); // value
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), paramTypes, false);
-                    
-                    llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
 
-                    createCall(ft, funcPtr, { objPtr, val });
+                    llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+                    // Pass context (null or currentAsyncContext), this, and value
+                    llvm::Value* contextArg = currentAsyncContext ? currentAsyncContext : llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    createCall(ft, funcPtr, { contextArg, objPtr, val });
                     lastValue = val;
                     return;
                 }
