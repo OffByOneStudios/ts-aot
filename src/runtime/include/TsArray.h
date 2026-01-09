@@ -41,6 +41,7 @@ public:
     void* GetElementsPtr() { return elements; }
     bool IsSpecialized() { return isSpecialized; }
     bool IsDouble() { return isDouble; }
+    struct TaggedValue* GetElementBoxed(size_t index);  // Get element as boxed TsValue*
 
     void ForEach(void* callback, void* thisArg = nullptr);
     void* Map(void* callback, void* thisArg = nullptr);

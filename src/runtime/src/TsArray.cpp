@@ -31,6 +31,28 @@ TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize, bool isDoub
     return arr;
 }
 
+// Helper to get element at index as a boxed TsValue*, handling specialized arrays
+TsValue* TsArray::GetElementBoxed(size_t index) {
+    if (index >= length) return ts_value_make_undefined();
+
+    if (isSpecialized) {
+        if (isDouble) {
+            double val = ((double*)elements)[index];
+            return ts_value_make_double(val);
+        } else {
+            int64_t val = ((int64_t*)elements)[index];
+            return ts_value_make_int(val);
+        }
+    }
+
+    // Generic array - use heuristic for pointer vs int
+    int64_t val = ((int64_t*)elements)[index];
+    if (val > 0xFFFFFFFF || val < 0) {
+        return ts_value_make_object((void*)val);
+    }
+    return ts_value_make_int(val);
+}
+
 TsArray::TsArray(size_t initialCapacity, size_t elementSize) {
     this->capacity = initialCapacity > 0 ? initialCapacity : 4;
     this->length = 0;
@@ -113,6 +135,28 @@ void TsArray::Sort() {
 }
 
 int64_t TsArray::IndexOf(int64_t value) {
+    if (isSpecialized && isDouble) {
+        // For double arrays, value could be:
+        // 1. A double bit pattern (from bitcast)
+        // 2. An integer literal (small values like 3)
+        // Try both interpretations
+        double searchVal;
+        memcpy(&searchVal, &value, sizeof(double));
+
+        // First try as double bit pattern
+        for (size_t i = 0; i < length; ++i) {
+            if (((double*)elements)[i] == searchVal) return (int64_t)i;
+        }
+
+        // If not found and value looks like a small integer, try as integer->double
+        if (value >= -1000000 && value <= 1000000) {
+            double intAsDouble = (double)value;
+            for (size_t i = 0; i < length; ++i) {
+                if (((double*)elements)[i] == intAsDouble) return (int64_t)i;
+            }
+        }
+        return -1;
+    }
     for (size_t i = 0; i < length; ++i) {
         if (((int64_t*)elements)[i] == value) return (int64_t)i;
     }
@@ -120,6 +164,27 @@ int64_t TsArray::IndexOf(int64_t value) {
 }
 
 int64_t TsArray::LastIndexOf(int64_t value) {
+    if (isSpecialized && isDouble) {
+        // For double arrays, value could be:
+        // 1. A double bit pattern (from bitcast)
+        // 2. An integer literal (small values like 3)
+        double searchVal;
+        memcpy(&searchVal, &value, sizeof(double));
+
+        // First try as double bit pattern
+        for (size_t i = length; i > 0; --i) {
+            if (((double*)elements)[i - 1] == searchVal) return (int64_t)(i - 1);
+        }
+
+        // If not found and value looks like a small integer, try as integer->double
+        if (value >= -1000000 && value <= 1000000) {
+            double intAsDouble = (double)value;
+            for (size_t i = length; i > 0; --i) {
+                if (((double*)elements)[i - 1] == intAsDouble) return (int64_t)(i - 1);
+            }
+        }
+        return -1;
+    }
     for (size_t i = length; i > 0; --i) {
         if (((int64_t*)elements)[i - 1] == value) return (int64_t)(i - 1);
     }
@@ -268,7 +333,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -282,7 +347,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -296,12 +361,12 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (res->type == ValueType::BOOLEAN && res->b_val) {
-            return (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+            return GetElementBoxed(i);
         }
     }
     return ts_value_make_undefined();
@@ -312,7 +377,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -327,12 +392,12 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
-        TsValue* v = (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+        TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
         if (res->type == ValueType::BOOLEAN && res->b_val) {
-            return (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+            return GetElementBoxed(idx);
         }
     }
     return ts_value_make_undefined();
@@ -344,7 +409,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
-        TsValue* v = (((int64_t*)elements)[idx] > 0xFFFFFFFF || ((int64_t*)elements)[idx] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[idx]) : ts_value_make_int(((int64_t*)elements)[idx]);
+        TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
