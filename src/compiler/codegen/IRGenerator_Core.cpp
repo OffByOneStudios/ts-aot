@@ -1072,7 +1072,8 @@ void IRGenerator::generateDestructuring(llvm::Value* value, std::shared_ptr<Type
             }
 
             llvm::Value* elementVal = createCall(getFn->getFunctionType(), getFn, { arrayPtr, idxVal });
-            
+            boxedValues.insert(elementVal);  // ts_array_get_as_value returns boxed TsValue*
+
             llvm::Value* finalVal = nullptr;
             if (element->initializer) {
                 llvm::Value* typeTag = builder->CreateLoad(llvm::Type::getInt8Ty(*context), builder->CreateBitCast(elementVal, builder->getPtrTy()));
