@@ -130,7 +130,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Array spread `[...arr]` | ⚠️ | Basic support |
-| Object spread `{...obj}` | ❌ | Compilation error |
+| Object spread `{...obj}` | ✅ | |
 | Function call spread `fn(...args)` | ⚠️ | |
 
 ### Rest Parameters
@@ -350,7 +350,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Async iteration (`for await...of`) | ❌ | |
-| Rest/spread properties | ❌ | Object spread |
+| Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
 | RegExp named capture groups | ❌ | |
 | RegExp lookbehind assertions | ❌ | |
@@ -460,16 +460,16 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2015 | 74 | 14 | 23 | 111 | 67% |
 | ES2016 | 1 | 1 | 0 | 2 | 50% |
 | ES2017 | 6 | 1 | 2 | 9 | 67% |
-| ES2018 | 1 | 0 | 7 | 8 | 13% |
+| ES2018 | 2 | 0 | 6 | 8 | 25% |
 | ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **134** | **24** | **68** | **226** | **59%** |
+| **TOTAL** | **135** | **24** | **67** | **226** | **60%** |
 
-**Overall ECMAScript Conformance: 134/226 features (59%)**
+**Overall ECMAScript Conformance: 135/226 features (60%)**
 
 ---
 
@@ -481,7 +481,7 @@ These features should be prioritized for implementation:
 1. ✅ Destructuring (array and object) - Implemented
 2. ✅ Optional chaining (`?.`) - Property access implemented
 3. ✅ Nullish coalescing (`??`) - Implemented
-4. ❌ Object spread (`{...obj}`)
+4. ✅ Object spread (`{...obj}`) - Implemented
 5. ⚠️ `Object.assign()` - Works but property access on result crashes
 
 ### High Priority
