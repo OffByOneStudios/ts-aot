@@ -1862,7 +1862,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  // If it's a pointer (string), we need to cast it to i64 for the generic array storage
                  search = builder->CreatePtrToInt(search, llvm::Type::getInt64Ty(*context));
              } else if (search->getType()->isDoubleTy()) {
-                 search = builder->CreateFPToSI(search, llvm::Type::getInt64Ty(*context));
+                 // For specialized double arrays, use bitcast to preserve the bit pattern
+                 search = builder->CreateBitCast(search, llvm::Type::getInt64Ty(*context));
              }
              llvm::FunctionType* indexOfFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
@@ -2344,9 +2345,10 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          
          visit(node->arguments[0].get());
          llvm::Value* val = lastValue;
-         // ts_array_includes expects int64_t, not boxed value
+         // ts_array_includes expects int64_t as bit pattern (not converted)
          if (val->getType()->isDoubleTy()) {
-             val = builder->CreateFPToSI(val, llvm::Type::getInt64Ty(*context));
+             // For specialized double arrays, use bitcast to preserve the bit pattern
+             val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
          } else if (val->getType()->isIntegerTy(1)) {
              val = builder->CreateZExt(val, llvm::Type::getInt64Ty(*context));
          } else if (!val->getType()->isIntegerTy(64)) {

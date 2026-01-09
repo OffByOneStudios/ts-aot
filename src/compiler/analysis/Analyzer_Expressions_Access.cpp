@@ -204,7 +204,9 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    SPDLOG_DEBUG("visitPropertyAccessExpression: checking array methods, objType->kind={}, name={}", static_cast<int>(objType->kind), node->name);
     if (objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple) {
+        SPDLOG_DEBUG("  -> matched Array/Tuple, checking method name={}", node->name);
         if (node->name == "push") {
             auto pushFn = std::make_shared<FunctionType>();
             pushFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
@@ -274,6 +276,31 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             fillFn->isOptional.push_back(true);
             fillFn->returnType = objType;
             lastType = fillFn;
+            return;
+        } else if (node->name == "toReversed" || node->name == "toSorted") {
+            // ES2023 "change array by copy" methods - return new array, no params
+            auto fn = std::make_shared<FunctionType>();
+            fn->returnType = objType;
+            lastType = fn;
+            return;
+        } else if (node->name == "toSpliced") {
+            // ES2023 toSpliced(start, deleteCount, ...items) - return new array
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // start
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // deleteCount
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(true);
+            fn->hasRest = true;  // ...items
+            fn->returnType = objType;
+            lastType = fn;
+            return;
+        } else if (node->name == "with") {
+            // ES2023 with(index, value) - return new array with element replaced
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // index
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value
+            fn->returnType = objType;
+            lastType = fn;
             return;
         } else if (node->name == "forEach" || node->name == "map" || node->name == "filter" ||
                    node->name == "reduce" || node->name == "reduceRight" || node->name == "some" || node->name == "every" ||
