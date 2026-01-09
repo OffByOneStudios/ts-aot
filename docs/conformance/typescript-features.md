@@ -75,7 +75,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Constructor | ✅ | |
 | Properties | ✅ | |
 | Methods | ✅ | |
-| Getters/Setters | ✅ | Object literals only |
+| Getters/Setters | ✅ | Object literals and classes |
 | `public` modifier | ✅ | |
 | `private` modifier | ✅ | |
 | `protected` modifier | ✅ | |

@@ -148,7 +148,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Shorthand properties | ✅ | |
-| Shorthand methods | ⚠️ | Known bug |
+| Shorthand methods | ✅ | |
 | Computed property names | ✅ | |
 
 ### Classes
@@ -161,7 +161,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Static methods | ✅ | |
 | `extends` keyword | ✅ | |
 | `super` keyword | ✅ | |
-| Getters and setters | ❌ | |
+| Getters and setters | ✅ | VTable-based dispatch |
 
 ### Modules
 | Feature | Status | Notes |
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 75 | 13 | 23 | 111 | 68% |
+| ES2015 | 77 | 12 | 22 | 111 | 69% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 7 | 0 | 2 | 9 | 78% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **150** | **19** | **60** | **229** | **66%** |
+| **TOTAL** | **152** | **17** | **60** | **229** | **66%** |
 
-**Overall ECMAScript Conformance: 150/229 features (66%)**
+**Overall ECMAScript Conformance: 152/229 features (66%)**
 
 ---
 
