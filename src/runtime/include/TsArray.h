@@ -32,6 +32,12 @@ public:
     void* FlatMap(void* callback, void* thisArg = nullptr);
     void Reverse();
 
+    // ES2023 "change array by copy" methods
+    TsArray* ToReversed();
+    TsArray* ToSorted();
+    TsArray* ToSpliced(int64_t start, int64_t deleteCount, void* items, int64_t itemCount);
+    TsArray* With(int64_t index, int64_t value);
+
     void* GetElementsPtr() { return elements; }
     bool IsSpecialized() { return isSpecialized; }
     bool IsDouble() { return isDouble; }
@@ -104,6 +110,12 @@ extern "C" {
     bool ts_array_is_array(void* value);
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg);
     void* ts_array_fill(void* arr, void* value, int64_t start, int64_t end);
+
+    // ES2023 "change array by copy" methods
+    void* ts_array_toReversed(void* arr);
+    void* ts_array_toSorted(void* arr);
+    void* ts_array_toSpliced(void* arr, int64_t start, int64_t deleteCount, void* items, int64_t itemCount);
+    void* ts_array_with(void* arr, int64_t index, void* value);
 
     // Value-based API variants
     void ts_array_set_v(void* arr, int64_t index, TsValue value);
