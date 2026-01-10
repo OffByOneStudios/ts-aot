@@ -85,6 +85,9 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "toUpperCase") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
+        } else if (prop->name == "normalize") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         } else if (prop->name == "sort") {
              lastType = std::make_shared<Type>(TypeKind::Void);
              return;
@@ -576,6 +579,12 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
             auto strFn = std::make_shared<FunctionType>();
             strFn->returnType = std::make_shared<Type>(TypeKind::String);
             lastType = strFn;
+            return;
+        } else if (node->name == "normalize") {
+            auto normFn = std::make_shared<FunctionType>();
+            normFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // optional form parameter
+            normFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = normFn;
             return;
         } else if (node->name == "substring" || node->name == "slice") {
             auto subFn = std::make_shared<FunctionType>();

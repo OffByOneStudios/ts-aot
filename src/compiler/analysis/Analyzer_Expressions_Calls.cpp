@@ -334,6 +334,9 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         } else if (prop->name == "toUpperCase") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
+        } else if (prop->name == "normalize") {
+             lastType = std::make_shared<Type>(TypeKind::String);
+             return;
         } else if (prop->name == "replace" || prop->name == "replaceAll") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;

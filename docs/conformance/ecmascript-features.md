@@ -286,9 +286,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `String.prototype.startsWith()` | ✅ | |
 | `String.prototype.endsWith()` | ✅ | |
 | `String.prototype.repeat()` | ✅ | |
-| `String.fromCodePoint()` | ❌ | |
-| `String.prototype.codePointAt()` | ❌ | |
-| `String.prototype.normalize()` | ❌ | |
+| `String.fromCodePoint()` | ✅ | |
+| `String.prototype.codePointAt()` | ✅ | |
+| `String.prototype.normalize()` | ✅ | NFC, NFD, NFKC, NFKD forms |
 | Unicode escapes (`\u{}`) | ⚠️ | |
 
 ### Array (ES6)
@@ -457,7 +457,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 80 | 13 | 18 | 111 | 72% |
+| ES2015 | 83 | 13 | 15 | 111 | 75% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 7 | 0 | 2 | 9 | 78% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
@@ -467,9 +467,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **155** | **18** | **56** | **229** | **68%** |
+| **TOTAL** | **158** | **18** | **53** | **229** | **69%** |
 
-**Overall ECMAScript Conformance: 155/229 features (68%)**
+**Overall ECMAScript Conformance: 158/229 features (69%)**
 
 ---
 

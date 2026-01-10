@@ -332,6 +332,19 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
                     llvm::FunctionCallee upperFn = getRuntimeFunction("ts_string_toUpperCase", upperFt);
                     lastValue = createCall(upperFt, upperFn.getCallee(), { strObj });
                     return;
+                } else if (methodName == "normalize") {
+                    llvm::Value* form = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    if (!node->arguments.empty()) {
+                        visit(node->arguments[0].get());
+                        form = lastValue;
+                        if (form->getType()->isIntegerTy(64)) {
+                            form = builder->CreateIntToPtr(form, builder->getPtrTy());
+                        }
+                    }
+                    llvm::FunctionType* normFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee normFn = getRuntimeFunction("ts_string_normalize", normFt);
+                    lastValue = createCall(normFt, normFn.getCallee(), { strObj, form });
+                    return;
                 } else if (methodName == "replace" || methodName == "replaceAll") {
                     std::string fnName = (methodName == "replace") ? "ts_string_replace" : "ts_string_replaceAll";
                     llvm::FunctionType* replaceFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);

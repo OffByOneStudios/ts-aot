@@ -996,6 +996,24 @@ Analyzer::Analyzer() {
 
     symbols.define("Number", numberType);
 
+    // Register String global object with static methods
+    auto stringGlobalType = std::make_shared<ObjectType>();
+
+    // String.fromCodePoint(...codePoints: number[]): string
+    auto fromCodePointType = std::make_shared<FunctionType>();
+    fromCodePointType->hasRest = true;
+    fromCodePointType->returnType = std::make_shared<Type>(TypeKind::String);
+    stringGlobalType->fields["fromCodePoint"] = fromCodePointType;
+
+    // String.fromCharCode(...codes: number[]): string
+    auto fromCharCodeType = std::make_shared<FunctionType>();
+    fromCharCodeType->hasRest = true;
+    fromCharCodeType->returnType = std::make_shared<Type>(TypeKind::String);
+    stringGlobalType->fields["fromCharCode"] = fromCharCodeType;
+
+    symbols.define("String", stringGlobalType);
+
+
     // Register URL class
 
     registerEvents();
