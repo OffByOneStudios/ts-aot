@@ -724,6 +724,33 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Check for TsTypedArray (magic at offset 16 - after C++ vtable (8) + TsObject::vtable (8))
+        if (magic16 == 0x54415252) { // TsTypedArray::MAGIC ("TARR")
+            TsTypedArray* ta = (TsTypedArray*)obj;
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int((int64_t)ta->GetLength());
+            }
+            if (strcmp(keyStr, "byteLength") == 0) {
+                return ts_value_make_int((int64_t)ta->GetByteLength());
+            }
+            if (strcmp(keyStr, "byteOffset") == 0) {
+                return ts_value_make_int((int64_t)ta->GetByteOffset());
+            }
+            if (strcmp(keyStr, "BYTES_PER_ELEMENT") == 0) {
+                return ts_value_make_int((int64_t)ta->GetElementSize());
+            }
+            if (strcmp(keyStr, "buffer") == 0) {
+                return ts_value_make_object(ta->GetBuffer());
+            }
+            // Check for numeric index
+            char* endptr;
+            long index = strtol(keyStr, &endptr, 10);
+            if (*endptr == '\0' && index >= 0) {
+                return ts_value_make_double(ta->Get((size_t)index));
+            }
+            return ts_value_make_undefined();
+        }
+
         // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsMap* map = (TsMap*)obj;
@@ -2036,7 +2063,40 @@ TsValue* ts_value_make_int(int64_t i) {
             *heapResult = result;
             return heapResult;
         }
-        
+
+        // Check for TsTypedArray (magic at offset 16)
+        if (magic16 == 0x54415252) { // TsTypedArray::MAGIC = "TARR"
+            TsTypedArray* ta = (TsTypedArray*)rawObj;
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        if (strcmp(k, "length") == 0) {
+                            return ts_value_make_int((int64_t)ta->GetLength());
+                        }
+                        if (strcmp(k, "byteLength") == 0) {
+                            return ts_value_make_int((int64_t)ta->GetByteLength());
+                        }
+                        if (strcmp(k, "byteOffset") == 0) {
+                            return ts_value_make_int((int64_t)ta->GetByteOffset());
+                        }
+                        if (strcmp(k, "BYTES_PER_ELEMENT") == 0) {
+                            return ts_value_make_int((int64_t)ta->GetElementSize());
+                        }
+                        if (strcmp(k, "buffer") == 0) {
+                            return ts_value_make_object(ta->GetBuffer());
+                        }
+                    }
+                }
+            } else if (key->type == ValueType::NUMBER_INT) {
+                return ts_value_make_double(ta->Get((size_t)key->i_val));
+            } else if (key->type == ValueType::NUMBER_DBL) {
+                return ts_value_make_double(ta->Get((size_t)key->d_val));
+            }
+            return ts_value_make_undefined();
+        }
+
         // Check if this is actually a TsMap before using map operations
         // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
         uint32_t magic20 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 20);

@@ -106,11 +106,37 @@ Analyzer::Analyzer() {
     tsAotType->fields["comptime"] = comptimeType;
     symbols.define("ts_aot", tsAotType);
 
-    // Register TypedArrays
-    auto uint8ArrayClass = std::make_shared<ClassType>("Uint8Array");
-    uint8ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
-    uint8ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
-    symbols.defineType("Uint8Array", uint8ArrayClass);
+    // Register TypedArrays - helper lambda to create TypedArray class types
+    auto makeTypedArrayClass = [this](const std::string& name) {
+        auto cls = std::make_shared<ClassType>(name);
+        cls->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+        cls->fields["byteLength"] = std::make_shared<Type>(TypeKind::Int);
+        cls->fields["byteOffset"] = std::make_shared<Type>(TypeKind::Int);
+        cls->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
+        cls->fields["BYTES_PER_ELEMENT"] = std::make_shared<Type>(TypeKind::Int);
+
+        // Note: Instance methods (set, slice, subarray, fill) not yet implemented in runtime
+        // Will be added in a follow-up iteration
+
+        // Register both as type and constructor
+        symbols.defineType(name, cls);
+        symbols.define(name, cls);
+
+        return cls;
+    };
+
+    // Register all TypedArray types
+    auto int8ArrayClass = makeTypedArrayClass("Int8Array");
+    auto uint8ArrayClass = makeTypedArrayClass("Uint8Array");
+    auto uint8ClampedArrayClass = makeTypedArrayClass("Uint8ClampedArray");
+    auto int16ArrayClass = makeTypedArrayClass("Int16Array");
+    auto uint16ArrayClass = makeTypedArrayClass("Uint16Array");
+    auto int32ArrayClass = makeTypedArrayClass("Int32Array");
+    auto uint32ArrayClass = makeTypedArrayClass("Uint32Array");
+    auto float32ArrayClass = makeTypedArrayClass("Float32Array");
+    auto float64ArrayClass = makeTypedArrayClass("Float64Array");
+    auto bigInt64ArrayClass = makeTypedArrayClass("BigInt64Array");
+    auto bigUint64ArrayClass = makeTypedArrayClass("BigUint64Array");
 
     // ========================================================================
     // TextEncoder (Milestone 102.11)
@@ -159,15 +185,7 @@ Analyzer::Analyzer() {
     // TextDecoder constructor - register the class as its own constructor
     symbols.define("TextDecoder", textDecoderClass);
 
-    auto uint32ArrayClass = std::make_shared<ClassType>("Uint32Array");
-    uint32ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
-    uint32ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
-    symbols.defineType("Uint32Array", uint32ArrayClass);
-
-    auto float64ArrayClass = std::make_shared<ClassType>("Float64Array");
-    float64ArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
-    float64ArrayClass->fields["buffer"] = std::make_shared<Type>(TypeKind::Any);
-    symbols.defineType("Float64Array", float64ArrayClass);
+    // Note: Uint32Array and Float64Array are now registered in the TypedArray section above
 
     auto dataViewClass = std::make_shared<ClassType>("DataView");
     auto getUint32 = std::make_shared<FunctionType>();

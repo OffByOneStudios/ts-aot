@@ -308,6 +308,13 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_data_view_create",        {false, false, false}}, // (buf, offset, len) -> DataView*
 
     // =========================================================================
+    // TypedArray operations
+    // =========================================================================
+    {"ts_typed_array_create",      {false, false}},      // (length, elementSize) -> TypedArray*
+    {"ts_typed_array_from_array",  {false, false}},      // (array*, elementSize) -> TypedArray*
+    {"ts_typed_array_length",      {false}},             // (typedArray*) -> int
+
+    // =========================================================================
     // TextEncoder/TextDecoder
     // =========================================================================
     {"ts_text_encoder_create",       {}},                // () -> TextEncoder*

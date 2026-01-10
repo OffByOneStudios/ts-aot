@@ -841,24 +841,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             return;
         } else if (node->expression->inferredType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(node->expression->inferredType);
-            if (cls->name == "Uint8Array" || cls->name == "Uint32Array" || cls->name == "Float64Array") {
-                llvm::StructType* tsTypedArrayType = llvm::StructType::getTypeByName(*context, cls->name);
-                if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
-                
-                if (tsTypedArrayType) {
-                    llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, obj, 3);
-                    llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
-                    
-                    // Add range metadata
-                    llvm::Metadata* rangeArgs[] = {
-                        llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
-                        llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 9223372036854775807LL))
-                    };
-                    length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
-                    
-                    lastValue = length;
-                    return;
-                }
+            // Handle all TypedArray types via runtime call
+            if (cls->name == "Int8Array" || cls->name == "Uint8Array" || cls->name == "Uint8ClampedArray" ||
+                cls->name == "Int16Array" || cls->name == "Uint16Array" ||
+                cls->name == "Int32Array" || cls->name == "Uint32Array" ||
+                cls->name == "Float32Array" || cls->name == "Float64Array" ||
+                cls->name == "BigInt64Array" || cls->name == "BigUint64Array") {
+                // Use runtime call for TypedArray length
+                llvm::FunctionType* lenFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee lenFn = getRuntimeFunction("ts_typed_array_length", lenFt);
+                lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
+                return;
             } else if (cls->name == "Buffer") {
                 llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
                 llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, obj, 4);
