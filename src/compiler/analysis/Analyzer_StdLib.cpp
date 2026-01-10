@@ -188,19 +188,72 @@ Analyzer::Analyzer() {
     // Note: Uint32Array and Float64Array are now registered in the TypedArray section above
 
     auto dataViewClass = std::make_shared<ClassType>("DataView");
-    auto getUint32 = std::make_shared<FunctionType>();
-    getUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
-    getUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian
-    getUint32->returnType = std::make_shared<Type>(TypeKind::Int);
-    dataViewClass->methods["getUint32"] = getUint32;
 
-    auto setUint32 = std::make_shared<FunctionType>();
-    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
-    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
-    setUint32->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian
-    setUint32->returnType = std::make_shared<Type>(TypeKind::Void);
-    dataViewClass->methods["setUint32"] = setUint32;
+    // Helper to create getter method (offset, littleEndian?) -> number
+    auto makeGetter = [&]() {
+        auto fn = std::make_shared<FunctionType>();
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian (optional)
+        fn->returnType = std::make_shared<Type>(TypeKind::Int);
+        return fn;
+    };
+
+    // Helper to create float getter (returns Double)
+    auto makeFloatGetter = [&]() {
+        auto fn = std::make_shared<FunctionType>();
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian (optional)
+        fn->returnType = std::make_shared<Type>(TypeKind::Double);
+        return fn;
+    };
+
+    // Helper to create setter method (offset, value, littleEndian?) -> void
+    auto makeSetter = [&]() {
+        auto fn = std::make_shared<FunctionType>();
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian (optional)
+        fn->returnType = std::make_shared<Type>(TypeKind::Void);
+        return fn;
+    };
+
+    // Helper to create float setter
+    auto makeFloatSetter = [&]() {
+        auto fn = std::make_shared<FunctionType>();
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // value
+        fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // littleEndian (optional)
+        fn->returnType = std::make_shared<Type>(TypeKind::Void);
+        return fn;
+    };
+
+    // Getters
+    dataViewClass->methods["getInt8"] = makeGetter();
+    dataViewClass->methods["getUint8"] = makeGetter();
+    dataViewClass->methods["getInt16"] = makeGetter();
+    dataViewClass->methods["getUint16"] = makeGetter();
+    dataViewClass->methods["getInt32"] = makeGetter();
+    dataViewClass->methods["getUint32"] = makeGetter();
+    dataViewClass->methods["getFloat32"] = makeFloatGetter();
+    dataViewClass->methods["getFloat64"] = makeFloatGetter();
+
+    // Setters
+    dataViewClass->methods["setInt8"] = makeSetter();
+    dataViewClass->methods["setUint8"] = makeSetter();
+    dataViewClass->methods["setInt16"] = makeSetter();
+    dataViewClass->methods["setUint16"] = makeSetter();
+    dataViewClass->methods["setInt32"] = makeSetter();
+    dataViewClass->methods["setUint32"] = makeSetter();
+    dataViewClass->methods["setFloat32"] = makeFloatSetter();
+    dataViewClass->methods["setFloat64"] = makeFloatSetter();
+
+    // Properties
+    dataViewClass->fields["buffer"] = std::make_shared<ClassType>("ArrayBuffer");
+    dataViewClass->fields["byteLength"] = std::make_shared<Type>(TypeKind::Int);
+    dataViewClass->fields["byteOffset"] = std::make_shared<Type>(TypeKind::Int);
+
     symbols.defineType("DataView", dataViewClass);
+    symbols.define("DataView", dataViewClass);  // Constructor
 
     // Register Date class
     auto dateClass = std::make_shared<ClassType>("Date");

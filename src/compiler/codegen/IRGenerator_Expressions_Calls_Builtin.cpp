@@ -423,20 +423,26 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
         if (classType->name == "DataView") {
             visit(prop->expression.get());
             llvm::Value* dv = lastValue;
-            
-            if (prop->name == "getUint32") {
+
+            // Handle integer getters (getInt8, getUint8, getInt16, getUint16, getInt32, getUint32)
+            if (prop->name == "getInt8" || prop->name == "getUint8" ||
+                prop->name == "getInt16" || prop->name == "getUint16" ||
+                prop->name == "getInt32" || prop->name == "getUint32") {
+
                 visit(node->arguments[0].get());
                 llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
-                
+
                 llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
                 if (node->arguments.size() > 1) {
                     visit(node->arguments[1].get());
                     littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
                 }
-                
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("DataView_getUint32", ft);
-                
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
+                std::string funcName = "DataView_" + prop->name;
+                llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+
                 llvm::Value* contextVal = currentAsyncContext;
                 if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
 
@@ -445,28 +451,84 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     lastValue = castValue(lastValue, llvm::Type::getDoubleTy(*context));
                 }
                 return true;
-            } else if (prop->name == "setUint32") {
+            }
+
+            // Handle float getters (getFloat32, getFloat64)
+            if (prop->name == "getFloat32" || prop->name == "getFloat64") {
                 visit(node->arguments[0].get());
                 llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
-                
+
+                llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
+                std::string funcName = "DataView_" + prop->name;
+                llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                lastValue = createCall(ft, fn.getCallee(), { contextVal, dv, offset, littleEndian });
+                return true;
+            }
+
+            // Handle integer setters (setInt8, setUint8, setInt16, setUint16, setInt32, setUint32)
+            if (prop->name == "setInt8" || prop->name == "setUint8" ||
+                prop->name == "setInt16" || prop->name == "setUint16" ||
+                prop->name == "setInt32" || prop->name == "setUint32") {
+
+                visit(node->arguments[0].get());
+                llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
                 visit(node->arguments[1].get());
-                llvm::Value* val = castValue(lastValue, llvm::Type::getInt32Ty(*context));
-                // The runtime expects i64 for the value parameter to be generic, but we cast to i32 first for JS semantics
-                llvm::Value* val64 = castValue(val, llvm::Type::getInt64Ty(*context));
-                
+                llvm::Value* val64 = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
                 llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
                 if (node->arguments.size() > 2) {
                     visit(node->arguments[2].get());
                     littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
                 }
-                
-                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("DataView_setUint32", ft);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
+                std::string funcName = "DataView_" + prop->name;
+                llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
 
                 llvm::Value* contextVal = currentAsyncContext;
                 if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
 
                 createCall(ft, fn.getCallee(), { contextVal, dv, offset, val64, littleEndian });
+                lastValue = nullptr;
+                return true;
+            }
+
+            // Handle float setters (setFloat32, setFloat64)
+            if (prop->name == "setFloat32" || prop->name == "setFloat64") {
+                visit(node->arguments[0].get());
+                llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+                visit(node->arguments[1].get());
+                llvm::Value* val = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+
+                llvm::Value* littleEndian = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    littleEndian = castValue(lastValue, llvm::Type::getInt1Ty(*context));
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getDoubleTy(*context), llvm::Type::getInt1Ty(*context) }, false);
+                std::string funcName = "DataView_" + prop->name;
+                llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+
+                llvm::Value* contextVal = currentAsyncContext;
+                if (!contextVal) contextVal = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                createCall(ft, fn.getCallee(), { contextVal, dv, offset, val, littleEndian });
                 lastValue = nullptr;
                 return true;
             }

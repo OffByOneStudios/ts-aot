@@ -660,6 +660,8 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             else if (className == "Int32Array" || className == "Uint32Array" || className == "Float32Array") elementSize = 4;
             else if (className == "Float64Array" || className == "BigInt64Array" || className == "BigUint64Array") elementSize = 8;
 
+            bool isClamped = (className == "Uint8ClampedArray");
+
             llvm::Value* arg = nullptr;
             bool isArrayLiteral = false;
             if (!node->arguments.empty()) {
@@ -674,27 +676,43 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             }
 
             if (isArrayLiteral) {
-                // Handle new Int8Array([1, 2, 3]) - use generic from_array function
-                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                        { llvm::PointerType::getUnqual(*context), llvm::Type::getInt32Ty(*context) }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array", createFt);
-                lastValue = createCall(createFt, fn.getCallee(), {
-                    arg,
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
-                });
+                if (isClamped) {
+                    // Handle new Uint8ClampedArray([1, 2, 3]) - use clamped from_array function
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::PointerType::getUnqual(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array_clamped", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), { arg });
+                } else {
+                    // Handle new Int8Array([1, 2, 3]) - use generic from_array function
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt32Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), {
+                        arg,
+                        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
+                    });
+                }
             } else {
                 // Ensure arg is i64
                 if (arg->getType()->isIntegerTy()) {
                     arg = builder->CreateIntCast(arg, llvm::Type::getInt64Ty(*context), true);
                 }
 
-                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                        { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
-                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create", createFt);
-                lastValue = createCall(createFt, fn.getCallee(), {
-                    arg,
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
-                });
+                if (isClamped) {
+                    // new Uint8ClampedArray(length) - use clamped create function
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create_clamped", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), { arg });
+                } else {
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), {
+                        arg,
+                        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
+                    });
+                }
             }
             nonNullValues.insert(lastValue);
             return;

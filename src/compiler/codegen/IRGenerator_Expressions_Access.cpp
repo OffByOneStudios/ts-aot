@@ -422,7 +422,12 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             llvm::Value* byte = createCall(getFt, getFn.getCallee(), { buf, index });
             lastValue = builder->CreateUIToFP(byte, llvm::Type::getDoubleTy(*context));
             return;
-        } else if (cls->name == "Uint8Array" || cls->name == "Uint32Array" || cls->name == "Float64Array") {
+        } else if (cls->name == "Int8Array" || cls->name == "Uint8Array" || cls->name == "Uint8ClampedArray" ||
+                   cls->name == "Int16Array" || cls->name == "Uint16Array" ||
+                   cls->name == "Int32Array" || cls->name == "Uint32Array" ||
+                   cls->name == "Float32Array" || cls->name == "Float64Array" ||
+                   cls->name == "BigInt64Array" || cls->name == "BigUint64Array") {
+            // Use runtime function for all TypedArray element access
             visit(node->expression.get());
             llvm::Value* ta = lastValue;
             emitNullCheckForExpression(node->expression.get(), ta);
@@ -430,41 +435,68 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             llvm::Value* index = lastValue;
             index = castValue(index, llvm::Type::getInt64Ty(*context));
 
-            llvm::Type* llvmElemType = nullptr;
-            if (cls->name == "Uint8Array") llvmElemType = llvm::Type::getInt8Ty(*context);
-            else if (cls->name == "Uint32Array") llvmElemType = llvm::Type::getInt32Ty(*context);
-            else if (cls->name == "Float64Array") llvmElemType = llvm::Type::getDoubleTy(*context);
+            // Use ts_typed_array_get_u8 for all uint8 variants (including clamped - read is same)
+            // and appropriate functions for other sizes
+            std::string funcName;
+            llvm::Type* retType;
+            bool isSigned = false;
 
-            if (llvmElemType) {
-                llvm::StructType* tsTypedArrayType = llvm::StructType::getTypeByName(*context, cls->name);
-                if (!tsTypedArrayType) tsTypedArrayType = llvm::StructType::getTypeByName(*context, "TsTypedArray");
+            if (cls->name == "Int8Array" || cls->name == "Uint8Array" || cls->name == "Uint8ClampedArray") {
+                funcName = "ts_typed_array_get_u8";
+                retType = llvm::Type::getInt8Ty(*context);
+                isSigned = (cls->name == "Int8Array");
+            } else if (cls->name == "Int16Array" || cls->name == "Uint16Array") {
+                funcName = "ts_typed_array_get_i16";  // We'll use same runtime func
+                retType = llvm::Type::getInt16Ty(*context);
+                isSigned = (cls->name == "Int16Array");
+            } else if (cls->name == "Int32Array" || cls->name == "Uint32Array") {
+                funcName = "ts_typed_array_get_u32";
+                retType = llvm::Type::getInt32Ty(*context);
+                isSigned = (cls->name == "Int32Array");
+            } else if (cls->name == "Float32Array") {
+                funcName = "ts_typed_array_get_f32";
+                retType = llvm::Type::getFloatTy(*context);
+            } else if (cls->name == "Float64Array") {
+                funcName = "ts_typed_array_get_f64";
+                retType = llvm::Type::getDoubleTy(*context);
+            } else {
+                // BigInt types - treat as i64
+                funcName = "ts_typed_array_get_i64";
+                retType = llvm::Type::getInt64Ty(*context);
+                isSigned = (cls->name == "BigInt64Array");
+            }
 
-                // Bounds check
-                if (!isSafe) {
-                llvm::Value* lengthPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 3);
-                llvm::Value* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
-                    emitBoundsCheck(index, length);
-                }
-
-                llvm::Value* bufferPtrPtr = builder->CreateStructGEP(tsTypedArrayType, ta, 2);
-                llvm::Value* bufferPtr = builder->CreateLoad(builder->getPtrTy(), bufferPtrPtr);
-                
-                // TsBuffer layout: vtable (0), vtable (1), magic (2), data (3), length (4)
-                llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
-                llvm::Value* dataPtrPtr = builder->CreateStructGEP(tsBufferType, bufferPtr, 3);
-                llvm::Value* dataPtr = builder->CreateLoad(builder->getPtrTy(), dataPtrPtr);
-                
-                llvm::Value* ptr = builder->CreateGEP(llvmElemType, dataPtr, { index });
-                
-                lastValue = builder->CreateLoad(llvmElemType, ptr);
-                if (cls->name != "Float64Array") {
-                    if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
-                        lastValue = builder->CreateIntCast(lastValue, llvm::Type::getInt64Ty(*context), false);
-                    } else {
-                        lastValue = builder->CreateUIToFP(lastValue, llvm::Type::getDoubleTy(*context));
-                    }
+            // Fall back to u8 for now if function doesn't exist yet
+            if (funcName == "ts_typed_array_get_i16" || funcName == "ts_typed_array_get_f32" ||
+                funcName == "ts_typed_array_get_i64") {
+                // Use generic TsTypedArray::Get via helper
+                llvm::FunctionType* getFt = llvm::FunctionType::get(
+                    llvm::Type::getDoubleTy(*context),
+                    { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) },
+                    false);
+                llvm::FunctionCallee getFn = module->getOrInsertFunction("ts_typed_array_get_generic", getFt);
+                lastValue = createCall(getFt, getFn.getCallee(), { ta, index });
+                if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+                    lastValue = builder->CreateFPToSI(lastValue, llvm::Type::getInt64Ty(*context));
                 }
                 return;
+            }
+
+            llvm::FunctionType* getFt = llvm::FunctionType::get(retType, { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee getFn = module->getOrInsertFunction(funcName, getFt);
+            lastValue = createCall(getFt, getFn.getCallee(), { ta, index });
+
+            // Convert to expected output type
+            if (retType != llvm::Type::getDoubleTy(*context)) {
+                if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+                    lastValue = isSigned ?
+                        builder->CreateSExt(lastValue, llvm::Type::getInt64Ty(*context)) :
+                        builder->CreateZExt(lastValue, llvm::Type::getInt64Ty(*context));
+                } else {
+                    lastValue = isSigned ?
+                        builder->CreateSIToFP(lastValue, llvm::Type::getDoubleTy(*context)) :
+                        builder->CreateUIToFP(lastValue, llvm::Type::getDoubleTy(*context));
+                }
             }
             return;
         }

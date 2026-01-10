@@ -48,12 +48,13 @@ private:
 class TsTypedArray : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54415252; // "TARR"
-    static TsTypedArray* Create(size_t length, size_t elementSize);
+    static TsTypedArray* Create(size_t length, size_t elementSize, bool clamped = false);
     uint8_t* GetData() { return buffer->GetData(); }
     size_t GetLength() { return length; }
     size_t GetByteLength() { return length * elementSize; }
     size_t GetByteOffset() { return 0; }  // TypedArrays start at offset 0
     size_t GetElementSize() { return elementSize; }
+    bool IsClamped() { return clamped; }
     TsBuffer* GetBuffer() { return buffer; }
 
     // Element access
@@ -61,11 +62,12 @@ public:
     void Set(size_t index, double value);
 
 private:
-    TsTypedArray(size_t length, size_t elementSize);
+    TsTypedArray(size_t length, size_t elementSize, bool clamped);
     // Note: magic is inherited from TsObject and set in constructor
     TsBuffer* buffer;
     size_t length;
     size_t elementSize;
+    bool clamped;
 };
 
 class TsDataView : public TsObject {
@@ -105,9 +107,35 @@ extern "C" {
     void* ts_typed_array_from_array_f64(void* array);
     // Generic typed array functions with element size parameter
     void* ts_typed_array_create(int64_t length, int32_t elementSize);
+    void* ts_typed_array_create_clamped(int64_t length);  // For Uint8ClampedArray
     void* ts_typed_array_from_array(void* array, int32_t elementSize);
+    void* ts_typed_array_from_array_clamped(void* array);  // For Uint8ClampedArray
     int64_t ts_typed_array_length(void* typedArray);
+    double ts_typed_array_get_generic(void* typedArray, int64_t index);
     void* ts_data_view_create(void* buffer);
+
+    // DataView getters
+    int64_t DataView_getInt8(void* context, void* dv, int64_t offset, bool littleEndian);
+    int64_t DataView_getUint8(void* context, void* dv, int64_t offset, bool littleEndian);
+    int64_t DataView_getInt16(void* context, void* dv, int64_t offset, bool littleEndian);
+    int64_t DataView_getUint16(void* context, void* dv, int64_t offset, bool littleEndian);
+    int64_t DataView_getInt32(void* context, void* dv, int64_t offset, bool littleEndian);
     int64_t DataView_getUint32(void* context, void* dv, int64_t offset, bool littleEndian);
+    double DataView_getFloat32(void* context, void* dv, int64_t offset, bool littleEndian);
+    double DataView_getFloat64(void* context, void* dv, int64_t offset, bool littleEndian);
+
+    // DataView setters
+    void DataView_setInt8(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
+    void DataView_setUint8(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
+    void DataView_setInt16(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
+    void DataView_setUint16(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
+    void DataView_setInt32(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
     void DataView_setUint32(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);
+    void DataView_setFloat32(void* context, void* dv, int64_t offset, double value, bool littleEndian);
+    void DataView_setFloat64(void* context, void* dv, int64_t offset, double value, bool littleEndian);
+
+    // DataView properties
+    void* DataView_getBuffer(void* context, void* dv);
+    int64_t DataView_getByteLength(void* context, void* dv);
+    int64_t DataView_getByteOffset(void* context, void* dv);
 }
