@@ -45,7 +45,9 @@ void* ts_symbol_for(void* key) {
 }
 
 void* ts_symbol_key_for(void* sym) {
-    return TsSymbol::KeyFor((TsSymbol*)sym);
+    TsString* key = TsSymbol::KeyFor((TsSymbol*)sym);
+    // Return nullptr (which becomes undefined in JS) when symbol isn't in registry
+    return key;
 }
 
 TsValue* ts_value_make_symbol(void* s) {
