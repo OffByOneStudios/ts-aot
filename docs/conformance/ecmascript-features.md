@@ -123,7 +123,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Object destructuring | ✅ | |
 | Default values | ✅ | |
 | Rest elements | ✅ | Array rest only |
-| Nested destructuring | ❌ | |
+| Nested destructuring | ✅ | Objects, arrays, and mixed nesting |
 | Parameter destructuring | ❌ | |
 
 ### Spread Operator
@@ -458,7 +458,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 88 | 14 | 9 | 111 | 79% |
+| ES2015 | 89 | 14 | 8 | 111 | 80% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 7 | 0 | 2 | 9 | 78% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
@@ -468,9 +468,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **163** | **19** | **47** | **229** | **71%** |
+| **TOTAL** | **164** | **19** | **46** | **229** | **72%** |
 
-**Overall ECMAScript Conformance: 163/229 features (71%)**
+**Overall ECMAScript Conformance: 164/229 features (72%)**
 
 ---
 

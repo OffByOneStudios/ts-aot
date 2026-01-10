@@ -63,7 +63,7 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     // Stream helpers used in HTTP
     bp.registerRuntimeApi("ts_writable_write", {true, true}, true);
     bp.registerRuntimeApi("ts_writable_end", {true}, true);
-    bp.registerRuntimeApi("ts_value_get_object", {true}, true);
+    bp.registerRuntimeApi("ts_value_get_object", {true}, false);  // Returns raw pointer
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
