@@ -52,6 +52,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_charCodeAt", {false, false}, false);  // str, index -> int
     bp.registerRuntimeApi("ts_string_codePointAt", {false, false}, false);  // str, index -> int
     bp.registerRuntimeApi("ts_string_fromCodePoint", {false}, false);  // codePointsArray -> str
+    bp.registerRuntimeApi("ts_string_raw", {false, false}, false);  // templateObj, substitutionsArray -> str
     bp.registerRuntimeApi("ts_string_includes", {false, false, false}, false);  // str, search, position -> bool
     bp.registerRuntimeApi("ts_string_indexOf", {false, false, false}, false);  // str, search, start -> int
     bp.registerRuntimeApi("ts_string_lastIndexOf", {false, false, false}, false);  // str, search, start -> int
@@ -1746,6 +1747,56 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fromCodePointFn = getRuntimeFunction("ts_string_fromCodePoint", fromCodePointFt);
                 lastValue = createCall(fromCodePointFt, fromCodePointFn.getCallee(), { arr });
+                return true;
+            }
+            if (prop->name == "raw") {
+                // String.raw(template, ...substitutions) - returns raw string without escape processing
+                // First argument is an object with a 'raw' property (array of raw string pieces)
+                // Remaining arguments are substitution values
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+
+                // Get the template object
+                visit(node->arguments[0].get());
+                llvm::Value* templateObj = lastValue;
+
+                // Unbox if needed (Any type)
+                if (node->arguments[0]->inferredType && node->arguments[0]->inferredType->kind == TypeKind::Any) {
+                    llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_object", unboxFt);
+                    templateObj = createCall(unboxFt, unboxFn.getCallee(), { templateObj });
+                }
+
+                // Create array for substitutions
+                llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+                llvm::Value* subsArr = createCall(createFt, createFn.getCallee(), {});
+
+                // Push all substitution arguments
+                llvm::FunctionType* pushFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+
+                for (size_t i = 1; i < node->arguments.size(); i++) {
+                    visit(node->arguments[i].get());
+                    llvm::Value* val = lastValue;
+
+                    // Box the value if not already boxed
+                    if (!boxedValues.count(val)) {
+                        val = boxValue(val, node->arguments[i]->inferredType);
+                    }
+
+                    createCall(pushFt, pushFn.getCallee(), { subsArr, val });
+                }
+
+                // Call ts_string_raw(templateObj, substitutionsArray)
+                llvm::FunctionType* rawFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee rawFn = getRuntimeFunction("ts_string_raw", rawFt);
+                lastValue = createCall(rawFt, rawFn.getCallee(), { templateObj, subsArr });
                 return true;
             }
         }

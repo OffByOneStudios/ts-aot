@@ -879,6 +879,99 @@ extern "C" {
         return TsString::FromCodePoint(codePoints, len);
     }
 
+    void* ts_string_raw(void* templateObj, void* substitutionsArray) {
+        // String.raw(template, ...substitutions)
+        // template is an object with a 'raw' property that contains array of string pieces
+        if (!templateObj) return TsString::Create("");
+
+        // Get the 'raw' property from the template object
+        void* rawArray = ts_object_get_property(templateObj, "raw");
+
+        // Unbox if it's a TsValue*
+        TsValue* rawVal = (TsValue*)rawArray;
+        if (rawVal && ((uint8_t)rawVal->type <= 10)) {
+            if (rawVal->type == ValueType::OBJECT_PTR || rawVal->type == ValueType::ARRAY_PTR) {
+                rawArray = rawVal->ptr_val;
+            }
+        }
+
+        if (!rawArray) return TsString::Create("");
+
+        TsArray* rawPieces = (TsArray*)rawArray;
+        TsArray* subs = substitutionsArray ? (TsArray*)substitutionsArray : nullptr;
+
+        int64_t rawLen = rawPieces->Length();
+        if (rawLen == 0) return TsString::Create("");
+
+        // Build the result by interleaving raw pieces and substitutions
+        std::string result;
+
+        for (int64_t i = 0; i < rawLen; i++) {
+            // Get raw string piece
+            int64_t pieceVal = rawPieces->Get(i);
+            TsValue* pieceBoxed = (TsValue*)pieceVal;
+            TsString* piece = nullptr;
+
+            if (pieceBoxed && ((uint8_t)pieceBoxed->type <= 10)) {
+                if (pieceBoxed->type == ValueType::STRING_PTR) {
+                    piece = (TsString*)pieceBoxed->ptr_val;
+                } else if (pieceBoxed->type == ValueType::OBJECT_PTR) {
+                    piece = (TsString*)pieceBoxed->ptr_val;
+                }
+            } else {
+                piece = (TsString*)pieceVal;
+            }
+
+            if (piece) {
+                result += piece->ToUtf8();
+            }
+
+            // Add substitution if available (there's one fewer substitution than raw pieces)
+            if (subs && i < rawLen - 1 && i < subs->Length()) {
+                int64_t subVal = subs->Get(i);
+                TsValue* subBoxed = (TsValue*)subVal;
+
+                if (subBoxed && ((uint8_t)subBoxed->type <= 10)) {
+                    switch (subBoxed->type) {
+                        case ValueType::STRING_PTR:
+                            if (subBoxed->ptr_val) {
+                                result += ((TsString*)subBoxed->ptr_val)->ToUtf8();
+                            }
+                            break;
+                        case ValueType::NUMBER_INT:
+                            result += std::to_string(subBoxed->i_val);
+                            break;
+                        case ValueType::NUMBER_DBL:
+                            result += std::to_string(subBoxed->d_val);
+                            break;
+                        case ValueType::BOOLEAN:
+                            result += subBoxed->b_val ? "true" : "false";
+                            break;
+                        case ValueType::UNDEFINED:
+                            result += "undefined";
+                            break;
+                        case ValueType::OBJECT_PTR:
+                            // Null is represented as OBJECT_PTR with null ptr_val
+                            if (subBoxed->ptr_val == nullptr) {
+                                result += "null";
+                            } else {
+                                result += "[object]";
+                            }
+                            break;
+                        default:
+                            result += "[object]";
+                            break;
+                    }
+                } else if (subVal) {
+                    // Assume it's a raw string pointer
+                    result += ((TsString*)subVal)->ToUtf8();
+                }
+            }
+        }
+
+        return TsString::Create(result.c_str());
+    }
+
     void* ts_string_charAt(void* str, int64_t index) {
         return ((TsString*)str)->CharAt(index);
     }
