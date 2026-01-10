@@ -87,7 +87,7 @@ Analyzer::Analyzer() {
 
     auto symbolKeyFor = std::make_shared<FunctionType>();
     symbolKeyFor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Symbol));
-    symbolKeyFor->returnType = std::make_shared<Type>(TypeKind::String);
+    symbolKeyFor->returnType = std::make_shared<Type>(TypeKind::Any);  // string | undefined
     symbolType->fields["keyFor"] = symbolKeyFor;
 
     symbols.define("Symbol", symbolType);
