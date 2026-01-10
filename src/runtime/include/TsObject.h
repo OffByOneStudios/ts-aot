@@ -174,6 +174,7 @@ extern "C" {
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj);
     TsValue* ts_object_getPrototypeOf(TsValue* obj);
     TsValue* ts_object_create(TsValue* proto);
+    TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
     TsValue* ts_object_freeze(TsValue* obj);
     TsValue* ts_object_seal(TsValue* obj);
     TsValue* ts_object_preventExtensions(TsValue* obj);

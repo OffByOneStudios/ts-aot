@@ -681,6 +681,13 @@ Analyzer::Analyzer() {
     createType->returnType = std::make_shared<Type>(TypeKind::Object);
     objectType->fields["create"] = createType;
 
+    // Object.setPrototypeOf(obj, proto) => object
+    auto setPrototypeOfType = std::make_shared<FunctionType>();
+    setPrototypeOfType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // obj
+    setPrototypeOfType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // proto (can be null)
+    setPrototypeOfType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["setPrototypeOf"] = setPrototypeOfType;
+
     // Object.preventExtensions(obj) => object
     auto preventExtType = std::make_shared<FunctionType>();
     preventExtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
