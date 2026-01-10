@@ -1,0 +1,1 @@
+Usage: node dump_ast.js <input.ts> <output.json>

@@ -35,9 +35,13 @@ target triple = "x86_64-pc-windows-msvc"
 @TextEncoder = global ptr null
 @null = global ptr null
 @undefined = global ptr null
+@Infinity = global double 0.000000e+00
+@NaN = global double 0.000000e+00
 @Symbol = global ptr null
 @TextDecoder = global ptr null
 @https = global ptr null
+@Number = global ptr null
+@String = global ptr null
 @result_9610421887249242215 = global i64 0
 @events = global ptr null
 @http = global ptr null
@@ -617,12 +621,12 @@ entry:
   %unionPtr3 = getelementptr inbounds %TsValue, ptr %9, i32 0, i32 2
   %unionVal4 = load i64, ptr %unionPtr3, align 8
   call void @__ts_map_set_at(ptr %1, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
-  %10 = call ptr @ts_value_make_object(ptr %1)
-  store ptr %10, ptr %__module_obj_0, align 8
-  %11 = call ptr @ts_string_create(ptr @29)
-  %12 = call ptr @ts_value_make_string(ptr %11)
+  store ptr %1, ptr %__module_obj_0, align 8
+  %10 = call ptr @ts_string_create(ptr @29)
+  %11 = call ptr @ts_value_make_string(ptr %10)
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
-  call void @ts_module_register(ptr %12, ptr %__module_obj_05)
+  %12 = call ptr @ts_value_box_any(ptr %__module_obj_05)
+  call void @ts_module_register(ptr %11, ptr %12)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
   %13 = call ptr @__module_init_9610421887249242215_any(ptr %context, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8

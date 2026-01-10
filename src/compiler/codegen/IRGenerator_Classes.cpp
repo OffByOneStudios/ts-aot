@@ -12,13 +12,18 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     
     // Add global classes
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
-        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error" || 
-            name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" || 
+        if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error" ||
+            name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" ||
             name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
-            name == "Buffer" || name == "Socket" || name == "Server" || name == "IncomingMessage" || 
+            name == "Buffer" || name == "Socket" || name == "Server" || name == "IncomingMessage" ||
             name == "ServerResponse" || name == "ClientRequest" || name == "TextEncoder" ||
-            name == "TextDecoder" || name == "OutgoingMessage" || name == "CloseEvent" || 
-            name == "MessageEvent" || name == "Agent" || name == "HttpsAgent" || name == "WebSocket") continue;
+            name == "TextDecoder" || name == "OutgoingMessage" || name == "CloseEvent" ||
+            name == "MessageEvent" || name == "Agent" || name == "HttpsAgent" || name == "WebSocket" ||
+            // TypedArrays - handled by runtime
+            name == "Int8Array" || name == "Uint8Array" || name == "Uint8ClampedArray" ||
+            name == "Int16Array" || name == "Uint16Array" || name == "Int32Array" || name == "Uint32Array" ||
+            name == "Float32Array" || name == "Float64Array" || name == "BigInt64Array" || name == "BigUint64Array" ||
+            name == "DataView") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -644,13 +649,23 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), { query });
             nonNullValues.insert(lastValue);
             return;
-        } else if (className == "Uint8Array" || className == "Uint32Array" || className == "Float64Array") {
+        } else if (className == "Int8Array" || className == "Uint8Array" || className == "Uint8ClampedArray" ||
+                   className == "Int16Array" || className == "Uint16Array" ||
+                   className == "Int32Array" || className == "Uint32Array" ||
+                   className == "Float32Array" || className == "Float64Array" ||
+                   className == "BigInt64Array" || className == "BigUint64Array") {
+            // Determine element size for this TypedArray type
+            int elementSize = 1;  // default for i8/u8
+            if (className == "Int16Array" || className == "Uint16Array") elementSize = 2;
+            else if (className == "Int32Array" || className == "Uint32Array" || className == "Float32Array") elementSize = 4;
+            else if (className == "Float64Array" || className == "BigInt64Array" || className == "BigUint64Array") elementSize = 8;
+
             llvm::Value* arg = nullptr;
             bool isArrayLiteral = false;
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
                 arg = lastValue;
-                
+
                 if (node->arguments[0]->inferredType && (node->arguments[0]->inferredType->kind == TypeKind::Array || node->arguments[0]->inferredType->kind == TypeKind::Tuple)) {
                     isArrayLiteral = true;
                 }
@@ -659,31 +674,27 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             }
 
             if (isArrayLiteral) {
-                // Handle new Uint32Array([1, 2, 3])
-                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                        { llvm::PointerType::getUnqual(*context) }, false);
-                
-                std::string fnName = "ts_typed_array_from_array_u8";
-                if (className == "Uint32Array") fnName = "ts_typed_array_from_array_u32";
-                else if (className == "Float64Array") fnName = "ts_typed_array_from_array_f64";
-
-                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, createFt);
-                lastValue = createCall(createFt, fn.getCallee(), { arg });
+                // Handle new Int8Array([1, 2, 3]) - use generic from_array function
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                        { llvm::PointerType::getUnqual(*context), llvm::Type::getInt32Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array", createFt);
+                lastValue = createCall(createFt, fn.getCallee(), {
+                    arg,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
+                });
             } else {
                 // Ensure arg is i64
                 if (arg->getType()->isIntegerTy()) {
                     arg = builder->CreateIntCast(arg, llvm::Type::getInt64Ty(*context), true);
                 }
 
-                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), 
-                        { llvm::Type::getInt64Ty(*context) }, false);
-                
-                std::string fnName = "ts_typed_array_create_u8";
-                if (className == "Uint32Array") fnName = "ts_typed_array_create_u32";
-                else if (className == "Float64Array") fnName = "ts_typed_array_create_f64";
-
-                llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, createFt);
-                lastValue = createCall(createFt, fn.getCallee(), { arg });
+                llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                        { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create", createFt);
+                lastValue = createCall(createFt, fn.getCallee(), {
+                    arg,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), elementSize)
+                });
             }
             nonNullValues.insert(lastValue);
             return;

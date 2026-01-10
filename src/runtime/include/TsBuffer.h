@@ -15,7 +15,7 @@ public:
 
     uint8_t* GetData() { return data; }
     size_t GetLength() { return length; }
-    
+
     // TypedArray-like properties
     size_t GetByteLength() { return length; }
     size_t GetByteOffset() { return 0; }  // Buffer always starts at offset 0
@@ -28,13 +28,13 @@ public:
     TsString* ToHex();
     TsString* ToBase64();
     TsString* ToBase64Url();
-    
+
     // New Buffer API methods
     TsBuffer* Slice(int64_t start, int64_t end);
     TsBuffer* Subarray(int64_t start, int64_t end);
     void Fill(uint8_t value, int64_t start = 0, int64_t end = -1);
     int64_t Copy(TsBuffer* target, int64_t targetStart = 0, int64_t sourceStart = 0, int64_t sourceEnd = -1);
-    
+
     // Static methods
     static TsBuffer* AllocUnsafe(size_t length);
     static TsBuffer* Concat(void* list, int64_t totalLength = -1);
@@ -47,15 +47,25 @@ private:
 
 class TsTypedArray : public TsObject {
 public:
+    static constexpr uint32_t MAGIC = 0x54415252; // "TARR"
     static TsTypedArray* Create(size_t length, size_t elementSize);
     uint8_t* GetData() { return buffer->GetData(); }
     size_t GetLength() { return length; }
+    size_t GetByteLength() { return length * elementSize; }
+    size_t GetByteOffset() { return 0; }  // TypedArrays start at offset 0
+    size_t GetElementSize() { return elementSize; }
     TsBuffer* GetBuffer() { return buffer; }
+
+    // Element access
+    double Get(size_t index);
+    void Set(size_t index, double value);
 
 private:
     TsTypedArray(size_t length, size_t elementSize);
+    // Note: magic is inherited from TsObject and set in constructor
     TsBuffer* buffer;
     size_t length;
+    size_t elementSize;
 };
 
 class TsDataView : public TsObject {
@@ -93,6 +103,10 @@ extern "C" {
     void* ts_typed_array_from_array_u8(void* array);
     void* ts_typed_array_from_array_u32(void* array);
     void* ts_typed_array_from_array_f64(void* array);
+    // Generic typed array functions with element size parameter
+    void* ts_typed_array_create(int64_t length, int32_t elementSize);
+    void* ts_typed_array_from_array(void* array, int32_t elementSize);
+    int64_t ts_typed_array_length(void* typedArray);
     void* ts_data_view_create(void* buffer);
     int64_t DataView_getUint32(void* context, void* dv, int64_t offset, bool littleEndian);
     void DataView_setUint32(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian);

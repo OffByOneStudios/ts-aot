@@ -225,14 +225,15 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `ArrayBuffer` | ⚠️ | Via Buffer |
 | `DataView` | ❌ | |
-| `Int8Array` | ❌ | |
-| `Uint8Array` | ⚠️ | Via Buffer |
-| `Int16Array` | ❌ | |
-| `Uint16Array` | ❌ | |
-| `Int32Array` | ❌ | |
-| `Uint32Array` | ❌ | |
-| `Float32Array` | ❌ | |
-| `Float64Array` | ❌ | |
+| `Int8Array` | ✅ | |
+| `Uint8Array` | ✅ | |
+| `Uint8ClampedArray` | ❌ | |
+| `Int16Array` | ✅ | |
+| `Uint16Array` | ✅ | |
+| `Int32Array` | ✅ | |
+| `Uint32Array` | ✅ | |
+| `Float32Array` | ✅ | |
+| `Float64Array` | ✅ | |
 
 ### Proxy and Reflect
 | Feature | Status | Notes |
