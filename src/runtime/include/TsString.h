@@ -78,6 +78,7 @@ extern "C" {
     int64_t ts_string_codePointAt(void* str, int64_t index);
     void* ts_string_charAt(void* str, int64_t index);
     void* ts_string_fromCodePoint(void* codePointsArray);
+    void* ts_string_raw(void* templateObj, void* substitutionsArray);
     void* ts_string_at(void* str, int64_t index);
     void* ts_string_split(void* str, void* separator);
     void* ts_string_split_regexp(void* str, void* regexp);

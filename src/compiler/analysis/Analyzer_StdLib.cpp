@@ -1011,6 +1011,13 @@ Analyzer::Analyzer() {
     fromCharCodeType->returnType = std::make_shared<Type>(TypeKind::String);
     stringGlobalType->fields["fromCharCode"] = fromCharCodeType;
 
+    // String.raw(template: TemplateStringsArray, ...substitutions: any[]): string
+    auto rawType = std::make_shared<FunctionType>();
+    rawType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // template object with 'raw' property
+    rawType->hasRest = true;  // ...substitutions
+    rawType->returnType = std::make_shared<Type>(TypeKind::String);
+    stringGlobalType->fields["raw"] = rawType;
+
     symbols.define("String", stringGlobalType);
 
 
