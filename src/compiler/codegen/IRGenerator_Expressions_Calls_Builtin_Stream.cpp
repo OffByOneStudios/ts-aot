@@ -16,7 +16,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_stream_pipe", {true, true}, true);  // src, dest -> dest
     bp.registerRuntimeApi("ts_stream_pause", {true}, false);  // stream
     bp.registerRuntimeApi("ts_stream_resume", {true}, false);  // stream
-    bp.registerRuntimeApi("ts_value_get_object", {true}, true);  // boxed -> raw (helper)
+    bp.registerRuntimeApi("ts_value_get_object", {true}, false);  // boxed -> raw (returns raw pointer)
 }
 
 bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

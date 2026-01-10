@@ -182,7 +182,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_value_make_double", {false}, true);
     bp.registerRuntimeApi("ts_value_make_object", {true}, true);
     bp.registerRuntimeApi("ts_value_get_int", {true}, false);
-    bp.registerRuntimeApi("ts_value_get_object", {true}, true);
+    bp.registerRuntimeApi("ts_value_get_object", {true}, false);  // Returns raw pointer, NOT boxed
 }
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

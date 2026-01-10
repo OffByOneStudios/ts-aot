@@ -2337,7 +2337,7 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
     // For Object/Array/Map/Set/Tuple/BigInt/Symbol types, ALWAYS unbox
     // These can be loaded from globals/allocas that store boxed values
     // ts_value_get_object is safe to call even if already unboxed
-    if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection || 
+    if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection ||
         type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
         type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -2955,16 +2955,12 @@ llvm::Value* IRGenerator::createCall(llvm::FunctionType* ft, llvm::Value* callee
         std::string name;
         llvm::Value* actualCallee = callee->stripPointerCasts();
         if (auto func = llvm::dyn_cast<llvm::Function>(actualCallee)) name = func->getName().str();
-        
+
         // Use BoxingPolicy to determine if result is boxed
         // This is the SINGLE SOURCE OF TRUTH for boxing decisions
         if (!name.empty() && name.find("ts_") == 0) {
             if (boxingPolicy.runtimeReturnsBoxed(name)) {
                 boxedValues.insert(res);
-                SPDLOG_DEBUG("createCall: {} returns boxed value", name);
-            } else {
-                // Raw pointer - don't add to boxedValues
-                SPDLOG_DEBUG("createCall: {} returns raw pointer", name);
             }
         }
         // User-defined functions are NOT assumed to return boxed values
