@@ -50,12 +50,15 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_charAt", {false, false}, false);  // str, index -> string
     bp.registerRuntimeApi("ts_string_at", {false, false}, false);  // str, index -> string (supports negative indices)
     bp.registerRuntimeApi("ts_string_charCodeAt", {false, false}, false);  // str, index -> int
+    bp.registerRuntimeApi("ts_string_codePointAt", {false, false}, false);  // str, index -> int
+    bp.registerRuntimeApi("ts_string_fromCodePoint", {false}, false);  // codePointsArray -> str
     bp.registerRuntimeApi("ts_string_includes", {false, false, false}, false);  // str, search, position -> bool
     bp.registerRuntimeApi("ts_string_indexOf", {false, false, false}, false);  // str, search, start -> int
     bp.registerRuntimeApi("ts_string_lastIndexOf", {false, false, false}, false);  // str, search, start -> int
     bp.registerRuntimeApi("ts_string_substring", {false, false, false}, false);  // str, start, end
     bp.registerRuntimeApi("ts_string_toLowerCase", {false}, false);
     bp.registerRuntimeApi("ts_string_toUpperCase", {false}, false);
+    bp.registerRuntimeApi("ts_string_normalize", {false, false}, false);  // str, form -> str
     bp.registerRuntimeApi("ts_string_trim", {false}, false);
     bp.registerRuntimeApi("ts_string_trimStart", {false}, false);
     bp.registerRuntimeApi("ts_string_trimEnd", {false}, false);
@@ -1706,6 +1709,45 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 lastValue = arr;
                 return true;
             }
+        } else if (obj->name == "String") {
+            if (prop->name == "fromCodePoint") {
+                // String.fromCodePoint(...codePoints) - create string from Unicode code points
+                // First create an array to hold the code points
+                llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+                llvm::Value* arr = createCall(createFt, createFn.getCallee(), {});
+
+                // Push each argument (code point) onto the array
+                llvm::FunctionType* pushFt = llvm::FunctionType::get(builder->getVoidTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+
+                for (size_t i = 0; i < node->arguments.size(); i++) {
+                    visit(node->arguments[i].get());
+                    llvm::Value* val = lastValue;
+
+                    // Convert to integer if needed
+                    if (val->getType()->isDoubleTy()) {
+                        val = builder->CreateFPToSI(val, llvm::Type::getInt64Ty(*context));
+                    }
+
+                    // Box the value
+                    if (node->arguments[i]->inferredType) {
+                        val = boxValue(val, node->arguments[i]->inferredType);
+                    } else if (!val->getType()->isPointerTy()) {
+                        val = builder->CreateIntToPtr(val, builder->getPtrTy());
+                    }
+
+                    createCall(pushFt, pushFn.getCallee(), { arr, val });
+                }
+
+                // Call ts_string_fromCodePoint
+                llvm::FunctionType* fromCodePointFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fromCodePointFn = getRuntimeFunction("ts_string_fromCodePoint", fromCodePointFt);
+                lastValue = createCall(fromCodePointFt, fromCodePointFn.getCallee(), { arr });
+                return true;
+            }
         }
     }
 
@@ -1727,8 +1769,29 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          llvm::FunctionType* charCodeAtFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                  { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
          llvm::FunctionCallee fn = getRuntimeFunction("ts_string_charCodeAt", charCodeAtFt);
-         
+
          lastValue = createCall(charCodeAtFt, fn.getCallee(), { obj, index });
+         return true;
+    } else if (prop->name == "codePointAt" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::String) {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* index = lastValue;
+
+         if (index->getType()->isDoubleTy()) {
+             index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+         }
+
+         llvm::FunctionType* codePointAtFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                 { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_string_codePointAt", codePointAtFt);
+
+         lastValue = createCall(codePointAtFt, fn.getCallee(), { obj, index });
          return true;
     } else if (prop->name == "charAt" || prop->name == "at") {
          visit(prop->expression.get());
@@ -2191,11 +2254,33 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          if (obj->getType()->isIntegerTy(64)) {
              obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
          }
-         
+
          llvm::FunctionType* toUpperFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = getRuntimeFunction("ts_string_toUpperCase", toUpperFt);
          lastValue = createCall(toUpperFt, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "normalize") {
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         // Get optional form argument, or null if not provided
+         llvm::Value* form = llvm::ConstantPointerNull::get(builder->getPtrTy());
+         if (!node->arguments.empty()) {
+             visit(node->arguments[0].get());
+             form = lastValue;
+             if (form->getType()->isIntegerTy(64)) {
+                 form = builder->CreateIntToPtr(form, builder->getPtrTy());
+             }
+         }
+
+         llvm::FunctionType* normalizeFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = getRuntimeFunction("ts_string_normalize", normalizeFt);
+         lastValue = createCall(normalizeFt, fn.getCallee(), { obj, form });
          return true;
     } else if (prop->name == "replace" || prop->name == "replaceAll") {
          visit(prop->expression.get());

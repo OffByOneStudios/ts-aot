@@ -21,7 +21,9 @@ public:
 
     int64_t Length();
     int64_t CharCodeAt(int64_t index);
+    int64_t CodePointAt(int64_t index);
     TsString* CharAt(int64_t index);
+    static TsString* FromCodePoint(int64_t* codePoints, int64_t count);
     TsString* At(int64_t index);
     void* Split(TsString* separator);
     TsString* Trim();
@@ -38,7 +40,8 @@ public:
     int64_t LastIndexOf(TsString* searchString);
     TsString* ToLowerCase();
     TsString* ToUpperCase();
-    
+    TsString* Normalize(TsString* form);
+
     void* Match(class TsRegExp* regexp);
     int64_t Search(class TsRegExp* regexp);
     TsString* Replace(TsString* pattern, TsString* replacement);
@@ -72,7 +75,9 @@ private:
 extern "C" {
     int64_t ts_string_length(void* str);
     int64_t ts_string_charCodeAt(void* str, int64_t index);
+    int64_t ts_string_codePointAt(void* str, int64_t index);
     void* ts_string_charAt(void* str, int64_t index);
+    void* ts_string_fromCodePoint(void* codePointsArray);
     void* ts_string_at(void* str, int64_t index);
     void* ts_string_split(void* str, void* separator);
     void* ts_string_split_regexp(void* str, void* regexp);
@@ -90,6 +95,7 @@ extern "C" {
     int64_t ts_string_lastIndexOf(void* str, void* searchString);
     void* ts_string_toLowerCase(void* str);
     void* ts_string_toUpperCase(void* str);
+    void* ts_string_normalize(void* str, void* form);
     void* ts_string_match_regexp(void* str, void* regexp);
     void* ts_string_replace(void* str, void* pattern, void* replacement);
     void* ts_string_replace_regexp(void* str, void* regexp, void* replacement);

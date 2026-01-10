@@ -5,6 +5,7 @@
 #include "GC.h"
 #include <cmath>
 #include <unicode/unistr.h>
+#include <unicode/normlzr.h>
 #include <new>
 #include <string>
 #include <cstring>
@@ -88,7 +89,9 @@ TsString::TsString(const char* utf8Str) {
     isSmall = false;
     // Allocate the ICU string on the GC heap as well
     void* mem = ts_alloc(sizeof(icu::UnicodeString));
-    data.heap.impl = new(mem) icu::UnicodeString(utf8Str);
+    // Must use fromUTF8 to properly interpret the UTF-8 encoding
+    // The regular constructor treats input as default system encoding, not UTF-8!
+    data.heap.impl = new(mem) icu::UnicodeString(icu::UnicodeString::fromUTF8(utf8Str));
     data.heap.utf8Buffer = nullptr;
     length = static_cast<icu::UnicodeString*>(data.heap.impl)->length();
 }
@@ -206,6 +209,34 @@ int64_t TsString::CharCodeAt(int64_t index) {
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     return s->charAt((int32_t)index);
 }
+
+int64_t TsString::CodePointAt(int64_t index) {
+    if (index < 0 || index >= length) return -1;  // undefined for out of bounds
+    if (isSmall) {
+        // Small strings are ASCII-only, so each byte is a code point
+        return (unsigned char)data.inlineBuffer[index];
+    }
+
+    icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
+    // char32At returns the full Unicode code point, handling surrogate pairs
+    return s->char32At((int32_t)index);
+}
+
+TsString* TsString::FromCodePoint(int64_t* codePoints, int64_t count) {
+    icu::UnicodeString result;
+    for (int64_t i = 0; i < count; i++) {
+        int64_t cp = codePoints[i];
+        if (cp < 0 || cp > 0x10FFFF) {
+            // Invalid code point - skip
+            continue;
+        }
+        result.append((UChar32)cp);
+    }
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return TsString::Create(utf8.c_str());
+}
+
 
 TsString* TsString::CharAt(int64_t index) {
     if (index < 0 || index >= length) return TsString::Create("");
@@ -536,6 +567,40 @@ TsString* TsString::ToUpperCase() {
     return Create(str.c_str());
 }
 
+TsString* TsString::Normalize(TsString* form) {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    // Default to NFC if no form specified
+    UNormalizationMode mode = UNORM_NFC;
+
+    if (form) {
+        const char* formStr = form->ToUtf8();
+        if (strcmp(formStr, "NFD") == 0) {
+            mode = UNORM_NFD;
+        } else if (strcmp(formStr, "NFKC") == 0) {
+            mode = UNORM_NFKC;
+        } else if (strcmp(formStr, "NFKD") == 0) {
+            mode = UNORM_NFKD;
+        }
+        // NFC is default, no else needed
+    }
+
+    UErrorCode status = U_ZERO_ERROR;
+    icu::UnicodeString result;
+    icu::Normalizer::normalize(s, mode, 0, result, status);
+
+    if (U_FAILURE(status)) {
+        // On error, return original string
+        return this;
+    }
+
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
 TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -783,6 +848,37 @@ extern "C" {
         return ((TsString*)str)->CharCodeAt(index);
     }
 
+    int64_t ts_string_codePointAt(void* str, int64_t index) {
+        if (!str) return -1;
+        return ((TsString*)str)->CodePointAt(index);
+    }
+
+    void* ts_string_fromCodePoint(void* codePointsArray) {
+        if (!codePointsArray) return TsString::Create("");
+        TsArray* arr = (TsArray*)codePointsArray;
+        int64_t len = arr->Length();
+        int64_t* codePoints = (int64_t*)ts_alloc(len * sizeof(int64_t));
+        for (int64_t i = 0; i < len; i++) {
+            int64_t rawVal = arr->Get(i);
+            // The value might be a boxed TsValue* or a raw int64
+            // Try to unbox it
+            TsValue* boxed = (TsValue*)rawVal;
+            if (boxed && ((uint8_t)boxed->type <= 10)) {
+                // Looks like a valid TsValue
+                if (boxed->type == ValueType::NUMBER_INT) {
+                    codePoints[i] = boxed->i_val;
+                } else if (boxed->type == ValueType::NUMBER_DBL) {
+                    codePoints[i] = (int64_t)boxed->d_val;
+                } else {
+                    codePoints[i] = rawVal;  // Fallback
+                }
+            } else {
+                codePoints[i] = rawVal;  // Already an int64
+            }
+        }
+        return TsString::FromCodePoint(codePoints, len);
+    }
+
     void* ts_string_charAt(void* str, int64_t index) {
         return ((TsString*)str)->CharAt(index);
     }
@@ -855,6 +951,11 @@ extern "C" {
 
     void* ts_string_toUpperCase(void* str) {
         return ((TsString*)str)->ToUpperCase();
+    }
+
+    void* ts_string_normalize(void* str, void* form) {
+        TsString* formStr = form ? (TsString*)form : nullptr;
+        return ((TsString*)str)->Normalize(formStr);
     }
 
     void* ts_string_match_regexp(void* str, void* regexp) {
