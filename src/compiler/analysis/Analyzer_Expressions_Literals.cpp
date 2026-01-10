@@ -155,19 +155,19 @@ void Analyzer::visitTemplateExpression(ast::TemplateExpression* node) {
 
 void Analyzer::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {
     visit(node->tag.get());
-    
-    std::vector<std::shared_ptr<Type>> argTypes;
-    argTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String))); // strings
 
+    std::vector<std::shared_ptr<Type>> argTypes;
+    argTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String))); // strings array
+
+    // For TemplateExpression (with substitutions), add each expression's type
+    // For StringLiteral (no substitutions), don't add anything - only the strings array is passed
     if (auto* templateExpr = dynamic_cast<ast::TemplateExpression*>(node->templateExpr.get())) {
         for (auto& span : templateExpr->spans) {
             visit(span.expression.get());
             argTypes.push_back(span.expression->inferredType);
         }
-    } else {
-        visit(node->templateExpr.get());
-        argTypes.push_back(node->templateExpr->inferredType);
     }
+    // StringLiteral case: no additional args beyond strings array
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->tag.get())) {
         functionUsages[id->name].push_back({argTypes, {}});
