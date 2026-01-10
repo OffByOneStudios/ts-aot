@@ -1376,6 +1376,15 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(newObj);
     }
 
+    // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
+    // In our runtime, we don't have prototype chains, so this is a stub
+    // that just returns the object for compatibility
+    TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
+        (void)proto;  // Unused - we don't have prototype chains
+        if (!obj) return ts_value_make_undefined();
+        return obj;  // Just return the object unchanged
+    }
+
     // Object.freeze(obj) - freezes an object, preventing modifications
     TsValue* ts_object_freeze(TsValue* obj) {
         if (!obj) return obj;

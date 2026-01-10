@@ -172,6 +172,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_getOwnPropertyNames", {true}, true);  // obj -> array
     bp.registerRuntimeApi("ts_object_getPrototypeOf", {true}, true);  // obj -> any (null)
     bp.registerRuntimeApi("ts_object_create", {true}, true);  // proto -> obj
+    bp.registerRuntimeApi("ts_object_setPrototypeOf", {true, true}, true);  // obj, proto -> obj (stub, just returns obj)
     bp.registerRuntimeApi("ts_object_defineProperty", {true, true, true}, true);  // obj, prop, desc -> obj
     bp.registerRuntimeApi("ts_object_defineProperties", {true, true}, true);  // obj, descs -> obj
     bp.registerRuntimeApi("ts_object_getOwnPropertyDescriptor", {true, true}, true);  // obj, prop -> desc
@@ -1449,6 +1450,34 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee createFn = getRuntimeFunction("ts_object_create", createFt);
                 lastValue = createCall(createFt, createFn.getCallee(), { arg });
+                return true;
+            } else if (prop->name == "setPrototypeOf") {
+                // Handle Object.setPrototypeOf(obj, proto)
+                // Note: ts-aot doesn't have full prototype chain, so this just returns the object
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* obj = lastValue;
+                if (!obj->getType()->isPointerTy()) {
+                    obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+                }
+                // We ignore the proto argument since we don't have prototype chains
+                // Just return the object for compatibility
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_setPrototypeOf", ft);
+
+                llvm::Value* proto = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    proto = lastValue;
+                    if (!proto->getType()->isPointerTy()) {
+                        proto = builder->CreateIntToPtr(proto, builder->getPtrTy());
+                    }
+                }
+                lastValue = createCall(ft, fn.getCallee(), { obj, proto });
                 return true;
             } else if (prop->name == "freeze") {
                 // Handle Object.freeze(obj)
