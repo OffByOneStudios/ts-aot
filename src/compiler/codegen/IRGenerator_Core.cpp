@@ -157,8 +157,30 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
 
     // DataView
     addRuntimeSymbol("ts_data_view_create", ptrTy, {ptrTy});
+    // DataView integer getters (return i64)
+    addRuntimeSymbol("DataView_getInt8", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_getUint8", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_getInt16", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_getUint16", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_getInt32", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
     addRuntimeSymbol("DataView_getUint32", builder->getInt64Ty(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    // DataView float getters (return double)
+    addRuntimeSymbol("DataView_getFloat32", builder->getDoubleTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_getFloat64", builder->getDoubleTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt1Ty()});
+    // DataView integer setters
+    addRuntimeSymbol("DataView_setInt8", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setUint8", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setInt16", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setUint16", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setInt32", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
     addRuntimeSymbol("DataView_setUint32", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt1Ty()});
+    // DataView float setters (value is double)
+    addRuntimeSymbol("DataView_setFloat32", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getDoubleTy(), builder->getInt1Ty()});
+    addRuntimeSymbol("DataView_setFloat64", builder->getVoidTy(), {ptrTy, ptrTy, builder->getInt64Ty(), builder->getDoubleTy(), builder->getInt1Ty()});
+    // DataView properties
+    addRuntimeSymbol("DataView_getBuffer", ptrTy, {ptrTy, ptrTy});
+    addRuntimeSymbol("DataView_getByteLength", builder->getInt64Ty(), {ptrTy, ptrTy});
+    addRuntimeSymbol("DataView_getByteOffset", builder->getInt64Ty(), {ptrTy, ptrTy});
 
     generateGlobals(analyzer);
     

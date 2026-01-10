@@ -544,7 +544,12 @@ extern "C" {
 
     // Generic typed array create with element size parameter
     void* ts_typed_array_create(int64_t length, int32_t elementSize) {
-        return TsTypedArray::Create((size_t)length, (size_t)elementSize);
+        return TsTypedArray::Create((size_t)length, (size_t)elementSize, false);
+    }
+
+    // Uint8ClampedArray create
+    void* ts_typed_array_create_clamped(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 1, true);
     }
 
     // Generic typed array from array with element size parameter
@@ -552,7 +557,7 @@ extern "C" {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, (size_t)elementSize);
+        TsTypedArray* ta = TsTypedArray::Create(len, (size_t)elementSize, false);
         uint8_t* data = ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -589,6 +594,37 @@ extern "C" {
         return ta;
     }
 
+    // Uint8ClampedArray from array
+    void* ts_typed_array_from_array_clamped(void* array) {
+        if (!array) return nullptr;
+        TsArray* arr = (TsArray*)array;
+        size_t len = (size_t)arr->Length();
+        TsTypedArray* ta = TsTypedArray::Create(len, 1, true);  // clamped=true
+        uint8_t* data = ta->GetData();
+        bool specialized = arr->IsSpecialized();
+        bool isDouble = arr->IsDouble();
+
+        for (size_t i = 0; i < len; i++) {
+            double value;
+            if (specialized) {
+                int64_t bits = arr->Get(i);
+                if (isDouble) {
+                    value = *(double*)&bits;
+                } else {
+                    value = (double)bits;
+                }
+            } else {
+                value = ts_value_get_double((TsValue*)arr->Get(i));
+            }
+
+            // Clamp to 0-255
+            if (value < 0) value = 0;
+            else if (value > 255) value = 255;
+            data[i] = (uint8_t)value;
+        }
+        return ta;
+    }
+
     void* ts_data_view_create(void* buffer) {
         return TsDataView::Create((TsBuffer*)buffer);
     }
@@ -619,7 +655,7 @@ extern "C" {
         TsDataView* view = (TsDataView*)dv;
         TsBuffer* buf = view->GetBuffer();
         if (!buf || (size_t)offset + 4 > buf->GetLength()) return;
-        
+
         uint32_t val = (uint32_t)value;
         if (!littleEndian) {
             val = ((val & 0xFF000000) >> 24) |
@@ -630,9 +666,243 @@ extern "C" {
         std::memcpy(buf->GetData() + offset, &val, 4);
     }
 
+    // DataView getters - 8-bit (no endianness needed)
+    int64_t DataView_getInt8(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset >= buf->GetLength()) return 0;
+        return (int64_t)(int8_t)buf->GetData()[offset];
+    }
+
+    int64_t DataView_getUint8(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset >= buf->GetLength()) return 0;
+        return (int64_t)buf->GetData()[offset];
+    }
+
+    // DataView getters - 16-bit
+    int64_t DataView_getInt16(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 2 > buf->GetLength()) return 0;
+
+        int16_t val;
+        std::memcpy(&val, buf->GetData() + offset, 2);
+        if (!littleEndian) {
+            val = (int16_t)(((uint16_t)val >> 8) | ((uint16_t)val << 8));
+        }
+        return (int64_t)val;
+    }
+
+    int64_t DataView_getUint16(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 2 > buf->GetLength()) return 0;
+
+        uint16_t val;
+        std::memcpy(&val, buf->GetData() + offset, 2);
+        if (!littleEndian) {
+            val = (val >> 8) | (val << 8);
+        }
+        return (int64_t)val;
+    }
+
+    // DataView getters - 32-bit (getUint32 already exists above)
+    int64_t DataView_getInt32(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 4 > buf->GetLength()) return 0;
+
+        int32_t val;
+        std::memcpy(&val, buf->GetData() + offset, 4);
+        if (!littleEndian) {
+            val = (int32_t)(((uint32_t)val >> 24) |
+                           (((uint32_t)val & 0x00FF0000) >> 8) |
+                           (((uint32_t)val & 0x0000FF00) << 8) |
+                           ((uint32_t)val << 24));
+        }
+        return (int64_t)val;
+    }
+
+    // DataView float getters
+    double DataView_getFloat32(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 4 > buf->GetLength()) return 0;
+
+        uint32_t intVal;
+        std::memcpy(&intVal, buf->GetData() + offset, 4);
+        if (!littleEndian) {
+            intVal = ((intVal >> 24) |
+                     ((intVal & 0x00FF0000) >> 8) |
+                     ((intVal & 0x0000FF00) << 8) |
+                     (intVal << 24));
+        }
+        float floatVal;
+        std::memcpy(&floatVal, &intVal, 4);
+        return (double)floatVal;
+    }
+
+    double DataView_getFloat64(void* context, void* dv, int64_t offset, bool littleEndian) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 8 > buf->GetLength()) return 0;
+
+        uint64_t intVal;
+        std::memcpy(&intVal, buf->GetData() + offset, 8);
+        if (!littleEndian) {
+            intVal = ((intVal >> 56) |
+                     ((intVal & 0x00FF000000000000ULL) >> 40) |
+                     ((intVal & 0x0000FF0000000000ULL) >> 24) |
+                     ((intVal & 0x000000FF00000000ULL) >> 8) |
+                     ((intVal & 0x00000000FF000000ULL) << 8) |
+                     ((intVal & 0x0000000000FF0000ULL) << 24) |
+                     ((intVal & 0x000000000000FF00ULL) << 40) |
+                     (intVal << 56));
+        }
+        double doubleVal;
+        std::memcpy(&doubleVal, &intVal, 8);
+        return doubleVal;
+    }
+
+    // DataView setters - 8-bit
+    void DataView_setInt8(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset >= buf->GetLength()) return;
+        buf->GetData()[offset] = (int8_t)value;
+    }
+
+    void DataView_setUint8(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset >= buf->GetLength()) return;
+        buf->GetData()[offset] = (uint8_t)value;
+    }
+
+    // DataView setters - 16-bit
+    void DataView_setInt16(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 2 > buf->GetLength()) return;
+
+        int16_t val = (int16_t)value;
+        if (!littleEndian) {
+            val = (int16_t)(((uint16_t)val >> 8) | ((uint16_t)val << 8));
+        }
+        std::memcpy(buf->GetData() + offset, &val, 2);
+    }
+
+    void DataView_setUint16(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 2 > buf->GetLength()) return;
+
+        uint16_t val = (uint16_t)value;
+        if (!littleEndian) {
+            val = (val >> 8) | (val << 8);
+        }
+        std::memcpy(buf->GetData() + offset, &val, 2);
+    }
+
+    // DataView setters - 32-bit (setUint32 already exists above)
+    void DataView_setInt32(void* context, void* dv, int64_t offset, int64_t value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 4 > buf->GetLength()) return;
+
+        int32_t val = (int32_t)value;
+        if (!littleEndian) {
+            val = (int32_t)(((uint32_t)val >> 24) |
+                           (((uint32_t)val & 0x00FF0000) >> 8) |
+                           (((uint32_t)val & 0x0000FF00) << 8) |
+                           ((uint32_t)val << 24));
+        }
+        std::memcpy(buf->GetData() + offset, &val, 4);
+    }
+
+    // DataView float setters
+    void DataView_setFloat32(void* context, void* dv, int64_t offset, double value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 4 > buf->GetLength()) return;
+
+        float floatVal = (float)value;
+        uint32_t intVal;
+        std::memcpy(&intVal, &floatVal, 4);
+        if (!littleEndian) {
+            intVal = ((intVal >> 24) |
+                     ((intVal & 0x00FF0000) >> 8) |
+                     ((intVal & 0x0000FF00) << 8) |
+                     (intVal << 24));
+        }
+        std::memcpy(buf->GetData() + offset, &intVal, 4);
+    }
+
+    void DataView_setFloat64(void* context, void* dv, int64_t offset, double value, bool littleEndian) {
+        if (!dv) return;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        if (!buf || (size_t)offset + 8 > buf->GetLength()) return;
+
+        uint64_t intVal;
+        std::memcpy(&intVal, &value, 8);
+        if (!littleEndian) {
+            intVal = ((intVal >> 56) |
+                     ((intVal & 0x00FF000000000000ULL) >> 40) |
+                     ((intVal & 0x0000FF0000000000ULL) >> 24) |
+                     ((intVal & 0x000000FF00000000ULL) >> 8) |
+                     ((intVal & 0x00000000FF000000ULL) << 8) |
+                     ((intVal & 0x0000000000FF0000ULL) << 24) |
+                     ((intVal & 0x000000000000FF00ULL) << 40) |
+                     (intVal << 56));
+        }
+        std::memcpy(buf->GetData() + offset, &intVal, 8);
+    }
+
+    // DataView properties
+    void* DataView_getBuffer(void* context, void* dv) {
+        if (!dv) return nullptr;
+        TsDataView* view = (TsDataView*)dv;
+        return view->GetBuffer();
+    }
+
+    int64_t DataView_getByteLength(void* context, void* dv) {
+        if (!dv) return 0;
+        TsDataView* view = (TsDataView*)dv;
+        TsBuffer* buf = view->GetBuffer();
+        return buf ? (int64_t)buf->GetLength() : 0;
+    }
+
+    int64_t DataView_getByteOffset(void* context, void* dv) {
+        // DataView always starts at offset 0 for now
+        return 0;
+    }
+
     int64_t ts_typed_array_length(void* ta) {
         if (!ta) return 0;
         return (int64_t)((TsTypedArray*)ta)->GetLength();
+    }
+
+    // Generic element access - uses TsTypedArray::Get which handles all element sizes
+    double ts_typed_array_get_generic(void* ta, int64_t index) {
+        if (!ta) return 0;
+        TsTypedArray* t = (TsTypedArray*)ta;
+        return t->Get((size_t)index);
     }
 
     uint8_t ts_typed_array_get_u8(void* ta, int64_t index) {
@@ -678,21 +948,26 @@ extern "C" {
     }
 }
 
-TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize) {
+TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize, bool clamped) {
     void* mem = ts_alloc(sizeof(TsTypedArray));
-    return new(mem) TsTypedArray(length, elementSize);
+    return new(mem) TsTypedArray(length, elementSize, clamped);
 }
 
-TsTypedArray::TsTypedArray(size_t length, size_t elementSize) {
+TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped) {
     this->magic = MAGIC;  // Set inherited magic from TsObject
     this->length = length;
     this->elementSize = elementSize;
+    this->clamped = clamped;
     this->buffer = TsBuffer::Create(length * elementSize);
 }
 
 double TsTypedArray::Get(size_t index) {
     if (index >= length) return 0;
     uint8_t* data = buffer->GetData();
+    // For clamped arrays (Uint8ClampedArray), read as unsigned
+    if (clamped && elementSize == 1) {
+        return (double)data[index];
+    }
     switch (elementSize) {
         case 1: return (double)(int8_t)data[index];
         case 2: return (double)((int16_t*)data)[index];
@@ -705,6 +980,13 @@ double TsTypedArray::Get(size_t index) {
 void TsTypedArray::Set(size_t index, double value) {
     if (index >= length) return;
     uint8_t* data = buffer->GetData();
+    // For clamped arrays (Uint8ClampedArray), clamp values to 0-255
+    if (clamped && elementSize == 1) {
+        if (value < 0) value = 0;
+        else if (value > 255) value = 255;
+        data[index] = (uint8_t)value;
+        return;
+    }
     switch (elementSize) {
         case 1: data[index] = (uint8_t)(int8_t)value; break;
         case 2: ((int16_t*)data)[index] = (int16_t)value; break;

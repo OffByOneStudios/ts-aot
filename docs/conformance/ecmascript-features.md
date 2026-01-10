@@ -224,10 +224,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `ArrayBuffer` | ⚠️ | Via Buffer |
-| `DataView` | ❌ | |
+| `DataView` | ✅ | All get/set methods for Int8/Uint8/Int16/Uint16/Int32/Uint32/Float32/Float64 |
 | `Int8Array` | ✅ | |
 | `Uint8Array` | ✅ | |
-| `Uint8ClampedArray` | ❌ | |
+| `Uint8ClampedArray` | ✅ | Values clamped to 0-255 |
 | `Int16Array` | ✅ | |
 | `Uint16Array` | ✅ | |
 | `Int32Array` | ✅ | |
