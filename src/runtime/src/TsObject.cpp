@@ -4,6 +4,7 @@
 #include "TsArray.h"
 #include "TsBigInt.h"
 #include "TsMap.h"
+#include "TsSet.h"
 #include "TsJSON.h"
 #include "TsString.h"
 #include "TsBuffer.h"
@@ -3076,5 +3077,131 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // For other types, try to use toString or return null
         return nullptr;
+    }
+
+    // ============================================================================
+    // WeakMap - implemented as regular Map (no true weak semantics with Boehm GC)
+    // ============================================================================
+
+    void* ts_weakmap_create() {
+        return TsMap::Create();
+    }
+
+    void* ts_weakmap_set(void* weakmap, void* key, TsValue* value) {
+        if (!weakmap || !key) return weakmap;
+        TsMap* map = (TsMap*)weakmap;
+
+        void* rawKey = ts_value_get_object((TsValue*)key);
+        if (!rawKey) rawKey = key;
+
+        TsValue keyVal;
+        keyVal.type = ValueType::OBJECT_PTR;
+        keyVal.ptr_val = rawKey;
+
+        if (value) {
+            map->Set(keyVal, *value);
+        } else {
+            TsValue undef;
+            undef.type = ValueType::UNDEFINED;
+            undef.ptr_val = nullptr;
+            map->Set(keyVal, undef);
+        }
+        return weakmap;
+    }
+
+    TsValue* ts_weakmap_get(void* weakmap, void* key) {
+        if (!weakmap || !key) return ts_value_make_undefined();
+        TsMap* map = (TsMap*)weakmap;
+
+        void* rawKey = ts_value_get_object((TsValue*)key);
+        if (!rawKey) rawKey = key;
+
+        TsValue keyVal;
+        keyVal.type = ValueType::OBJECT_PTR;
+        keyVal.ptr_val = rawKey;
+
+        TsValue result = map->Get(keyVal);
+        TsValue* heapResult = (TsValue*)ts_alloc(sizeof(TsValue));
+        *heapResult = result;
+        return heapResult;
+    }
+
+    bool ts_weakmap_has(void* weakmap, void* key) {
+        if (!weakmap || !key) return false;
+        TsMap* map = (TsMap*)weakmap;
+
+        void* rawKey = ts_value_get_object((TsValue*)key);
+        if (!rawKey) rawKey = key;
+
+        TsValue keyVal;
+        keyVal.type = ValueType::OBJECT_PTR;
+        keyVal.ptr_val = rawKey;
+
+        return map->Has(keyVal);
+    }
+
+    bool ts_weakmap_delete(void* weakmap, void* key) {
+        if (!weakmap || !key) return false;
+        TsMap* map = (TsMap*)weakmap;
+
+        void* rawKey = ts_value_get_object((TsValue*)key);
+        if (!rawKey) rawKey = key;
+
+        TsValue keyVal;
+        keyVal.type = ValueType::OBJECT_PTR;
+        keyVal.ptr_val = rawKey;
+
+        return map->Delete(keyVal);
+    }
+
+    // ============================================================================
+    // WeakSet - implemented as regular Set (no true weak semantics with Boehm GC)
+    // ============================================================================
+
+    void* ts_weakset_create() {
+        return TsSet::Create();
+    }
+
+    void* ts_weakset_add(void* weakset, void* value) {
+        if (!weakset || !value) return weakset;
+        TsSet* set = (TsSet*)weakset;
+
+        void* rawValue = ts_value_get_object((TsValue*)value);
+        if (!rawValue) rawValue = value;
+
+        TsValue val;
+        val.type = ValueType::OBJECT_PTR;
+        val.ptr_val = rawValue;
+
+        set->Add(val);
+        return weakset;
+    }
+
+    bool ts_weakset_has(void* weakset, void* value) {
+        if (!weakset || !value) return false;
+        TsSet* set = (TsSet*)weakset;
+
+        void* rawValue = ts_value_get_object((TsValue*)value);
+        if (!rawValue) rawValue = value;
+
+        TsValue val;
+        val.type = ValueType::OBJECT_PTR;
+        val.ptr_val = rawValue;
+
+        return set->Has(val);
+    }
+
+    bool ts_weakset_delete(void* weakset, void* value) {
+        if (!weakset || !value) return false;
+        TsSet* set = (TsSet*)weakset;
+
+        void* rawValue = ts_value_get_object((TsValue*)value);
+        if (!rawValue) rawValue = value;
+
+        TsValue val;
+        val.type = ValueType::OBJECT_PTR;
+        val.ptr_val = rawValue;
+
+        return set->Delete(val);
     }
 }

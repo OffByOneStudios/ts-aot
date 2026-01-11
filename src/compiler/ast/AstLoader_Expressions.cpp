@@ -250,6 +250,31 @@ ExprPtr parseExpression(const json& j) {
             node->body.push_back(parseStatement(stmt));
         }
         return node;
+    } else if (kind == "ClassExpression") {
+        auto node = std::make_unique<ClassExpression>();
+        setLocation(node.get(), j);
+        if (j.contains("name") && !j["name"].is_null() && j["name"].is_string()) {
+            node->name = j["name"].get<std::string>();
+        }
+        if (j.contains("typeParameters")) {
+            for (const auto& tp : j["typeParameters"]) {
+                node->typeParameters.push_back(parseTypeParameter(tp));
+            }
+        }
+        if (j.contains("baseClass") && j["baseClass"].is_string()) {
+            node->baseClass = j["baseClass"].get<std::string>();
+        }
+        if (j.contains("implementsInterfaces")) {
+            for (const auto& i : j["implementsInterfaces"]) {
+                node->implementsInterfaces.push_back(i);
+            }
+        }
+        if (j.contains("members")) {
+            for (const auto& member : j["members"]) {
+                node->members.push_back(parseClassMember(member));
+            }
+        }
+        return node;
     } else if (kind == "TemplateExpression") {
         auto node = std::make_unique<TemplateExpression>();
         setLocation(node.get(), j);

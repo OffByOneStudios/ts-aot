@@ -210,6 +210,7 @@ public:
     }
 
     void visitClassDeclaration(ast::ClassDeclaration* node) override {}
+    void visitClassExpression(ast::ClassExpression* node) override {}
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override {}
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) override {}
     void visitEnumDeclaration(ast::EnumDeclaration* node) override {}

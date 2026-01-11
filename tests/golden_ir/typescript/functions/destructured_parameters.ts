@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: Destructured parameters in function signature
-// OUTPUT: 3
+// OUTPUT: 3.000000
 
 function add({ a, b }: { a: number, b: number }): number {
     return a + b;

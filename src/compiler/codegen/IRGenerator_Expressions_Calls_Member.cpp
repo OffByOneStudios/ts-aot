@@ -338,7 +338,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         std::string className = classType->name;
         std::string methodName = prop->name;
         
-        SPDLOG_WARN("Method call on class: {} method: {}", className, methodName);
+        
         
         if (className == "RegExp") {
             // ... existing RegExp code ...
@@ -534,7 +534,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             SPDLOG_DEBUG("Generating Set method: {} for object of class: {}", methodName, className);
             visit(prop->expression.get());
             llvm::Value* setObj = lastValue;
-            
+
             emitNullCheckForExpression(prop->expression.get(), setObj);
 
             if (methodName == "add") {
@@ -575,6 +575,125 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
 
                 createCall(ft, fn.getCallee(), { setObj });
                 lastValue = nullptr;
+                return true;
+            }
+        } else if (className == "WeakMap") {
+            // WeakMap methods - implemented as regular Map (no true weak semantics with Boehm GC)
+            SPDLOG_DEBUG("Generating WeakMap method: {} for object of class: {}", methodName, className);
+            visit(prop->expression.get());
+            llvm::Value* weakMapObj = lastValue;
+
+            emitNullCheckForExpression(prop->expression.get(), weakMapObj);
+
+            if (methodName == "set") {
+                // WeakMap* ts_weakmap_set(void* weakmap, void* key, TsValue* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakmap_set", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* key = lastValue;
+                if (!key->getType()->isPointerTy()) {
+                    key = builder->CreateIntToPtr(key, builder->getPtrTy());
+                }
+
+                visit(node->arguments[1].get());
+                llvm::Value* val = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                lastValue = createCall(ft, fn.getCallee(), { weakMapObj, key, val });
+                return true;
+            } else if (methodName == "get") {
+                // TsValue* ts_weakmap_get(void* weakmap, void* key)
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakmap_get", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* key = lastValue;
+                if (!key->getType()->isPointerTy()) {
+                    key = builder->CreateIntToPtr(key, builder->getPtrTy());
+                }
+
+                llvm::Value* boxedVal = createCall(ft, fn.getCallee(), { weakMapObj, key });
+                boxedValues.insert(boxedVal);
+
+                
+
+                // For WeakMap.get(), the return type is 'any', so we should NOT unbox
+                // The value is already a TsValue* that should be passed as-is
+                lastValue = boxedVal;
+                return true;
+            } else if (methodName == "has") {
+                // bool ts_weakmap_has(void* weakmap, void* key)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakmap_has", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* key = lastValue;
+                if (!key->getType()->isPointerTy()) {
+                    key = builder->CreateIntToPtr(key, builder->getPtrTy());
+                }
+
+                lastValue = createCall(ft, fn.getCallee(), { weakMapObj, key });
+                return true;
+            } else if (methodName == "delete") {
+                // bool ts_weakmap_delete(void* weakmap, void* key)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakmap_delete", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* key = lastValue;
+                if (!key->getType()->isPointerTy()) {
+                    key = builder->CreateIntToPtr(key, builder->getPtrTy());
+                }
+
+                lastValue = createCall(ft, fn.getCallee(), { weakMapObj, key });
+                return true;
+            }
+        } else if (className == "WeakSet") {
+            // WeakSet methods - implemented as regular Set (no true weak semantics with Boehm GC)
+            SPDLOG_DEBUG("Generating WeakSet method: {} for object of class: {}", methodName, className);
+            visit(prop->expression.get());
+            llvm::Value* weakSetObj = lastValue;
+
+            emitNullCheckForExpression(prop->expression.get(), weakSetObj);
+
+            if (methodName == "add") {
+                // WeakSet* ts_weakset_add(void* weakset, void* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakset_add", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = lastValue;
+                if (!val->getType()->isPointerTy()) {
+                    val = builder->CreateIntToPtr(val, builder->getPtrTy());
+                }
+
+                lastValue = createCall(ft, fn.getCallee(), { weakSetObj, val });
+                return true;
+            } else if (methodName == "has") {
+                // bool ts_weakset_has(void* weakset, void* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakset_has", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = lastValue;
+                if (!val->getType()->isPointerTy()) {
+                    val = builder->CreateIntToPtr(val, builder->getPtrTy());
+                }
+
+                lastValue = createCall(ft, fn.getCallee(), { weakSetObj, val });
+                return true;
+            } else if (methodName == "delete") {
+                // bool ts_weakset_delete(void* weakset, void* value)
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_weakset_delete", ft);
+
+                visit(node->arguments[0].get());
+                llvm::Value* val = lastValue;
+                if (!val->getType()->isPointerTy()) {
+                    val = builder->CreateIntToPtr(val, builder->getPtrTy());
+                }
+
+                lastValue = createCall(ft, fn.getCallee(), { weakSetObj, val });
                 return true;
             }
         }

@@ -7,6 +7,20 @@
 namespace ts {
 using namespace ast;
 
+// Helper to get class members from either ClassDeclaration or ClassExpression
+static const std::vector<NodePtr>* getClassMembers(std::shared_ptr<ClassType> classType) {
+    if (classType->node) {
+        return &classType->node->members;
+    } else if (classType->exprNode) {
+        return &classType->exprNode->members;
+    }
+    return nullptr;
+}
+
+static bool hasClassMembers(std::shared_ptr<ClassType> classType) {
+    return classType->node != nullptr || classType->exprNode != nullptr;
+}
+
 void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations) {
     std::vector<std::shared_ptr<ClassType>> allClassTypes;
     
@@ -23,7 +37,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             name == "Int8Array" || name == "Uint8Array" || name == "Uint8ClampedArray" ||
             name == "Int16Array" || name == "Uint16Array" || name == "Int32Array" || name == "Uint32Array" ||
             name == "Float32Array" || name == "Float64Array" || name == "BigInt64Array" || name == "BigUint64Array" ||
-            name == "DataView") continue;
+            name == "DataView" ||
+            // WeakMap/WeakSet - handled by runtime (no VTable needed)
+            name == "WeakMap" || name == "WeakSet" || name == "Set") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -55,6 +71,28 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         }
     }
     
+    // Add class expressions from all analyzed expressions
+    for (const auto& expr : analyzer.expressions) {
+        if (auto classExpr = dynamic_cast<ast::ClassExpression*>(expr)) {
+            if (classExpr->inferredType && classExpr->inferredType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(classExpr->inferredType);
+                if (classType->typeParameters.empty()) {
+                    bool found = false;
+                    for (const auto& existing : allClassTypes) {
+                        if (existing->name == classType->name) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        SPDLOG_DEBUG("Found class expression: {}", classType->name);
+                        allClassTypes.push_back(classType);
+                    }
+                }
+            }
+        }
+    }
+
     // Add specialized classes
     for (const auto& spec : specializations) {
         if (spec.classType && spec.classType->kind == TypeKind::Class) {
@@ -332,8 +370,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             if (classType->staticComptimeFields.count(fname)) {
                 SPDLOG_DEBUG("      Comptime field detected");
                 // Find the initializer
-                if (classType->node) {
-                    for (const auto& member : classType->node->members) {
+                auto* members = getClassMembers(classType);
+                if (members) {
+                    for (const auto& member : *members) {
                         if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                             std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
                             std::string mangledName = manglePrivateName(prop->name, baseName);
@@ -370,10 +409,11 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 4.5 Fourth and a half pass: Generate instance field initializers
     for (const auto& classType : allClassTypes) {
         if (classType->isStruct) continue;
-        
+
         bool hasInitializers = false;
-        if (classType->node) {
-            for (const auto& member : classType->node->members) {
+        auto* members = getClassMembers(classType);
+        if (members) {
+            for (const auto& member : *members) {
                 if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                     if (!prop->isStatic && prop->initializer) {
                         hasInitializers = true;
@@ -403,7 +443,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
         auto& layout = classLayouts[classType->name];
 
-        for (const auto& member : classType->node->members) {
+        for (const auto& member : *members) {
             if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                 if (!prop->isStatic && prop->initializer) {
                     visit(prop->initializer.get());
@@ -459,13 +499,14 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         namedValues["this"] = llvm::ConstantPointerNull::get(builder->getPtrTy());
 
         // Initialize static fields
-        if (classType->node) {
-            for (const auto& member : classType->node->members) {
+        auto* members = getClassMembers(classType);
+        if (members) {
+            for (const auto& member : *members) {
                 if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                     if (prop->isStatic && prop->initializer) {
                         std::string baseName = classType->originalName.empty() ? classType->name : classType->originalName;
                         std::string mangledName = manglePrivateName(prop->name, baseName);
-                        
+
                         // Skip if already initialized as a constant in the global
                         if (classType->staticComptimeFields.count(mangledName)) {
                             if (dynamic_cast<ast::NumericLiteral*>(prop->initializer.get())) {
@@ -524,7 +565,21 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
         std::string className = classType->name;
 
-        if (className == "Date") {
+        if (className == "WeakMap") {
+            // WeakMap is implemented as regular Map (weak semantics not supported with Boehm GC)
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_weakmap_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "WeakSet") {
+            // WeakSet is implemented as regular Set (weak semantics not supported with Boehm GC)
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_weakset_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "Date") {
             if (node->arguments.empty()) {
                 llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_date_create", createFt);

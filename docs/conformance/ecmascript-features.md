@@ -124,7 +124,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Default values | ✅ | |
 | Rest elements | ✅ | Array rest only |
 | Nested destructuring | ✅ | Objects, arrays, and mixed nesting |
-| Parameter destructuring | ❌ | |
+| Parameter destructuring | ✅ | Object and array patterns in function params |
 
 ### Spread Operator
 | Feature | Status | Notes |
@@ -155,7 +155,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Class declarations | ✅ | |
-| Class expressions | ❌ | |
+| Class expressions | ✅ | Named and anonymous |
 | Constructor method | ✅ | |
 | Instance methods | ✅ | |
 | Static methods | ✅ | |
@@ -213,8 +213,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Map` | ✅ | |
 | `Set` | ✅ | |
-| `WeakMap` | ❌ | |
-| `WeakSet` | ❌ | |
+| `WeakMap` | ✅ | Implemented as Map (no true weak semantics with Boehm GC) |
+| `WeakSet` | ✅ | Implemented as Set (no true weak semantics with Boehm GC) |
 | `Map.prototype.get/set/has/delete` | ✅ | |
 | `Set.prototype.add/has/delete` | ✅ | |
 | `Map.prototype.forEach` | ✅ | |
@@ -340,7 +340,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Object.entries()` | ✅ | |
 | `String.prototype.padStart()` | ✅ | |
 | `String.prototype.padEnd()` | ✅ | |
-| `Object.getOwnPropertyDescriptors()` | ❌ | |
+| `Object.getOwnPropertyDescriptors()` | ✅ | |
 | Trailing commas in function params | ✅ | |
 | Shared memory and atomics | ❌ | |
 
@@ -458,9 +458,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 89 | 14 | 8 | 111 | 80% |
+| ES2015 | 93 | 14 | 4 | 111 | 84% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
-| ES2017 | 7 | 0 | 2 | 9 | 78% |
+| ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 2 | 0 | 6 | 8 | 25% |
 | ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
@@ -468,9 +468,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 3 | 0 | 7 | 10 | 30% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **164** | **19** | **46** | **229** | **72%** |
+| **TOTAL** | **169** | **19** | **41** | **229** | **74%** |
 
-**Overall ECMAScript Conformance: 164/229 features (72%)**
+**Overall ECMAScript Conformance: 169/229 features (74%)**
 
 ---
 
@@ -489,7 +489,7 @@ These features should be prioritized for implementation:
 6. ❌ Generator functions
 7. ✅ `Array.from()` - Implemented
 8. ✅ `Array.prototype.flat()` - Implemented
-9. ❌ `WeakMap` / `WeakSet`
+9. ✅ `WeakMap` / `WeakSet` - Implemented
 10. ❌ `Proxy` / `Reflect`
 
 ### Medium Priority

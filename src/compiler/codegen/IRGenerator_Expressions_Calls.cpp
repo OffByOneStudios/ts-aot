@@ -987,8 +987,11 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                     argType = std::make_shared<Type>(TypeKind::Any);
                 }
                 
-                // Box function arguments so they can be called via ts_call_N inside the callee
-                if (argType && argType->kind == TypeKind::Function) {
+                // Box function and object arguments so they can be used inside the callee
+                // - Function args: called via ts_call_N
+                // - Object args: used with ts_value_get_property for destructuring
+                if (argType && (argType->kind == TypeKind::Function ||
+                               argType->kind == TypeKind::Object)) {
                     argVal = boxValue(argVal, argType);
                 }
                 

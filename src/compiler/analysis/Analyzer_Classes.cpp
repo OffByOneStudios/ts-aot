@@ -518,5 +518,169 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     return inferredReturnType;
 }
 
+void Analyzer::visitClassExpression(ast::ClassExpression* node) {
+    // If already analyzed (during re-analysis of function bodies), reuse existing type
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        lastType = node->inferredType;
+        return;
+    }
+
+    // Generate a unique name for anonymous class expressions
+    static int anonClassCounter = 0;
+    std::string className = node->name.empty()
+        ? "__anon_class_" + std::to_string(anonClassCounter++)
+        : node->name;
+
+    auto classType = std::make_shared<ClassType>(className);
+    classType->originalName = className;
+    classType->node = nullptr;
+    classType->exprNode = node;  // Store the ClassExpression node for codegen
+
+    // Register the class type
+    symbols.defineType(className, classType);
+
+    symbols.enterScope();
+
+    // Register type parameters
+    for (const auto& tp : node->typeParameters) {
+        auto tpType = std::make_shared<TypeParameterType>(tp->name);
+        if (!tp->constraint.empty()) {
+            tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        classType->typeParameters.push_back(tpType);
+        symbols.defineType(tp->name, tpType);
+    }
+
+    // Resolve base class
+    if (!node->baseClass.empty()) {
+        auto base = symbols.lookupType(node->baseClass);
+        if (!base || base->kind != TypeKind::Class) {
+            reportError(fmt::format("Base class {} not found or not a class", node->baseClass));
+        } else {
+            classType->baseClass = std::static_pointer_cast<ClassType>(base);
+            classType->abstractMethods = classType->baseClass->abstractMethods;
+        }
+    }
+
+    // Resolve implemented interfaces
+    for (const auto& interfaceName : node->implementsInterfaces) {
+        auto interfaceType = symbols.lookupType(interfaceName);
+        if (!interfaceType || interfaceType->kind != TypeKind::Interface) {
+            reportError(fmt::format("Interface {} not found or not an interface", interfaceName));
+        } else {
+            classType->implementsInterfaces.push_back(std::static_pointer_cast<InterfaceType>(interfaceType));
+        }
+    }
+
+    // Process class members - register method types first
+    auto oldClass = currentClass;
+    currentClass = classType;
+
+    for (const auto& member : node->members) {
+        if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+            auto propType = parseType(prop->type, symbols);
+            std::string name = manglePrivateName(prop->name, className);
+            if (prop->isStatic) {
+                classType->staticFields[name] = propType;
+                classType->staticFieldAccess[name] = prop->access;
+                if (prop->isReadonly) {
+                    classType->staticReadonlyFields.insert(name);
+                }
+            } else {
+                classType->fields[name] = propType;
+                classType->fieldAccess[name] = prop->access;
+                if (prop->isReadonly) {
+                    classType->readonlyFields.insert(name);
+                }
+            }
+        } else if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+            // Register method type similar to ClassDeclaration
+            std::string name = manglePrivateName(method->name, className);
+
+            auto methodType = std::make_shared<FunctionType>();
+            if (!method->returnType.empty()) {
+                methodType->returnType = parseType(method->returnType, symbols);
+            } else {
+                methodType->returnType = std::make_shared<Type>(TypeKind::Void);
+            }
+
+            if (method->isAsync) {
+                bool isPromise = false;
+                if (methodType->returnType->kind == TypeKind::Class) {
+                    auto cls = std::static_pointer_cast<ClassType>(methodType->returnType);
+                    if (cls->name == "Promise") isPromise = true;
+                }
+                if (!isPromise) {
+                    auto promiseClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Promise"));
+                    auto wrapped = std::make_shared<ClassType>("Promise");
+                    wrapped->typeParameters = promiseClass->typeParameters;
+                    wrapped->methods = promiseClass->methods;
+                    wrapped->staticMethods = promiseClass->staticMethods;
+                    wrapped->typeArguments = { methodType->returnType };
+                    methodType->returnType = wrapped;
+                }
+            }
+
+            for (const auto& param : method->parameters) {
+                if (!param->type.empty()) {
+                    methodType->paramTypes.push_back(parseType(param->type, symbols));
+                } else {
+                    methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                }
+                methodType->isOptional.push_back(param->isOptional);
+                if (param->isRest) methodType->hasRest = true;
+            }
+
+            if (method->isStatic) {
+                if (method->hasBody) {
+                    classType->staticMethods[name] = methodType;
+                } else {
+                    classType->staticMethodOverloads[name].push_back(methodType);
+                }
+                classType->staticMethodAccess[name] = method->access;
+            } else if (method->isGetter) {
+                classType->getters[name] = methodType;
+                classType->methodAccess[name] = method->access;
+            } else if (method->isSetter) {
+                classType->setters[name] = methodType;
+                classType->methodAccess[name] = method->access;
+            } else {
+                if (method->hasBody) {
+                    classType->methods[name] = methodType;
+                } else {
+                    classType->methodOverloads[name].push_back(methodType);
+                }
+                classType->methodAccess[name] = method->access;
+            }
+        }
+    }
+
+    // Register constructor (if any) or default constructor
+    auto ctorType = std::make_shared<FunctionType>();
+    ctorType->returnType = classType;
+
+    if (classType->methods.count("constructor")) {
+        auto ctorMethod = classType->methods["constructor"];
+        ctorType->paramTypes = ctorMethod->paramTypes;
+    }
+    classType->constructorOverloads.push_back(ctorType);
+
+    // Visit method bodies
+    for (const auto& member : node->members) {
+        if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+            visitMethodDefinition(method, classType);
+        } else if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+            visitPropertyDefinition(prop, classType);
+        }
+    }
+
+    symbols.exitScope();
+    currentClass = oldClass;
+
+    // The inferred type of a class expression is the class type itself
+    node->inferredType = classType;
+    lastType = classType;
+}
+
 } // namespace ts
 

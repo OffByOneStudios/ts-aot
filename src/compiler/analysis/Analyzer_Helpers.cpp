@@ -104,6 +104,63 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         return std::make_shared<TupleType>(elementTypes);
     }
 
+    // Handle object type literals: { fieldName: fieldType, ... }
+    if (typeName.starts_with("{") && typeName.ends_with("}")) {
+        auto objType = std::make_shared<ObjectType>();
+        std::string inner = typeName.substr(1, typeName.size() - 2);
+
+        // Parse fields (simple parser for common cases)
+        // This handles: { a: number, b: string } but not nested objects with commas
+        size_t pos = 0;
+        while (pos < inner.size()) {
+            // Skip whitespace
+            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t')) pos++;
+            if (pos >= inner.size()) break;
+
+            // Find field name (ends at :)
+            size_t colonPos = inner.find(':', pos);
+            if (colonPos == std::string::npos) break;
+
+            std::string fieldName = inner.substr(pos, colonPos - pos);
+            // Trim whitespace and handle optional marker
+            fieldName.erase(0, fieldName.find_first_not_of(" \t\n"));
+            fieldName.erase(fieldName.find_last_not_of(" \t\n?") + 1);
+            if (fieldName.empty()) break;
+
+            pos = colonPos + 1;
+
+            // Skip whitespace after colon
+            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t')) pos++;
+
+            // Find field type (ends at , or } taking into account nesting)
+            size_t typeStart = pos;
+            int depth = 0;
+            while (pos < inner.size()) {
+                char c = inner[pos];
+                if (c == '{' || c == '<' || c == '(' || c == '[') depth++;
+                else if (c == '}' || c == '>' || c == ')' || c == ']') depth--;
+                else if ((c == ',' || c == ';') && depth == 0) break;
+                pos++;
+            }
+
+            std::string fieldTypeStr = inner.substr(typeStart, pos - typeStart);
+            // Trim whitespace
+            fieldTypeStr.erase(0, fieldTypeStr.find_first_not_of(" \t\n"));
+            if (!fieldTypeStr.empty()) {
+                fieldTypeStr.erase(fieldTypeStr.find_last_not_of(" \t\n") + 1);
+            }
+
+            if (!fieldTypeStr.empty()) {
+                objType->fields[fieldName] = parseType(fieldTypeStr, symbols);
+            }
+
+            // Skip comma or semicolon
+            if (pos < inner.size() && (inner[pos] == ',' || inner[pos] == ';')) pos++;
+        }
+
+        return objType;
+    }
+
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
     if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);

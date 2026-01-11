@@ -624,26 +624,44 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
 }
 
 void IRGenerator::visitClassExpression(ast::ClassExpression* node) {
-    // For class expressions, we directly generate the class type and use it
-    // as the value of the expression. This is in contrast to class declarations,
-    // where the class type is stored in a global variable.
-    auto classType = std::make_shared<ClassType>();
-    classType->name = node->id->name;
-    classType->kind = TypeKind::Class;
-    classType->baseClass = node->superClass ? std::make_shared<ClassType>() : nullptr;
+    // Class expressions evaluate to a constructor function.
+    // The class type should have been analyzed and registered in the analyzer.
+    // We need to find the constructor function and return a pointer to it.
 
-    if (node->superClass) {
-        // If there is a superclass, initialize the baseClass field of the classType
-        if (auto superClassId = dynamic_cast<ast::Identifier*>(node->superClass.get())) {
-            classType->baseClass->name = superClassId->name;
-        }
+    if (!node->inferredType || node->inferredType->kind != TypeKind::Class) {
+        SPDLOG_ERROR("ClassExpression has no inferred class type");
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return;
     }
 
-    // Register the class type in the current module
-    module->addClassType(classType);
+    auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
+    std::string className = classType->name;
 
-    // The value of the class expression is the class type itself
-    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+    SPDLOG_DEBUG("visitClassExpression: className={}", className);
+
+    // Look for the constructor function
+    std::string ctorName = className + "_constructor";
+    llvm::Function* ctorFunc = module->getFunction(ctorName);
+
+    if (ctorFunc) {
+        // Return the constructor function pointer
+        lastValue = ctorFunc;
+        SPDLOG_DEBUG("visitClassExpression: found constructor {}", ctorName);
+    } else {
+        // Constructor not yet generated - create a boxed class value for runtime new
+        // This returns the VTable global which can be used for instanceof checks
+        std::string vtableGlobalName = className + "_VTable_Global";
+        llvm::GlobalVariable* vtable = module->getGlobalVariable(vtableGlobalName);
+
+        if (vtable) {
+            lastValue = vtable;
+            SPDLOG_DEBUG("visitClassExpression: using vtable {}", vtableGlobalName);
+        } else {
+            // Fallback - return null pointer
+            SPDLOG_WARN("visitClassExpression: no constructor or vtable found for {}", className);
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+    }
 }
 
 // NOTE: visitFunctionExpression is implemented in IRGenerator_Functions.cpp

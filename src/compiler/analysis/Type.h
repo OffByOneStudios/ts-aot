@@ -11,6 +11,7 @@
 namespace ast {
     struct Node;
     struct ClassDeclaration;
+    struct ClassExpression;
     struct InterfaceDeclaration;
     struct FunctionDeclaration;
     struct StaticBlock;
@@ -170,6 +171,7 @@ struct ClassType : public Type {
     std::string name;
     std::string originalName;
     ast::ClassDeclaration* node = nullptr;
+    ast::ClassExpression* exprNode = nullptr;  // For class expressions
     bool isAbstract = false;
     bool isStruct = false;
     std::shared_ptr<ClassType> baseClass;

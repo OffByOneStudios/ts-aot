@@ -1337,6 +1337,7 @@ public:
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) override {}
     void visitAsExpression(ast::AsExpression* node) override { if (node->expression) node->expression->accept(this); }
     void visitClassDeclaration(ast::ClassDeclaration* node) override {}
+    void visitClassExpression(ast::ClassExpression* node) override {}
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override {}
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override {}
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override {}
@@ -1792,6 +1793,7 @@ public:
     void visitProgram(ast::Program*) override {}
     void visitFunctionDeclaration(ast::FunctionDeclaration*) override {}
     void visitClassDeclaration(ast::ClassDeclaration*) override {}
+    void visitClassExpression(ast::ClassExpression*) override {}
     void visitInterfaceDeclaration(ast::InterfaceDeclaration*) override {}
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration*) override {}
     void visitEnumDeclaration(ast::EnumDeclaration*) override {}
@@ -1877,6 +1879,7 @@ public:
     // All other node types - no-op (they don't contain variable declarations)
     void visitFunctionDeclaration(ast::FunctionDeclaration*) override {}
     void visitClassDeclaration(ast::ClassDeclaration*) override {}
+    void visitClassExpression(ast::ClassExpression*) override {}
     void visitReturnStatement(ast::ReturnStatement*) override {}
     void visitThrowStatement(ast::ThrowStatement*) override {}
     void visitBreakStatement(ast::BreakStatement*) override {}
@@ -2405,6 +2408,48 @@ void IRGenerator::visitProgram(ast::Program* node) {
 }
 
 void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {}
+
+void IRGenerator::visitClassExpression(ast::ClassExpression* node) {
+    // Class expressions evaluate to a constructor function.
+    // The class type should have been analyzed and registered in the analyzer.
+    // We need to find the constructor function and return a pointer to it.
+
+    if (!node->inferredType || node->inferredType->kind != TypeKind::Class) {
+        SPDLOG_ERROR("ClassExpression has no inferred class type");
+        lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        return;
+    }
+
+    auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
+    std::string className = classType->name;
+
+    SPDLOG_DEBUG("visitClassExpression: className={}", className);
+
+    // Look for the constructor function
+    std::string ctorName = className + "_constructor";
+    llvm::Function* ctorFunc = module->getFunction(ctorName);
+
+    if (ctorFunc) {
+        // Return the constructor function pointer
+        lastValue = ctorFunc;
+        SPDLOG_DEBUG("visitClassExpression: found constructor {}", ctorName);
+    } else {
+        // Constructor not yet generated - create a boxed class value for runtime new
+        // This returns the VTable global which can be used for instanceof checks
+        std::string vtableGlobalName = className + "_VTable_Global";
+        llvm::GlobalVariable* vtable = module->getGlobalVariable(vtableGlobalName);
+
+        if (vtable) {
+            lastValue = vtable;
+            SPDLOG_DEBUG("visitClassExpression: using vtable {}", vtableGlobalName);
+        } else {
+            // Fallback - return null pointer
+            SPDLOG_WARN("visitClassExpression: no constructor or vtable found for {}", className);
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+    }
+}
+
 void IRGenerator::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {}
 void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Handle function declarations inside function bodies (e.g., function lodash() {} inside an IIFE)

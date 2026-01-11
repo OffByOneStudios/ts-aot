@@ -759,6 +759,17 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
 
+    // Handle enum member access: MyEnum.Member -> constant integer
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {
+        auto enumType = std::static_pointer_cast<EnumType>(node->expression->inferredType);
+        auto it = enumType->members.find(node->name);
+        if (it != enumType->members.end()) {
+            lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), it->second);
+            return;
+        }
+        // If member not found, fall through to dynamic access (shouldn't happen if analyzer works)
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
         visit(node->expression.get());
         llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);

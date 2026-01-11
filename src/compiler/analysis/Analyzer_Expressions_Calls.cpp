@@ -395,7 +395,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
              node->inferredType = lastType;
              return;
         } else if (prop->name == "get") {
-             // Check if this is a Map.get() call
+             // Check if this is a Map.get() or WeakMap.get() call
              visit(prop->expression.get());
              if (lastType && lastType->kind == TypeKind::Map) {
                  auto mapType = std::dynamic_pointer_cast<MapType>(lastType);
@@ -404,12 +404,18 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                  } else {
                      lastType = std::make_shared<Type>(TypeKind::Any);
                  }
+                 node->inferredType = lastType;
+                 return;
+             } else if (lastType && lastType->kind == TypeKind::Class) {
+                 // WeakMap.get() or other class with get method - don't handle here
+                 // Let the class method resolution below handle it
+                 // Reset lastType so we can re-visit the expression below
              } else {
-                 // Default for other get calls
+                 // Default for other get calls (e.g., array element access)
                  lastType = std::make_shared<Type>(TypeKind::Int);
+                 node->inferredType = lastType;
+                 return;
              }
-             node->inferredType = lastType;
-             return;
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
              return;
@@ -465,18 +471,22 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         // Check for class methods
         visit(prop->expression.get());
         auto objType = lastType;
+        
         if (objType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(objType);
             std::shared_ptr<FunctionType> methodType = nullptr;
-            
+
             if (cls->methodOverloads.count(prop->name)) {
                 methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes);
             } else if (cls->methods.count(prop->name)) {
                 methodType = cls->methods[prop->name];
+                
             }
-            
+
             if (methodType) {
                 lastType = methodType->returnType;
+                node->inferredType = lastType;  // CRITICAL: Set inferredType before return
+                
                 return;
             }
         } else if (objType->kind == TypeKind::Interface) {
@@ -491,6 +501,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             
             if (methodType) {
                 lastType = methodType->returnType;
+                node->inferredType = lastType;  // CRITICAL: Set inferredType before return
                 return;
             }
         } else if (objType->kind == TypeKind::Function) {
@@ -841,6 +852,17 @@ void Analyzer::visitNewExpression(ast::NewExpression* node) {
         }
 
         auto sym = symbols.lookup(id->name);
+        // Check if the symbol is a class type (from class expression assigned to variable)
+        if (sym && sym->type->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(sym->type);
+            if (classType->isAbstract) {
+                reportError(fmt::format("Cannot create an instance of an abstract class '{}'", classType->name));
+            }
+            lastType = classType;
+            node->inferredType = lastType;
+            classUsages[classType->name].push_back(resolvedTypeArguments);
+            return;
+        }
         if (sym && sym->type->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(sym->type);
             if (funcType->returnType->kind == TypeKind::Class) {
