@@ -294,6 +294,77 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
                 }
                 builder->CreateStore(next, variable);
             }
+        } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->operand.get())) {
+            // Handle property access (e.g., this.#count++ or obj.field++)
+            SPDLOG_DEBUG("visitPostfixUnary PropertyAccess: prop->name={}", prop->name);
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+                std::string className = classType->name;
+                std::string fieldName = prop->name;
+
+                SPDLOG_DEBUG("visitPostfixUnary PropertyAccess: className={} fieldName={}", className, fieldName);
+
+                // Handle private field name mangling
+                if (fieldName.starts_with("#")) {
+                    if (currentClass && currentClass->kind == TypeKind::Class) {
+                        auto cls = std::static_pointer_cast<ClassType>(currentClass);
+                        std::string baseName = cls->originalName.empty() ? cls->name : cls->originalName;
+                        fieldName = manglePrivateName(fieldName, baseName);
+                        SPDLOG_DEBUG("visitPostfixUnary: mangled to {}", fieldName);
+                    }
+                }
+
+                SPDLOG_DEBUG("visitPostfixUnary: classLayouts.count({})={} fieldIndices.count({})={}",
+                    className, classLayouts.count(className),
+                    fieldName, classLayouts.count(className) ? classLayouts[className].fieldIndices.count(fieldName) : -1);
+
+                // Check if it's a field access in the class layout
+                if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+                    // Get the object pointer
+                    llvm::Value* objPtr = nullptr;
+                    if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                        if (namedValues.count(id->name)) {
+                            objPtr = namedValues[id->name];
+                            // If it's a pointer to a pointer (like 'this'), load it
+                            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(objPtr)) {
+                                if (alloca->getAllocatedType()->isPointerTy()) {
+                                    objPtr = builder->CreateLoad(alloca->getAllocatedType(), objPtr);
+                                }
+                            }
+                        } else {
+                            objPtr = module->getGlobalVariable(id->name);
+                        }
+                    }
+
+                    if (!objPtr) {
+                        visit(prop->expression.get());
+                        objPtr = lastValue;
+                    }
+
+                    llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+                    if (classStruct && objPtr) {
+                        llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+
+                        int fieldIndex = classLayouts[className].fieldIndices[fieldName];
+                        llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+
+                        // Get the field type for proper casting
+                        std::shared_ptr<Type> fieldType;
+                        for (const auto& f : classLayouts[className].allFields) {
+                            if (f.first == fieldName) {
+                                fieldType = f.second;
+                                break;
+                            }
+                        }
+
+                        if (fieldType) {
+                            llvm::Value* storedVal = castValue(next, getLLVMType(fieldType));
+                            builder->CreateStore(storedVal, fieldPtr);
+                            SPDLOG_DEBUG("visitPostfixUnary: stored value to {}.{}", className, fieldName);
+                        }
+                    }
+                }
+            }
         }
         lastValue = val; // Postfix returns old value
     }

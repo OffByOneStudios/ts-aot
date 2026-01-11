@@ -411,7 +411,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | Top-level `await` | ❌ | |
 | Class fields (public) | ✅ | |
-| Class fields (private `#`) | ❌ | |
+| Class fields (private `#`) | ✅ | Increment, compound assignment, direct assignment |
 | Private methods | ❌ | |
 | Static class blocks | ❌ | |
 | `Array.prototype.at()` | ✅ | |
@@ -465,12 +465,12 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2019 | 6 | 0 | 3 | 9 | 67% |
 | ES2020 | 3 | 1 | 6 | 10 | 30% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
-| ES2022 | 3 | 0 | 7 | 10 | 30% |
+| ES2022 | 4 | 0 | 6 | 10 | 40% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **169** | **19** | **41** | **229** | **74%** |
+| **TOTAL** | **170** | **19** | **40** | **229** | **74%** |
 
-**Overall ECMAScript Conformance: 169/229 features (74%)**
+**Overall ECMAScript Conformance: 170/229 features (74%)**
 
 ---
 
@@ -493,7 +493,7 @@ These features should be prioritized for implementation:
 10. ❌ `Proxy` / `Reflect`
 
 ### Medium Priority
-11. ❌ Private class fields (`#`)
+11. ✅ Private class fields (`#`) - Implemented
 12. ❌ Dynamic `import()`
 13. ❌ `BigInt`
 14. ❌ Top-level `await`
