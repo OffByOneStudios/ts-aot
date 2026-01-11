@@ -522,55 +522,7 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     }
 }
 
-void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
-    visit(node->operand.get());
-    llvm::Value* operand = lastValue;
-
-    if (node->op == "++" || node->op == "--") {
-        if (auto id = dynamic_cast<ast::Identifier*>(node->operand.get())) {
-            llvm::Value* variable = nullptr;
-            if (namedValues.count(id->name)) {
-                variable = namedValues[id->name];
-            } else {
-                variable = module->getGlobalVariable(id->name);
-            }
-            if (variable) {
-                llvm::Value* newVal = nullptr;
-                if (operand->getType()->isPointerTy()) {
-                    llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
-                    llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
-                    llvm::Value* oneBoxed = createCall(makeIntFt, makeIntFn.getCallee(), { llvm::ConstantInt::get(builder->getInt64Ty(), 1) });
-
-                    const char* opFnName = (node->op == "++") ? "ts_value_add" : "ts_value_sub";
-                    llvm::FunctionType* arithFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
-                    llvm::FunctionCallee arithFn = getRuntimeFunction(opFnName, arithFt);
-                    newVal = createCall(arithFt, arithFn.getCallee(), { operand, oneBoxed });
-                } else if (operand->getType()->isDoubleTy()) {
-                    llvm::Value* one = llvm::ConstantFP::get(llvm::Type::getDoubleTy(*context), 1.0);
-                    newVal = (node->op == "++") ? builder->CreateFAdd(operand, one) : builder->CreateFSub(operand, one);
-                } else if (operand->getType()->isIntegerTy()) {
-                    llvm::Value* one = llvm::ConstantInt::get(operand->getType(), 1);
-                    newVal = (node->op == "++") ? builder->CreateAdd(operand, one) : builder->CreateSub(operand, one);
-                }
-
-                if (newVal) {
-                    llvm::Type* varType = nullptr;
-                    if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(variable)) {
-                        varType = alloca->getAllocatedType();
-                    } else if (auto gv = llvm::dyn_cast<llvm::GlobalVariable>(variable)) {
-                        varType = gv->getValueType();
-                    }
-                    if (varType && newVal->getType() != varType) {
-                        newVal = castValue(newVal, varType);
-                    }
-                    builder->CreateStore(newVal, variable);
-                }
-            }
-        }
-    }
-
-    lastValue = operand;
-}
+// visitPostfixUnaryExpression is defined in IRGenerator_Expressions_Unary.cpp
 
 void IRGenerator::visitStringTemplateExpression(ast::StringTemplateExpression* node) {
     llvm::FunctionType* concatFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
@@ -1045,9 +997,7 @@ void IRGenerator::visitEmptyStatement(ast::EmptyStatement* node) {
     // No action needed for empty statements
 }
 
-void IRGenerator::visitExpressionStatement(ast::ExpressionStatement* node) {
-    visit(node->expression.get());
-}
+// visitExpressionStatement is defined in IRGenerator_Statements.cpp
 
 void IRGenerator::visitIfStatement(ast::IfStatement* node) {
     visit(node->condition.get());

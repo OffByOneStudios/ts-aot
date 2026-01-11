@@ -648,6 +648,61 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                 llvm::Value* valToStore = castValue(lastValue, varType);
                 builder->CreateStore(valToStore, variable);
             }
+        } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+            // Handle property access compound assignment (e.g., this.#field += val)
+            if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+                std::string className = classType->name;
+                std::string fieldName = prop->name;
+
+                // Handle private field name mangling
+                if (fieldName.starts_with("#")) {
+                    if (currentClass && currentClass->kind == TypeKind::Class) {
+                        auto cls = std::static_pointer_cast<ClassType>(currentClass);
+                        std::string baseName = cls->originalName.empty() ? cls->name : cls->originalName;
+                        fieldName = manglePrivateName(fieldName, baseName);
+                    }
+                }
+
+                // Check if it's a field access in the class layout
+                if (classLayouts.count(className) && classLayouts[className].fieldIndices.count(fieldName)) {
+                    // Get the object pointer
+                    llvm::Value* objPtr = nullptr;
+                    if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                        if (namedValues.count(id->name)) {
+                            objPtr = namedValues[id->name];
+                            if (auto alloca = llvm::dyn_cast<llvm::AllocaInst>(objPtr)) {
+                                if (alloca->getAllocatedType()->isPointerTy()) {
+                                    objPtr = builder->CreateLoad(alloca->getAllocatedType(), objPtr);
+                                }
+                            }
+                        }
+                    }
+
+                    if (objPtr) {
+                        llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+                        if (classStruct) {
+                            llvm::Value* typedObjPtr = builder->CreateBitCast(objPtr, llvm::PointerType::getUnqual(classStruct));
+                            int fieldIndex = classLayouts[className].fieldIndices[fieldName];
+                            llvm::Value* fieldPtr = builder->CreateStructGEP(classStruct, typedObjPtr, fieldIndex);
+
+                            // Get field type
+                            std::shared_ptr<Type> fieldType;
+                            for (const auto& f : classLayouts[className].allFields) {
+                                if (f.first == fieldName) {
+                                    fieldType = f.second;
+                                    break;
+                                }
+                            }
+
+                            if (fieldType) {
+                                llvm::Value* storedVal = castValue(lastValue, getLLVMType(fieldType));
+                                builder->CreateStore(storedVal, fieldPtr);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     SPDLOG_DEBUG("visitBinaryExpression done");

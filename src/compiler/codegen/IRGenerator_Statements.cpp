@@ -111,9 +111,7 @@ void IRGenerator::visitReturnStatement(ast::ReturnStatement* node) {
 
 void IRGenerator::visitExpressionStatement(ast::ExpressionStatement* node) {
     emitLocation(node);
-    SPDLOG_INFO("visitExpressionStatement: expression kind = {}", node->expression ? node->expression->getKind() : "null");
     visit(node->expression.get());
-    SPDLOG_INFO("visitExpressionStatement: done, lastValue = {}", (void*)lastValue);
 }
 
 void IRGenerator::visitIfStatement(ast::IfStatement* node) {

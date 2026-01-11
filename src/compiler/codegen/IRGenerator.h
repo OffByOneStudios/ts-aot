@@ -146,7 +146,7 @@ private:
     void visitAsExpression(ast::AsExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitDeleteExpression(ast::DeleteExpression* node);
-    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node);
+    void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
     void visitSuperExpression(ast::SuperExpression* node);
     void visitExpressionStatement(ast::ExpressionStatement* node);
     void visitIfStatement(ast::IfStatement* node);
