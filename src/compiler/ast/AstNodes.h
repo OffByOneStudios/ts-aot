@@ -78,6 +78,7 @@ struct PostfixUnaryExpression;
 struct AwaitExpression;
 struct YieldExpression;
 struct ClassDeclaration;
+struct ClassExpression;
 struct MethodDefinition;
 struct StaticBlock;
 struct PropertyDefinition;
@@ -142,6 +143,7 @@ struct Visitor {
     virtual void visitDeleteExpression(DeleteExpression* node) = 0;
     virtual void visitPostfixUnaryExpression(PostfixUnaryExpression* node) = 0;
     virtual void visitClassDeclaration(ClassDeclaration* node) = 0;
+    virtual void visitClassExpression(ClassExpression* node) = 0;
     virtual void visitInterfaceDeclaration(InterfaceDeclaration* node) = 0;
     virtual void visitObjectBindingPattern(ObjectBindingPattern* node) = 0;
     virtual void visitArrayBindingPattern(ArrayBindingPattern* node) = 0;
@@ -686,6 +688,16 @@ struct FunctionExpression : Expression {
     std::vector<StmtPtr> body;
     std::string getKind() const override { return "FunctionExpression"; }
     void accept(Visitor* visitor) override { visitor->visitFunctionExpression(this); }
+};
+
+struct ClassExpression : Expression {
+    std::string name;  // Optional - can be empty for anonymous class expressions
+    std::string baseClass;
+    std::vector<std::string> implementsInterfaces;
+    std::vector<std::unique_ptr<TypeParameter>> typeParameters;
+    std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
+    std::string getKind() const override { return "ClassExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitClassExpression(this); }
 };
 
 struct ParenthesizedExpression : Expression {

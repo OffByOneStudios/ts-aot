@@ -38,6 +38,25 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_set_clear",   {false}},                   // (set*) -> void
 
     // =========================================================================
+    // WeakMap operations - keys are raw object pointers, values are boxed
+    // (Implemented as regular Map with Boehm GC - no true weak semantics)
+    // =========================================================================
+    {"ts_weakmap_create",  {}},                    // () -> TsMap*
+    {"ts_weakmap_set",     {false, false, true}},  // (weakmap*, key*, value)
+    {"ts_weakmap_get",     {false, false}},        // (weakmap*, key*) -> TsValue*
+    {"ts_weakmap_has",     {false, false}},        // (weakmap*, key*) -> bool
+    {"ts_weakmap_delete",  {false, false}},        // (weakmap*, key*) -> bool
+
+    // =========================================================================
+    // WeakSet operations - values are raw object pointers
+    // (Implemented as regular Set with Boehm GC - no true weak semantics)
+    // =========================================================================
+    {"ts_weakset_create",  {}},                    // () -> TsSet*
+    {"ts_weakset_add",     {false, false}},        // (weakset*, value*)
+    {"ts_weakset_has",     {false, false}},        // (weakset*, value*) -> bool
+    {"ts_weakset_delete",  {false, false}},        // (weakset*, value*) -> bool
+
+    // =========================================================================
     // Dynamic function calls - function AND all args are boxed
     // The callee uses ts_value_get_* to extract what it needs
     // =========================================================================

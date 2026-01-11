@@ -524,6 +524,83 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
+    // Process Class Expression Methods
+    for (const auto& expr : analyzer.expressions) {
+        auto* classExpr = dynamic_cast<ast::ClassExpression*>(expr);
+        if (!classExpr) continue;
+
+        if (!classExpr->inferredType || classExpr->inferredType->kind != TypeKind::Class) continue;
+        auto ct = std::static_pointer_cast<ClassType>(classExpr->inferredType);
+
+        // Skip generic classes here
+        if (!ct->typeParameters.empty()) continue;
+
+        SPDLOG_DEBUG("Processing class expression: {}", ct->name);
+
+        for (const auto& member : classExpr->members) {
+            if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                if (method->isAbstract) continue;
+
+                Specialization spec;
+                spec.originalName = method->name;
+                spec.node = method;
+                spec.classType = ct;
+
+                if (method->isStatic) {
+                    std::string methodName = Analyzer::manglePrivateName(method->name, ct->name);
+                    spec.specializedName = ct->name + "_static_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + methodName;
+                    if (ct->staticMethods.count(methodName)) {
+                        auto methodType = ct->staticMethods[methodName];
+                        spec.argTypes = methodType->paramTypes;
+                        spec.returnType = methodType->returnType;
+                    } else if (ct->getters.count(methodName)) {
+                        auto methodType = ct->getters[methodName];
+                        spec.argTypes = methodType->paramTypes;
+                        spec.returnType = methodType->returnType;
+                    } else if (ct->setters.count(methodName)) {
+                        auto methodType = ct->setters[methodName];
+                        spec.argTypes = methodType->paramTypes;
+                        spec.returnType = methodType->returnType;
+                    } else {
+                        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                    }
+                } else {
+                    std::string methodName = Analyzer::manglePrivateName(method->name, ct->name);
+                    spec.specializedName = ct->name + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + methodName;
+                    // Construct argTypes: [ClassType, explicitParams...]
+                    spec.argTypes.push_back(ct);
+
+                    if (method->name == "constructor" && !ct->constructorOverloads.empty()) {
+                        auto ctorType = ct->constructorOverloads[0];
+                        spec.argTypes.insert(spec.argTypes.end(),
+                            ctorType->paramTypes.begin(), ctorType->paramTypes.end());
+                        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                    } else if (ct->methods.count(methodName)) {
+                        auto methodType = ct->methods[methodName];
+                        spec.argTypes.insert(spec.argTypes.end(),
+                            methodType->paramTypes.begin(), methodType->paramTypes.end());
+                        spec.returnType = methodType->returnType;
+                    } else if (ct->getters.count(methodName)) {
+                        auto methodType = ct->getters[methodName];
+                        spec.argTypes.insert(spec.argTypes.end(),
+                            methodType->paramTypes.begin(), methodType->paramTypes.end());
+                        spec.returnType = methodType->returnType;
+                    } else if (ct->setters.count(methodName)) {
+                        auto methodType = ct->setters[methodName];
+                        spec.argTypes.insert(spec.argTypes.end(),
+                            methodType->paramTypes.begin(), methodType->paramTypes.end());
+                        spec.returnType = methodType->returnType;
+                    } else {
+                        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                    }
+                }
+
+                SPDLOG_DEBUG("Adding specialization for class expression method: {}", spec.specializedName);
+                specializations.push_back(spec);
+            }
+        }
+    }
+
     const auto& classUsages = analyzer.getClassUsages();
     for (const auto& [name, instances] : classUsages) {
         ast::ClassDeclaration* classNode = findClass(analyzer, name);

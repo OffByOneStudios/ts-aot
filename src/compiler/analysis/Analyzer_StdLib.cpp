@@ -648,7 +648,53 @@ Analyzer::Analyzer() {
     setClass->fields["size"] = std::make_shared<Type>(TypeKind::Int);
 
     symbols.defineType("Set", setClass);
-    
+
+    // Register WeakMap class (keys must be objects, no iteration/size)
+    auto weakMapClass = std::make_shared<ClassType>("WeakMap");
+
+    auto weakMapSet = std::make_shared<FunctionType>();
+    weakMapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));  // key must be object
+    weakMapSet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    weakMapSet->returnType = weakMapClass;
+    weakMapClass->methods["set"] = weakMapSet;
+
+    auto weakMapGet = std::make_shared<FunctionType>();
+    weakMapGet->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakMapGet->returnType = std::make_shared<Type>(TypeKind::Any);
+    weakMapClass->methods["get"] = weakMapGet;
+
+    auto weakMapHas = std::make_shared<FunctionType>();
+    weakMapHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakMapHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    weakMapClass->methods["has"] = weakMapHas;
+
+    auto weakMapDelete = std::make_shared<FunctionType>();
+    weakMapDelete->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakMapDelete->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    weakMapClass->methods["delete"] = weakMapDelete;
+
+    symbols.defineType("WeakMap", weakMapClass);
+
+    // Register WeakSet class (values must be objects, no iteration/size)
+    auto weakSetClass = std::make_shared<ClassType>("WeakSet");
+
+    auto weakSetAdd = std::make_shared<FunctionType>();
+    weakSetAdd->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));  // value must be object
+    weakSetAdd->returnType = weakSetClass;
+    weakSetClass->methods["add"] = weakSetAdd;
+
+    auto weakSetHas = std::make_shared<FunctionType>();
+    weakSetHas->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakSetHas->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    weakSetClass->methods["has"] = weakSetHas;
+
+    auto weakSetDelete = std::make_shared<FunctionType>();
+    weakSetDelete->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakSetDelete->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    weakSetClass->methods["delete"] = weakSetDelete;
+
+    symbols.defineType("WeakSet", weakSetClass);
+
     // Define Map as a value (constructor)
     auto mapCtor = std::make_shared<FunctionType>();
     mapCtor->returnType = std::make_shared<Type>(TypeKind::Map);
@@ -658,6 +704,16 @@ Analyzer::Analyzer() {
     auto setCtor = std::make_shared<FunctionType>();
     setCtor->returnType = std::make_shared<Type>(TypeKind::SetType);
     symbols.define("Set", setCtor);
+
+    // Define WeakMap as a value (constructor)
+    auto weakMapCtor = std::make_shared<FunctionType>();
+    weakMapCtor->returnType = weakMapClass;
+    symbols.define("WeakMap", weakMapCtor);
+
+    // Define WeakSet as a value (constructor)
+    auto weakSetCtor = std::make_shared<FunctionType>();
+    weakSetCtor->returnType = weakSetClass;
+    symbols.define("WeakSet", weakSetCtor);
 
     // Register Object global
     auto objectType = std::make_shared<ObjectType>();
@@ -792,6 +848,12 @@ Analyzer::Analyzer() {
     getOwnPropertyDescriptorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     getOwnPropertyDescriptorType->returnType = std::make_shared<Type>(TypeKind::Any);  // Can be undefined
     objectType->fields["getOwnPropertyDescriptor"] = getOwnPropertyDescriptorType;
+
+    // Object.getOwnPropertyDescriptors(obj) => { [key: string]: PropertyDescriptor }
+    auto getOwnPropertyDescriptorsType = std::make_shared<FunctionType>();
+    getOwnPropertyDescriptorsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    getOwnPropertyDescriptorsType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["getOwnPropertyDescriptors"] = getOwnPropertyDescriptorsType;
 
     symbols.define("Object", objectType);
 

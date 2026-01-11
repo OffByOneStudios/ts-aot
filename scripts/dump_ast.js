@@ -238,6 +238,27 @@ function visitInternal(node) {
                 kind: "StaticBlock",
                 body: visitBlock(node.body)
             };
+        case ts.SyntaxKind.ClassExpression: {
+            let classExprBaseClass = "";
+            let classExprImplements = [];
+            if (node.heritageClauses) {
+                for (const clause of node.heritageClauses) {
+                    if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+                        classExprBaseClass = clause.types[0].expression.getText(currentSourceFile);
+                    } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+                        classExprImplements = clause.types.map(t => t.expression.getText(currentSourceFile));
+                    }
+                }
+            }
+            return {
+                kind: "ClassExpression",
+                name: node.name ? node.name.text : "",
+                typeParameters: getTypeParameters(node),
+                baseClass: classExprBaseClass,
+                implementsInterfaces: classExprImplements,
+                members: node.members.map(visit).filter(m => m)
+            };
+        }
         case ts.SyntaxKind.InterfaceDeclaration:
             let baseInterfaces = [];
             if (node.heritageClauses) {

@@ -161,6 +161,7 @@ private:
     void visitTryStatement(ast::TryStatement* node);
     void visitFunctionDeclaration(ast::FunctionDeclaration* node);
     void visitClassDeclaration(ast::ClassDeclaration* node);
+    void visitClassExpression(ast::ClassExpression* node);
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node);
     void visitImportDeclaration(ast::ImportDeclaration* node);
     void visitExportDeclaration(ast::ExportDeclaration* node);

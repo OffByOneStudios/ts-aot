@@ -122,6 +122,7 @@ private:
     void visit(ast::Node* node);
     void visitProgram(ast::Program* node) override;
     void visitClassDeclaration(ast::ClassDeclaration* node) override;
+    void visitClassExpression(ast::ClassExpression* node) override;
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node);
     void visitFunctionDeclaration(ast::FunctionDeclaration* node) override;
     void visitVariableDeclaration(ast::VariableDeclaration* node) override;
