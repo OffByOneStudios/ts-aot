@@ -1,0 +1,8 @@
+Testing ES2022 private methods...
+Count after 3 ticks: 3
+Double count: 6
+Calculator result: 16
+Calculator value: 16
+Count after 5 ticks: 5
+Double of 5: 10
+All private methods tests passed!

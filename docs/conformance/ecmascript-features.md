@@ -412,7 +412,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Top-level `await` | ❌ | |
 | Class fields (public) | ✅ | |
 | Class fields (private `#`) | ✅ | Increment, compound assignment, direct assignment |
-| Private methods | ❌ | |
+| Private methods | ✅ | |
 | Static class blocks | ✅ | Top-level and local classes |
 | `Array.prototype.at()` | ✅ | |
 | `String.prototype.at()` | ✅ | Supports negative indices |
@@ -465,12 +465,12 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
 | ES2020 | 5 | 0 | 5 | 10 | 50% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
-| ES2022 | 7 | 0 | 3 | 10 | 70% |
+| ES2022 | 8 | 0 | 2 | 10 | 80% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **185** | **20** | **25** | **230** | **80%** |
+| **TOTAL** | **186** | **18** | **26** | **230** | **81%** |
 
-**Overall ECMAScript Conformance: 185/230 features (80%)**
+**Overall ECMAScript Conformance: 186/230 features (81%)**
 
 ---
 
