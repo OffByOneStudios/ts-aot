@@ -47,6 +47,7 @@ public:
     TsString* ToWellFormed();
 
     void* Match(class TsRegExp* regexp);
+    void* MatchAll(class TsRegExp* regexp);  // ES2020
     int64_t Search(class TsRegExp* regexp);
     TsString* Replace(TsString* pattern, TsString* replacement);
     TsString* Replace(class TsRegExp* regexp, TsString* replacement);
@@ -102,6 +103,7 @@ extern "C" {
     void* ts_string_toUpperCase(void* str);
     void* ts_string_normalize(void* str, void* form);
     void* ts_string_match_regexp(void* str, void* regexp);
+    void* ts_string_matchAll_regexp(void* str, void* regexp);  // ES2020
     void* ts_string_replace(void* str, void* pattern, void* replacement);
     void* ts_string_replace_regexp(void* str, void* regexp, void* replacement);
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement);

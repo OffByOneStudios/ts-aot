@@ -736,6 +736,30 @@ void* TsString::Match(TsRegExp* regexp) {
     return results;
 }
 
+// ES2020: matchAll returns an array of all match results (each with groups, index, input)
+void* TsString::MatchAll(TsRegExp* regexp) {
+    if (!regexp) return nullptr;
+
+    // matchAll requires global flag - in strict mode, throw TypeError
+    // For now, we'll just set global behavior regardless
+
+    TsArray* results = TsArray::Create();
+    regexp->SetLastIndex(0);
+
+    while (true) {
+        void* execResult = regexp->Exec(this);
+        if (!execResult) break;
+
+        // Each result is a full match array from exec (with index, input, groups)
+        results->Push((int64_t)execResult);
+    }
+
+    // Reset lastIndex after iteration
+    regexp->SetLastIndex(0);
+
+    return results;
+}
+
 int64_t TsString::Search(TsRegExp* regexp) {
     if (!regexp) return -1;
     icu::UnicodeString s;
@@ -1120,6 +1144,10 @@ extern "C" {
 
     void* ts_string_match_regexp(void* str, void* regexp) {
         return ((TsString*)str)->Match((TsRegExp*)regexp);
+    }
+
+    void* ts_string_matchAll_regexp(void* str, void* regexp) {
+        return ((TsString*)str)->MatchAll((TsRegExp*)regexp);
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {

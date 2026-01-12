@@ -1,0 +1,7 @@
+Testing String.prototype.matchAll()...
+Basic matchAll:
+  Number of matches: 3
+No matches length: 0
+Word matches: 4
+Date matches: 2
+All matchAll tests passed!

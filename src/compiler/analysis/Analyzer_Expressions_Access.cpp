@@ -419,6 +419,19 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             toWellFormedFn->returnType = std::make_shared<Type>(TypeKind::String);
             lastType = toWellFormedFn;
             return;
+        } else if (node->name == "matchAll") {
+            // ES2020: String.prototype.matchAll(regexp) -> Iterator<RegExpMatchArray>
+            // We return an array of match arrays since we don't have iterators
+            auto matchAllFn = std::make_shared<FunctionType>();
+            auto regExpType = symbols.lookupType("RegExp");
+            if (regExpType) {
+                matchAllFn->paramTypes.push_back(regExpType);
+            } else {
+                matchAllFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
+            matchAllFn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            lastType = matchAllFn;
+            return;
         }
     }
 
