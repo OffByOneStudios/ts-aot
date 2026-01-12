@@ -315,6 +315,27 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // =========================================================================
     {"ts_bigint_create_str", {false}},             // (str*) -> BigInt*
     {"ts_bigint_from_value", {true}},              // (TsValue*) -> BigInt*
+    // Arithmetic operations - take raw BigInt pointers
+    {"ts_bigint_add", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_sub", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_mul", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_div", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_mod", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_neg", {false}},                    // (BigInt*) -> BigInt*
+    {"ts_bigint_pow", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    // Comparison operations
+    {"ts_bigint_eq", {false, false}},              // (BigInt*, BigInt*) -> bool
+    {"ts_bigint_lt", {false, false}},              // (BigInt*, BigInt*) -> bool
+    {"ts_bigint_gt", {false, false}},              // (BigInt*, BigInt*) -> bool
+    {"ts_bigint_le", {false, false}},              // (BigInt*, BigInt*) -> bool
+    {"ts_bigint_ge", {false, false}},              // (BigInt*, BigInt*) -> bool
+    // Bitwise operations
+    {"ts_bigint_and", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_or", {false, false}},              // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_xor", {false, false}},             // (BigInt*, BigInt*) -> BigInt*
+    {"ts_bigint_not", {false}},                    // (BigInt*) -> BigInt*
+    {"ts_bigint_shl", {false, false}},             // (BigInt*, i64) -> BigInt*
+    {"ts_bigint_shr", {false, false}},             // (BigInt*, i64) -> BigInt*
 
     // =========================================================================
     // Symbol operations

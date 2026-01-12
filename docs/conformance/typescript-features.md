@@ -29,7 +29,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `undefined` | ✅ | |
 | `never` | 🔬 | Type-only |
 | `object` | ✅ | |
-| `bigint` | ❌ | |
+| `bigint` | ✅ | Arbitrary precision integers |
 | `symbol` | ⚠️ | Basic support |
 
 ## 2. Variable Declarations
@@ -300,7 +300,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Category | Implemented | Partial | Not Implemented | Type-Only |
 |----------|-------------|---------|-----------------|-----------|
-| Basic Types | 10 | 2 | 2 | 2 |
+| Basic Types | 11 | 2 | 1 | 2 |
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **65** | **17** | **58** | **34** |
+| **TOTAL** | **66** | **17** | **57** | **34** |
 
-**Conformance: 65/140 runtime features (46%)**
+**Conformance: 66/140 runtime features (47%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

@@ -198,10 +198,70 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         }
     }
 
+    // Check if either side is BigInt - use runtime BigInt functions
+    bool leftIsBigInt = node->left->inferredType && node->left->inferredType->kind == TypeKind::BigInt;
+    bool rightIsBigInt = node->right->inferredType && node->right->inferredType->kind == TypeKind::BigInt;
+
+    if (leftIsBigInt || rightIsBigInt) {
+        std::string runtimeFn = "";
+        bool isComparison = false;
+
+        // Arithmetic operations
+        if (node->op == "+" || node->op == "+=") runtimeFn = "ts_bigint_add";
+        else if (node->op == "-" || node->op == "-=") runtimeFn = "ts_bigint_sub";
+        else if (node->op == "*" || node->op == "*=") runtimeFn = "ts_bigint_mul";
+        else if (node->op == "/" || node->op == "/=") runtimeFn = "ts_bigint_div";
+        else if (node->op == "%" || node->op == "%=") runtimeFn = "ts_bigint_mod";
+        else if (node->op == "**" || node->op == "**=") runtimeFn = "ts_bigint_pow";
+        // Comparison operations
+        else if (node->op == "==" || node->op == "===") { runtimeFn = "ts_bigint_eq"; isComparison = true; }
+        else if (node->op == "!=" || node->op == "!==") { runtimeFn = "ts_bigint_eq"; isComparison = true; }  // Will negate
+        else if (node->op == "<") { runtimeFn = "ts_bigint_lt"; isComparison = true; }
+        else if (node->op == ">") { runtimeFn = "ts_bigint_gt"; isComparison = true; }
+        else if (node->op == "<=") { runtimeFn = "ts_bigint_le"; isComparison = true; }
+        else if (node->op == ">=") { runtimeFn = "ts_bigint_ge"; isComparison = true; }
+        // Bitwise operations
+        else if (node->op == "&" || node->op == "&=") runtimeFn = "ts_bigint_and";
+        else if (node->op == "|" || node->op == "|=") runtimeFn = "ts_bigint_or";
+        else if (node->op == "^" || node->op == "^=") runtimeFn = "ts_bigint_xor";
+
+        if (runtimeFn != "") {
+            // Convert non-BigInt operand to BigInt if needed
+            if (!leftIsBigInt) {
+                llvm::Value* boxedLeft = boxValue(left, node->left->inferredType);
+                llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fromFn = getRuntimeFunction("ts_bigint_from_value", fromFt);
+                left = createCall(fromFt, fromFn.getCallee(), { boxedLeft });
+            }
+            if (!rightIsBigInt) {
+                llvm::Value* boxedRight = boxValue(right, node->right->inferredType);
+                llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fromFn = getRuntimeFunction("ts_bigint_from_value", fromFt);
+                right = createCall(fromFt, fromFn.getCallee(), { boxedRight });
+            }
+
+            if (isComparison) {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction(runtimeFn, ft);
+                lastValue = createCall(ft, fn.getCallee(), { left, right });
+
+                // Handle != and !==
+                if (node->op == "!=" || node->op == "!==") {
+                    lastValue = builder->CreateNot(lastValue);
+                }
+            } else {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction(runtimeFn, ft);
+                lastValue = createCall(ft, fn.getCallee(), { left, right });
+            }
+            return;
+        }
+    }
+
     // Unbox if one is a pointer and the other is not, and it's not a string operation
     bool leftIsPtr = left->getType()->isPointerTy();
     bool rightIsPtr = right->getType()->isPointerTy();
-    
+
     // CRITICAL: Only unbox primitive types (Int, Double, Boolean) - NOT Object/Array/etc!
     auto isPrimitiveType = [](std::shared_ptr<Type> t) {
         if (!t) return false;

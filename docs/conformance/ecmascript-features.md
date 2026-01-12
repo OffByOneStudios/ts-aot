@@ -380,7 +380,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `BigInt` | ❌ | |
+| `BigInt` | ✅ | Arithmetic, comparison, bitwise ops |
 | Dynamic `import()` | ❌ | |
 | Nullish coalescing (`??`) | ✅ | |
 | Optional chaining (`?.`) | ✅ | Property access only |
@@ -463,14 +463,14 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 3 | 0 | 5 | 8 | 38% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
-| ES2020 | 5 | 0 | 5 | 10 | 50% |
+| ES2020 | 6 | 0 | 4 | 10 | 60% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 8 | 0 | 2 | 10 | 80% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **186** | **18** | **26** | **230** | **81%** |
+| **TOTAL** | **187** | **18** | **25** | **230** | **81%** |
 
-**Overall ECMAScript Conformance: 186/230 features (81%)**
+**Overall ECMAScript Conformance: 187/230 features (81%)**
 
 ---
 
@@ -495,6 +495,6 @@ These features should be prioritized for implementation:
 ### Medium Priority
 11. ✅ Private class fields (`#`) - Implemented
 12. ❌ Dynamic `import()`
-13. ❌ `BigInt`
+13. ✅ `BigInt` - Implemented
 14. ❌ Top-level `await`
 15. ✅ `for await...of` - Implemented
