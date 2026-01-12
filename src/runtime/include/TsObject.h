@@ -186,6 +186,10 @@ extern "C" {
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop);
     TsValue* ts_object_getOwnPropertyDescriptors(TsValue* obj);
 
+    // ES2024 groupBy methods
+    TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn);
+    TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn);
+
     // WeakMap - implemented as regular Map (no true weak semantics with Boehm GC)
     void* ts_weakmap_create();
     void* ts_weakmap_set(void* weakmap, void* key, TsValue* value);

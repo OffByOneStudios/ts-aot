@@ -178,6 +178,8 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_object_defineProperties", {true, true}, true);  // obj, descs -> obj
     bp.registerRuntimeApi("ts_object_getOwnPropertyDescriptor", {true, true}, true);  // obj, prop -> desc
     bp.registerRuntimeApi("ts_object_getOwnPropertyDescriptors", {true}, true);  // obj -> descs
+    bp.registerRuntimeApi("ts_object_groupBy", {true, true}, true);  // ES2024: iterable, callback -> obj
+    bp.registerRuntimeApi("ts_map_groupBy", {true, true}, true);  // ES2024: iterable, callback -> Map
 
     // ========== Value boxing helpers ==========
     bp.registerRuntimeApi("ts_value_make_int", {false}, true);
@@ -2036,6 +2038,66 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_object_getOwnPropertyDescriptors", ft);
                 lastValue = createCall(ft, fn.getCallee(), { objArg });
+                return true;
+            } else if (prop->name == "groupBy") {
+                // ES2024 Object.groupBy(iterable, callbackFn)
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                // Get iterable argument
+                visit(node->arguments[0].get());
+                llvm::Value* iterableArg = lastValue;
+                if (!iterableArg->getType()->isPointerTy()) {
+                    iterableArg = builder->CreateIntToPtr(iterableArg, builder->getPtrTy());
+                }
+                if (node->arguments[0]->inferredType) {
+                    iterableArg = boxValue(iterableArg, node->arguments[0]->inferredType);
+                }
+                // Get callback argument
+                visit(node->arguments[1].get());
+                llvm::Value* callbackArg = lastValue;
+                if (!callbackArg->getType()->isPointerTy()) {
+                    callbackArg = builder->CreateIntToPtr(callbackArg, builder->getPtrTy());
+                }
+                if (node->arguments[1]->inferredType) {
+                    callbackArg = boxValue(callbackArg, node->arguments[1]->inferredType);
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_object_groupBy", ft);
+                lastValue = createCall(ft, fn.getCallee(), { iterableArg, callbackArg });
+                return true;
+            }
+        } else if (obj->name == "Map") {
+            if (prop->name == "groupBy") {
+                // ES2024 Map.groupBy(iterable, callbackFn)
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                }
+                // Get iterable argument
+                visit(node->arguments[0].get());
+                llvm::Value* iterableArg = lastValue;
+                if (!iterableArg->getType()->isPointerTy()) {
+                    iterableArg = builder->CreateIntToPtr(iterableArg, builder->getPtrTy());
+                }
+                if (node->arguments[0]->inferredType) {
+                    iterableArg = boxValue(iterableArg, node->arguments[0]->inferredType);
+                }
+                // Get callback argument
+                visit(node->arguments[1].get());
+                llvm::Value* callbackArg = lastValue;
+                if (!callbackArg->getType()->isPointerTy()) {
+                    callbackArg = builder->CreateIntToPtr(callbackArg, builder->getPtrTy());
+                }
+                if (node->arguments[1]->inferredType) {
+                    callbackArg = boxValue(callbackArg, node->arguments[1]->inferredType);
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_map_groupBy", ft);
+                lastValue = createCall(ft, fn.getCallee(), { iterableArg, callbackArg });
                 return true;
             }
         } else if (obj->name == "Array") {

@@ -707,10 +707,17 @@ Analyzer::Analyzer() {
 
     symbols.defineType("WeakSet", weakSetClass);
 
-    // Define Map as a value (constructor)
-    auto mapCtor = std::make_shared<FunctionType>();
-    mapCtor->returnType = std::make_shared<Type>(TypeKind::Map);
-    symbols.define("Map", mapCtor);
+    // Define Map as a value (constructor + static methods)
+    auto mapCtorType = std::make_shared<ObjectType>();
+
+    // ES2024 Map.groupBy(iterable, callbackFn) => Map
+    auto mapGroupByType = std::make_shared<FunctionType>();
+    mapGroupByType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));  // iterable
+    mapGroupByType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // callbackFn
+    mapGroupByType->returnType = std::make_shared<MapType>();  // Return MapType (TypeKind::Map)
+    mapCtorType->fields["groupBy"] = mapGroupByType;
+
+    symbols.define("Map", mapCtorType);
 
     // Define Set as a value (constructor)
     auto setCtor = std::make_shared<FunctionType>();
@@ -866,6 +873,13 @@ Analyzer::Analyzer() {
     getOwnPropertyDescriptorsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
     getOwnPropertyDescriptorsType->returnType = std::make_shared<Type>(TypeKind::Object);
     objectType->fields["getOwnPropertyDescriptors"] = getOwnPropertyDescriptorsType;
+
+    // ES2024 Object.groupBy(iterable, callbackFn) => { [key: string]: T[] }
+    auto groupByType = std::make_shared<FunctionType>();
+    groupByType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Array));  // iterable
+    groupByType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // callbackFn
+    groupByType->returnType = std::make_shared<Type>(TypeKind::Object);
+    objectType->fields["groupBy"] = groupByType;
 
     symbols.define("Object", objectType);
 

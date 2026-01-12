@@ -1918,6 +1918,170 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(result);
     }
 
+    // ES2024 Object.groupBy(iterable, callbackFn)
+    // Groups elements by the key returned from the callback
+    TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn) {
+        TsMap* result = TsMap::Create();
+
+        if (!iterable || !callbackFn) return ts_value_make_object(result);
+
+        // Get raw array pointer
+        void* rawPtr = ts_value_get_object(iterable);
+        if (!rawPtr) rawPtr = iterable;
+
+        // Check if it's an array
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic != TsArray::MAGIC) {
+            return ts_value_make_object(result);
+        }
+
+        TsArray* arr = (TsArray*)rawPtr;
+        int64_t len = arr->Length();
+
+        // Get the callback function
+        void* cbRaw = ts_value_get_object(callbackFn);
+        if (!cbRaw) cbRaw = callbackFn;
+
+        for (int64_t i = 0; i < len; i++) {
+            // Get raw element value
+            int64_t rawVal = arr->Get(i);
+
+            // Box properly using ts_value_box_any to detect strings, arrays, etc.
+            TsValue* elem;
+            if (rawVal > 0xFFFFFFFF || rawVal < 0) {
+                // Looks like a pointer - use ts_value_box_any for proper type detection
+                elem = ts_value_box_any((void*)rawVal);
+            } else {
+                // Small value - likely an integer
+                elem = ts_value_make_int(rawVal);
+            }
+            if (!elem) continue;
+
+            // Call callback with (element, index)
+            TsValue* indexVal = ts_value_make_int(i);
+            TsValue* keyResult = ts_call_2(callbackFn, elem, indexVal);
+
+            if (!keyResult) continue;
+
+            // Convert result to string key (typical usage)
+            TsValue keyVal;
+            if (keyResult->type == ValueType::STRING_PTR) {
+                keyVal = *keyResult;
+            } else if (keyResult->type == ValueType::NUMBER_INT) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%lld", (long long)keyResult->i_val);
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = TsString::Create(buf);
+            } else if (keyResult->type == ValueType::NUMBER_DBL) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%g", keyResult->d_val);
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = TsString::Create(buf);
+            } else if (keyResult->type == ValueType::BOOLEAN) {
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = TsString::Create(keyResult->b_val ? "true" : "false");
+            } else if (keyResult->type == ValueType::UNDEFINED) {
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = TsString::Create("undefined");
+            } else {
+                // Default to string representation for other types
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = TsString::Create("[object Object]");
+            }
+
+            // Check if group already exists
+            TsValue existing = result->Get(keyVal);
+            TsArray* group;
+
+            if (existing.type == ValueType::ARRAY_PTR && existing.ptr_val) {
+                group = (TsArray*)existing.ptr_val;
+            } else {
+                // Create new group array
+                group = TsArray::Create();
+                TsValue groupVal;
+                groupVal.type = ValueType::ARRAY_PTR;
+                groupVal.ptr_val = group;
+                result->Set(keyVal, groupVal);
+            }
+
+            // Add element to group
+            group->Push((int64_t)elem);
+        }
+
+        return ts_value_make_object(result);
+    }
+
+    // ES2024 Map.groupBy(iterable, callbackFn)
+    // Groups elements by the key returned from the callback, returns a Map
+    TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn) {
+        TsMap* result = TsMap::Create();
+
+        if (!iterable || !callbackFn) return ts_value_make_object(result);
+
+        // Get raw array pointer
+        void* rawPtr = ts_value_get_object(iterable);
+        if (!rawPtr) rawPtr = iterable;
+
+        // Check if it's an array
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic != TsArray::MAGIC) {
+            return ts_value_make_object(result);
+        }
+
+        TsArray* arr = (TsArray*)rawPtr;
+        int64_t len = arr->Length();
+
+        // Get the callback function
+        void* cbRaw = ts_value_get_object(callbackFn);
+        if (!cbRaw) cbRaw = callbackFn;
+
+        for (int64_t i = 0; i < len; i++) {
+            // Get raw element value
+            int64_t rawVal = arr->Get(i);
+
+            // Box properly using ts_value_box_any to detect strings, arrays, etc.
+            TsValue* elem;
+            if (rawVal > 0xFFFFFFFF || rawVal < 0) {
+                // Looks like a pointer - use ts_value_box_any for proper type detection
+                elem = ts_value_box_any((void*)rawVal);
+            } else {
+                // Small value - likely an integer
+                elem = ts_value_make_int(rawVal);
+            }
+            if (!elem) continue;
+
+            // Call callback with (element, index)
+            TsValue* indexVal = ts_value_make_int(i);
+            TsValue* keyResult = ts_call_2(callbackFn, elem, indexVal);
+
+            if (!keyResult) continue;
+
+            // For Map.groupBy, we use the key as-is (not converted to string)
+            // This allows objects, symbols, etc. as keys
+            TsValue keyVal = *keyResult;
+
+            // Check if group already exists
+            TsValue existing = result->Get(keyVal);
+            TsArray* group;
+
+            if (existing.type == ValueType::ARRAY_PTR && existing.ptr_val) {
+                group = (TsArray*)existing.ptr_val;
+            } else {
+                // Create new group array
+                group = TsArray::Create();
+                TsValue groupVal;
+                groupVal.type = ValueType::ARRAY_PTR;
+                groupVal.ptr_val = group;
+                result->Set(keyVal, groupVal);
+            }
+
+            // Add element to group
+            group->Push((int64_t)elem);
+        }
+
+        return ts_value_make_object(result);
+    }
+
     TsValue* ts_value_add(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
 
