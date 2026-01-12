@@ -84,6 +84,8 @@ add_library(tsruntime STATIC
     src/TsHttp.cpp
     src/TsError.cpp
     src/TsCell.cpp
+    src/TsProxy.cpp
+    src/TsReflect.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

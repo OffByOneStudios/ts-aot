@@ -269,6 +269,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Error operations
     // =========================================================================
     {"ts_error_create",    {false}},               // (msg) -> Error*
+    {"ts_error_create_with_options", {false, true}}, // (msg, options) -> Error* (ES2022)
     {"ts_set_exception",   {false}},               // (exception) -> void
 
     // =========================================================================
@@ -298,6 +299,10 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_async_generator_resolve", {false, true, false}},     // (gen*, value, done)
     {"ts_async_iterator_get",      {true}},                   // (obj) -> iterator*
     {"ts_async_iterator_next",     {false}},                  // (iterator*) -> result
+    {"ts_iterator_get",            {true}},                   // (iterable) -> iterator*
+    {"ts_iterator_next",           {false, true}},            // (iterator*, value) -> result*
+    {"ts_iterator_result_done",    {false}},                  // (result*) -> bool
+    {"ts_iterator_result_value",   {false}},                  // (result*) -> value*
 
     // =========================================================================
     // Timer operations
@@ -315,6 +320,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // Symbol operations
     // =========================================================================
     {"ts_symbol_create", {false}},                 // (description) -> Symbol*
+    {"ts_symbol_get_description", {false}},        // (symbol*) -> TsString* (ES2019)
 
     // =========================================================================
     // Buffer operations

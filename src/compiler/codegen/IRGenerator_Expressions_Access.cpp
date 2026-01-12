@@ -788,6 +788,20 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         return;
     }
 
+    // ES2019: Symbol.prototype.description
+    if (node->name == "description") {
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Symbol) {
+            visit(node->expression.get());
+            llvm::Value* sym = lastValue;
+            sym = unboxValue(sym, node->expression->inferredType);
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_symbol_get_description", ft);
+            lastValue = createCall(ft, fn.getCallee(), { sym });
+            return;
+        }
+    }
+
     // Check for size property on Map/Set BEFORE treating Map property access as Map.get()
     if (node->name == "size") {
         if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Map || node->expression->inferredType->kind == TypeKind::SetType)) {
@@ -1392,6 +1406,27 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 lastValue = createCall(ft, fn.getCallee(), { resp });
                 return;
             }
+        }
+
+        // ES2022: Error class - stored as TsMap wrapped in TsValue*, use dynamic property access
+        if (className == "Error") {
+            visit(node->expression.get());
+            llvm::Value* err = lastValue;
+            emitNullCheckForExpression(node->expression.get(), err);
+
+            // Error objects are boxed TsValue* containing a TsMap, use ts_object_get_dynamic
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(fieldName);
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
+
+            lastValue = createCall(getFt, getFn.getCallee(), { err, key });
+            boxedValues.insert(lastValue);
+            return;
         }
 
         // Check if it's a getter

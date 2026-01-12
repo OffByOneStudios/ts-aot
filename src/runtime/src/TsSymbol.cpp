@@ -57,4 +57,11 @@ TsValue* ts_value_make_symbol(void* s) {
     return v;
 }
 
+// ES2019: Symbol.prototype.description getter
+void* ts_symbol_get_description(void* sym) {
+    if (!sym) return nullptr;
+    TsSymbol* s = (TsSymbol*)sym;
+    return s->description;  // Returns TsString* or nullptr (undefined)
+}
+
 }

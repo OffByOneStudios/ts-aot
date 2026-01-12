@@ -1093,8 +1093,8 @@ extern "C" {
 
     void* ts_string_from_value(TsValue* val) {
         if (!val) return TsString::GetInterned("undefined");
-        
-        // Check for raw TsString
+
+        // Check for raw TsString first by checking its magic
         uint32_t magic = *(uint32_t*)val;
         if (magic == 0x53545247) { // TsString::MAGIC
             return val;

@@ -269,7 +269,8 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     if (node->op == "+" || node->op == "+=") {
         if (isString) {
              // Convert non-string operands to string
-             if (!leftIsString) {
+             // IMPORTANT: Also check if leftIsString but the value is boxed (TsValue*) - need to extract string
+             if (!leftIsString || boxedValues.count(left)) {
                  if (left->getType()->isIntegerTy(1)) {
                      llvm::FunctionType* fromBoolFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt1Ty(*context) }, false);
                      llvm::FunctionCallee fromBool = getRuntimeFunction("ts_string_from_bool", fromBoolFt);
@@ -283,13 +284,14 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                      llvm::FunctionCallee fromDouble = getRuntimeFunction("ts_string_from_double", fromDoubleFt);
                      left = createCall(fromDoubleFt, fromDouble.getCallee(), { left });
                  } else if (left->getType()->isPointerTy()) {
-                     // Assume it's a TsValue*
+                     // Could be a TsValue* (boxed) - extract string from it
                      llvm::FunctionType* fromValueFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                      llvm::FunctionCallee fromValue = getRuntimeFunction("ts_string_from_value", fromValueFt);
                      left = createCall(fromValueFt, fromValue.getCallee(), { left });
                  }
              }
-             if (!rightIsString) {
+             // IMPORTANT: Also check if rightIsString but the value is boxed (TsValue*) - need to extract string
+             if (!rightIsString || boxedValues.count(right)) {
                  if (right->getType()->isIntegerTy(1)) {
                      llvm::FunctionType* fromBoolFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt1Ty(*context) }, false);
                      llvm::FunctionCallee fromBool = getRuntimeFunction("ts_string_from_bool", fromBoolFt);
@@ -303,7 +305,7 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
                      llvm::FunctionCallee fromDouble = getRuntimeFunction("ts_string_from_double", fromDoubleFt);
                      right = createCall(fromDoubleFt, fromDouble.getCallee(), { right });
                  } else if (right->getType()->isPointerTy()) {
-                     // Assume it's a TsValue*
+                     // Could be a TsValue* (boxed) - extract string from it
                      llvm::FunctionType* fromValueFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                      llvm::FunctionCallee fromValue = getRuntimeFunction("ts_string_from_value", fromValueFt);
                      right = createCall(fromValueFt, fromValue.getCallee(), { right });
@@ -1109,9 +1111,15 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
         emitInlineArraySet(rawArr, index, boxedVal);
     } else if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
         // For JavaScript slow-path: null inferredType, Any, or Function (which has dynamic properties) means dynamic object
-        bool exprIsDynamic = !prop->expression->inferredType || 
-                             prop->expression->inferredType->kind == TypeKind::Any ||
-                             prop->expression->inferredType->kind == TypeKind::Function;
+        // BUT: Function types with Class return types are class constructor references (e.g., Counter.count)
+        // and should NOT be treated as dynamic - they have static fields
+        bool exprIsDynamic = !prop->expression->inferredType ||
+                             prop->expression->inferredType->kind == TypeKind::Any;
+        if (!exprIsDynamic && prop->expression->inferredType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(prop->expression->inferredType);
+            // Only treat as dynamic if NOT a class constructor (returnType is Class)
+            exprIsDynamic = !(funcType->returnType && funcType->returnType->kind == TypeKind::Class);
+        }
         SPDLOG_DEBUG("visitAssignmentExpression PropertyAccess: prop->name='{}' exprType={} exprIsDynamic={}", 
             prop->name, 
             prop->expression->inferredType ? (int)prop->expression->inferredType->kind : -1,
@@ -1120,7 +1128,7 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             visit(prop->expression.get());
             // Use Any boxing here to avoid double-boxing already-boxed TsValue* values.
             llvm::Value* objBoxed = boxValue(lastValue, std::make_shared<Type>(TypeKind::Any));
-            
+
             llvm::Value* keyStr = builder->CreateGlobalStringPtr(prop->name);
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
@@ -1128,9 +1136,14 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             key = boxValue(key, std::make_shared<Type>(TypeKind::String));
 
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            
-            // Use object set helper so functions route through their properties map.
-            emitInlineObjectSetProp(objBoxed, key, boxedVal);
+
+            // Use ts_object_set_dynamic which correctly dispatches through Proxy traps
+            llvm::FunctionType* setFt = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                false);
+            llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_dynamic", setFt);
+            createCall(setFt, setFn.getCallee(), { objBoxed, key, boxedVal });
             lastValue = val;
             return;
         }

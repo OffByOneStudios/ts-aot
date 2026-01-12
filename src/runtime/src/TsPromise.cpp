@@ -13,10 +13,21 @@ extern "C" {
     TsValue* AsyncGenerator_next_internal(void* context, TsValue* value);
 }
 
+// Async iterator wrapper for arrays - used by for await...of
+struct AsyncArrayIterator : public TsMap {
+    TsArray* array;
+    int64_t index;
+
+    AsyncArrayIterator(TsArray* arr) : array(arr), index(0) {
+        vtable = nullptr;
+    }
+};
+
 extern void* TsPromise_VTable[];
 
 TsPromise::TsPromise() {
     vtable = TsPromise_VTable;
+    magic = MAGIC;  // Set magic for identification
     state = PromiseState::Pending;
     handled = false;
 }
@@ -150,9 +161,29 @@ TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
     return AsyncGenerator_next_internal(ts_value_get_object(genVal), value);
 }
 
+// Magic number for AsyncArrayIterator
+static constexpr uint32_t ASYNC_ARRAY_ITER_MAGIC = 0x41414954; // "AAIT"
+
 extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
     if (!iterable) return nullptr;
-    
+
+    // Check if it's an array (ARRAY_PTR type = 7) - wrap it in an async iterator
+    if (iterable->type == ValueType::ARRAY_PTR && iterable->ptr_val) {
+        uint32_t magic = *(uint32_t*)iterable->ptr_val;
+        if (magic == TsArray::MAGIC) {
+            // Create AsyncArrayIterator wrapper
+            void* mem = ts_alloc(sizeof(AsyncArrayIterator));
+            AsyncArrayIterator* iter = new (mem) AsyncArrayIterator((TsArray*)iterable->ptr_val);
+            // Set magic for identification
+            *(uint32_t*)mem = ASYNC_ARRAY_ITER_MAGIC;
+
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            res->type = ValueType::OBJECT_PTR;
+            res->ptr_val = iter;
+            return res;
+        }
+    }
+
     if (iterable->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("[Symbol.asyncIterator]");
         // Use scalar helpers directly
@@ -169,13 +200,113 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
             }
         }
     }
-    
+
     return iterable;
 }
 
 extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
     if (!iterator) return nullptr;
-    
+
+    // Check if it's our AsyncArrayIterator
+    if (iterator->type == ValueType::OBJECT_PTR && iterator->ptr_val) {
+        uint32_t magic = *(uint32_t*)iterator->ptr_val;
+        if (magic == ASYNC_ARRAY_ITER_MAGIC) {
+            AsyncArrayIterator* iter = (AsyncArrayIterator*)iterator->ptr_val;
+            int64_t len = iter->array->Length();
+
+            if (iter->index >= len) {
+                // Done - return resolved promise with { value: undefined, done: true }
+                TsValue undef;
+                undef.type = ValueType::UNDEFINED;
+                undef.i_val = 0;
+                TsValue* result = create_generator_result(undef, true);
+
+                // Wrap in resolved promise
+                TsPromise* p = ts_promise_create();
+                ts_promise_resolve_internal(p, result);
+
+                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await to recognize it!
+                res->ptr_val = p;
+                return res;
+            }
+
+            // Get current element - arrays store int64_t values which are either:
+            // - raw numbers
+            // - pointers to boxed TsValue*
+            int64_t elemVal = iter->array->Get(iter->index);
+            iter->index++;
+
+            // Create a new promise that resolves with { value, done: false } when elem resolves
+            TsPromise* resultPromise = ts_promise_create();
+
+            // Check if the element is a boxed TsValue pointer
+            // Array elements are stored as int64_t, which for objects is the TsValue* pointer
+            TsValue* elemBoxed = (TsValue*)elemVal;
+
+            // Check if it looks like a valid TsValue* by checking type field
+            // The type field should be a small enum value (0-10)
+            if (elemBoxed && (unsigned)elemBoxed->type <= 10) {
+                // It's a boxed value - check for Promise
+                // Promise can be wrapped as either OBJECT_PTR or PROMISE_PTR
+                if ((elemBoxed->type == ValueType::OBJECT_PTR || elemBoxed->type == ValueType::PROMISE_PTR)
+                    && elemBoxed->ptr_val) {
+                    void* elemPtr = elemBoxed->ptr_val;
+                    // Check if it's a TsPromise by checking magic at offset 16 (after vtable+padding)
+                    // TsObject layout: [vtable(8)] [vtable padding(8)] [magic(4)]
+                    uint32_t magicVal = *(uint32_t*)((char*)elemPtr + 16);
+                    if (magicVal == TsPromise::MAGIC) {
+                        TsPromise* elemPromise = (TsPromise*)elemPtr;
+                        // When elemPromise resolves, resolve resultPromise with { value, done: false }
+                        TsValue onFulfilled;
+                        onFulfilled.type = ValueType::OBJECT_PTR;
+
+                        // Create a function that wraps the resolved value
+                        struct WrapContext {
+                            TsPromise* resultPromise;
+                        };
+                        WrapContext* ctx = (WrapContext*)ts_alloc(sizeof(WrapContext));
+                        ctx->resultPromise = resultPromise;
+
+                        TsFunction* wrapFunc = (TsFunction*)ts_alloc(sizeof(TsFunction));
+                        wrapFunc->magic = TsFunction::MAGIC;
+                        wrapFunc->context = ctx;
+                        wrapFunc->funcPtr = (void*)(+[](void* context, TsValue* resolvedValue) -> TsValue* {
+                            WrapContext* ctx = (WrapContext*)context;
+                            TsValue* iterResult = create_generator_result(*resolvedValue, false);
+                            ts_promise_resolve_internal(ctx->resultPromise, iterResult);
+                            return nullptr;
+                        });
+
+                        onFulfilled.ptr_val = wrapFunc;
+
+                        elemPromise->then(onFulfilled);
+
+                        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+                        res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await!
+                        res->ptr_val = resultPromise;
+                        return res;
+                    }
+                }
+                // Non-promise boxed value - resolve immediately
+                TsValue* iterResult = create_generator_result(*elemBoxed, false);
+                ts_promise_resolve_internal(resultPromise, iterResult);
+            } else {
+                // Raw number - resolve immediately
+                TsValue elemValue;
+                elemValue.type = ValueType::NUMBER_INT;
+                elemValue.i_val = elemVal;
+                TsValue* iterResult = create_generator_result(elemValue, false);
+                ts_promise_resolve_internal(resultPromise, iterResult);
+            }
+
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await!
+            res->ptr_val = resultPromise;
+            return res;
+        }
+    }
+
     if (iterator->type == ValueType::OBJECT_PTR) {
         TsString* key = TsString::Create("next");
         // Use scalar helpers directly
@@ -192,7 +323,7 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
             }
         }
     }
-    
+
     return AsyncGenerator_next(iterator, value);
 }
 
@@ -204,6 +335,160 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
         ts_promise_resolve_internal(ctx->pendingNextPromise, res);
         ctx->pendingNextPromise = nullptr;
     }
+}
+
+// yield* delegation support - get an iterator from an iterable
+TsValue* ts_iterator_get(TsValue* iterable) {
+    if (!iterable) return nullptr;
+
+    // Check if it's already a generator with a next method
+    if (iterable->type == ValueType::OBJECT_PTR) {
+        TsMap* obj = (TsMap*)iterable->ptr_val;
+        if (obj) {
+            // Check for [Symbol.iterator] method
+            TsString* iterKey = TsString::Create("[Symbol.iterator]");
+            TsValue iterMethod = obj->Get(iterKey);
+            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
+            if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
+                TsFunction* func = (TsFunction*)iterMethod.ptr_val;
+                if (func->funcPtr) {
+                    typedef TsValue* (*IterFunc)(void*);
+                    return ((IterFunc)func->funcPtr)(func->context);
+                }
+            }
+
+            // Check if it already has a next method (is already an iterator)
+            TsString* nextKey = TsString::Create("next");
+            TsValue nextMethod = obj->Get(nextKey);
+            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
+            if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
+                // Already an iterator, return as-is
+                return iterable;
+            }
+        }
+    }
+
+    // For arrays, create an array iterator
+    if (iterable->type == ValueType::ARRAY_PTR) {
+        TsArray* arr = (TsArray*)iterable->ptr_val;
+        if (arr) {
+            // Create a simple array iterator object
+            TsMap* iterator = TsMap::Create();
+            iterator->Set(TsString::Create("__arr"), *iterable);
+            iterator->Set(TsString::Create("__idx"), TsValue((int64_t)0));
+
+            // Create the next function that iterates over the array
+            TsValue nextFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+                TsMap* self = (TsMap*)ctx;
+                if (!self) return create_generator_result(TsValue(), true);
+
+                TsValue arrVal = self->Get(TsString::Create("__arr"));
+                TsValue idxVal = self->Get(TsString::Create("__idx"));
+
+                TsArray* arr = (TsArray*)arrVal.ptr_val;
+                int64_t idx = idxVal.i_val;
+
+                if (!arr) {
+                    return create_generator_result(TsValue(), true);
+                }
+
+                size_t len = arr->Length();
+
+                if (idx >= (int64_t)len) {
+                    return create_generator_result(TsValue(), true);
+                }
+
+                // Get the value and increment index
+                // Use GetElementBoxed which returns a proper TsValue*, not Get() which returns raw int64_t
+                TsValue* elem = arr->GetElementBoxed(idx);
+                self->Set(TsString::Create("__idx"), TsValue(idx + 1));
+
+                if (elem) {
+                    return create_generator_result(*elem, false);
+                } else {
+                    TsValue undef;
+                    undef.type = ValueType::UNDEFINED;
+                    return create_generator_result(undef, false);
+                }
+            }, iterator);
+
+            iterator->Set(TsString::Create("next"), nextFunc);
+
+            TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
+            result->type = ValueType::OBJECT_PTR;
+            result->ptr_val = iterator;
+            return result;
+        }
+    }
+
+    return iterable;
+}
+
+// Call next on an iterator
+TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
+    if (!iterator) return nullptr;
+
+    if (iterator->type == ValueType::OBJECT_PTR) {
+        TsMap* obj = (TsMap*)iterator->ptr_val;
+        if (obj) {
+            TsString* nextKey = TsString::Create("next");
+            TsValue nextMethod = obj->Get(nextKey);
+            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
+            if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
+                TsFunction* func = (TsFunction*)nextMethod.ptr_val;
+                if (func->funcPtr) {
+                    typedef TsValue* (*NextFunc)(void*, TsValue*);
+                    return ((NextFunc)func->funcPtr)(func->context, value);
+                }
+            }
+        }
+    }
+
+    // Fallback: return done
+    return create_generator_result(TsValue(), true);
+}
+
+// Check if an iterator result is done
+bool ts_iterator_result_done(TsValue* result) {
+    if (!result) return true;
+
+    if (result->type == ValueType::OBJECT_PTR) {
+        TsMap* obj = (TsMap*)result->ptr_val;
+        if (obj) {
+            TsString* doneKey = TsString::Create("done");
+            TsValue doneVal = obj->Get(doneKey);
+            if (doneVal.type == ValueType::BOOLEAN) {
+                return doneVal.b_val;
+            }
+        }
+    }
+
+    return true;
+}
+
+// Get value from an iterator result
+TsValue* ts_iterator_result_value(TsValue* result) {
+    if (!result) {
+        TsValue* undef = (TsValue*)ts_alloc(sizeof(TsValue));
+        undef->type = ValueType::UNDEFINED;
+        return undef;
+    }
+
+    if (result->type == ValueType::OBJECT_PTR) {
+        TsMap* obj = (TsMap*)result->ptr_val;
+        if (obj) {
+            TsString* valueKey = TsString::Create("value");
+            TsValue val = obj->Get(valueKey);
+
+            TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
+            *boxed = val;
+            return boxed;
+        }
+    }
+
+    TsValue* undef = (TsValue*)ts_alloc(sizeof(TsValue));
+    undef->type = ValueType::UNDEFINED;
+    return undef;
 }
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {

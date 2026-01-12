@@ -25,6 +25,7 @@ struct AsyncContext : public TsObject {
     void* data = nullptr; // For local variables
     TsValue* resumedValue = nullptr; // Stores value from last resume
     void* execContext = nullptr; // Execution context for nested function creation
+    TsValue* delegateIterator = nullptr; // For yield* delegation
 
     AsyncContext();
 };
@@ -53,6 +54,7 @@ enum class PromiseState {
 };
 
 struct TsPromise : public TsObject {
+    static constexpr uint32_t MAGIC = 0x50524F4D; // "PROM"
     PromiseState state = PromiseState::Pending;
     TsValue value; // Result or Error
     bool handled = false;
@@ -95,10 +97,16 @@ extern "C" {
 
     TsGenerator* ts_generator_create(AsyncContext* ctx);
     TsValue* Generator_next(TsValue* gen, TsValue* value);
-    
+
     TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
     TsValue* AsyncGenerator_next(TsValue* gen, TsValue* value);
     void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done);
+
+    // yield* delegation support
+    TsValue* ts_iterator_get(TsValue* iterable);
+    TsValue* ts_iterator_next(TsValue* iterator, TsValue* value);
+    bool ts_iterator_result_done(TsValue* result);
+    TsValue* ts_iterator_result_value(TsValue* result);
 
 #ifdef __cplusplus
 }

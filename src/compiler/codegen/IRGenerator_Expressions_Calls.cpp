@@ -3,6 +3,7 @@
 #include "../ast/AstNodes.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
+#include <unordered_set>
 
 namespace ts {
 using namespace ast;
@@ -353,11 +354,32 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         // check if it's a known array/string/etc. builtin first before falling back to runtime call
         if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(unwrapped)) {
             // Try to handle as a builtin method first (e.g., arr.reverse(), arr.at())
+            bool shouldTryBuiltin = false;
+
+            // Check if expression has a known type that has builtins
             if (prop->expression->inferredType &&
                 (prop->expression->inferredType->kind == TypeKind::Array ||
                  prop->expression->inferredType->kind == TypeKind::String ||
                  prop->expression->inferredType->kind == TypeKind::Object ||
                  prop->expression->inferredType->kind == TypeKind::Class)) {
+                shouldTryBuiltin = true;
+            }
+
+            // Also check if expression is a known global identifier with static methods
+            // (e.g., Proxy.revocable, Number.isFinite, Math.abs, Reflect.get, etc.)
+            if (auto exprId = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                static const std::unordered_set<std::string> globalObjects = {
+                    "Proxy", "Reflect", "Number", "Math", "Object", "Array", "String",
+                    "JSON", "Symbol", "Promise", "Date", "RegExp", "console", "Buffer",
+                    "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array",
+                    "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array"
+                };
+                if (globalObjects.count(exprId->name)) {
+                    shouldTryBuiltin = true;
+                }
+            }
+
+            if (shouldTryBuiltin) {
                 if (tryGenerateBuiltinCall(node, prop)) {
                     return;
                 }

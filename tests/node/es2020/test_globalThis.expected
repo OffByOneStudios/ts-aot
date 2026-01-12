@@ -1,0 +1,9 @@
+Testing globalThis...
+typeof globalThis = object
+globalThis === global: true
+globalThis.globalThis === globalThis: true
+typeof globalThis.console = undefined
+typeof globalThis.Object = function
+typeof globalThis.Array = function
+globalThis.Math.PI exists: true
+All globalThis tests passed!

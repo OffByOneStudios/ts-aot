@@ -1,0 +1,37 @@
+Testing Proxy and Reflect...
+
+1. Basic Proxy with get trap:
+get trap called for: message
+proxy1.message = hello
+get trap called for: value
+proxy1.value = 42
+
+2. Proxy with set trap:
+set trap: count = 5
+target2.count = 5
+
+3. Reflect.get and Reflect.set:
+Reflect.get(obj3, 'x') = 10
+After Reflect.set: obj3.x = 100
+
+4. Reflect.has:
+Reflect.has(obj4, 'name') = true
+Reflect.has(obj4, 'missing') = false
+
+5. Reflect.deleteProperty:
+Before delete:
+After delete 'a':
+
+6. Reflect.ownKeys:
+Reflect.ownKeys:
+
+7. Proxy with has trap:
+'visible' in proxy7: true
+has trap: hiding 'secret'
+'secret' in proxy7: false
+
+8. Proxy.revocable:
+Before revoke: proxy8.data = important
+After revoke: proxy operations will fail
+
+All Proxy and Reflect tests passed!

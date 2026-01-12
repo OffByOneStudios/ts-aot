@@ -12,6 +12,7 @@
 #include "TsHttp.h"
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
+#include "TsProxy.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
@@ -998,6 +999,20 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_undefined();
     }
 
+    // Helper to check if a value is a TsProxy
+    static TsProxy* ts_extract_proxy(TsValue* boxedFunc) {
+        if (!boxedFunc) return nullptr;
+        if (boxedFunc->type != ValueType::OBJECT_PTR) return nullptr;
+        void* ptr = boxedFunc->ptr_val;
+        if (!ptr) return nullptr;
+
+        // Check for TsProxy magic at offset 16 (after TsMap vtable and base TsObject fields)
+        // But TsProxy inherits from TsMap and has proxyMagic field
+        // Actually we need to check the object's magic field differently
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)ptr);
+        return proxy;
+    }
+
     // Helper to safely extract TsFunction from boxed value
     static TsFunction* ts_extract_function(TsValue* boxedFunc) {
         if (!boxedFunc) {
@@ -1020,6 +1035,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
+        // Check for Proxy first
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            // Create empty args array and call apply trap
+            TsArray* argsArr = TsArray::Create(0);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 0);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
             return ts_value_make_undefined();
@@ -1035,6 +1058,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
+        // Check for Proxy first
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(1);
+            argsArr->Push((int64_t)arg1);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 1);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
             return ts_value_make_undefined();
@@ -1051,6 +1082,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
+        // Check for Proxy first
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(2);
+            argsArr->Push((int64_t)arg1);
+            argsArr->Push((int64_t)arg2);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 2);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1065,6 +1105,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(3);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 3);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1077,6 +1123,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(4);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 4);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1089,6 +1141,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(5);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 5);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1101,6 +1159,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(6);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5); argsArr->Push((int64_t)arg6);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 6);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1113,6 +1177,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(7);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5); argsArr->Push((int64_t)arg6); argsArr->Push((int64_t)arg7);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 7);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1125,6 +1195,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(8);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5); argsArr->Push((int64_t)arg6); argsArr->Push((int64_t)arg7); argsArr->Push((int64_t)arg8);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 8);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1137,6 +1213,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(9);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5); argsArr->Push((int64_t)arg6); argsArr->Push((int64_t)arg7); argsArr->Push((int64_t)arg8); argsArr->Push((int64_t)arg9);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 9);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1149,6 +1231,12 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create(10);
+            argsArr->Push((int64_t)arg1); argsArr->Push((int64_t)arg2); argsArr->Push((int64_t)arg3); argsArr->Push((int64_t)arg4); argsArr->Push((int64_t)arg5); argsArr->Push((int64_t)arg6); argsArr->Push((int64_t)arg7); argsArr->Push((int64_t)arg8); argsArr->Push((int64_t)arg9); argsArr->Push((int64_t)arg10);
+            return proxy->apply(nullptr, (TsValue*)argsArr, 10);
+        }
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
         if (func->type == FunctionType::NATIVE) {
@@ -1220,17 +1308,23 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.keys(obj) - returns array of string keys
     TsValue* ts_object_keys(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
-        
+
         // Unbox if needed
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
-        
+
+        // Check if this is a Proxy - dispatch through ownKeys trap
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
+        if (proxy) {
+            return proxy->ownKeys();
+        }
+
         // Check TsMap::magic at offset 16 (after vptr + explicit vtable field)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_keys(rawPtr));
         }
-        
+
         // Not a map - return empty array
         return ts_value_make_array(TsArray::Create(0));
     }
@@ -1826,7 +1920,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_add(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
-        
+
         // String concatenation if either is a string
         if (a->type == ValueType::STRING_PTR || b->type == ValueType::STRING_PTR) {
             TsString* s1 = (TsString*)ts_value_get_string(a);
@@ -1835,12 +1929,12 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!s2) s2 = TsString::Create("");
             return ts_value_make_string(TsString::Concat(s1, s2));
         }
-        
+
         // Number addition
         if (a->type == ValueType::NUMBER_INT && b->type == ValueType::NUMBER_INT) {
             return ts_value_make_int(a->i_val + b->i_val);
         }
-        
+
         double d1 = ts_value_get_double(a);
         double d2 = ts_value_get_double(b);
         return ts_value_make_double(d1 + d2);
@@ -1988,7 +2082,13 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!obj || !key) return ts_value_make_undefined();
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return ts_value_make_undefined();
-        
+
+        // Check if this is a Proxy - dispatch through proxy trap
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+        if (proxy) {
+            return proxy->get(key, nullptr);
+        }
+
         // Check magic at offset 0 first (TsArray has magic at offset 0)
         uint32_t magic0 = *(uint32_t*)rawObj;
         if (magic0 == 0x41525259) { // TsArray::MAGIC = "ARRY"
@@ -2182,7 +2282,17 @@ TsValue* ts_value_make_int(int64_t i) {
     // Generic dynamic property/element set - handles both arrays and maps/objects
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
         if (!obj || !key || !value) return;
-        
+
+        // Check if this is a Proxy - dispatch through proxy trap
+        void* rawObj = ts_value_get_object(obj);
+        if (rawObj) {
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+            if (proxy) {
+                proxy->set(key, value, nullptr);
+                return;
+            }
+        }
+
         // Delegate to ts_object_set_prop_v which handles all cases
         ts_object_set_prop_v(*obj, *key, *value);
     }
@@ -2311,6 +2421,12 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
 
+        // Check if this is a Proxy - dispatch through proxy trap
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+        if (proxy) {
+            return proxy->has(key);
+        }
+
         TsString* keyStr = (TsString*)ts_value_get_string(key);
         if (!keyStr) return false;
 
@@ -2321,7 +2437,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsMap* map = (TsMap*)rawObj;
             return map->Has(*key);
         }
-        
+
         return false;
     }
 
@@ -2329,6 +2445,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!obj || !key) return false;
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
+
+        // Check if this is a Proxy - dispatch through proxy trap
+        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+        if (proxy) {
+            return proxy->deleteProperty(key);
+        }
 
         TsString* keyStr = (TsString*)ts_value_get_string(key);
         if (!keyStr) return false;
@@ -2339,7 +2461,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsMap* map = (TsMap*)rawObj;
             return map->Delete(*key);
         }
-        
+
         return false;
     }
 
@@ -2526,6 +2648,7 @@ TsValue* ts_value_make_int(int64_t i) {
     extern "C" TsValue* process = nullptr;
     extern "C" TsValue* Buffer = nullptr;
     extern "C" TsValue* global = nullptr;
+    extern "C" TsValue* globalThis = nullptr;  // ES2020: alias for global
     extern "C" TsValue* parseInt = nullptr;
     extern "C" TsValue* parseFloat = nullptr;
     
@@ -2886,8 +3009,10 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->Set(makeKey("isFinite"), *ts_value_make_native_function((void*)ts_isFinite_native, nullptr));
 
         global = ts_value_make_object(globalMap);
-        // global.global === global
+        globalThis = global;  // ES2020: globalThis is an alias for global
+        // global.global === global, globalThis.globalThis === globalThis
         globalMap->Set(makeKey("global"), *global);
+        globalMap->Set(makeKey("globalThis"), *global);
     }
 
     void ts_module_register(TsValue* path, TsValue* exports) {

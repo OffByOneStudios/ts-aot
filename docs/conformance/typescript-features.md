@@ -82,7 +82,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `readonly` modifier | 🔬 | Type-only |
 | Parameter properties | ✅ | |
 | Static members | ✅ | |
-| Static blocks | ❌ | |
+| Static blocks | ✅ | Top-level and local classes |
 | Abstract classes | ✅ | |
 | Abstract methods | ✅ | |
 | Class expressions | ✅ | Named and anonymous |
@@ -263,11 +263,11 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `for...of` loops | ✅ | |
 | `Symbol.iterator` | ⚠️ | |
 | Iterable protocol | ⚠️ | |
-| Generator functions (`function*`) | ❌ | |
-| `yield` expression | ❌ | |
-| `yield*` delegation | ❌ | |
+| Generator functions (`function*`) | ✅ | Basic support |
+| `yield` expression | ✅ | |
+| `yield*` delegation | ✅ | Works with generators and arrays |
 | Async generators | ❌ | |
-| `for await...of` | ❌ | |
+| `for await...of` | ✅ | Works with arrays of promises |
 
 ## 20. Mixins
 
@@ -304,7 +304,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
-| Classes | 16 | 1 | 2 | 1 |
+| Classes | 17 | 1 | 1 | 1 |
 | Functions | 9 | 2 | 0 | 0 |
 | Generics | 2 | 1 | 2 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
@@ -318,12 +318,12 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
-| Iterators/Generators | 1 | 2 | 5 | 0 |
+| Iterators/Generators | 5 | 2 | 1 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **60** | **17** | **63** | **34** |
+| **TOTAL** | **65** | **17** | **58** | **34** |
 
-**Conformance: 60/140 runtime features (43%)**
+**Conformance: 65/140 runtime features (46%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

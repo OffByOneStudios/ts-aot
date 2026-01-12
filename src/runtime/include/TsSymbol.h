@@ -18,4 +18,5 @@ extern "C" {
     void* ts_symbol_create(void* desc);
     void* ts_symbol_for(void* key);
     void* ts_symbol_key_for(void* sym);
+    void* ts_symbol_get_description(void* sym);  // ES2019
 }

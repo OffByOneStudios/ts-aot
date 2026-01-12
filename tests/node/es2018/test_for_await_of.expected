@@ -1,0 +1,13 @@
+Testing for await...of
+Creating promises:
+Array created with length:
+3
+Starting for await...of:
+Got value:
+1
+Got value:
+2
+Got value:
+3
+Sum:
+6

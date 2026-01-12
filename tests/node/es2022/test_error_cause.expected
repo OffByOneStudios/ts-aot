@@ -1,0 +1,9 @@
+Basic error
+no cause
+Wrapped error
+has cause
+Original error
+Error with string cause
+string cause
+Error with number cause
+42
