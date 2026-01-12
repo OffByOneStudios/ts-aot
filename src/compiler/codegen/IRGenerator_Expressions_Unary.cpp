@@ -144,7 +144,12 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     }
 
     if (node->op == "-") {
-        if (operandV->getType()->isDoubleTy()) {
+        // Check for BigInt negation
+        if (node->operand->inferredType && node->operand->inferredType->kind == TypeKind::BigInt) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_bigint_neg", ft);
+            lastValue = createCall(ft, fn.getCallee(), { operandV });
+        } else if (operandV->getType()->isDoubleTy()) {
             lastValue = builder->CreateFNeg(operandV, "negtmp");
         } else if (operandV->getType()->isIntegerTy()) {
             lastValue = builder->CreateNeg(operandV, "negtmp");
@@ -153,12 +158,19 @@ void IRGenerator::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         operandV = emitToBoolean(operandV, node->operand->inferredType);
         lastValue = builder->CreateNot(operandV, "nottmp");
     } else if (node->op == "~") {
-        operandV = toInt32(operandV);
-        lastValue = builder->CreateNot(operandV, "bitnot");
-        if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
-            lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+        // Check for BigInt bitwise NOT
+        if (node->operand->inferredType && node->operand->inferredType->kind == TypeKind::BigInt) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_bigint_not", ft);
+            lastValue = createCall(ft, fn.getCallee(), { operandV });
         } else {
-            lastValue = castValue(lastValue, builder->getDoubleTy());
+            operandV = toInt32(operandV);
+            lastValue = builder->CreateNot(operandV, "bitnot");
+            if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
+                lastValue = builder->CreateIntCast(lastValue, builder->getInt64Ty(), true);
+            } else {
+                lastValue = castValue(lastValue, builder->getDoubleTy());
+            }
         }
     }
 }
