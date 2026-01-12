@@ -1,0 +1,8 @@
+Testing String.prototype.isWellFormed() and toWellFormed()...
+Normal string isWellFormed: true
+ASCII isWellFormed: true
+Valid emoji isWellFormed: true
+toWellFormed on normal: Hello, world!
+Empty string isWellFormed: true
+Unicode isWellFormed: true
+All well-formed string tests passed!

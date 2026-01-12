@@ -42,6 +42,10 @@ public:
     TsString* ToUpperCase();
     TsString* Normalize(TsString* form);
 
+    // ES2024 - Well-formed string methods
+    bool IsWellFormed();
+    TsString* ToWellFormed();
+
     void* Match(class TsRegExp* regexp);
     int64_t Search(class TsRegExp* regexp);
     TsString* Replace(TsString* pattern, TsString* replacement);
@@ -101,6 +105,8 @@ extern "C" {
     void* ts_string_replace(void* str, void* pattern, void* replacement);
     void* ts_string_replace_regexp(void* str, void* regexp, void* replacement);
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement);
+    bool ts_string_isWellFormed(void* str);
+    void* ts_string_toWellFormed(void* str);
     void* ts_string_from_int(int64_t value);
     void* ts_string_from_bool(bool value);
     void* ts_string_from_double(double value);

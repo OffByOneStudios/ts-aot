@@ -447,8 +447,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | RegExp `/v` flag | ❌ | |
 | Resizable `ArrayBuffer` | ❌ | |
 | Growable `SharedArrayBuffer` | ❌ | |
-| `String.prototype.isWellFormed()` | ❌ | |
-| `String.prototype.toWellFormed()` | ❌ | |
+| `String.prototype.isWellFormed()` | ✅ | Checks for lone surrogates |
+| `String.prototype.toWellFormed()` | ✅ | Replaces lone surrogates with U+FFFD |
 | `Atomics.waitAsync()` | ❌ | |
 
 ---
@@ -467,10 +467,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 7 | 0 | 3 | 10 | 70% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
-| ES2024 | 3 | 0 | 6 | 9 | 33% |
-| **TOTAL** | **182** | **20** | **28** | **230** | **79%** |
+| ES2024 | 5 | 0 | 4 | 9 | 56% |
+| **TOTAL** | **184** | **20** | **26** | **230** | **80%** |
 
-**Overall ECMAScript Conformance: 182/230 features (79%)**
+**Overall ECMAScript Conformance: 184/230 features (80%)**
 
 ---
 
