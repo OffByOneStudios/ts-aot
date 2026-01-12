@@ -151,6 +151,14 @@ void Analyzer::visitExportDeclaration(ast::ExportDeclaration* node) {
         auto module = loadModule(node->moduleSpecifier);
         if (!module) return;
 
+        // ES2020: export * as ns from "module"
+        if (!node->namespaceExport.empty()) {
+            auto nsType = std::make_shared<NamespaceType>(module);
+            currentModule->exports->define(node->namespaceExport, nsType);
+            SPDLOG_DEBUG("Namespace re-export {} from {} in {}", node->namespaceExport, node->moduleSpecifier, currentModule->path);
+            return;
+        }
+
         if (node->isStarExport) {
             // Re-export all from module
             for (auto& [name, sym] : module->exports->getGlobalSymbols()) {

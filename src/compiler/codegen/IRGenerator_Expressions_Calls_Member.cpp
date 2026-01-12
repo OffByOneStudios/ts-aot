@@ -21,7 +21,7 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             argTypes.push_back(arg->inferredType);
         }
         std::string specializedName = Monomorphizer::generateMangledName(prop->name, argTypes, node->resolvedTypeArguments);
-        
+
         // Find the specialization to get the return type
         std::shared_ptr<Type> returnType = std::make_shared<Type>(TypeKind::Any);
         for (const auto& spec : specializations) {
@@ -31,20 +31,25 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             }
         }
 
+        // First parameter is always the context pointer
         std::vector<llvm::Type*> paramTypes;
+        paramTypes.push_back(builder->getPtrTy());  // context parameter
         for (const auto& argType : argTypes) {
             paramTypes.push_back(getLLVMType(argType));
         }
-        
+
         llvm::FunctionType* ft = llvm::FunctionType::get(getLLVMType(returnType), paramTypes, false);
         llvm::FunctionCallee func = module->getOrInsertFunction(specializedName, ft);
-        
+
+        // First argument is the context pointer
         std::vector<llvm::Value*> args;
+        llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+        args.push_back(currentFunc->getArg(0));  // context from current function
         for (auto& arg : node->arguments) {
             visit(arg.get());
             args.push_back(lastValue);
         }
-        
+
         lastValue = createCall(ft, func.getCallee(), args);
         return true;
     }
