@@ -337,9 +337,16 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
         auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
         std::string className = classType->name;
         std::string methodName = prop->name;
-        
-        
-        
+
+        // Mangle private method names (#methodName -> __private_ClassName_methodName)
+        if (methodName.starts_with("#")) {
+            if (currentClass && currentClass->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(currentClass);
+                std::string baseName = cls->originalName.empty() ? cls->name : cls->originalName;
+                methodName = manglePrivateName(methodName, baseName);
+            }
+        }
+
         if (className == "RegExp") {
             // ... existing RegExp code ...
             return true;
