@@ -69,6 +69,8 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_replace_regexp", {false, true, false}, false);
     bp.registerRuntimeApi("ts_string_replaceAll", {false, false, false}, false);
     bp.registerRuntimeApi("ts_string_replaceAll_regexp", {false, true, false}, false);
+    bp.registerRuntimeApi("ts_string_isWellFormed", {false}, false);  // str -> bool (ES2024)
+    bp.registerRuntimeApi("ts_string_toWellFormed", {false}, false);  // str -> str (ES2024)
     bp.registerRuntimeApi("ts_string_match", {false, false}, true);  // str, pattern -> array or null
     bp.registerRuntimeApi("ts_string_match_regexp", {false, true}, true);
     bp.registerRuntimeApi("ts_string_search_regexp", {false, true}, false);  // -> int
@@ -2833,6 +2835,32 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, replaceFt);
          lastValue = createCall(replaceFt, fn.getCallee(), { obj, pattern, replacement });
+         return true;
+    } else if (prop->name == "isWellFormed") {
+         // ES2024: String.prototype.isWellFormed() -> boolean
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_isWellFormed", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
+         return true;
+    } else if (prop->name == "toWellFormed") {
+         // ES2024: String.prototype.toWellFormed() -> string
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_toWellFormed", ft);
+         lastValue = createCall(ft, fn.getCallee(), { obj });
          return true;
     } else if (prop->name == "match") {
          visit(prop->expression.get());

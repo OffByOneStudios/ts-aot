@@ -407,6 +407,18 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             repFn->returnType = std::make_shared<Type>(TypeKind::String);
             lastType = repFn;
             return;
+        } else if (node->name == "isWellFormed") {
+            // ES2024: String.prototype.isWellFormed() -> boolean
+            auto isWellFormedFn = std::make_shared<FunctionType>();
+            isWellFormedFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = isWellFormedFn;
+            return;
+        } else if (node->name == "toWellFormed") {
+            // ES2024: String.prototype.toWellFormed() -> string
+            auto toWellFormedFn = std::make_shared<FunctionType>();
+            toWellFormedFn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = toWellFormedFn;
+            return;
         }
     }
 

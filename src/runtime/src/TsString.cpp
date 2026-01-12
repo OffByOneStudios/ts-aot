@@ -601,6 +601,73 @@ TsString* TsString::Normalize(TsString* form) {
     return Create(utf8.c_str());
 }
 
+// ES2024: Check if string is well-formed (no lone surrogates)
+bool TsString::IsWellFormed() {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    int32_t len = s.length();
+    for (int32_t i = 0; i < len; i++) {
+        UChar c = s.charAt(i);
+
+        // Check for high surrogate (U+D800-U+DBFF)
+        if (U16_IS_LEAD(c)) {
+            // Must be followed by a low surrogate
+            if (i + 1 >= len || !U16_IS_TRAIL(s.charAt(i + 1))) {
+                return false;  // Lone high surrogate
+            }
+            i++;  // Skip the low surrogate we just checked
+        }
+        // Check for low surrogate (U+DC00-U+DFFF)
+        else if (U16_IS_TRAIL(c)) {
+            return false;  // Lone low surrogate (not preceded by high surrogate)
+        }
+    }
+    return true;
+}
+
+// ES2024: Replace lone surrogates with U+FFFD (replacement character)
+TsString* TsString::ToWellFormed() {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString result;
+    int32_t len = s.length();
+
+    for (int32_t i = 0; i < len; i++) {
+        UChar c = s.charAt(i);
+
+        // Check for high surrogate (U+D800-U+DBFF)
+        if (U16_IS_LEAD(c)) {
+            // Check if followed by a low surrogate
+            if (i + 1 < len && U16_IS_TRAIL(s.charAt(i + 1))) {
+                // Valid surrogate pair - keep both
+                result.append(c);
+                result.append(s.charAt(i + 1));
+                i++;  // Skip the low surrogate
+            } else {
+                // Lone high surrogate - replace with U+FFFD
+                result.append((UChar)0xFFFD);
+            }
+        }
+        // Check for low surrogate (U+DC00-U+DFFF)
+        else if (U16_IS_TRAIL(c)) {
+            // Lone low surrogate - replace with U+FFFD
+            result.append((UChar)0xFFFD);
+        }
+        else {
+            // Regular character - keep as is
+            result.append(c);
+        }
+    }
+
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return Create(utf8.c_str());
+}
+
 TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -1069,6 +1136,14 @@ extern "C" {
 
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement) {
         return ((TsString*)str)->ReplaceAll((TsString*)pattern, (TsString*)replacement);
+    }
+
+    bool ts_string_isWellFormed(void* str) {
+        return ((TsString*)str)->IsWellFormed();
+    }
+
+    void* ts_string_toWellFormed(void* str) {
+        return ((TsString*)str)->ToWellFormed();
     }
 
     void* ts_string_split_regexp(void* str, void* regexp) {
