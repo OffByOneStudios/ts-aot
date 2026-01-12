@@ -302,6 +302,9 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("isStarExport")) {
             node->isStarExport = j["isStarExport"];
         }
+        if (j.contains("namespaceExport") && !j["namespaceExport"].is_null()) {
+            node->namespaceExport = j["namespaceExport"].get<std::string>();
+        }
         if (j.contains("namedExports")) {
             for (const auto& spec : j["namedExports"]) {
                 ExportSpecifier es;

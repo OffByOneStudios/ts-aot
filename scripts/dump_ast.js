@@ -187,7 +187,9 @@ function visitInternal(node) {
                 kind: "ExportDeclaration",
                 moduleSpecifier: node.moduleSpecifier ? node.moduleSpecifier.text : null,
                 isStarExport: !node.exportClause && !!node.moduleSpecifier,
-                namedExports: node.exportClause && node.exportClause.kind === ts.SyntaxKind.NamedExports ? 
+                namespaceExport: node.exportClause && node.exportClause.kind === ts.SyntaxKind.NamespaceExport ?
+                    node.exportClause.name.text : null,
+                namedExports: node.exportClause && node.exportClause.kind === ts.SyntaxKind.NamedExports ?
                     node.exportClause.elements.map(e => ({
                         name: e.name.text,
                         propertyName: e.propertyName ? e.propertyName.text : null

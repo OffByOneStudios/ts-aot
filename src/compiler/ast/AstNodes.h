@@ -442,6 +442,7 @@ struct ExportDeclaration : Statement {
     std::string moduleSpecifier;
     std::vector<ExportSpecifier> namedExports;
     bool isStarExport = false;
+    std::string namespaceExport;  // For "export * as ns from 'module'" (ES2020)
     std::string getKind() const override { return "ExportDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitExportDeclaration(this); }
 };

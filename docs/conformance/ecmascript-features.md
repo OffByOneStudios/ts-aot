@@ -354,9 +354,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
 | RegExp named capture groups | ❌ | |
-| RegExp lookbehind assertions | ❌ | |
-| RegExp Unicode property escapes | ❌ | |
-| RegExp `s` (dotAll) flag | ❌ | |
+| RegExp lookbehind assertions | ✅ | ICU supports (?<=) and (?<!) |
+| RegExp Unicode property escapes | ✅ | ICU supports \\p{} and \\P{} |
+| RegExp `s` (dotAll) flag | ✅ | ICU regex supports DOTALL |
 
 ---
 
@@ -388,7 +388,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `String.prototype.matchAll()` | ✅ | Returns array of match results |
 | `globalThis` | ✅ | Alias for global |
 | `import.meta` | ❌ | |
-| Export namespace (`export * as ns`) | ❌ | |
+| Export namespace (`export * as ns`) | ✅ | Functions and types work |
 
 ---
 
@@ -432,7 +432,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.toSorted()` | ✅ | |
 | `Array.prototype.toSpliced()` | ✅ | |
 | `Array.prototype.with()` | ✅ | |
-| Hashbang (`#!`) support | ❌ | |
+| Hashbang (`#!`) support | ✅ | TypeScript parser handles natively |
 | Symbols as WeakMap keys | ❌ | |
 
 ---
@@ -461,16 +461,16 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2015 | 96 | 16 | 0 | 112 | 86% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
-| ES2018 | 3 | 0 | 5 | 8 | 38% |
+| ES2018 | 6 | 0 | 2 | 8 | 75% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
-| ES2020 | 6 | 0 | 4 | 10 | 60% |
+| ES2020 | 7 | 0 | 3 | 10 | 70% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 8 | 0 | 2 | 10 | 80% |
-| ES2023 | 6 | 0 | 2 | 8 | 75% |
+| ES2023 | 7 | 0 | 1 | 8 | 88% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **187** | **18** | **25** | **230** | **81%** |
+| **TOTAL** | **192** | **18** | **20** | **230** | **83%** |
 
-**Overall ECMAScript Conformance: 187/230 features (81%)**
+**Overall ECMAScript Conformance: 192/230 features (83%)**
 
 ---
 
