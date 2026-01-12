@@ -316,7 +316,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Sticky flag (`y`) | ❌ | |
-| Unicode flag (`u`) | ❌ | |
+| Unicode flag (`u`) | ✅ | ICU handles unicode mode |
 | `RegExp.prototype.flags` | ✅ | |
 
 ---
@@ -468,9 +468,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 8 | 0 | 2 | 10 | 80% |
 | ES2023 | 7 | 0 | 1 | 8 | 88% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **192** | **18** | **20** | **230** | **83%** |
+| **TOTAL** | **193** | **18** | **19** | **230** | **84%** |
 
-**Overall ECMAScript Conformance: 192/230 features (83%)**
+**Overall ECMAScript Conformance: 193/230 features (84%)**
 
 ---
 
