@@ -123,6 +123,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_promise_race", {true}, true);
     bp.registerRuntimeApi("ts_promise_any", {true}, true);
     bp.registerRuntimeApi("ts_promise_allSettled", {true}, true);
+    bp.registerRuntimeApi("ts_promise_withResolvers", {}, true);  // no args, returns object
     
     // ========== Symbol ==========
     bp.registerRuntimeApi("ts_symbol_for", {false}, true);  // key -> Symbol
@@ -1671,10 +1672,16 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (node->arguments.empty()) return true;
                 llvm::FunctionType* anyFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee anyFn = getRuntimeFunction("ts_promise_any", anyFt);
-                
+
                 visit(node->arguments[0].get());
                 llvm::Value* iterable = boxValue(lastValue, node->arguments[0]->inferredType);
                 lastValue = createCall(anyFt, anyFn.getCallee(), { iterable });
+                return true;
+            } else if (prop->name == "withResolvers") {
+                // ES2024 Promise.withResolvers() - returns { promise, resolve, reject }
+                llvm::FunctionType* withResolversFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee withResolversFn = getRuntimeFunction("ts_promise_withResolvers", withResolversFt);
+                lastValue = createCall(withResolversFt, withResolversFn.getCallee(), {});
                 return true;
             }
         } else if (obj->name == "Object") {

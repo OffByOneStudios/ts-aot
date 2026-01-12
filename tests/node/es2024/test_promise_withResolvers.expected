@@ -1,0 +1,19 @@
+Testing Promise.withResolvers()...
+
+1. Object structure:
+has promise: true
+has resolve: true
+has reject: true
+
+2. Basic resolve:
+
+3. Basic reject:
+
+4. Multiple resolves (second ignored):
+
+5. Deferred resolution:
+
+All Promise.withResolvers() tests complete!
+resolved with: success
+rejected with: error
+p3 resolved with: first

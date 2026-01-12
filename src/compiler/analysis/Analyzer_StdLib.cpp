@@ -559,6 +559,16 @@ Analyzer::Analyzer() {
     anyType->returnType = promiseOfAny;
     promiseClass->staticMethods["any"] = anyType;
 
+    // ES2024 Promise.withResolvers() - returns { promise, resolve, reject }
+    auto withResolversResultType = std::make_shared<ObjectType>();
+    withResolversResultType->fields["promise"] = promiseOfAny;
+    withResolversResultType->fields["resolve"] = std::make_shared<FunctionType>();
+    withResolversResultType->fields["reject"] = std::make_shared<FunctionType>();
+
+    auto withResolversType = std::make_shared<FunctionType>();
+    withResolversType->returnType = withResolversResultType;
+    promiseClass->staticMethods["withResolvers"] = withResolversType;
+
     symbols.defineType("Promise", promiseClass);
 
     auto promiseCtor = std::make_shared<FunctionType>();

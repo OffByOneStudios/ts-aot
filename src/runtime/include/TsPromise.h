@@ -108,6 +108,9 @@ extern "C" {
     bool ts_iterator_result_done(TsValue* result);
     TsValue* ts_iterator_result_value(TsValue* result);
 
+    // ES2024 Promise.withResolvers()
+    TsValue* ts_promise_withResolvers();
+
 #ifdef __cplusplus
 }
 #endif
