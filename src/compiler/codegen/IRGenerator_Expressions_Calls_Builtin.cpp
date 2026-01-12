@@ -73,6 +73,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_toWellFormed", {false}, false);  // str -> str (ES2024)
     bp.registerRuntimeApi("ts_string_match", {false, false}, true);  // str, pattern -> array or null
     bp.registerRuntimeApi("ts_string_match_regexp", {false, true}, true);
+    bp.registerRuntimeApi("ts_string_matchAll_regexp", {false, true}, true);  // ES2020: str, regexp -> array of match arrays
     bp.registerRuntimeApi("ts_string_search_regexp", {false, true}, false);  // -> int
     bp.registerRuntimeApi("ts_string_startsWith", {false, false, false}, false);  // str, search, position -> bool
     bp.registerRuntimeApi("ts_string_padStart", {false, false, false}, false);  // str, targetLength, padString
@@ -2885,6 +2886,23 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  { builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, matchFt);
          lastValue = createCall(matchFt, fn.getCallee(), { obj, arg });
+         return true;
+    } else if (prop->name == "matchAll") {
+         // ES2020: String.prototype.matchAll(regexp) -> array of match arrays
+         visit(prop->expression.get());
+         llvm::Value* obj = lastValue;
+         if (obj->getType()->isIntegerTy(64)) {
+             obj = builder->CreateIntToPtr(obj, builder->getPtrTy());
+         }
+
+         if (node->arguments.empty()) return true;
+         visit(node->arguments[0].get());
+         llvm::Value* arg = lastValue;
+
+         llvm::FunctionType* matchAllFt = llvm::FunctionType::get(builder->getPtrTy(),
+                 { builder->getPtrTy(), builder->getPtrTy() }, false);
+         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_string_matchAll_regexp", matchAllFt);
+         lastValue = createCall(matchAllFt, fn.getCallee(), { obj, arg });
          return true;
     } else if (prop->name == "search") {
          visit(prop->expression.get());

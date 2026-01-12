@@ -385,7 +385,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Nullish coalescing (`??`) | ✅ | |
 | Optional chaining (`?.`) | ✅ | Property access only |
 | `Promise.allSettled()` | ✅ | |
-| `String.prototype.matchAll()` | ❌ | |
+| `String.prototype.matchAll()` | ✅ | Returns array of match results |
 | `globalThis` | ✅ | Alias for global |
 | `import.meta` | ❌ | |
 | Export namespace (`export * as ns`) | ❌ | |
@@ -463,14 +463,14 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 3 | 0 | 5 | 8 | 38% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
-| ES2020 | 4 | 0 | 6 | 10 | 40% |
+| ES2020 | 5 | 0 | 5 | 10 | 50% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 7 | 0 | 3 | 10 | 70% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **184** | **20** | **26** | **230** | **80%** |
+| **TOTAL** | **185** | **20** | **25** | **230** | **80%** |
 
-**Overall ECMAScript Conformance: 184/230 features (80%)**
+**Overall ECMAScript Conformance: 185/230 features (80%)**
 
 ---
 
