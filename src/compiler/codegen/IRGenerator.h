@@ -216,6 +216,7 @@ private:
     void generateDestructuring(llvm::Value* value, std::shared_ptr<Type> type, ast::Node* pattern);
 
     llvm::Value* emitAwait(llvm::Value* promiseVal, std::shared_ptr<Type> type);
+    void emitYieldStar(ast::YieldExpression* node);
     llvm::Value* createCall(llvm::FunctionType* ft, llvm::Value* callee, std::vector<llvm::Value*> args);
     llvm::Value* castValue(llvm::Value* val, llvm::Type* expectedType);
     llvm::Value* emitToBoolean(llvm::Value* val, std::shared_ptr<Type> type);
@@ -281,6 +282,7 @@ private:
     std::map<std::string, int> currentAsyncFrameMap;
     llvm::BasicBlock* asyncDispatcherBB = nullptr;
     std::vector<llvm::BasicBlock*> asyncStateBlocks;
+    llvm::SwitchInst* currentAsyncSwitch = nullptr;  // For adding state cases in yield/await
     bool currentIsGenerator = false;
     bool currentIsAsync = false;
     

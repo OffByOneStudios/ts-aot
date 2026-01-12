@@ -660,6 +660,26 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 concreteTypes[lastValue] = cls;
             }
             return;
+        } else if (id->name == "Proxy" && node->arguments.size() >= 2) {
+            fprintf(stderr, "[CODEGEN] Matched 'new Proxy(...)' - using special handler\n");
+            // new Proxy(target, handler)
+            visit(node->arguments[0].get());
+            llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* handler = boxValue(lastValue, node->arguments[1]->inferredType);
+
+            // Call ts_proxy_create(target, handler)
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_proxy_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { target, handler });
+            boxedValues.insert(lastValue);
+
+            if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
+                concreteTypes[lastValue] = cls;
+            }
+            return;
         } else {
             fprintf(stderr, "[CODEGEN] Identifier name='%s', args.size=%zu (not Promise or no args)\n",
                     id->name.c_str(), node->arguments.size());
@@ -858,26 +878,7 @@ void IRGenerator::visitObjectExpression(ast::ObjectExpression* node) {
 }
 
 // NOTE: visitFunctionDeclaration is defined in IRGenerator_Core.cpp
-
-void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {
-    auto classType = std::make_shared<ClassType>();
-    classType->name = node->id->name;
-    classType->kind = TypeKind::Class;
-    classType->baseClass = node->superClass ? std::make_shared<ClassType>() : nullptr;
-
-    if (node->superClass) {
-        // If there is a superclass, initialize the baseClass field of the classType
-        if (auto superClassId = dynamic_cast<ast::Identifier*>(node->superClass.get())) {
-            classType->baseClass->name = superClassId->name;
-        }
-    }
-
-    // Register the class type in the current module
-    module->addClassType(classType);
-
-    // The value of the class declaration is the class type itself
-    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
-}
+// NOTE: visitClassDeclaration is defined in IRGenerator_Classes.cpp
 
 void IRGenerator::visitModuleDeclaration(ast::ModuleDeclaration* node) {
     for (auto& stmt : node->body) {

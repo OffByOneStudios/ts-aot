@@ -665,19 +665,31 @@ void* TsArray::Join(void* separator) {
             continue;
         }
 
-        // Generic array - elements can be anything (int, double, pointer to TsString)
+        // Generic array - elements can be anything (int, double, pointer to TsValue or TsString)
         int64_t val = ((int64_t*)elements)[i];
         if (val == 0) {
             ss << "null";
         } else if (val > 0x1000) { // Heuristic for pointer
-            // Check magic
-            uint32_t* magicPtr = (uint32_t*)val;
-            if (*magicPtr == TsString::MAGIC) {
-                ss << ((TsString*)val)->ToUtf8();
-            } else if (*magicPtr == TsArray::MAGIC) {
-                ss << "[Array]";
+            // First check if this is a boxed TsValue - check if first byte looks like ValueType enum (0-10)
+            uint8_t firstByte = *(uint8_t*)val;
+            if (firstByte <= 10) {
+                // Likely a TsValue* - convert to string via ts_string_from_value
+                TsString* str = (TsString*)ts_string_from_value((TsValue*)val);
+                if (str) {
+                    ss << str->ToUtf8();
+                } else {
+                    ss << "undefined";
+                }
             } else {
-                ss << val;
+                // Check magic for raw objects
+                uint32_t* magicPtr = (uint32_t*)val;
+                if (*magicPtr == TsString::MAGIC) {
+                    ss << ((TsString*)val)->ToUtf8();
+                } else if (*magicPtr == TsArray::MAGIC) {
+                    ss << "[Array]";
+                } else {
+                    ss << val;
+                }
             }
         } else {
             ss << val;
@@ -883,7 +895,10 @@ extern "C" {
     }
 
     void* ts_array_join(void* arr, void* separator) {
-        return ((TsArray*)arr)->Join(separator);
+        // Unbox if arr is a TsValue* (boxed array)
+        void* rawArr = ts_value_get_object((TsValue*)arr);
+        if (!rawArr) rawArr = arr;
+        return ((TsArray*)rawArr)->Join(separator);
     }
 
     void ts_array_reverse(void* arr) {

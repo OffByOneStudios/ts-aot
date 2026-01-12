@@ -183,9 +183,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Generators
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generator functions | ❌ | |
-| `yield` expression | ❌ | |
-| `yield*` delegation | ❌ | |
+| Generator functions | ✅ | Basic function* and yield work |
+| `yield` expression | ✅ | |
+| `yield*` delegation | ✅ | Works with generators and arrays |
 | Generator methods | ❌ | |
 
 ### Promises
@@ -238,10 +238,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Proxy and Reflect
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Proxy` constructor | ❌ | |
-| Proxy handlers | ❌ | |
-| `Reflect` methods | ❌ | |
-| Revocable proxies | ❌ | |
+| `Proxy` constructor | ✅ | |
+| Proxy handlers | ⚠️ | get, set, has, deleteProperty, ownKeys, apply work; construct partial |
+| `Reflect` methods | ⚠️ | get, set, has, deleteProperty, ownKeys implemented |
+| Revocable proxies | ✅ | Proxy.revocable returns { proxy, revoke } correctly |
 
 ### Number
 | Feature | Status | Notes |
@@ -350,7 +350,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Async iteration (`for await...of`) | ❌ | |
+| Async iteration (`for await...of`) | ✅ | Works with arrays of promises |
 | Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
 | RegExp named capture groups | ❌ | |
@@ -369,8 +369,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Object.fromEntries()` | ✅ | |
 | `String.prototype.trimStart()` | ✅ | Also supports trimLeft alias |
 | `String.prototype.trimEnd()` | ✅ | Also supports trimRight alias |
-| Optional catch binding | ❌ | |
-| `Symbol.prototype.description` | ❌ | |
+| Optional catch binding | ✅ | `catch { }` without parameter |
+| `Symbol.prototype.description` | ✅ | ES2019 getter |
 | Well-formed `JSON.stringify` | ✅ | |
 | Revised `Function.prototype.toString` | ❌ | |
 
@@ -386,7 +386,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Optional chaining (`?.`) | ✅ | Property access only |
 | `Promise.allSettled()` | ✅ | |
 | `String.prototype.matchAll()` | ❌ | |
-| `globalThis` | ⚠️ | |
+| `globalThis` | ✅ | Alias for global |
 | `import.meta` | ❌ | |
 | Export namespace (`export * as ns`) | ❌ | |
 
@@ -413,12 +413,12 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Class fields (public) | ✅ | |
 | Class fields (private `#`) | ✅ | Increment, compound assignment, direct assignment |
 | Private methods | ❌ | |
-| Static class blocks | ❌ | |
+| Static class blocks | ✅ | Top-level and local classes |
 | `Array.prototype.at()` | ✅ | |
 | `String.prototype.at()` | ✅ | Supports negative indices |
 | `Object.hasOwn()` | ✅ | |
 | RegExp match indices (`d` flag) | ❌ | |
-| Error `.cause` property | ❌ | |
+| Error `.cause` property | ✅ | Error constructor options and cause property |
 
 ---
 
@@ -458,19 +458,19 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 93 | 14 | 4 | 111 | 84% |
+| ES2015 | 96 | 16 | 0 | 112 | 86% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
-| ES2018 | 2 | 0 | 6 | 8 | 25% |
-| ES2019 | 6 | 0 | 3 | 9 | 67% |
-| ES2020 | 3 | 1 | 6 | 10 | 30% |
+| ES2018 | 3 | 0 | 5 | 8 | 38% |
+| ES2019 | 8 | 0 | 1 | 9 | 89% |
+| ES2020 | 4 | 0 | 6 | 10 | 40% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
-| ES2022 | 4 | 0 | 6 | 10 | 40% |
+| ES2022 | 7 | 0 | 3 | 10 | 70% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
 | ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **170** | **19** | **40** | **229** | **74%** |
+| **TOTAL** | **179** | **20** | **31** | **230** | **78%** |
 
-**Overall ECMAScript Conformance: 170/229 features (74%)**
+**Overall ECMAScript Conformance: 179/230 features (78%)**
 
 ---
 
@@ -486,15 +486,15 @@ These features should be prioritized for implementation:
 5. ✅ `Object.assign()` - Implemented
 
 ### High Priority
-6. ❌ Generator functions
+6. ✅ Generator functions - Implemented (function*, yield, yield*)
 7. ✅ `Array.from()` - Implemented
 8. ✅ `Array.prototype.flat()` - Implemented
 9. ✅ `WeakMap` / `WeakSet` - Implemented
-10. ❌ `Proxy` / `Reflect`
+10. ⚠️ `Proxy` / `Reflect` - Basic traps work (get, set, has, deleteProperty)
 
 ### Medium Priority
 11. ✅ Private class fields (`#`) - Implemented
 12. ❌ Dynamic `import()`
 13. ❌ `BigInt`
 14. ❌ Top-level `await`
-15. ❌ `for await...of`
+15. ✅ `for await...of` - Implemented

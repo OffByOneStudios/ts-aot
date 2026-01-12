@@ -456,6 +456,7 @@ Analyzer::Analyzer() {
     errorClass->fields["message"] = std::make_shared<Type>(TypeKind::String);
     errorClass->fields["stack"] = std::make_shared<Type>(TypeKind::String);
     errorClass->fields["name"] = std::make_shared<Type>(TypeKind::String);
+    errorClass->fields["cause"] = std::make_shared<Type>(TypeKind::Any);  // ES2022
     symbols.defineType("Error", errorClass);
 
     // Register console global
@@ -484,6 +485,7 @@ Analyzer::Analyzer() {
     // Register global object (contains all global variables and functions)
     auto globalType = std::make_shared<Type>(TypeKind::Any);
     symbols.define("global", globalType);
+    symbols.define("globalThis", globalType);  // ES2020: globalThis is an alias for global
 
     // Register ts_console_log
     auto consoleLogType = std::make_shared<FunctionType>();
@@ -856,6 +858,122 @@ Analyzer::Analyzer() {
     objectType->fields["getOwnPropertyDescriptors"] = getOwnPropertyDescriptorsType;
 
     symbols.define("Object", objectType);
+
+    // Register Proxy constructor - new Proxy(target, handler)
+    // Returns 'any' type so property access goes through dynamic lookup (proxy traps)
+    auto proxyCtorType = std::make_shared<FunctionType>();
+    proxyCtorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    proxyCtorType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // handler
+    proxyCtorType->returnType = std::make_shared<Type>(TypeKind::Any);  // returns 'any' for dynamic property access
+
+    auto proxyType = std::make_shared<ObjectType>();
+
+    // Proxy.revocable(target, handler) => { proxy, revoke }
+    auto revocableType = std::make_shared<FunctionType>();
+    revocableType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    revocableType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // handler
+    revocableType->returnType = std::make_shared<Type>(TypeKind::Object);  // { proxy, revoke }
+    proxyType->fields["revocable"] = revocableType;
+
+    symbols.define("Proxy", proxyCtorType);
+
+    // Register Reflect global object
+    auto reflectType = std::make_shared<ObjectType>();
+
+    // Reflect.get(target, propertyKey [, receiver])
+    auto reflectGetType = std::make_shared<FunctionType>();
+    reflectGetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectGetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectGetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // receiver (optional)
+    reflectGetType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reflectType->fields["get"] = reflectGetType;
+
+    // Reflect.set(target, propertyKey, value [, receiver])
+    auto reflectSetType = std::make_shared<FunctionType>();
+    reflectSetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectSetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectSetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value
+    reflectSetType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // receiver (optional)
+    reflectSetType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["set"] = reflectSetType;
+
+    // Reflect.has(target, propertyKey)
+    auto reflectHasType = std::make_shared<FunctionType>();
+    reflectHasType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectHasType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectHasType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["has"] = reflectHasType;
+
+    // Reflect.deleteProperty(target, propertyKey)
+    auto reflectDeleteType = std::make_shared<FunctionType>();
+    reflectDeleteType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectDeleteType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectDeleteType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["deleteProperty"] = reflectDeleteType;
+
+    // Reflect.apply(target, thisArgument, argumentsList)
+    auto reflectApplyType = std::make_shared<FunctionType>();
+    reflectApplyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectApplyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // thisArgument
+    reflectApplyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // argumentsList
+    reflectApplyType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reflectType->fields["apply"] = reflectApplyType;
+
+    // Reflect.construct(target, argumentsList [, newTarget])
+    auto reflectConstructType = std::make_shared<FunctionType>();
+    reflectConstructType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectConstructType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // argumentsList
+    reflectConstructType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // newTarget (optional)
+    reflectConstructType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reflectType->fields["construct"] = reflectConstructType;
+
+    // Reflect.getPrototypeOf(target)
+    auto reflectGetProtoType = std::make_shared<FunctionType>();
+    reflectGetProtoType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectGetProtoType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reflectType->fields["getPrototypeOf"] = reflectGetProtoType;
+
+    // Reflect.setPrototypeOf(target, prototype)
+    auto reflectSetProtoType = std::make_shared<FunctionType>();
+    reflectSetProtoType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectSetProtoType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // prototype
+    reflectSetProtoType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["setPrototypeOf"] = reflectSetProtoType;
+
+    // Reflect.isExtensible(target)
+    auto reflectIsExtType = std::make_shared<FunctionType>();
+    reflectIsExtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectIsExtType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["isExtensible"] = reflectIsExtType;
+
+    // Reflect.preventExtensions(target)
+    auto reflectPreventExtType = std::make_shared<FunctionType>();
+    reflectPreventExtType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectPreventExtType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["preventExtensions"] = reflectPreventExtType;
+
+    // Reflect.getOwnPropertyDescriptor(target, propertyKey)
+    auto reflectGetOwnPropDescType = std::make_shared<FunctionType>();
+    reflectGetOwnPropDescType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectGetOwnPropDescType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectGetOwnPropDescType->returnType = std::make_shared<Type>(TypeKind::Any);
+    reflectType->fields["getOwnPropertyDescriptor"] = reflectGetOwnPropDescType;
+
+    // Reflect.defineProperty(target, propertyKey, attributes)
+    auto reflectDefPropType = std::make_shared<FunctionType>();
+    reflectDefPropType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectDefPropType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // propertyKey
+    reflectDefPropType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // attributes
+    reflectDefPropType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    reflectType->fields["defineProperty"] = reflectDefPropType;
+
+    // Reflect.ownKeys(target)
+    auto reflectOwnKeysType = std::make_shared<FunctionType>();
+    reflectOwnKeysType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // target
+    reflectOwnKeysType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+    reflectType->fields["ownKeys"] = reflectOwnKeysType;
+
+    symbols.define("Reflect", reflectType);
 
     // Register Array global (for static methods like Array.isArray)
     auto arrayGlobalType = std::make_shared<ObjectType>();

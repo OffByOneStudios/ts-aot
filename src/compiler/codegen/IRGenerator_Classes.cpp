@@ -33,6 +33,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             name == "ServerResponse" || name == "ClientRequest" || name == "TextEncoder" ||
             name == "TextDecoder" || name == "OutgoingMessage" || name == "CloseEvent" ||
             name == "MessageEvent" || name == "Agent" || name == "HttpsAgent" || name == "WebSocket" ||
+            // Generators - handled by runtime
+            name == "Generator" || name == "AsyncGenerator" ||
             // TypedArrays - handled by runtime
             name == "Int8Array" || name == "Uint8Array" || name == "Uint8ClampedArray" ||
             name == "Int16Array" || name == "Uint16Array" || name == "Int32Array" || name == "Uint32Array" ||
@@ -545,6 +547,27 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     emitLocation(node);
     SPDLOG_DEBUG("visitNewExpression: inferredType={}", (node->inferredType ? (int)node->inferredType->kind : -1));
+
+    // Check for new Proxy(target, handler) by looking at the expression directly
+    // This is done early because Proxy returns 'any' type for dynamic property access
+    if (auto* id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (id->name == "Proxy" && node->arguments.size() >= 2) {
+            // new Proxy(target, handler)
+            visit(node->arguments[0].get());
+            llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* handler = boxValue(lastValue, node->arguments[1]->inferredType);
+
+            llvm::FunctionType* createProxyFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee createProxyFn = getRuntimeFunction("ts_proxy_create", createProxyFt);
+            lastValue = createCall(createProxyFt, createProxyFn.getCallee(), { target, handler });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        }
+    }
+
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create", createFt);
@@ -606,6 +629,8 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             return;
         } else if (className == "Error") {
             llvm::Value* message = nullptr;
+            llvm::Value* options = nullptr;
+
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
                 message = lastValue;
@@ -617,9 +642,19 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 message = createCall(createFt, createFn.getCallee(), { emptyStr });
             }
 
-            llvm::FunctionType* createErrorFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee createErrorFn = getRuntimeFunction("ts_error_create", createErrorFt);
-            lastValue = createCall(createErrorFt, createErrorFn.getCallee(), { message });
+            // ES2022: Check for second argument { cause: ... }
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                options = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* createErrorFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee createErrorFn = getRuntimeFunction("ts_error_create_with_options", createErrorFt);
+                lastValue = createCall(createErrorFt, createErrorFn.getCallee(), { message, options });
+            } else {
+                llvm::FunctionType* createErrorFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createErrorFn = getRuntimeFunction("ts_error_create", createErrorFt);
+                lastValue = createCall(createErrorFt, createErrorFn.getCallee(), { message });
+            }
             nonNullValues.insert(lastValue);
             return;
         } else if (className.find("Promise") == 0 && !node->arguments.empty()) {
@@ -1219,6 +1254,55 @@ void IRGenerator::visitStaticBlock(ast::StaticBlock* node) {
     for (auto& stmt : node->body) {
         visit(stmt.get());
     }
+}
+
+// ES2022: Handle local class declarations (classes declared inside functions)
+// This is called when a ClassDeclaration is visited as a statement inside a function body.
+// Top-level classes are handled by generateClasses() which runs before function codegen.
+void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {
+    std::string className = node->name;
+
+    // ES2022: For local classes, we need to create globals for static fields
+    // and execute static blocks. Top-level classes are handled in generateClasses.
+    for (auto& member : node->members) {
+        if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+            if (prop->isStatic) {
+                std::string globalName = className + "_" + prop->name;
+
+                // Check if the global already exists (from generateClasses for top-level classes)
+                if (!module->getGlobalVariable(globalName)) {
+                    // Default type is double (number) for static fields
+                    llvm::Type* llvmType = builder->getDoubleTy();
+
+                    // Create the global variable
+                    llvm::Constant* initVal = llvm::Constant::getNullValue(llvmType);
+                    new llvm::GlobalVariable(*module, llvmType, false,
+                        llvm::GlobalValue::ExternalLinkage, initVal, globalName);
+                }
+
+                // Initialize if there's an initializer
+                if (prop->initializer) {
+                    visit(prop->initializer.get());
+                    llvm::Value* initValue = lastValue;
+                    llvm::GlobalVariable* gVar = module->getGlobalVariable(globalName);
+                    if (gVar) {
+                        initValue = castValue(initValue, gVar->getValueType());
+                        builder->CreateStore(initValue, gVar);
+                    }
+                }
+            }
+        }
+    }
+
+    // ES2022: Execute static blocks inline for local class declarations
+    for (auto& member : node->members) {
+        if (auto staticBlock = dynamic_cast<ast::StaticBlock*>(member.get())) {
+            visitStaticBlock(staticBlock);
+        }
+    }
+
+    // The value of the class declaration is the class type itself
+    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
 }
 
 } // namespace ts

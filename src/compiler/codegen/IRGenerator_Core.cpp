@@ -298,7 +298,7 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
     
     static const std::set<std::string> runtimeGlobals = {
         "Object", "Array", "Math", "JSON", "console", "process", "Buffer",
-        "global", "parseInt", "parseFloat"
+        "global", "globalThis", "parseInt", "parseFloat"
     };
 
     // Some runtime globals are injected into per-module analyzer scopes (especially for
@@ -1997,7 +1997,8 @@ void IRGenerator::initTsValueType() {
             builder->getPtrTy(),              // 12: resumeFn
             builder->getPtrTy(),              // 13: data
             builder->getPtrTy(),              // 14: resumedValue
-            builder->getPtrTy()               // 15: execContext
+            builder->getPtrTy(),              // 15: execContext
+            builder->getPtrTy()               // 16: delegateIterator (for yield*)
         });
     }
 }
@@ -2255,9 +2256,10 @@ llvm::Value* IRGenerator::boxValue(llvm::Value* val, std::shared_ptr<Type> type)
                 std::string name;
                 if (type->kind == TypeKind::Class) name = std::static_pointer_cast<ClassType>(type)->name;
                 else name = std::static_pointer_cast<InterfaceType>(type)->name;
-                // Promise values are ALWAYS already boxed TsValue* from runtime.
+                // Promise, Generator, AsyncGenerator, and Error values are ALWAYS already boxed TsValue* from runtime.
                 // Never box them again - just return the value as-is.
-                if (name.find("Promise") == 0) {
+                // ES2022: Error objects (from ts_error_create) are TsValue* wrapping a TsMap
+                if (name.find("Promise") == 0 || name == "Generator" || name == "AsyncGenerator" || name == "Error") {
                     // Mark as boxed in case it wasn't already tracked
                     boxedValues.insert(val);
                     return val;
@@ -2407,7 +2409,7 @@ void IRGenerator::visitProgram(ast::Program* node) {
     }
 }
 
-void IRGenerator::visitClassDeclaration(ast::ClassDeclaration* node) {}
+// visitClassDeclaration is implemented in IRGenerator_Classes.cpp
 
 void IRGenerator::visitClassExpression(ast::ClassExpression* node) {
     // Class expressions evaluate to a constructor function.

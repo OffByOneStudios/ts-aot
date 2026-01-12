@@ -208,6 +208,7 @@ extern "C" {
     extern TsValue* process;
     extern TsValue* Buffer;
     extern TsValue* global;
+    extern TsValue* globalThis;  // ES2020: alias for global
     extern TsValue* parseInt;
     extern TsValue* parseFloat;
 }

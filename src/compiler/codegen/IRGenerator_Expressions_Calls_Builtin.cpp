@@ -184,6 +184,33 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_value_make_object", {true}, true);
     bp.registerRuntimeApi("ts_value_get_int", {true}, false);
     bp.registerRuntimeApi("ts_value_get_object", {true}, false);  // Returns raw pointer, NOT boxed
+
+    // ========== Proxy ==========
+    bp.registerRuntimeApi("ts_proxy_create", {true, true}, true);  // target, handler -> Proxy
+    bp.registerRuntimeApi("ts_proxy_revocable", {true, true}, true);  // target, handler -> {proxy, revoke}
+    bp.registerRuntimeApi("ts_proxy_get", {true, true, true}, true);
+    bp.registerRuntimeApi("ts_proxy_set", {true, true, true, true}, false);
+    bp.registerRuntimeApi("ts_proxy_has", {true, true}, false);
+    bp.registerRuntimeApi("ts_proxy_delete", {true, true}, false);
+    bp.registerRuntimeApi("ts_proxy_apply", {true, true, true, false}, true);
+    bp.registerRuntimeApi("ts_proxy_construct", {true, true, false, true}, true);
+    bp.registerRuntimeApi("ts_proxy_ownKeys", {true}, true);
+    bp.registerRuntimeApi("ts_is_proxy", {true}, false);
+
+    // ========== Reflect ==========
+    bp.registerRuntimeApi("ts_reflect_get", {true, true, true}, true);  // target, prop, receiver -> value
+    bp.registerRuntimeApi("ts_reflect_set", {true, true, true, true}, false);  // target, prop, value, receiver -> bool
+    bp.registerRuntimeApi("ts_reflect_has", {true, true}, false);  // target, prop -> bool
+    bp.registerRuntimeApi("ts_reflect_deleteProperty", {true, true}, false);  // target, prop -> bool
+    bp.registerRuntimeApi("ts_reflect_apply", {true, true, true}, true);  // target, thisArg, args -> result
+    bp.registerRuntimeApi("ts_reflect_construct", {true, true, true}, true);  // target, args, newTarget -> object
+    bp.registerRuntimeApi("ts_reflect_getPrototypeOf", {true}, true);  // target -> prototype
+    bp.registerRuntimeApi("ts_reflect_setPrototypeOf", {true, true}, false);  // target, proto -> bool
+    bp.registerRuntimeApi("ts_reflect_isExtensible", {true}, false);  // target -> bool
+    bp.registerRuntimeApi("ts_reflect_preventExtensions", {true}, false);  // target -> bool
+    bp.registerRuntimeApi("ts_reflect_getOwnPropertyDescriptor", {true, true}, true);  // target, prop -> descriptor
+    bp.registerRuntimeApi("ts_reflect_defineProperty", {true, true, true}, false);  // target, prop, desc -> bool
+    bp.registerRuntimeApi("ts_reflect_ownKeys", {true}, true);  // target -> array
 }
 
 bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -241,7 +268,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (node->arguments.empty()) return true;
                 visit(node->arguments[0].get());
                 llvm::Value* key = lastValue;
-                
+
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_symbol_for", ft);
                 lastValue = createCall(ft, fn.getCallee(), { key });
@@ -254,6 +281,277 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_symbol_key_for", ft);
                 lastValue = createCall(ft, fn.getCallee(), { sym });
+                return true;
+            }
+        }
+        if (id->name == "Reflect") {
+            // Reflect.get(target, propertyKey [, receiver])
+            if (prop->name == "get") {
+                if (node->arguments.size() < 2) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+                llvm::Value* receiver = target;  // Default receiver is target
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    receiver = boxValue(lastValue, node->arguments[2]->inferredType);
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_get", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target, propKey, receiver });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+            // Reflect.set(target, propertyKey, value [, receiver])
+            if (prop->name == "set") {
+                if (node->arguments.size() < 3) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+                visit(node->arguments[2].get());
+                llvm::Value* value = boxValue(lastValue, node->arguments[2]->inferredType);
+                llvm::Value* receiver = target;
+                if (node->arguments.size() > 3) {
+                    visit(node->arguments[3].get());
+                    receiver = boxValue(lastValue, node->arguments[3]->inferredType);
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_set", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target, propKey, value, receiver });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.has(target, propertyKey)
+            if (prop->name == "has") {
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_has", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target, propKey });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.deleteProperty(target, propertyKey)
+            if (prop->name == "deleteProperty") {
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_deleteProperty", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target, propKey });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.apply(target, thisArgument, argumentsList)
+            if (prop->name == "apply") {
+                if (node->arguments.size() < 3) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* thisArg = boxValue(lastValue, node->arguments[1]->inferredType);
+                visit(node->arguments[2].get());
+                llvm::Value* args = boxValue(lastValue, node->arguments[2]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_apply", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target, thisArg, args });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+            // Reflect.construct(target, argumentsList [, newTarget])
+            if (prop->name == "construct") {
+                if (node->arguments.size() < 2) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* args = boxValue(lastValue, node->arguments[1]->inferredType);
+                llvm::Value* newTarget = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    newTarget = boxValue(lastValue, node->arguments[2]->inferredType);
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_construct", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target, args, newTarget });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+            // Reflect.getPrototypeOf(target)
+            if (prop->name == "getPrototypeOf") {
+                if (node->arguments.empty()) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_getPrototypeOf", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+            // Reflect.setPrototypeOf(target, prototype)
+            if (prop->name == "setPrototypeOf") {
+                if (node->arguments.size() < 2) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* proto = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_setPrototypeOf", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target, proto });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.isExtensible(target)
+            if (prop->name == "isExtensible") {
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_isExtensible", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.preventExtensions(target)
+            if (prop->name == "preventExtensions") {
+                if (node->arguments.empty()) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_preventExtensions", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.getOwnPropertyDescriptor(target, propertyKey)
+            if (prop->name == "getOwnPropertyDescriptor") {
+                if (node->arguments.size() < 2) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_getOwnPropertyDescriptor", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target, propKey });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+            // Reflect.defineProperty(target, propertyKey, attributes)
+            if (prop->name == "defineProperty") {
+                if (node->arguments.size() < 3) {
+                    lastValue = llvm::ConstantInt::getFalse(*context);
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* propKey = boxValue(lastValue, node->arguments[1]->inferredType);
+                visit(node->arguments[2].get());
+                llvm::Value* attrs = boxValue(lastValue, node->arguments[2]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_defineProperty", ft);
+                llvm::Value* result = createCall(ft, fn.getCallee(), { target, propKey, attrs });
+                lastValue = builder->CreateICmpNE(result, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                return true;
+            }
+            // Reflect.ownKeys(target)
+            if (prop->name == "ownKeys") {
+                if (node->arguments.empty()) {
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee createFn = module->getOrInsertFunction("ts_array_create", createFt);
+                    lastValue = createCall(createFt, createFn.getCallee(), {});
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_reflect_ownKeys", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target });
+                boxedValues.insert(lastValue);
+                return true;
+            }
+        }
+        if (id->name == "Proxy") {
+            // Proxy.revocable(target, handler)
+            if (prop->name == "revocable") {
+                if (node->arguments.size() < 2) {
+                    lastValue = getUndefinedValue();
+                    return true;
+                }
+                visit(node->arguments[0].get());
+                llvm::Value* target = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* handler = boxValue(lastValue, node->arguments[1]->inferredType);
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_proxy_revocable", ft);
+                lastValue = createCall(ft, fn.getCallee(), { target, handler });
+                boxedValues.insert(lastValue);
                 return true;
             }
         }

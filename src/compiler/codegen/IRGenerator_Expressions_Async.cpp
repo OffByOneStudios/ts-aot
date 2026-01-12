@@ -44,6 +44,11 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "state" + std::to_string(nextState), builder->GetInsertBlock()->getParent());
     asyncStateBlocks.push_back(nextBB);
 
+    // Add case to the switch for this state
+    if (currentAsyncSwitch) {
+        currentAsyncSwitch->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), nextBB);
+    }
+
     // Update ctx->state
     llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), statePtr);
@@ -117,6 +122,13 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
         return;
     }
 
+    if (node->isAsterisk && node->expression) {
+        // yield* delegation - delegate to another iterator/generator
+        emitYieldStar(node);
+        return;
+    }
+
+    // Regular yield
     // 1. Evaluate expression
     llvm::Value* yieldVal;
     if (node->expression) {
@@ -130,6 +142,11 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     int nextState = asyncStateBlocks.size();
     llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(*context, "state" + std::to_string(nextState), builder->GetInsertBlock()->getParent());
     asyncStateBlocks.push_back(nextBB);
+
+    // Add case to the switch for this state
+    if (currentAsyncSwitch) {
+        currentAsyncSwitch->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), nextState), nextBB);
+    }
 
     // Update ctx->state
     llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
@@ -153,6 +170,128 @@ void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
 
     // The resumed value (from next()) is in currentAsyncResumedValue
     lastValue = unboxValue(currentAsyncResumedValue, node->inferredType);
+}
+
+void IRGenerator::emitYieldStar(ast::YieldExpression* node) {
+    // yield* <iterable> - delegate to another iterator
+    // This creates a loop that:
+    // 1. Gets an iterator from the expression
+    // 2. Calls next() on it
+    // 3. If not done, yields the value
+    // 4. Loops back to step 2
+    // 5. When done, returns the final value
+
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    // Evaluate the expression to get the iterable
+    visit(node->expression.get());
+    llvm::Value* iterableVal = boxValue(lastValue, node->expression->inferredType);
+
+    // Get the iterator from the iterable
+    llvm::FunctionType* getIterFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee getIterFn = getRuntimeFunction("ts_iterator_get", getIterFt);
+    llvm::Value* iteratorVal = createCall(getIterFt, getIterFn.getCallee(), { iterableVal });
+
+    // Store the iterator in the dedicated delegateIterator field (index 16)
+    llvm::Value* delegateIteratorPtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 16);
+    builder->CreateStore(iteratorVal, delegateIteratorPtr);
+
+    // Create state for the loop check
+    int loopCheckState = asyncStateBlocks.size();
+    llvm::BasicBlock* loopCheckBB = llvm::BasicBlock::Create(*context, "yieldstar_check" + std::to_string(loopCheckState), func);
+    asyncStateBlocks.push_back(loopCheckBB);
+
+    if (currentAsyncSwitch) {
+        currentAsyncSwitch->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), loopCheckState), loopCheckBB);
+    }
+
+    // Jump to the loop check
+    llvm::Value* statePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), loopCheckState), statePtr);
+    builder->CreateBr(loopCheckBB);
+
+    // === Loop check state ===
+    builder->SetInsertPoint(loopCheckBB);
+
+    // Create the statePtr for this block
+    llvm::Value* statePtr2 = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 4);
+
+    // Load the iterator from the dedicated field
+    llvm::Value* delegateIteratorPtr2 = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 16);
+    llvm::Value* iterator = builder->CreateLoad(builder->getPtrTy(), delegateIteratorPtr2);
+
+    // Get the resumed value (passed from generator.next(value))
+    llvm::Value* resumedValuePtr = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 14);
+    llvm::Value* resumedVal = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr);
+
+    // Call iterator.next(resumedValue)
+    // On first call resumedValue may be null, which is fine
+    llvm::FunctionType* nextFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee nextFn = getRuntimeFunction("ts_iterator_next", nextFt);
+    llvm::Value* result = createCall(nextFt, nextFn.getCallee(), { iterator, resumedVal });
+
+    // Check if done
+    llvm::FunctionType* doneFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee doneFn = getRuntimeFunction("ts_iterator_result_done", doneFt);
+    llvm::Value* isDone = createCall(doneFt, doneFn.getCallee(), { result });
+
+    // Get the value from the result
+    llvm::FunctionType* valueFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+    llvm::FunctionCallee valueFn = getRuntimeFunction("ts_iterator_result_value", valueFt);
+    llvm::Value* value = createCall(valueFt, valueFn.getCallee(), { result });
+
+    // Create blocks for done and not-done cases
+    llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(*context, "yieldstar_done", func);
+    llvm::BasicBlock* yieldBB = llvm::BasicBlock::Create(*context, "yieldstar_yield", func);
+
+    builder->CreateCondBr(isDone, doneBB, yieldBB);
+
+    // === Done block ===
+    builder->SetInsertPoint(doneBB);
+    // The final value becomes the result of yield*
+    boxedValues.insert(value);
+
+    // Create the after state for continuing after yield*
+    int afterState = asyncStateBlocks.size();
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "yieldstar_after" + std::to_string(afterState), func);
+    asyncStateBlocks.push_back(afterBB);
+
+    if (currentAsyncSwitch) {
+        currentAsyncSwitch->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), afterState), afterBB);
+    }
+
+    // Store the final value in resumedValue so we can read it in afterBB
+    builder->CreateStore(value, resumedValuePtr);
+
+    // Update state to after block and branch there
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), afterState), statePtr2);
+    builder->CreateBr(afterBB);
+
+    // === Yield block ===
+    builder->SetInsertPoint(yieldBB);
+
+    // Yield the value
+    llvm::FunctionType* yieldFt = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+    llvm::FunctionCallee yieldFn = getRuntimeFunction("ts_async_yield", yieldFt);
+    createCall(yieldFt, yieldFn.getCallee(), { value, currentAsyncContext });
+
+    // Set state to loop back to check
+    builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), loopCheckState), statePtr2);
+
+    // Return from SM to yield
+    builder->CreateRetVoid();
+
+    // === After block ===
+    builder->SetInsertPoint(afterBB);
+
+    // Load the final value from resumedValue
+    llvm::Value* resumedValuePtr2 = builder->CreateStructGEP(asyncContextType, currentAsyncContext, 14);
+    llvm::Value* finalValue = builder->CreateLoad(builder->getPtrTy(), resumedValuePtr2);
+    boxedValues.insert(finalValue);
+
+    // The result of yield* is the final value
+    currentAsyncResumedValue = finalValue;
+    lastValue = unboxValue(finalValue, node->inferredType);
 }
 
 void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node* node, const std::vector<std::shared_ptr<Type>>& argTypes, std::shared_ptr<Type> classType, const std::string& specializedName) {
@@ -503,6 +642,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     auto oldAsyncFrameType = currentAsyncFrameType;
     auto oldAsyncFrameMap = currentAsyncFrameMap;
     auto oldAsyncStateBlocks = asyncStateBlocks;
+    auto oldAsyncSwitch = currentAsyncSwitch;
     auto oldNamedValues = namedValues;
     auto oldBoxedVariables = boxedVariables;
     auto oldFinallyStack = finallyStack;
@@ -602,6 +742,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     builder->SetInsertPoint(switchBB);
     llvm::SwitchInst* sw = builder->CreateSwitch(state, state0);
     sw->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0), state0);
+    currentAsyncSwitch = sw;  // Store for yield/await to add cases
     
     builder->SetInsertPoint(state0);
 
@@ -702,10 +843,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     }
     builder->CreateRetVoid();
 
-    // Update the switch with all generated states
-    for (size_t i = 1; i < asyncStateBlocks.size(); ++i) {
-        sw->addCase(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), i), asyncStateBlocks[i]);
-    }
+    // Note: Switch cases are added during yield/await via currentAsyncSwitch
 
     // Restore state
     currentContext = oldContext;
@@ -715,6 +853,7 @@ void IRGenerator::generateAsyncFunctionBody(llvm::Function* entryFunc, ast::Node
     currentAsyncFrameType = oldAsyncFrameType;
     currentAsyncFrameMap = oldAsyncFrameMap;
     asyncStateBlocks = oldAsyncStateBlocks;
+    currentAsyncSwitch = oldAsyncSwitch;
     namedValues = oldNamedValues;
     boxedVariables = oldBoxedVariables;
     finallyStack = oldFinallyStack;
