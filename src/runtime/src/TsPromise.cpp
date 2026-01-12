@@ -974,6 +974,41 @@ TsValue* ts_promise_any_rejected_helper(void* context, TsValue* reason) {
     return nullptr;
 }
 
+// ES2024 Promise.withResolvers()
+// Returns an object with { promise, resolve, reject } properties
+extern "C" TsValue* ts_promise_withResolvers() {
+    // Create a new promise
+    TsPromise* promise = ts_promise_create();
+
+    // Create resolve and reject functions using the variadic wrappers
+    TsValue* resolveFunc = ts_value_make_native_function(
+        (void*)ts_promise_resolve_wrapper,
+        promise
+    );
+
+    TsValue* rejectFunc = ts_value_make_native_function(
+        (void*)ts_promise_reject_wrapper,
+        promise
+    );
+
+    // Create the result object with { promise, resolve, reject }
+    TsMap* result = TsMap::Create();
+
+    // Set promise property
+    TsValue promiseVal;
+    promiseVal.type = ValueType::PROMISE_PTR;
+    promiseVal.ptr_val = promise;
+    result->Set(TsString::Create("promise"), promiseVal);
+
+    // Set resolve property
+    result->Set(TsString::Create("resolve"), *resolveFunc);
+
+    // Set reject property
+    result->Set(TsString::Create("reject"), *rejectFunc);
+
+    return ts_value_make_object(result);
+}
+
 extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
     if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
         ts::TsPromise* p = ts_promise_create();

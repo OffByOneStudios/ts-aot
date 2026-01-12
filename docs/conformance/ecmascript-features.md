@@ -443,7 +443,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Object.groupBy()` | ❌ | |
 | `Map.groupBy()` | ❌ | |
-| `Promise.withResolvers()` | ❌ | |
+| `Promise.withResolvers()` | ✅ | Returns { promise, resolve, reject } |
 | RegExp `/v` flag | ❌ | |
 | Resizable `ArrayBuffer` | ❌ | |
 | Growable `SharedArrayBuffer` | ❌ | |
@@ -467,10 +467,10 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 7 | 0 | 3 | 10 | 70% |
 | ES2023 | 6 | 0 | 2 | 8 | 75% |
-| ES2024 | 0 | 0 | 9 | 9 | 0% |
-| **TOTAL** | **179** | **20** | **31** | **230** | **78%** |
+| ES2024 | 1 | 0 | 8 | 9 | 11% |
+| **TOTAL** | **180** | **20** | **30** | **230** | **78%** |
 
-**Overall ECMAScript Conformance: 179/230 features (78%)**
+**Overall ECMAScript Conformance: 180/230 features (78%)**
 
 ---
 
