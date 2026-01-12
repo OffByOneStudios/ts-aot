@@ -240,7 +240,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Proxy` constructor | ✅ | |
 | Proxy handlers | ⚠️ | get, set, has, deleteProperty, ownKeys, apply work; construct partial |
-| `Reflect` methods | ⚠️ | get, set, has, deleteProperty, ownKeys implemented |
+| `Reflect` methods | ⚠️ | get, set, has, deleteProperty, ownKeys, defineProperty, getOwnPropertyDescriptor, isExtensible, preventExtensions |
 | Revocable proxies | ✅ | Proxy.revocable returns { proxy, revoke } correctly |
 
 ### Number
@@ -315,7 +315,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### RegExp (ES6)
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Sticky flag (`y`) | ❌ | |
+| Sticky flag (`y`) | ✅ | Supported via ICU |
 | Unicode flag (`u`) | ✅ | ICU handles unicode mode |
 | `RegExp.prototype.flags` | ✅ | |
 
@@ -353,7 +353,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Async iteration (`for await...of`) | ✅ | Works with arrays of promises |
 | Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
-| RegExp named capture groups | ❌ | |
+| RegExp named capture groups | ⚠️ | Indexed access works, .groups property not populated |
 | RegExp lookbehind assertions | ✅ | ICU supports (?<=) and (?<!) |
 | RegExp Unicode property escapes | ✅ | ICU supports \\p{} and \\P{} |
 | RegExp `s` (dotAll) flag | ✅ | ICU regex supports DOTALL |
@@ -433,7 +433,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.toSpliced()` | ✅ | |
 | `Array.prototype.with()` | ✅ | |
 | Hashbang (`#!`) support | ✅ | TypeScript parser handles natively |
-| Symbols as WeakMap keys | ❌ | |
+| Symbols as WeakMap keys | ✅ | WeakMap uses Map internally, supports symbols |
 
 ---
 
@@ -458,19 +458,19 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 96 | 16 | 0 | 112 | 86% |
+| ES2015 | 97 | 14 | 1 | 112 | 87% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
-| ES2018 | 6 | 0 | 2 | 8 | 75% |
+| ES2018 | 6 | 1 | 1 | 8 | 75% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
 | ES2020 | 7 | 0 | 3 | 10 | 70% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 8 | 0 | 2 | 10 | 80% |
-| ES2023 | 7 | 0 | 1 | 8 | 88% |
+| ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **193** | **18** | **19** | **230** | **84%** |
+| **TOTAL** | **195** | **17** | **18** | **230** | **85%** |
 
-**Overall ECMAScript Conformance: 193/230 features (84%)**
+**Overall ECMAScript Conformance: 195/230 features (85%)**
 
 ---
 

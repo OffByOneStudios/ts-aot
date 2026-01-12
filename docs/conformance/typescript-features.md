@@ -163,7 +163,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Default exports | ✅ | |
 | Named exports | ✅ | |
 | `export * from` (re-export) | ✅ | |
-| `export * as ns from` | ❌ | |
+| `export * as ns from` | ✅ | Functions and types work |
 | `import type` | 🔬 | Type-only |
 | `export type` | 🔬 | Type-only |
 | Dynamic `import()` | ❌ | |
@@ -309,7 +309,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generics | 2 | 1 | 2 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
-| Modules | 6 | 1 | 2 | 2 |
+| Modules | 7 | 1 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 0 | 0 | 7 | 0 |
 | Type Narrowing | 3 | 3 | 4 | 0 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **66** | **17** | **57** | **34** |
+| **TOTAL** | **67** | **17** | **56** | **34** |
 
-**Conformance: 66/140 runtime features (47%)**
+**Conformance: 67/140 runtime features (48%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
