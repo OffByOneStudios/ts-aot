@@ -1,0 +1,16 @@
+Testing Object.groupBy()...
+Grouped by even/odd:
+  Number of groups: 2
+  Group: odd
+  Group: even
+Grouped by string length:
+  Number of length groups: 3
+Grouped by index range:
+  Number of range groups: 3
+
+Testing Map.groupBy()...
+Map.groupBy by parity:
+  Map size: 2
+Empty array groups: 0
+
+All groupBy tests passed!
