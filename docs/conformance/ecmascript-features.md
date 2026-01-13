@@ -203,7 +203,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 ### Symbols
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `Symbol()` | ⚠️ | Basic support |
+| `Symbol()` | ✅ | Description, uniqueness, and as property keys |
 | `Symbol.for()` | ✅ | Global symbol registry |
 | `Symbol.keyFor()` | ✅ | Returns undefined for non-registered symbols |
 | Well-known symbols | ⚠️ | `Symbol.iterator` only |
@@ -458,7 +458,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 100 | 12 | 0 | 112 | 89% |
+| ES2015 | 101 | 11 | 0 | 112 | 90% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 7 | 0 | 1 | 8 | 88% |
@@ -468,9 +468,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **200** | **14** | **16** | **230** | **87%** |
+| **TOTAL** | **201** | **13** | **16** | **230** | **87%** |
 
-**Overall ECMAScript Conformance: 200/230 features (87%)**
+**Overall ECMAScript Conformance: 201/230 features (87%)**
 
 ---
 
