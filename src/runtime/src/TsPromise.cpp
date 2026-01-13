@@ -339,15 +339,90 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
 
 // yield* delegation support - get an iterator from an iterable
 TsValue* ts_iterator_get(TsValue* iterable) {
-    if (!iterable) return nullptr;
+    if (!iterable) {
+        return nullptr;
+    }
 
-    // Check if it's already a generator with a next method
+    // First, try to extract the raw object pointer using ts_value_get_object
+    // This handles both boxed TsValue* and raw object pointers
+    void* rawObj = ts_value_get_object(iterable);
+
+    // Check if we have a TsMap (object literal)
+    if (rawObj) {
+        // Check magic at offset 16 for TsMap
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* obj = (TsMap*)rawObj;
+
+            // Check for [Symbol.iterator] method
+            TsString* iterKey = TsString::Create("[Symbol.iterator]");
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = iterKey;
+            TsValue iterMethod = obj->Get(keyVal);
+            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
+            if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
+                TsFunction* func = (TsFunction*)iterMethod.ptr_val;
+                if (func && func->funcPtr) {
+                    typedef TsValue* (*IterFunc)(void*);
+                    return ((IterFunc)func->funcPtr)(func->context);
+                }
+            }
+
+            // Check if it already has a next method (is already an iterator)
+            TsString* nextKey = TsString::Create("next");
+            TsValue nextKeyVal;
+            nextKeyVal.type = ValueType::STRING_PTR;
+            nextKeyVal.ptr_val = nextKey;
+            TsValue nextMethod = obj->Get(nextKeyVal);
+            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
+            if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
+                // Already an iterator, return as-is
+                return iterable;
+            }
+        }
+
+        // Also try magic at offset 8 for some TsMap layouts
+        uint32_t magic8 = *(uint32_t*)((char*)rawObj + 8);
+        if (magic8 == 0x4D415053) { // TsMap::MAGIC
+            TsMap* obj = (TsMap*)rawObj;
+
+            // Check for [Symbol.iterator] method
+            TsString* iterKey = TsString::Create("[Symbol.iterator]");
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = iterKey;
+            TsValue iterMethod = obj->Get(keyVal);
+            if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
+                TsFunction* func = (TsFunction*)iterMethod.ptr_val;
+                if (func && func->funcPtr) {
+                    typedef TsValue* (*IterFunc)(void*);
+                    return ((IterFunc)func->funcPtr)(func->context);
+                }
+            }
+
+            // Check if it already has a next method (is already an iterator)
+            TsString* nextKey = TsString::Create("next");
+            TsValue nextKeyVal;
+            nextKeyVal.type = ValueType::STRING_PTR;
+            nextKeyVal.ptr_val = nextKey;
+            TsValue nextMethod = obj->Get(nextKeyVal);
+            if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
+                return iterable;
+            }
+        }
+    }
+
+    // Fall back to type-based check for explicit OBJECT_PTR values
     if (iterable->type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)iterable->ptr_val;
         if (obj) {
             // Check for [Symbol.iterator] method
             TsString* iterKey = TsString::Create("[Symbol.iterator]");
-            TsValue iterMethod = obj->Get(iterKey);
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = iterKey;
+            TsValue iterMethod = obj->Get(keyVal);
             // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
             if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
                 TsFunction* func = (TsFunction*)iterMethod.ptr_val;
@@ -359,7 +434,10 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 
             // Check if it already has a next method (is already an iterator)
             TsString* nextKey = TsString::Create("next");
-            TsValue nextMethod = obj->Get(nextKey);
+            TsValue nextKeyVal;
+            nextKeyVal.type = ValueType::STRING_PTR;
+            nextKeyVal.ptr_val = nextKey;
+            TsValue nextMethod = obj->Get(nextKeyVal);
             // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
             if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
                 // Already an iterator, return as-is
@@ -374,16 +452,30 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         if (arr) {
             // Create a simple array iterator object
             TsMap* iterator = TsMap::Create();
-            iterator->Set(TsString::Create("__arr"), *iterable);
-            iterator->Set(TsString::Create("__idx"), TsValue((int64_t)0));
+
+            // Create properly typed keys for internal properties
+            TsValue arrKey, idxKey;
+            arrKey.type = ValueType::STRING_PTR;
+            arrKey.ptr_val = TsString::Create("__arr");
+            idxKey.type = ValueType::STRING_PTR;
+            idxKey.ptr_val = TsString::Create("__idx");
+
+            iterator->Set(arrKey, *iterable);
+            iterator->Set(idxKey, TsValue((int64_t)0));
 
             // Create the next function that iterates over the array
             TsValue nextFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
                 TsMap* self = (TsMap*)ctx;
                 if (!self) return create_generator_result(TsValue(), true);
 
-                TsValue arrVal = self->Get(TsString::Create("__arr"));
-                TsValue idxVal = self->Get(TsString::Create("__idx"));
+                TsValue arrKey, idxKey;
+                arrKey.type = ValueType::STRING_PTR;
+                arrKey.ptr_val = TsString::Create("__arr");
+                idxKey.type = ValueType::STRING_PTR;
+                idxKey.ptr_val = TsString::Create("__idx");
+
+                TsValue arrVal = self->Get(arrKey);
+                TsValue idxVal = self->Get(idxKey);
 
                 TsArray* arr = (TsArray*)arrVal.ptr_val;
                 int64_t idx = idxVal.i_val;
@@ -401,7 +493,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 // Get the value and increment index
                 // Use GetElementBoxed which returns a proper TsValue*, not Get() which returns raw int64_t
                 TsValue* elem = arr->GetElementBoxed(idx);
-                self->Set(TsString::Create("__idx"), TsValue(idx + 1));
+                self->Set(idxKey, TsValue(idx + 1));
 
                 if (elem) {
                     return create_generator_result(*elem, false);
@@ -412,7 +504,10 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 }
             }, iterator);
 
-            iterator->Set(TsString::Create("next"), nextFunc);
+            TsValue nextKey;
+            nextKey.type = ValueType::STRING_PTR;
+            nextKey.ptr_val = TsString::Create("next");
+            iterator->Set(nextKey, nextFunc);
 
             TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
             result->type = ValueType::OBJECT_PTR;
@@ -431,8 +526,10 @@ TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
     if (iterator->type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)iterator->ptr_val;
         if (obj) {
-            TsString* nextKey = TsString::Create("next");
-            TsValue nextMethod = obj->Get(nextKey);
+            TsValue nextKeyVal;
+            nextKeyVal.type = ValueType::STRING_PTR;
+            nextKeyVal.ptr_val = TsString::Create("next");
+            TsValue nextMethod = obj->Get(nextKeyVal);
             // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
             if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
                 TsFunction* func = (TsFunction*)nextMethod.ptr_val;
@@ -455,8 +552,10 @@ bool ts_iterator_result_done(TsValue* result) {
     if (result->type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)result->ptr_val;
         if (obj) {
-            TsString* doneKey = TsString::Create("done");
-            TsValue doneVal = obj->Get(doneKey);
+            TsValue doneKeyVal;
+            doneKeyVal.type = ValueType::STRING_PTR;
+            doneKeyVal.ptr_val = TsString::Create("done");
+            TsValue doneVal = obj->Get(doneKeyVal);
             if (doneVal.type == ValueType::BOOLEAN) {
                 return doneVal.b_val;
             }
@@ -477,8 +576,10 @@ TsValue* ts_iterator_result_value(TsValue* result) {
     if (result->type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)result->ptr_val;
         if (obj) {
-            TsString* valueKey = TsString::Create("value");
-            TsValue val = obj->Get(valueKey);
+            TsValue valueKeyVal;
+            valueKeyVal.type = ValueType::STRING_PTR;
+            valueKeyVal.ptr_val = TsString::Create("value");
+            TsValue val = obj->Get(valueKeyVal);
 
             TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
             *boxed = val;

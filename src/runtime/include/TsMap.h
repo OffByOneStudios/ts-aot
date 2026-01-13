@@ -24,6 +24,11 @@ public:
     
     void* impl; // Pointer to std::unordered_map - public for inline IR helpers
 
+    // Prototype chain support
+    TsMap* GetPrototype() const { return prototype; }
+    void SetPrototype(TsMap* proto) { prototype = proto; }
+    bool WouldCreateCycle(TsMap* proto) const;
+
     // Object state flags
     void Freeze() { frozen = true; }
     void Seal() { sealed = true; }
@@ -36,6 +41,7 @@ protected:
     TsMap();
 private:
     uint32_t magic = MAGIC;
+    TsMap* prototype = nullptr;
     bool frozen = false;
     bool sealed = false;
     bool extensible = true;

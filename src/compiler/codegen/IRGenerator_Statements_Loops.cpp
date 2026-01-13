@@ -393,6 +393,132 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         return;
     }
     
+    // Determine if we can use the fast path (arrays and strings)
+    // or need the iterator protocol (custom iterables, objects with [Symbol.iterator])
+    bool isString = false;
+    bool isArray = false;
+    bool useIteratorProtocol = false;
+
+    if (node->expression->inferredType) {
+        if (node->expression->inferredType->kind == TypeKind::String) {
+            isString = true;
+        } else if (node->expression->inferredType->kind == TypeKind::Array) {
+            isArray = true;
+        } else {
+            // For any other type (Object, Class, Any, etc.), use iterator protocol
+            useIteratorProtocol = true;
+        }
+    } else {
+        // Unknown type - use iterator protocol for safety
+        useIteratorProtocol = true;
+    }
+
+    if (useIteratorProtocol) {
+        // Use the iterator protocol (same pattern as async for...of but synchronous)
+        std::string baseName = "forof_iter_" + std::to_string((uintptr_t)node);
+
+        // 1. Evaluate iterable and box it
+        visit(node->expression.get());
+        llvm::Value* iterableVal = boxValue(lastValue, node->expression->inferredType);
+
+        // 2. Get iterator: iterator = ts_iterator_get(iterable)
+        llvm::FunctionType* getIterFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee getIterFn = getRuntimeFunction("ts_iterator_get", getIterFt);
+        llvm::Value* iterator = createCall(getIterFt, getIterFn.getCallee(), { iterableVal });
+
+        llvm::Value* iteratorVar = nullptr;
+        if (currentAsyncFrame) {
+            iteratorVar = namedValues[baseName + "_iterator"];
+        } else {
+            iteratorVar = createEntryBlockAlloca(function, baseName + "_iterator", builder->getPtrTy());
+        }
+        builder->CreateStore(iterator, iteratorVar);
+
+        // 3. Loop
+        llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "loop.cond", function);
+        llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "loop.body", function);
+        llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "loop.inc", function);
+        llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "loop.end", function);
+
+        builder->CreateBr(condBB);
+        builder->SetInsertPoint(condBB);
+        builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+
+        llvm::Value* iter = builder->CreateLoad(builder->getPtrTy(), iteratorVar);
+
+        // 4. Call iterator.next()
+        llvm::FunctionType* nextFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee nextFn = getRuntimeFunction("ts_iterator_next", nextFt);
+
+        // Pass undefined as the value argument
+        llvm::FunctionType* undefFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee undefFn = getRuntimeFunction("ts_value_make_undefined", undefFt);
+        llvm::Value* undefinedVal = createCall(undefFt, undefFn.getCallee(), {});
+
+        llvm::Value* result = createCall(nextFt, nextFn.getCallee(), { iter, undefinedVal });
+
+        // 5. Check done
+        llvm::FunctionType* doneFt = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee doneFn = getRuntimeFunction("ts_iterator_result_done", doneFt);
+        llvm::Value* doneVal = createCall(doneFt, doneFn.getCallee(), { result });
+
+        builder->CreateCondBr(doneVal, afterBB, bodyBB);
+
+        builder->SetInsertPoint(bodyBB);
+
+        // 6. Get value from result
+        llvm::FunctionType* valueFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee valueFn = getRuntimeFunction("ts_iterator_result_value", valueFt);
+        llvm::Value* valueValBoxed = createCall(valueFt, valueFn.getCallee(), { result });
+
+        // 7. Assign value to loop variable
+        std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
+        // Try to get element type from iterable type
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+            if (classType->typeArguments.size() > 0) {
+                elementType = classType->typeArguments[0];
+            }
+        }
+
+        if (auto varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get())) {
+            llvm::Value* unboxed = unboxValue(valueValBoxed, elementType);
+            generateDestructuring(unboxed, elementType, varDecl->name.get());
+        }
+
+        // 8. Body
+        LoopInfo info;
+        info.continueBlock = incBB;
+        info.breakBlock = afterBB;
+        info.finallyStackDepth = finallyStack.size();
+        loopStack.push_back(info);
+
+        auto oldBreak = currentBreakBB;
+        auto oldContinue = currentContinueBB;
+        currentBreakBB = afterBB;
+        currentContinueBB = incBB;
+
+        visit(node->body.get());
+
+        currentBreakBB = oldBreak;
+        currentContinueBB = oldContinue;
+
+        loopStack.pop_back();
+
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(incBB);
+        }
+
+        builder->SetInsertPoint(incBB);
+        builder->CreateStore(builder->getInt1(false), currentShouldContinueAlloca);
+        builder->CreateBr(condBB);
+
+        builder->SetInsertPoint(afterBB);
+        builder->CreateStore(builder->getInt1(false), currentShouldBreakAlloca);
+        return;
+    }
+
+    // Fast path for arrays and strings (index-based iteration)
     // Create loop variables
     std::string baseName = "forof_" + std::to_string((uintptr_t)node);
     llvm::Value* indexVar = nullptr;
@@ -414,11 +540,6 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
     llvm::Value* iterable = lastValue;
     if (!iterable) return;
     builder->CreateStore(iterable, iterableVar);
-
-    bool isString = false;
-    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::String) {
-        isString = true;
-    }
 
     // Initialize index
     builder->CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0), indexVar);

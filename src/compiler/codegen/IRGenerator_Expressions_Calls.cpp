@@ -87,9 +87,16 @@ void IRGenerator::visitCallExpression(ast::CallExpression* node) {
     generateCall(node);
 }
 
-void IRGenerator::generateCall(ast::CallExpression* node) { 
+void IRGenerator::generateCall(ast::CallExpression* node) {
     emitLocation(node);
     SPDLOG_DEBUG("visitCallExpression: isComptime={}", node->isComptime);
+
+    // Debug: log callee info
+    if (auto id = dynamic_cast<ast::Identifier*>(node->callee.get())) {
+        SPDLOG_INFO("generateCall: callee is Identifier '{}', type={}",
+                   id->name,
+                   node->callee->inferredType ? (int)node->callee->inferredType->kind : -1);
+    }
 
     // Slow-path JS often has missing or any-typed callees; default to any to keep runtime behavior.
     if (!node->callee->inferredType) {
@@ -763,48 +770,76 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         // BUT: Skip this if there's a directly callable function with this name - that takes priority
         if (id->inferredType && id->inferredType->kind == TypeKind::Function) {
             auto funcType = std::static_pointer_cast<FunctionType>(id->inferredType);
-            
-            // Compute actual argument types from the call site, not from the declared parameter types
-            // This is critical for functions with 'any' parameters that get monomorphized
-            std::vector<std::shared_ptr<Type>> actualArgTypes;
+
+            // Check if we have spread args being passed to fixed params
+            // In this case, we need to expand the types based on expected params
+            bool hasSpreadToFixedParams = false;
             for (const auto& arg : node->arguments) {
-                actualArgTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<Type>(TypeKind::Any));
-            }
-            std::string mangledName = Monomorphizer::generateMangledName(id->name, actualArgTypes, node->resolvedTypeArguments);
-            
-            // Check if there's a directly callable function - if so, let the normal path handle it
-            llvm::Function* directFunc = module->getFunction(mangledName);
-            if (!directFunc) {
-                directFunc = module->getFunction(id->name);
-            }
-            
-            // Only use ts_call_N if there's NO direct function (i.e., this is truly a variable)
-            if (!directFunc) {
-                // Visit the identifier to get the function value
-                visit(id);
-                if (lastValue && lastValue->getType()->isPointerTy()) {
-                    llvm::Value* boxedFunc = lastValue;
-                    
-                    std::vector<llvm::Value*> args;
-                    args.push_back(boxedFunc);
-                    
-                    std::vector<llvm::Type*> paramTypes;
-                    paramTypes.push_back(builder->getPtrTy()); // boxedFunc
-                    
-                    for (auto& arg : node->arguments) {
-                        visit(arg.get());
-                        llvm::Value* v = boxValue(lastValue, arg->inferredType);
-                        args.push_back(v);
-                        paramTypes.push_back(builder->getPtrTy());
+                if (auto spread = dynamic_cast<ast::SpreadElement*>(arg.get())) {
+                    // It's a spread - check if target function has fixed params (not rest)
+                    if (!funcType->hasRest && funcType->paramTypes.size() > 0) {
+                        hasSpreadToFixedParams = true;
+                        break;
                     }
-                    
-                    std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
-                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
-                    llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
-                    
-                    lastValue = createCall(ft, fn.getCallee(), args);
-                    lastValue = unboxValue(lastValue, node->inferredType);
-                    return;
+                }
+            }
+
+            // If spreading to fixed params, let the normal generateCall path handle it
+            // The spread expansion logic there will expand array elements into individual args
+            if (hasSpreadToFixedParams) {
+                SPDLOG_DEBUG("Spread to fixed params detected - letting generateCall handle expansion");
+                // Fall through to normal generateCall path below
+            } else {
+                // Compute actual argument types from the call site, not from the declared parameter types
+                // This is critical for functions with 'any' parameters that get monomorphized
+                std::vector<std::shared_ptr<Type>> actualArgTypes;
+                for (const auto& arg : node->arguments) {
+                    std::shared_ptr<Type> argType = arg->inferredType;
+                    // For SpreadElement, use the inner expression's type (the array type)
+                    if (auto spread = dynamic_cast<ast::SpreadElement*>(arg.get())) {
+                        if (spread->expression && spread->expression->inferredType) {
+                            argType = spread->expression->inferredType;
+                        }
+                    }
+                    actualArgTypes.push_back(argType ? argType : std::make_shared<Type>(TypeKind::Any));
+                }
+                std::string mangledName = Monomorphizer::generateMangledName(id->name, actualArgTypes, node->resolvedTypeArguments);
+
+                // Check if there's a directly callable function - if so, let the normal path handle it
+                llvm::Function* directFunc = module->getFunction(mangledName);
+                if (!directFunc) {
+                    directFunc = module->getFunction(id->name);
+                }
+
+                // Only use ts_call_N if there's NO direct function (i.e., this is truly a variable)
+                if (!directFunc) {
+                    SPDLOG_DEBUG("Using ts_call_N fallback path for function variable");
+                    // Visit the identifier to get the function value
+                    visit(id);
+                    if (lastValue && lastValue->getType()->isPointerTy()) {
+                        llvm::Value* boxedFunc = lastValue;
+
+                        std::vector<llvm::Value*> args;
+                        args.push_back(boxedFunc);
+
+                        std::vector<llvm::Type*> paramTypes;
+                        paramTypes.push_back(builder->getPtrTy()); // boxedFunc
+
+                        for (auto& arg : node->arguments) {
+                            visit(arg.get());
+                            llvm::Value* v = boxValue(lastValue, arg->inferredType);
+                            args.push_back(v);
+                            paramTypes.push_back(builder->getPtrTy());
+                        }
+
+                        std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+                        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+                        llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, ft);
+
+                        lastValue = createCall(ft, fn.getCallee(), args);
+                        lastValue = unboxValue(lastValue, node->inferredType);
+                        return;
+                    }
                 }
             }
         }
