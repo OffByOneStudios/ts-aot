@@ -3,6 +3,46 @@
 #include <unicode/regex.h>
 #include "TsString.h"
 
+class TsArray;
+
+// TsRegExpMatchArray - Result of RegExp.exec() with indices support
+// This class has the same struct layout as TsArray for the first 4 fields
+// so that codegen can do inline access to length and elements.
+class TsRegExpMatchArray {
+public:
+    static constexpr uint32_t MAGIC = 0x524D4154; // "RMAT" (RegExp Match ArraY)
+    static TsRegExpMatchArray* Create(TsArray* matches, int64_t matchIndex, TsString* input);
+
+    // These mirror TsArray's accessors for codegen compatibility
+    int64_t Length() const { return length; }
+    void* Get(size_t idx) const;
+    void* GetElementsPtr() { return elements; }
+
+    // Extra properties for exec result
+    int64_t GetMatchIndex() const { return matchIndex; }
+    TsString* GetInput() const { return input; }
+    TsArray* GetIndices() const { return indices; }
+    void SetIndices(TsArray* ind) { indices = ind; }
+
+private:
+    TsRegExpMatchArray(TsArray* source, int64_t matchIndex, TsString* input);
+
+    // These 4 fields MUST match TsArray's layout for inline codegen access:
+    // offset 0: magic (uint32_t)
+    // offset 8: elements (void*)  - after padding
+    // offset 16: length (size_t)
+    // offset 24: capacity (size_t)
+    uint32_t magic = MAGIC;
+    void* elements = nullptr;    // Copy from source TsArray
+    size_t length = 0;           // Copy from source TsArray
+    size_t capacity = 0;         // Copy from source TsArray
+
+    // Extra fields for RegExp match result
+    int64_t matchIndex = 0;      // Index of match in input string
+    TsString* input = nullptr;   // Original input string
+    TsArray* indices = nullptr;  // Array of [start, end] pairs when d flag used
+};
+
 class TsRegExp {
 public:
     static constexpr uint32_t MAGIC = 0x52454758; // "REGX"
@@ -20,6 +60,7 @@ public:
     bool IsSticky() const { return sticky; }
     bool IsIgnoreCase() const { return ignoreCase; }
     bool IsMultiline() const { return multiline; }
+    bool HasIndices() const { return hasIndices; }
     void* GetMatcher() const { return matcher; }
 
 private:
@@ -35,6 +76,7 @@ private:
     bool sticky = false;
     bool ignoreCase = false;
     bool multiline = false;
+    bool hasIndices = false;
 };
 
 extern "C" {
@@ -50,4 +92,5 @@ extern "C" {
     int32_t RegExp_get_sticky(void* re);
     int32_t RegExp_get_ignoreCase(void* re);
     int32_t RegExp_get_multiline(void* re);
+    int32_t RegExp_get_hasIndices(void* re);
 }

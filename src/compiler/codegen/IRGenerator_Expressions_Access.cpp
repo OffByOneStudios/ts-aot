@@ -332,6 +332,87 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         }
     }
 
+    // Handle enum reverse mapping: Color[0] -> "Red"
+    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {
+        auto enumType = std::static_pointer_cast<EnumType>(node->expression->inferredType);
+
+        // Check if we have a compile-time constant index
+        if (auto lit = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get())) {
+            int indexValue = (int)lit->value;
+            // Find the member name for this value
+            for (const auto& [name, value] : enumType->members) {
+                if (std::holds_alternative<int>(value) && std::get<int>(value) == indexValue) {
+                    // Found the member - return its name as a string
+                    llvm::Value* strPtr = builder->CreateGlobalStringPtr(name);
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+                    lastValue = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
+                    return;
+                }
+            }
+            // Value not found in enum - return undefined
+            lastValue = getUndefinedValue();
+            return;
+        }
+
+        // Dynamic index - need runtime lookup
+        // Build a lookup table at compile time and emit runtime code
+        // For now, we'll generate a switch/case or use runtime function
+        visit(node->argumentExpression.get());
+        llvm::Value* indexVal = lastValue;
+
+        // Convert to int if needed
+        if (indexVal->getType()->isDoubleTy()) {
+            indexVal = builder->CreateFPToSI(indexVal, builder->getInt64Ty());
+        }
+
+        // Build a switch statement for reverse lookup
+        llvm::Function* func = builder->GetInsertBlock()->getParent();
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*context, "enum_merge", func);
+        llvm::BasicBlock* defaultBB = llvm::BasicBlock::Create(*context, "enum_default", func);
+
+        // Collect only numeric members
+        std::vector<std::pair<int, std::string>> numericMembers;
+        for (const auto& [name, value] : enumType->members) {
+            if (std::holds_alternative<int>(value)) {
+                numericMembers.push_back({std::get<int>(value), name});
+            }
+        }
+
+        llvm::SwitchInst* switchInst = builder->CreateSwitch(indexVal, defaultBB, numericMembers.size());
+
+        // Create blocks for each case
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> caseResults;
+        for (const auto& [val, name] : numericMembers) {
+            llvm::BasicBlock* caseBB = llvm::BasicBlock::Create(*context, "enum_case_" + std::to_string(val), func);
+            switchInst->addCase(llvm::ConstantInt::get(builder->getInt64Ty(), val), caseBB);
+
+            builder->SetInsertPoint(caseBB);
+            llvm::Value* strPtr = builder->CreateGlobalStringPtr(name);
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* strVal = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
+            caseResults.push_back({caseBB, strVal});
+            builder->CreateBr(mergeBB);
+        }
+
+        // Default case - return undefined
+        builder->SetInsertPoint(defaultBB);
+        llvm::Value* undefVal = getUndefinedValue();
+        builder->CreateBr(mergeBB);
+
+        // Merge block with PHI
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* phi = builder->CreatePHI(builder->getPtrTy(), numericMembers.size() + 1);
+        for (const auto& [bb, val] : caseResults) {
+            phi->addIncoming(val, bb);
+        }
+        phi->addIncoming(undefVal, defaultBB);
+
+        lastValue = phi;
+        return;
+    }
+
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
         visit(node->expression.get());
         llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);
@@ -506,7 +587,16 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
     // These arrays have boxed elements even though the type says int[] or double[]
     bool isBoxedElementArray = false;
     std::shared_ptr<Type> effectiveArrayType = node->expression->inferredType;
-    
+
+    // Special case: RegExpMatchArray acts like a string[] array
+    if (effectiveArrayType && effectiveArrayType->kind == TypeKind::Class) {
+        auto cls = std::static_pointer_cast<ClassType>(effectiveArrayType);
+        if (cls->name == "RegExpMatchArray") {
+            // Treat as string[] array for element access
+            effectiveArrayType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+        }
+    }
+
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (boxedElementArrayVars.count(id->name)) {
             isBoxedElementArray = true;
@@ -751,7 +841,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         // Default to any so we still generate runtime property access in slow-path JS.
         node->expression->inferredType = std::make_shared<Type>(TypeKind::Any);
     }
-    SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name, 
+    SPDLOG_DEBUG("visitPropertyAccessExpression: {} (expr type kind: {})", node->name,
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
 
     if (tryGenerateFSPropertyAccess(node)) return;
@@ -759,15 +849,30 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
 
-    // Handle enum member access: MyEnum.Member -> constant integer
+    // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {
         auto enumType = std::static_pointer_cast<EnumType>(node->expression->inferredType);
         auto it = enumType->members.find(node->name);
+        SPDLOG_INFO("Enum member access: {}.{}, found={}", enumType->name, node->name, (it != enumType->members.end()));
         if (it != enumType->members.end()) {
-            lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), it->second);
+            if (std::holds_alternative<int>(it->second)) {
+                // Numeric enum member
+                SPDLOG_INFO("Numeric enum member: {}", std::get<int>(it->second));
+                lastValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), std::get<int>(it->second));
+            } else {
+                // String enum member
+                const std::string& strValue = std::get<std::string>(it->second);
+                SPDLOG_INFO("String enum member: {}", strValue);
+                llvm::Value* strPtr = builder->CreateGlobalStringPtr(strValue);
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+                lastValue = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
+            }
             return;
         }
         // If member not found, fall through to dynamic access (shouldn't happen if analyzer works)
+    } else {
+        SPDLOG_INFO("NOT an enum: inferredType={}", node->expression->inferredType ? (int)node->expression->inferredType->kind : -999);
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
@@ -1125,7 +1230,27 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 lastValue = createCall(ft, fn.getCallee(), { re });
                 lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
                 return;
+            } else if (node->name == "hasIndices") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt32Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("RegExp_get_hasIndices", ft);
+                lastValue = createCall(ft, fn.getCallee(), { re });
+                lastValue = builder->CreateICmpNE(lastValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 0));
+                return;
             }
+        } else if (cls->name == "RegExpMatchArray") {
+            // RegExpMatchArray - result of RegExp.exec()
+            visit(node->expression.get());
+            llvm::Value* match = lastValue;
+            emitNullCheckForExpression(node->expression.get(), match);
+
+            // Use ts_object_get_property for all properties
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+            llvm::FunctionType* getPropFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getPropFn = getRuntimeFunction("ts_object_get_property", getPropFt);
+            llvm::Value* result = createCall(getPropFt, getPropFn.getCallee(), { match, keyStr });
+            boxedValues.insert(result);
+            lastValue = unboxValue(result, node->inferredType);
+            return;
         } else if (cls->name == "Map" || cls->name == "Set") {
             SPDLOG_DEBUG("Generating {} property: {}", cls->name, node->name);
             visit(node->expression.get());

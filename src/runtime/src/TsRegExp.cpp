@@ -7,6 +7,28 @@
 
 extern "C" void* ts_alloc(size_t size);
 
+// TsRegExpMatchArray implementation
+TsRegExpMatchArray* TsRegExpMatchArray::Create(TsArray* source, int64_t matchIndex, TsString* input) {
+    void* mem = ts_alloc(sizeof(TsRegExpMatchArray));
+    return new(mem) TsRegExpMatchArray(source, matchIndex, input);
+}
+
+TsRegExpMatchArray::TsRegExpMatchArray(TsArray* source, int64_t matchIndex, TsString* input)
+    : matchIndex(matchIndex), input(input) {
+    // Copy the array's data pointers so that inline codegen struct access works
+    if (source) {
+        elements = source->GetElementsPtr();
+        length = source->Length();
+        // We don't have direct access to capacity, but we can set it equal to length
+        capacity = length;
+    }
+}
+
+void* TsRegExpMatchArray::Get(size_t idx) const {
+    if (idx >= length) return nullptr;
+    return (void*)((int64_t*)elements)[idx];
+}
+
 TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
     void* mem = ts_alloc(sizeof(TsRegExp));
     return new(mem) TsRegExp(pattern, flags);
@@ -34,6 +56,7 @@ TsRegExp::TsRegExp(const char* pattern, const char* flags) {
         
         if (f.find('g') != std::string::npos) global = true;
         if (f.find('y') != std::string::npos) sticky = true;
+        if (f.find('d') != std::string::npos) hasIndices = true;
     }
 
     matcher = new icu::RegexMatcher(patternStr, icuFlags, status);
@@ -79,50 +102,75 @@ bool TsRegExp::Test(TsString* str) {
 
 void* TsRegExp::Exec(TsString* str) {
     if (!matcher) return nullptr;
-    
+
     UErrorCode status = U_ZERO_ERROR;
     icu::UnicodeString input = str->ToUnicodeString();
     matcher->reset(input);
-    
+
     if (global || sticky) {
         matcher->region(lastIndex, input.length(), status);
     }
-    
+
     if (matcher->find()) {
         if (sticky && matcher->start(status) != lastIndex) {
             lastIndex = 0;
             return nullptr;
         }
 
-        TsArray* result = TsArray::Create();
+        TsArray* matches = TsArray::Create();
         int32_t count = matcher->groupCount();
-        
+        int64_t matchIndex = matcher->start(status);  // Index of full match
+
+        // Build array of match strings
         for (int32_t i = 0; i <= count; ++i) {
             icu::UnicodeString group = matcher->group(i, status);
-            if (matcher->start(i, status) == -1) {
-                result->Push((int64_t)ts_value_make_undefined());
+            int32_t groupStart = matcher->start(i, status);
+            if (groupStart == -1) {
+                matches->Push((int64_t)ts_value_make_undefined());
             } else {
                 std::string utf8;
                 group.toUTF8String(utf8);
-                result->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
+                matches->Push((int64_t)ts_value_make_string(TsString::Create(utf8.c_str())));
             }
         }
-        
-        // Add index and input properties to the array (simplified for now)
-        // In JS, exec returns an array with extra properties.
-        // For now we just return the array of matches.
-        
+
+        // Create the match array wrapper with index and input
+        TsRegExpMatchArray* result = TsRegExpMatchArray::Create(matches, matchIndex, str);
+
+        // If d flag (hasIndices) is set, build the indices array
+        if (hasIndices) {
+            TsArray* indices = TsArray::Create();
+
+            for (int32_t i = 0; i <= count; ++i) {
+                int32_t start = matcher->start(i, status);
+                int32_t end = matcher->end(i, status);
+
+                if (start == -1) {
+                    // Group did not participate in match
+                    indices->Push((int64_t)ts_value_make_undefined());
+                } else {
+                    // Create [start, end] pair as a 2-element array
+                    TsArray* pair = TsArray::Create(2);
+                    pair->Push((int64_t)ts_value_make_int(start));
+                    pair->Push((int64_t)ts_value_make_int(end));
+                    indices->Push((int64_t)ts_value_make_object(pair));
+                }
+            }
+
+            result->SetIndices(indices);
+        }
+
         if (global || sticky) {
             lastIndex = matcher->end(status);
         }
-        
+
         return result;
     }
-    
+
     if (global || sticky) {
         lastIndex = 0;
     }
-    
+
     return nullptr;
 }
 
@@ -189,5 +237,9 @@ extern "C" {
 
     int32_t RegExp_get_multiline(void* re) {
         return ((TsRegExp*)re)->IsMultiline() ? 1 : 0;
+    }
+
+    int32_t RegExp_get_hasIndices(void* re) {
+        return ((TsRegExp*)re)->HasIndices() ? 1 : 0;
     }
 }
