@@ -1147,6 +1147,9 @@ void IRGenerator::visitObjectLiteralExpression(ast::ObjectLiteralExpression* nod
             llvm::Value* keyStr = nullptr;
             if (auto id = dynamic_cast<ast::Identifier*>(pa->nameNode.get())) {
                 keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(id->name) });
+            } else if (auto strLit = dynamic_cast<ast::StringLiteral*>(pa->nameNode.get())) {
+                // String literal key (e.g., "[Symbol.iterator]")
+                keyStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(strLit->value) });
             } else if (auto computed = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
                 visit(computed->expression.get());
                 keyStr = unboxValue(lastValue, std::make_shared<Type>(TypeKind::String));

@@ -1329,16 +1329,29 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             return;
         }
         if (id->name == "Symbol") {
-            if (node->name == "asyncIterator") {
+            // Handle all well-known symbols - they return a string "[Symbol.NAME]"
+            // which can be used as a property key
+            static const std::unordered_map<std::string, std::string> wellKnownSymbols = {
+                {"iterator", "[Symbol.iterator]"},
+                {"asyncIterator", "[Symbol.asyncIterator]"},
+                {"hasInstance", "[Symbol.hasInstance]"},
+                {"isConcatSpreadable", "[Symbol.isConcatSpreadable]"},
+                {"match", "[Symbol.match]"},
+                {"matchAll", "[Symbol.matchAll]"},
+                {"replace", "[Symbol.replace]"},
+                {"search", "[Symbol.search]"},
+                {"split", "[Symbol.split]"},
+                {"species", "[Symbol.species]"},
+                {"toPrimitive", "[Symbol.toPrimitive]"},
+                {"toStringTag", "[Symbol.toStringTag]"},
+                {"unscopables", "[Symbol.unscopables]"},
+            };
+
+            auto it = wellKnownSymbols.find(node->name);
+            if (it != wellKnownSymbols.end()) {
                 llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
-                llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.asyncIterator]") });
-                lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
-                return;
-            } else if (node->name == "iterator") {
-                llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-                llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
-                llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr("[Symbol.iterator]") });
+                llvm::Value* tsStr = createCall(createStrFt, createStrFn.getCallee(), { builder->CreateGlobalStringPtr(it->second) });
                 lastValue = boxValue(tsStr, std::make_shared<Type>(TypeKind::String));
                 return;
             }

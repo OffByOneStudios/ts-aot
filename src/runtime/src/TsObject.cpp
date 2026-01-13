@@ -368,50 +368,27 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // FIRST: Check if this is a TsValue by examining the type field
-        // TsValue has ValueType enum at offset 0, which is <= 10
-        uint8_t typeField = *(uint8_t*)v;
-        if (typeField <= 10) {
-            // It's a proper boxed TsValue - extract ptr_val
-            if (v->type == ValueType::OBJECT_PTR || 
-                v->type == ValueType::ARRAY_PTR || 
-                v->type == ValueType::PROMISE_PTR ||
-                v->type == ValueType::FUNCTION_PTR) {
-                return v->ptr_val;
-            }
-            return nullptr;
-        }
+        // IMPORTANT: Check for known object magics FIRST before checking typeField.
+        // This is because a vtable pointer's first byte might coincidentally be <= 10,
+        // causing us to incorrectly treat a raw object pointer as a TsValue.
 
-        // Not a boxed TsValue - check for TsObject-derived classes with vtable
-        // Layout: [vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
+        // Check for TsObject-derived classes with vtable
+        // Layout: [C++ vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
         // So TsObject::magic is at offset 16
         uint32_t magic16 = *(uint32_t*)((char*)v + 16);
-        if (magic16 == 0x4D415053) { // TsMap::MAGIC
-            return v;
-        }
-        if (magic16 == 0x53455453) { // TsSet::MAGIC
-            return v;
-        }
-        if (magic16 == 0x41525259) { // TsArray::MAGIC
-            return v;
-        }
-        if (magic16 == 0x46554E43) { // TsFunction::MAGIC
-            return v;
-        }
-        if (magic16 == 0x42554646) { // TsBuffer::MAGIC
+        if (magic16 == 0x4D415053 || // TsMap::MAGIC
+            magic16 == 0x53455453 || // TsSet::MAGIC
+            magic16 == 0x41525259 || // TsArray::MAGIC
+            magic16 == 0x46554E43 || // TsFunction::MAGIC
+            magic16 == 0x42554646) { // TsBuffer::MAGIC
             return v;
         }
 
-        // Type > 10 means this might be a raw pointer without vtable
         // Check magic at offset 0 for structs without virtual methods
         uint32_t magic = *(uint32_t*)v;
-        if (magic == 0x41525259) { // TsArray::MAGIC
-            return v;
-        }
-        if (magic == 0x4D415053) { // TsMap::MAGIC
-            return v;
-        }
-        if (magic == 0x53455453) { // TsSet::MAGIC
+        if (magic == 0x41525259 || // TsArray::MAGIC
+            magic == 0x4D415053 || // TsMap::MAGIC
+            magic == 0x53455453) { // TsSet::MAGIC
             return v;
         }
         if (magic == 0x53545247) { // TsString::MAGIC - not an object
@@ -420,12 +397,27 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check offset 8 for objects with different layout
         uint32_t magic8 = *(uint32_t*)((char*)v + 8);
-        if (magic8 == 0x4D415053 || magic8 == 0x42554646 || 
+        if (magic8 == 0x4D415053 || magic8 == 0x42554646 ||
             magic8 == 0x53455453 || magic8 == 0x46554E43) {
             return v;
         }
 
-        // Unknown - assume it's an object pointer
+        // NOW check if this is a TsValue by examining the type field
+        // TsValue has ValueType enum at offset 0, which is <= 10
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper boxed TsValue - extract ptr_val
+            if (v->type == ValueType::OBJECT_PTR ||
+                v->type == ValueType::ARRAY_PTR ||
+                v->type == ValueType::PROMISE_PTR ||
+                v->type == ValueType::FUNCTION_PTR) {
+                return v->ptr_val;
+            }
+            // It's a TsValue but not an object type (e.g., int, bool, undefined)
+            return nullptr;
+        }
+
+        // Unknown - assume it's an object pointer (fallback)
         return v;
     }
 
@@ -795,30 +787,37 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsMap* map = (TsMap*)obj;
 
-            // First check for a getter (__getter_<propertyName>)
-            std::string getterKey = std::string("__getter_") + keyStr;
-            TsValue gk;
-            gk.type = ValueType::STRING_PTR;
-            gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-            TsValue getterVal = map->Get(gk);
-            if (getterVal.type != ValueType::UNDEFINED) {
-                // Found a getter - invoke it with 'this' as the object
-                TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
-                boxedObj->type = ValueType::OBJECT_PTR;
-                boxedObj->ptr_val = obj;
-                return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+            // Walk the prototype chain looking for the property
+            TsMap* currentMap = map;
+            while (currentMap != nullptr) {
+                // First check for a getter (__getter_<propertyName>)
+                std::string getterKey = std::string("__getter_") + keyStr;
+                TsValue gk;
+                gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+                TsValue getterVal = currentMap->Get(gk);
+                if (getterVal.type != ValueType::UNDEFINED) {
+                    // Found a getter - invoke it with 'this' as the ORIGINAL object
+                    TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                    boxedObj->type = ValueType::OBJECT_PTR;
+                    boxedObj->ptr_val = obj;  // Use original object for 'this'
+                    return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+                }
+
+                // No getter - look up the property directly
+                TsValue k;
+                k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned(keyStr);
+                TsValue val = currentMap->Get(k);
+                if (val.type != ValueType::UNDEFINED) {
+                    return ts_property_return_value(val);
+                }
+
+                // Move to the next prototype in the chain
+                currentMap = currentMap->GetPrototype();
             }
 
-            // No getter - look up the property directly
-            TsValue k;
-            k.type = ValueType::STRING_PTR;
-            k.ptr_val = TsString::GetInterned(keyStr);
-            TsValue val = map->Get(k);
-            if (val.type != ValueType::UNDEFINED) {
-                return ts_property_return_value(val);
-            }
-
-            // If not found in the map, check Object.prototype methods
+            // If not found in the prototype chain, check Object.prototype methods
             // This provides prototype chain behavior for plain objects
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
                 return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
@@ -1490,27 +1489,39 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Object.getPrototypeOf(obj) - returns the prototype of an object
-    // In our runtime, we don't have a full prototype chain, so we return null
-    // for most objects. This provides basic ES5 conformance.
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
         if (!obj) return ts_value_make_undefined();
 
-        // For now, return null for all objects since we don't have prototype chains
-        // A proper implementation would check the object type and return the
-        // appropriate prototype (Object.prototype, Array.prototype, etc.)
-        return ts_value_make_undefined();
+        // Unbox obj if needed
+        void* objRaw = ts_value_get_object(obj);
+        if (!objRaw) objRaw = obj;
+
+        // Check if obj is a TsMap
+        uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
+        if (magic == 0x4D415053) { // TsMap::MAGIC
+            TsMap* objMap = (TsMap*)objRaw;
+            TsMap* proto = objMap->GetPrototype();
+            if (proto) {
+                return ts_value_make_object(proto);
+            }
+            // null prototype - return null
+            return ts_value_make_null();
+        }
+
+        // For non-TsMap objects, return null (no prototype chain for them yet)
+        return ts_value_make_null();
     }
 
     // Object.create(proto) - creates new object with specified prototype
-    // In our runtime, we don't have prototype chains, so:
-    // - Object.create(null) returns an empty object
-    // - Object.create(proto) copies properties from proto to new object
+    // Creates a new empty object with its [[Prototype]] set to proto
     TsValue* ts_object_create(TsValue* proto) {
         // Create a new empty map
         TsMap* newObj = TsMap::Create();
 
-        // If proto is null/undefined, just return empty object
-        if (!proto || ts_value_is_undefined(proto)) {
+        // If proto is null/undefined, return object with no prototype
+        if (!proto || ts_value_is_nullish(proto)) {
+            // Object.create(null) - no prototype chain
+            newObj->SetPrototype(nullptr);
             return ts_value_make_object(newObj);
         }
 
@@ -1521,28 +1532,55 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if proto is a TsMap
         uint32_t magic = *(uint32_t*)((char*)protoRaw + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            // Copy all properties from proto to new object
+            // Set the prototype chain properly (don't copy properties)
             TsMap* protoMap = (TsMap*)protoRaw;
-            TsArray* entries = (TsArray*)protoMap->GetEntries();
-            int64_t len = entries->Length();
-            for (int64_t i = 0; i < len; i++) {
-                TsArray* entry = (TsArray*)entries->Get(i);
-                TsValue* key = (TsValue*)entry->Get(0);
-                TsValue* val = (TsValue*)entry->Get(1);
-                newObj->Set(*key, *val);
-            }
+            newObj->SetPrototype(protoMap);
         }
 
         return ts_value_make_object(newObj);
     }
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
-    // In our runtime, we don't have prototype chains, so this is a stub
-    // that just returns the object for compatibility
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
-        (void)proto;  // Unused - we don't have prototype chains
         if (!obj) return ts_value_make_undefined();
-        return obj;  // Just return the object unchanged
+
+        // Unbox obj if needed
+        void* objRaw = ts_value_get_object(obj);
+        if (!objRaw) objRaw = obj;
+
+        // Check if obj is a TsMap
+        uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
+        if (magic != 0x4D415053) { // TsMap::MAGIC
+            return obj;  // Not a TsMap, return unchanged
+        }
+
+        TsMap* objMap = (TsMap*)objRaw;
+
+        // If proto is null/undefined, clear the prototype
+        if (!proto || ts_value_is_nullish(proto)) {
+            objMap->SetPrototype(nullptr);
+            return obj;
+        }
+
+        // Unbox proto if needed
+        void* protoRaw = ts_value_get_object(proto);
+        if (!protoRaw) protoRaw = proto;
+
+        // Check if proto is a TsMap
+        uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
+        if (protoMagic == 0x4D415053) { // TsMap::MAGIC
+            TsMap* protoMap = (TsMap*)protoRaw;
+
+            // Check for prototype chain cycles
+            if (objMap->WouldCreateCycle(protoMap)) {
+                // TypeError: Cyclic __proto__ value - just return obj unchanged
+                return obj;
+            }
+
+            objMap->SetPrototype(protoMap);
+        }
+
+        return obj;
     }
 
     // Object.freeze(obj) - freezes an object, preventing modifications
@@ -1850,6 +1888,46 @@ TsValue* ts_value_make_int(int64_t i) {
         desc->Set(configKey, trueVal);
 
         return ts_value_make_object(desc);
+    }
+
+    // Object.getOwnPropertyDescriptors(obj) - gets descriptors for all own properties
+    // Returns { prop1: descriptor1, prop2: descriptor2, ... }
+    TsValue* ts_object_getOwnPropertyDescriptors(TsValue* obj) {
+        // Create result object
+        TsMap* result = TsMap::Create();
+
+        if (!obj) return ts_value_make_object(result);
+
+        void* rawPtr = ts_value_get_object(obj);
+        if (!rawPtr) rawPtr = obj;
+
+        // Check if it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic != 0x4D415053) {
+            return ts_value_make_object(result);  // empty object for non-objects
+        }
+
+        TsMap* map = (TsMap*)rawPtr;
+
+        // Iterate over all own properties
+        TsArray* keys = (TsArray*)ts_map_keys(map);
+        if (!keys) return ts_value_make_object(result);
+
+        int64_t len = keys->Length();
+        for (int64_t i = 0; i < len; i++) {
+            int64_t keyRaw = keys->Get(i);
+            TsValue* keyVal = (TsValue*)keyRaw;
+
+            // Get the descriptor for this property
+            TsValue* descriptor = ts_object_getOwnPropertyDescriptor(obj, keyVal);
+
+            // Store descriptor in result with the property name as key
+            if (descriptor && keyVal) {
+                result->Set(*keyVal, *descriptor);
+            }
+        }
+
+        return ts_value_make_object(result);
     }
 
     // Object.assign(target, source) - copies properties from source to target
@@ -2412,7 +2490,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Use TsMap::Get which handles hashing correctly (by string content, not pointer address)
         TsMap* map = (TsMap*)rawObj;
 
-        // First check for a getter (__getter_<propertyName>)
+        // First check for a getter (__getter_<propertyName>) - walk prototype chain
         if (key->type == ValueType::STRING_PTR && key->ptr_val) {
             TsString* keyStr = (TsString*)key->ptr_val;
             const char* propName = keyStr->ToUtf8();
@@ -2421,18 +2499,34 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue gk;
                 gk.type = ValueType::STRING_PTR;
                 gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-                TsValue getterVal = map->Get(gk);
-                if (getterVal.type != ValueType::UNDEFINED) {
-                    // Found a getter - invoke it with 'this' as the object
-                    TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
-                    boxedObj->type = ValueType::OBJECT_PTR;
-                    boxedObj->ptr_val = rawObj;
-                    return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+
+                // Walk prototype chain for getter
+                TsMap* currentMap = map;
+                while (currentMap != nullptr) {
+                    TsValue getterVal = currentMap->Get(gk);
+                    if (getterVal.type != ValueType::UNDEFINED) {
+                        // Found a getter - invoke it with 'this' as the object
+                        TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
+                        boxedObj->type = ValueType::OBJECT_PTR;
+                        boxedObj->ptr_val = rawObj;
+                        return ts_function_call_with_this(&getterVal, boxedObj, 0, nullptr);
+                    }
+                    currentMap = currentMap->GetPrototype();
                 }
             }
         }
 
-        TsValue result = map->Get(*key);
+        // Walk prototype chain for property lookup
+        TsValue result;
+        result.type = ValueType::UNDEFINED;
+        TsMap* currentMap = map;
+        while (currentMap != nullptr) {
+            result = currentMap->Get(*key);
+            if (result.type != ValueType::UNDEFINED) {
+                break;  // Found the property
+            }
+            currentMap = currentMap->GetPrototype();
+        }
 
         if (result.type == ValueType::UNDEFINED) {
             // If not found in the map, check Object.prototype methods
@@ -2637,7 +2731,16 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
-            return map->Has(*key);
+
+            // Walk the prototype chain to check for the property
+            TsMap* currentMap = map;
+            while (currentMap != nullptr) {
+                if (currentMap->Has(*key)) {
+                    return true;
+                }
+                currentMap = currentMap->GetPrototype();
+            }
+            return false;
         }
 
         return false;
@@ -2752,6 +2855,11 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_getOwnPropertyDescriptor_native(void* context, int argc, TsValue** argv) {
         if (argc < 2) return ts_value_make_undefined();
         return ts_object_getOwnPropertyDescriptor(argv[0], argv[1]);
+    }
+
+    TsValue* ts_object_getOwnPropertyDescriptors_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_object(TsMap::Create());
+        return ts_object_getOwnPropertyDescriptors(argv[0]);
     }
 
     TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv) {
@@ -3052,6 +3160,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Object.getOwnPropertyDescriptor
         TsValue gopdKey; gopdKey.type = ValueType::STRING_PTR; gopdKey.ptr_val = TsString::Create("getOwnPropertyDescriptor");
         objectFunc->properties->Set(gopdKey, *ts_value_make_native_function((void*)ts_object_getOwnPropertyDescriptor_native, nullptr));
+
+        // Object.getOwnPropertyDescriptors (ES2017)
+        TsValue gopdsKey; gopdsKey.type = ValueType::STRING_PTR; gopdsKey.ptr_val = TsString::Create("getOwnPropertyDescriptors");
+        objectFunc->properties->Set(gopdsKey, *ts_value_make_native_function((void*)ts_object_getOwnPropertyDescriptors_native, nullptr));
 
         Object = objectConstructor;
 

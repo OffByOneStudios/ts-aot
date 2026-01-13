@@ -240,13 +240,13 @@ void TsMap::ForEach(void* callback, void* thisArg) {
 TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
     TsMap* dest = TsMap::Create();
     MapType* map = (MapType*)impl;
-    
+
     for (auto const& [key, val] : *map) {
         if (key.type != ValueType::STRING_PTR) {
             dest->Set(key, val);
             continue;
         }
-        
+
         TsString* sKey = (TsString*)key.ptr_val;
         bool found = false;
         for (auto ex : excluded) {
@@ -260,6 +260,19 @@ TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
         }
     }
     return dest;
+}
+
+bool TsMap::WouldCreateCycle(TsMap* proto) const {
+    // Check if setting 'proto' as our prototype would create a cycle
+    // Walk proto's prototype chain and see if we appear in it
+    TsMap* current = proto;
+    while (current != nullptr) {
+        if (current == this) {
+            return true;  // Would create a cycle
+        }
+        current = current->prototype;
+    }
+    return false;
 }
 
 extern "C" {
@@ -451,32 +464,55 @@ static TsValue __ts_value_from_scalars(uint8_t type, int64_t value) {
 }
 
 // Find bucket index for given key, or -1 if not found
+// Walks the prototype chain to find inherited properties
 // Returns: bucket index (>= 0) if found, -1 if not found
+// Also sets *out_map to the TsMap* where the key was found (needed for prototype chain)
 int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val) {
     if (!map) return -1;
-    
+
     // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
         // Not a TsMap - return not found
         return -1;
     }
-    
+
     TsMap* tsmap = (TsMap*)map;
-    MapType* impl = (MapType*)tsmap->impl;
-    
     TsValue key = __ts_value_from_scalars(key_type, key_val);
-    
-    auto it = impl->find(key);
-    if (it == impl->end()) {
-        return -1;
+
+    // Walk the prototype chain looking for the key
+    TsMap* currentMap = tsmap;
+    int depth = 0;
+    while (currentMap != nullptr) {
+        MapType* impl = (MapType*)currentMap->impl;
+        auto it = impl->find(key);
+        if (it != impl->end()) {
+            // Found it - encode the map pointer in the upper bits and bucket index in lower bits
+            // We use a trick: return (map_offset << 32) | bucket_idx
+            // where map_offset is the distance from original map to found map in prototype chain
+            int64_t bucketIdx = std::distance(impl->begin(), it);
+
+            // Calculate how far down the prototype chain we found it
+            int64_t protoDepth = 0;
+            TsMap* check = tsmap;
+            while (check != currentMap) {
+                protoDepth++;
+                check = check->GetPrototype();
+            }
+
+            // Pack protoDepth and bucketIdx: upper 16 bits = protoDepth, lower 48 bits = bucket
+            // This limits prototype chain depth to 65535 and bucket count to ~280 trillion
+            int64_t result = (protoDepth << 48) | (bucketIdx & 0xFFFFFFFFFFFFLL);
+            return result;
+        }
+        currentMap = currentMap->GetPrototype();
     }
-    
-    // Return bucket index (distance from begin)
-    return std::distance(impl->begin(), it);
+
+    return -1;
 }
 
 // Get value at bucket index via out-parameters
+// bucket_idx encodes prototype depth in upper 16 bits and actual bucket in lower 48 bits
 // Avoids returning TsValue struct (Windows x64 ABI issue)
 void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value) {
     if (!map || bucket_idx < 0) {
@@ -484,7 +520,7 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
         *out_value = 0;
         return;
     }
-    
+
     // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
@@ -492,19 +528,34 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
         *out_value = 0;
         return;
     }
-    
+
+    // Decode prototype depth and actual bucket index
+    int64_t protoDepth = (bucket_idx >> 48) & 0xFFFF;
+    int64_t actualBucketIdx = bucket_idx & 0xFFFFFFFFFFFFLL;
+
+    // Walk the prototype chain to find the right map
     TsMap* tsmap = (TsMap*)map;
-    MapType* impl = (MapType*)tsmap->impl;
-    
-    if (bucket_idx >= (int64_t)impl->size()) {
+    for (int64_t i = 0; i < protoDepth && tsmap; i++) {
+        tsmap = tsmap->GetPrototype();
+    }
+
+    if (!tsmap) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
         *out_value = 0;
         return;
     }
-    
+
+    MapType* impl = (MapType*)tsmap->impl;
+
+    if (actualBucketIdx >= (int64_t)impl->size()) {
+        *out_type = (uint8_t)ValueType::UNDEFINED;
+        *out_value = 0;
+        return;
+    }
+
     auto it = impl->begin();
-    std::advance(it, bucket_idx);
-    
+    std::advance(it, actualBucketIdx);
+
     *out_type = (uint8_t)it->second.type;
     *out_value = it->second.i_val;
 }

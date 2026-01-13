@@ -75,11 +75,25 @@ Analyzer::Analyzer() {
     symbols.define("Infinity", std::make_shared<Type>(TypeKind::Double));
     symbols.define("NaN", std::make_shared<Type>(TypeKind::Double));
 
-    // Register Symbol global
+    // Register Symbol global with all well-known symbols
     auto symbolType = std::make_shared<ObjectType>();
+
+    // Well-known symbols (ES2015)
     symbolType->fields["iterator"] = std::make_shared<Type>(TypeKind::Symbol);
     symbolType->fields["asyncIterator"] = std::make_shared<Type>(TypeKind::Symbol);
-    
+    symbolType->fields["hasInstance"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["isConcatSpreadable"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["match"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["matchAll"] = std::make_shared<Type>(TypeKind::Symbol);  // ES2020
+    symbolType->fields["replace"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["search"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["split"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["species"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["toPrimitive"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["toStringTag"] = std::make_shared<Type>(TypeKind::Symbol);
+    symbolType->fields["unscopables"] = std::make_shared<Type>(TypeKind::Symbol);
+
+    // Symbol.for() and Symbol.keyFor() methods
     auto symbolFor = std::make_shared<FunctionType>();
     symbolFor->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     symbolFor->returnType = std::make_shared<Type>(TypeKind::Symbol);
