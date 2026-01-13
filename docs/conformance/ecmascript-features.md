@@ -186,7 +186,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Generator functions | ✅ | Basic function* and yield work |
 | `yield` expression | ✅ | |
 | `yield*` delegation | ✅ | Works with generators and arrays |
-| Generator methods | ❌ | |
+| Generator methods | ✅ | *method() syntax works |
 
 ### Promises
 | Feature | Status | Notes |
@@ -458,7 +458,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 45 | 2 | 0 | 47 | 96% |
-| ES2015 | 97 | 14 | 1 | 112 | 87% |
+| ES2015 | 98 | 14 | 0 | 112 | 88% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 7 | 0 | 1 | 8 | 88% |
@@ -468,9 +468,9 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **197** | **16** | **17** | **230** | **86%** |
+| **TOTAL** | **198** | **16** | **16** | **230** | **86%** |
 
-**Overall ECMAScript Conformance: 197/230 features (86%)**
+**Overall ECMAScript Conformance: 198/230 features (86%)**
 
 ---
 
