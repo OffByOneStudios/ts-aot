@@ -745,6 +745,13 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 return ts_value_make_undefined();
             }
+            if (strcmp(keyStr, "groups") == 0) {
+                void* groups = match->GetGroups();
+                if (groups) {
+                    return ts_value_make_object(groups);
+                }
+                return ts_value_make_undefined();
+            }
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(match->Length());
             }
