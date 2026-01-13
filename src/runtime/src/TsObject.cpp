@@ -720,8 +720,39 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "sticky") == 0) {
                 return ts_value_make_bool(re->IsSticky());
             }
+            if (strcmp(keyStr, "hasIndices") == 0) {
+                return ts_value_make_bool(re->HasIndices());
+            }
             if (strcmp(keyStr, "lastIndex") == 0) {
                 return ts_value_make_int(re->GetLastIndex());
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Check for TsRegExpMatchArray (magic at offset 0) - RegExp.exec() result
+        if (magic0 == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            TsRegExpMatchArray* match = (TsRegExpMatchArray*)obj;
+            if (strcmp(keyStr, "index") == 0) {
+                return ts_value_make_int(match->GetMatchIndex());
+            }
+            if (strcmp(keyStr, "input") == 0) {
+                return ts_value_make_string(match->GetInput());
+            }
+            if (strcmp(keyStr, "indices") == 0) {
+                TsArray* indices = match->GetIndices();
+                if (indices) {
+                    return ts_value_make_object(indices);
+                }
+                return ts_value_make_undefined();
+            }
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(match->Length());
+            }
+            // Check for numeric index - delegate to underlying matches array
+            char* endptr;
+            long index = strtol(keyStr, &endptr, 10);
+            if (*endptr == '\0' && index >= 0 && index < match->Length()) {
+                return (TsValue*)match->Get((size_t)index);
             }
             return ts_value_make_undefined();
         }

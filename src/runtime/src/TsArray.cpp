@@ -1,6 +1,7 @@
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsMap.h"
+#include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "GC.h"
 #include <cstring>
@@ -717,6 +718,11 @@ extern "C" {
 
     bool ts_array_is_specialized(void* arr) {
         if (!arr) return false;
+        // Check magic - TsRegExpMatchArray is never specialized
+        uint32_t magic = *(uint32_t*)arr;
+        if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            return false;
+        }
         return ((TsArray*)arr)->IsSpecialized();
     }
 
@@ -738,11 +744,18 @@ extern "C" {
 
     TsValue* ts_array_get_as_value(void* arr, int64_t index) {
         if (!arr) {
-            // printf("ts_array_get_as_value: arr is null\n");
             return ts_value_make_undefined();
         }
+        // Check magic to handle TsRegExpMatchArray
+        uint32_t magic = *(uint32_t*)arr;
+        if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            TsRegExpMatchArray* match = (TsRegExpMatchArray*)arr;
+            if (index < 0 || index >= match->Length()) {
+                return ts_value_make_undefined();
+            }
+            return (TsValue*)match->Get((size_t)index);
+        }
         TsArray* array = (TsArray*)arr;
-        // printf("ts_array_get_as_value: arr=%p, index=%lld\n", arr, index);
         if (index < 0 || index >= array->Length()) {
              return ts_value_make_undefined();
         }
@@ -822,6 +835,12 @@ extern "C" {
     }
 
     int64_t ts_array_length(void* arr) {
+        if (!arr) return 0;
+        // Check magic to handle TsRegExpMatchArray
+        uint32_t magic = *(uint32_t*)arr;
+        if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            return ((TsRegExpMatchArray*)arr)->Length();
+        }
         return ((TsArray*)arr)->Length();
     }
 
@@ -1146,16 +1165,38 @@ extern "C" {
             *out_value = 0;
             return;
         }
-        
+
+        // Check for TsRegExpMatchArray (stores boxed TsValue* like non-specialized TsArray)
+        uint32_t magic = *(uint32_t*)arr;
+        if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            TsRegExpMatchArray* match = (TsRegExpMatchArray*)arr;
+            if (index >= match->Length()) {
+                *out_type = (uint8_t)ValueType::UNDEFINED;
+                *out_value = 0;
+                return;
+            }
+            // Elements are boxed TsValue* pointers
+            int64_t raw_val = ((int64_t*)match->GetElementsPtr())[index];
+            if (raw_val == 0) {
+                *out_type = (uint8_t)ValueType::UNDEFINED;
+                *out_value = 0;
+                return;
+            }
+            TsValue* stored = (TsValue*)raw_val;
+            *out_type = (uint8_t)stored->type;
+            *out_value = stored->i_val;
+            return;
+        }
+
         TsArray* array = (TsArray*)arr;
         if (index >= array->Length()) {
             *out_type = (uint8_t)ValueType::UNDEFINED;
             *out_value = 0;
             return;
         }
-        
+
         int64_t raw_val = array->GetUnchecked(index);
-        
+
         // For specialized arrays, return the raw value directly
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
@@ -1166,7 +1207,7 @@ extern "C" {
             *out_value = raw_val;
             return;
         }
-        
+
         // For non-specialized arrays, the stored value is a TsValue* pointer
         // We need to dereference it to get the actual type and value
         if (raw_val == 0) {
@@ -1174,7 +1215,7 @@ extern "C" {
             *out_value = 0;
             return;
         }
-        
+
         TsValue* stored = (TsValue*)raw_val;
         *out_type = (uint8_t)stored->type;
         *out_value = stored->i_val;  // Union - works for any type

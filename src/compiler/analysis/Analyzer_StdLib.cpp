@@ -427,18 +427,27 @@ Analyzer::Analyzer() {
     
     symbols.defineType("Date", dateClass);
 
+    // Register RegExpMatchArray - result type of RegExp.exec()
+    auto regexpMatchArrayClass = std::make_shared<ClassType>("RegExpMatchArray");
+    regexpMatchArrayClass->fields["index"] = std::make_shared<Type>(TypeKind::Int);
+    regexpMatchArrayClass->fields["input"] = std::make_shared<Type>(TypeKind::String);
+    regexpMatchArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    // indices is an array of [start, end] tuples (or undefined for non-participating groups)
+    auto indicesElementType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
+    regexpMatchArrayClass->fields["indices"] = std::make_shared<ArrayType>(indicesElementType);
+    symbols.defineType("RegExpMatchArray", regexpMatchArrayClass);
+
     // Register RegExp class
     auto regexpClass = std::make_shared<ClassType>("RegExp");
-    
+
     auto testType = std::make_shared<FunctionType>();
     testType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     testType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     regexpClass->methods["test"] = testType;
-    
+
     auto execType = std::make_shared<FunctionType>();
     execType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    auto stringArray = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
-    execType->returnType = stringArray; // For now, just say it returns String[]
+    execType->returnType = regexpMatchArrayClass;  // Returns RegExpMatchArray (or null)
     regexpClass->methods["exec"] = execType;
 
     regexpClass->fields["lastIndex"] = std::make_shared<Type>(TypeKind::Int);
@@ -448,7 +457,8 @@ Analyzer::Analyzer() {
     regexpClass->fields["ignoreCase"] = std::make_shared<Type>(TypeKind::Boolean);
     regexpClass->fields["multiline"] = std::make_shared<Type>(TypeKind::Boolean);
     regexpClass->fields["sticky"] = std::make_shared<Type>(TypeKind::Boolean);
-    
+    regexpClass->fields["hasIndices"] = std::make_shared<Type>(TypeKind::Boolean);  // ES2022 d flag
+
     symbols.defineType("RegExp", regexpClass);
 
     // Register Error class

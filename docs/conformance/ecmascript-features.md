@@ -417,7 +417,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Array.prototype.at()` | ✅ | |
 | `String.prototype.at()` | ✅ | Supports negative indices |
 | `Object.hasOwn()` | ✅ | |
-| RegExp match indices (`d` flag) | ❌ | |
+| RegExp match indices (`d` flag) | ✅ | hasIndices property and exec() indices array |
 | Error `.cause` property | ✅ | Error constructor options and cause property |
 
 ---
@@ -465,12 +465,12 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
 | ES2020 | 7 | 0 | 3 | 10 | 70% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
-| ES2022 | 8 | 0 | 2 | 10 | 80% |
+| ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **195** | **17** | **18** | **230** | **85%** |
+| **TOTAL** | **196** | **17** | **17** | **230** | **85%** |
 
-**Overall ECMAScript Conformance: 195/230 features (85%)**
+**Overall ECMAScript Conformance: 196/230 features (85%)**
 
 ---
 
