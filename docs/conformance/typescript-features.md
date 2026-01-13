@@ -198,7 +198,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `typeof` guards | ✅ | |
 | Truthiness narrowing | ✅ | |
 | Equality narrowing | ✅ | |
-| `in` operator narrowing | ⚠️ | |
+| `in` operator narrowing | ✅ | Object property checks work |
 | `instanceof` narrowing | ⚠️ | |
 | Control flow analysis | ⚠️ | Basic |
 | Type predicates (`is`) | ❌ | |
@@ -312,7 +312,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Modules | 7 | 1 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 4 | 0 | 3 | 0 |
-| Type Narrowing | 3 | 3 | 4 | 0 |
+| Type Narrowing | 4 | 2 | 4 | 0 |
 | Union/Intersection | 0 | 2 | 2 | 0 |
 | Literal Types | 0 | 0 | 1 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **73** | **16** | **51** | **34** |
+| **TOTAL** | **74** | **15** | **51** | **34** |
 
-**Conformance: 73/140 runtime features (52%)**
+**Conformance: 74/140 runtime features (53%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
