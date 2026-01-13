@@ -100,7 +100,16 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
     
     visit(node->argumentExpression.get());
     auto indexType = lastType;
-    
+
+    // Handle enum reverse mapping: Color[0] -> "Red"
+    if (objType->kind == TypeKind::Enum) {
+        // Numeric index on enum returns the member name (string)
+        // This is TypeScript's reverse mapping feature for numeric enums
+        lastType = std::make_shared<Type>(TypeKind::String);
+        node->inferredType = lastType;
+        return;
+    }
+
     if (objType->kind == TypeKind::Tuple) {
         auto tupleType = std::static_pointer_cast<TupleType>(objType);
         if (auto lit = dynamic_cast<NumericLiteral*>(node->argumentExpression.get())) {
@@ -560,8 +569,14 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
     if (objType->kind == TypeKind::Enum) {
         auto enumType = std::static_pointer_cast<EnumType>(objType);
-        if (enumType->members.count(node->name)) {
-            lastType = std::make_shared<Type>(TypeKind::Int);
+        auto it = enumType->members.find(node->name);
+        if (it != enumType->members.end()) {
+            // Return String type for string enum members, Int for numeric
+            if (std::holds_alternative<std::string>(it->second)) {
+                lastType = std::make_shared<Type>(TypeKind::String);
+            } else {
+                lastType = std::make_shared<Type>(TypeKind::Int);
+            }
             return;
         }
         reportError("Unknown property " + node->name + " on enum " + enumType->name);

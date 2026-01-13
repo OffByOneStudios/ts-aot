@@ -346,9 +346,12 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         
         // Skip runtime functions and other ts_ symbols
         if (name.find("ts_") == 0) continue;
-        
+
         // Skip interfaces (they don't have runtime representation)
         if (symbol->type->kind == TypeKind::Interface) continue;
+
+        // Skip enums (values are resolved at compile-time)
+        if (symbol->type->kind == TypeKind::Enum) continue;
 
         llvm::Type* type = getLLVMType(symbol->type);
         

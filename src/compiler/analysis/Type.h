@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <variant>
 #include "../ast/AccessModifier.h"
 
 namespace ast {
@@ -263,11 +264,22 @@ struct IntersectionType : public Type {
     }
 };
 
+// Enum member value can be either int or string
+using EnumMemberValue = std::variant<int, std::string>;
+
 struct EnumType : Type {
     std::string name;
-    std::map<std::string, int> members;
+    std::map<std::string, EnumMemberValue> members;
     EnumType(const std::string& n) : Type(TypeKind::Enum), name(n) {}
     std::string toString() const override { return "enum " + name; }
+
+    // Helper to check if enum has any string values
+    bool hasStringMembers() const {
+        for (const auto& [key, val] : members) {
+            if (std::holds_alternative<std::string>(val)) return true;
+        }
+        return false;
+    }
 };
 
 struct TupleType : Type {
