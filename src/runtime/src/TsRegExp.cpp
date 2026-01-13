@@ -4,6 +4,7 @@
 #include "TsRuntime.h"
 #include <unicode/unistr.h>
 #include <unicode/regex.h>
+#include <regex>
 
 extern "C" void* ts_alloc(size_t size);
 
@@ -34,6 +35,72 @@ TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
     return new(mem) TsRegExp(pattern, flags);
 }
 
+// Parse pattern to extract named capture groups (?<name>...)
+// Returns a vector of (name, groupNumber) pairs
+void TsRegExp::parseNamedGroups() {
+    std::string patternUtf8;
+    patternStr.toUTF8String(patternUtf8);
+
+    // Track group numbers - named and unnamed groups are numbered in order of opening paren
+    int32_t groupNumber = 0;
+    size_t i = 0;
+
+    while (i < patternUtf8.size()) {
+        // Skip escaped characters
+        if (patternUtf8[i] == '\\' && i + 1 < patternUtf8.size()) {
+            i += 2;
+            continue;
+        }
+
+        // Skip character classes
+        if (patternUtf8[i] == '[') {
+            i++;
+            while (i < patternUtf8.size()) {
+                if (patternUtf8[i] == '\\' && i + 1 < patternUtf8.size()) {
+                    i += 2;
+                    continue;
+                }
+                if (patternUtf8[i] == ']') {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Check for groups
+        if (patternUtf8[i] == '(' && i + 1 < patternUtf8.size()) {
+            if (patternUtf8[i + 1] == '?') {
+                // Non-capturing group or special construct
+                if (i + 2 < patternUtf8.size() && patternUtf8[i + 2] == '<') {
+                    // Could be named group (?<name>...) or lookbehind (?<!...) or (?<=...)
+                    if (i + 3 < patternUtf8.size() && patternUtf8[i + 3] != '=' && patternUtf8[i + 3] != '!') {
+                        // Named group: extract name
+                        groupNumber++;
+                        size_t nameStart = i + 3;
+                        size_t nameEnd = patternUtf8.find('>', nameStart);
+                        if (nameEnd != std::string::npos) {
+                            std::string name = patternUtf8.substr(nameStart, nameEnd - nameStart);
+                            namedGroups.push_back({name, groupNumber});
+                            i = nameEnd + 1;
+                            continue;
+                        }
+                    }
+                }
+                // Other non-capturing constructs: (?:...), (?=...), (?!...), (?<=...), (?<!...)
+                // These don't create capturing groups
+                i += 2;
+                continue;
+            } else {
+                // Regular capturing group
+                groupNumber++;
+            }
+        }
+        i++;
+    }
+}
+
 TsRegExp::TsRegExp(const char* pattern, const char* flags) {
     UErrorCode status = U_ZERO_ERROR;
     patternStr = icu::UnicodeString::fromUTF8(pattern);
@@ -60,6 +127,9 @@ TsRegExp::TsRegExp(const char* pattern, const char* flags) {
     }
 
     matcher = new icu::RegexMatcher(patternStr, icuFlags, status);
+
+    // Parse pattern to extract named capture groups
+    parseNamedGroups();
 }
 
 TsRegExp::~TsRegExp() {
@@ -158,6 +228,40 @@ void* TsRegExp::Exec(TsString* str) {
             }
 
             result->SetIndices(indices);
+        }
+
+        // Build groups object if pattern has named capture groups
+        if (!namedGroups.empty()) {
+            TsMap* groups = TsMap::Create();
+
+            for (const auto& [name, groupNum] : namedGroups) {
+                TsString* nameStr = TsString::Create(name.c_str());
+                int32_t groupStart = matcher->start(groupNum, status);
+
+                // Create key as proper TsValue with STRING_PTR type
+                TsValue keyVal;
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = nameStr;
+
+                if (groupStart == -1) {
+                    // Group did not participate in match
+                    TsValue undefinedVal;
+                    undefinedVal.type = ValueType::UNDEFINED;
+                    undefinedVal.ptr_val = nullptr;
+                    groups->Set(keyVal, undefinedVal);
+                } else {
+                    icu::UnicodeString groupValue = matcher->group(groupNum, status);
+                    std::string utf8;
+                    groupValue.toUTF8String(utf8);
+
+                    TsValue stringVal;
+                    stringVal.type = ValueType::STRING_PTR;
+                    stringVal.ptr_val = TsString::Create(utf8.c_str());
+                    groups->Set(keyVal, stringVal);
+                }
+            }
+
+            result->SetGroups(groups);
         }
 
         if (global || sticky) {

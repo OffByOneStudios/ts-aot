@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <unicode/regex.h>
 #include "TsString.h"
 
@@ -23,6 +25,8 @@ public:
     TsString* GetInput() const { return input; }
     TsArray* GetIndices() const { return indices; }
     void SetIndices(TsArray* ind) { indices = ind; }
+    void* GetGroups() const { return groups; }
+    void SetGroups(void* g) { groups = g; }
 
 private:
     TsRegExpMatchArray(TsArray* source, int64_t matchIndex, TsString* input);
@@ -41,6 +45,7 @@ private:
     int64_t matchIndex = 0;      // Index of match in input string
     TsString* input = nullptr;   // Original input string
     TsArray* indices = nullptr;  // Array of [start, end] pairs when d flag used
+    void* groups = nullptr;      // Object mapping named capture group names to values
 };
 
 class TsRegExp {
@@ -63,7 +68,12 @@ public:
     bool HasIndices() const { return hasIndices; }
     void* GetMatcher() const { return matcher; }
 
+    // Named capture groups support
+    bool HasNamedGroups() const { return !namedGroups.empty(); }
+    const std::vector<std::pair<std::string, int32_t>>& GetNamedGroups() const { return namedGroups; }
+
 private:
+    void parseNamedGroups();
     TsRegExp(const char* pattern, const char* flags);
     ~TsRegExp();
 
@@ -77,6 +87,7 @@ private:
     bool ignoreCase = false;
     bool multiline = false;
     bool hasIndices = false;
+    std::vector<std::pair<std::string, int32_t>> namedGroups;  // name -> group number
 };
 
 extern "C" {
