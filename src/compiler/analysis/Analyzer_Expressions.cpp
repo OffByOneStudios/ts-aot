@@ -667,8 +667,14 @@ void Analyzer::visitPropertyAccessExpression(PropertyAccessExpression* node) {
 
     if (objType->kind == TypeKind::Enum) {
         auto enumType = std::static_pointer_cast<EnumType>(objType);
-        if (enumType->members.count(node->name)) {
-            lastType = std::make_shared<Type>(TypeKind::Int);
+        auto it = enumType->members.find(node->name);
+        if (it != enumType->members.end()) {
+            // Return String type for string enum members, Int for numeric
+            if (std::holds_alternative<std::string>(it->second)) {
+                lastType = std::make_shared<Type>(TypeKind::String);
+            } else {
+                lastType = std::make_shared<Type>(TypeKind::Int);
+            }
             return;
         }
         reportError("Unknown property " + node->name + " on enum " + enumType->name);

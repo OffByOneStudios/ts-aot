@@ -85,9 +85,19 @@ void Analyzer::visitProgram(ast::Program* node) {
                 if (member.initializer) {
                     if (auto num = dynamic_cast<ast::NumericLiteral*>(member.initializer.get())) {
                         nextValue = (int)num->value;
+                        enumType->members[member.name] = nextValue++;
+                    } else if (auto str = dynamic_cast<ast::StringLiteral*>(member.initializer.get())) {
+                        // String enum member
+                        enumType->members[member.name] = str->value;
+                        // String members don't affect nextValue
+                    } else {
+                        // Unknown initializer, use numeric
+                        enumType->members[member.name] = nextValue++;
                     }
+                } else {
+                    // No initializer - use auto-incremented numeric value
+                    enumType->members[member.name] = nextValue++;
                 }
-                enumType->members[member.name] = nextValue++;
             }
             symbols.define(enm->name, enumType);
             symbols.defineType(enm->name, enumType);
