@@ -20,8 +20,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `number` | ✅ | |
 | `string` | ✅ | |
 | `array` (T[] and Array<T>) | ✅ | |
-| `tuple` | ⚠️ | Basic works, rest elements missing |
-| `enum` | ❌ | |
+| `tuple` | ✅ | Basic, rest elements, and optional elements |
+| `enum` | ✅ | Numeric, string, and heterogeneous enums |
 | `unknown` | 🔬 | Type-only |
 | `any` | ✅ | Compiles to boxed TsValue |
 | `void` | ✅ | |
@@ -183,13 +183,13 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Numeric enums | ❌ | |
-| String enums | ❌ | |
-| Heterogeneous enums | ❌ | |
+| Numeric enums | ✅ | Auto-increment and explicit values |
+| String enums | ✅ | |
+| Heterogeneous enums | ✅ | Mixed numeric and string values |
 | Computed members | ❌ | |
 | `const` enums | ❌ | |
 | Ambient enums | ❌ | |
-| Reverse mappings | ❌ | |
+| Reverse mappings | ✅ | `Color[0]` returns member name |
 
 ## 13. Type Narrowing
 
@@ -300,7 +300,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Category | Implemented | Partial | Not Implemented | Type-Only |
 |----------|-------------|---------|-----------------|-----------|
-| Basic Types | 11 | 2 | 1 | 2 |
+| Basic Types | 13 | 1 | 0 | 2 |
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
@@ -311,7 +311,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 7 | 1 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
-| Enums | 0 | 0 | 7 | 0 |
+| Enums | 4 | 0 | 3 | 0 |
 | Type Narrowing | 3 | 3 | 4 | 0 |
 | Union/Intersection | 0 | 2 | 2 | 0 |
 | Literal Types | 0 | 0 | 1 | 3 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **67** | **17** | **56** | **34** |
+| **TOTAL** | **73** | **16** | **51** | **34** |
 
-**Conformance: 67/140 runtime features (48%)**
+**Conformance: 73/140 runtime features (52%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
