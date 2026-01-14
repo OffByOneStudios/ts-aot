@@ -289,45 +289,45 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Promises API
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `fs.promises.access()` | ❌ | |
-| `fs.promises.appendFile()` | ❌ | |
-| `fs.promises.chmod()` | ❌ | |
-| `fs.promises.chown()` | ❌ | |
-| `fs.promises.copyFile()` | ❌ | |
+| `fs.promises.access()` | ✅ | |
+| `fs.promises.appendFile()` | ✅ | |
+| `fs.promises.chmod()` | ✅ | |
+| `fs.promises.chown()` | ✅ | |
+| `fs.promises.copyFile()` | ✅ | |
 | `fs.promises.cp()` | ❌ | |
 | `fs.promises.lchmod()` | ❌ | |
 | `fs.promises.lchown()` | ❌ | |
-| `fs.promises.link()` | ❌ | |
-| `fs.promises.lstat()` | ❌ | |
+| `fs.promises.link()` | ✅ | |
+| `fs.promises.lstat()` | ✅ | |
 | `fs.promises.lutimes()` | ❌ | |
 | `fs.promises.mkdir()` | ✅ | |
-| `fs.promises.mkdtemp()` | ❌ | |
-| `fs.promises.open()` | ❌ | |
-| `fs.promises.opendir()` | ❌ | |
+| `fs.promises.mkdtemp()` | ✅ | |
+| `fs.promises.open()` | ✅ | |
+| `fs.promises.opendir()` | ✅ | |
 | `fs.promises.readdir()` | ✅ | |
 | `fs.promises.readFile()` | ✅ | |
-| `fs.promises.readlink()` | ❌ | |
-| `fs.promises.realpath()` | ❌ | |
-| `fs.promises.rename()` | ❌ | |
-| `fs.promises.rm()` | ❌ | |
-| `fs.promises.rmdir()` | ❌ | |
+| `fs.promises.readlink()` | ✅ | |
+| `fs.promises.realpath()` | ✅ | |
+| `fs.promises.rename()` | ✅ | |
+| `fs.promises.rm()` | ✅ | |
+| `fs.promises.rmdir()` | ✅ | |
 | `fs.promises.stat()` | ✅ | |
-| `fs.promises.symlink()` | ❌ | |
-| `fs.promises.truncate()` | ❌ | |
+| `fs.promises.symlink()` | ✅ | |
+| `fs.promises.truncate()` | ✅ | |
 | `fs.promises.unlink()` | ✅ | |
-| `fs.promises.utimes()` | ❌ | |
+| `fs.promises.utimes()` | ✅ | |
 | `fs.promises.watch()` | ❌ | |
 | `fs.promises.writeFile()` | ✅ | |
 
 ### Synchronous API
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `fs.accessSync()` | ❌ | |
-| `fs.appendFileSync()` | ❌ | |
-| `fs.chmodSync()` | ❌ | |
-| `fs.chownSync()` | ❌ | |
+| `fs.accessSync()` | ✅ | |
+| `fs.appendFileSync()` | ✅ | |
+| `fs.chmodSync()` | ✅ | |
+| `fs.chownSync()` | ✅ | |
 | `fs.closeSync()` | ✅ | |
-| `fs.copyFileSync()` | ❌ | |
+| `fs.copyFileSync()` | ✅ | |
 | `fs.cpSync()` | ❌ | |
 | `fs.existsSync()` | ✅ | |
 | `fs.fchmodSync()` | ❌ | |
@@ -339,38 +339,38 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.futimesSync()` | ❌ | |
 | `fs.lchmodSync()` | ❌ | |
 | `fs.lchownSync()` | ❌ | |
-| `fs.linkSync()` | ❌ | |
-| `fs.lstatSync()` | ❌ | |
+| `fs.linkSync()` | ✅ | |
+| `fs.lstatSync()` | ✅ | |
 | `fs.lutimesSync()` | ❌ | |
 | `fs.mkdirSync()` | ✅ | |
-| `fs.mkdtempSync()` | ❌ | |
+| `fs.mkdtempSync()` | ✅ | |
 | `fs.openSync()` | ✅ | |
-| `fs.opendirSync()` | ❌ | |
+| `fs.opendirSync()` | ✅ | |
 | `fs.readSync()` | ✅ | |
 | `fs.readdirSync()` | ✅ | |
 | `fs.readFileSync()` | ✅ | |
-| `fs.readlinkSync()` | ❌ | |
-| `fs.realpathSync()` | ❌ | |
-| `fs.renameSync()` | ❌ | |
-| `fs.rmdirSync()` | ❌ | |
-| `fs.rmSync()` | ❌ | |
+| `fs.readlinkSync()` | ✅ | |
+| `fs.realpathSync()` | ✅ | |
+| `fs.renameSync()` | ✅ | |
+| `fs.rmdirSync()` | ✅ | |
+| `fs.rmSync()` | ✅ | |
 | `fs.statSync()` | ✅ | |
-| `fs.symlinkSync()` | ❌ | |
-| `fs.truncateSync()` | ❌ | |
+| `fs.symlinkSync()` | ✅ | |
+| `fs.truncateSync()` | ✅ | |
 | `fs.unlinkSync()` | ✅ | |
-| `fs.utimesSync()` | ❌ | |
+| `fs.utimesSync()` | ✅ | |
 | `fs.writeSync()` | ✅ | |
 | `fs.writeFileSync()` | ✅ | |
 
 ### Callback API
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `fs.access()` | ❌ | |
-| `fs.appendFile()` | ❌ | |
-| `fs.chmod()` | ❌ | |
-| `fs.chown()` | ❌ | |
+| `fs.access()` | ✅ | Via promises |
+| `fs.appendFile()` | ✅ | Via promises |
+| `fs.chmod()` | ✅ | Via promises |
+| `fs.chown()` | ✅ | Via promises |
 | `fs.close()` | ✅ | |
-| `fs.copyFile()` | ❌ | |
+| `fs.copyFile()` | ✅ | Via promises |
 | `fs.cp()` | ❌ | |
 | `fs.exists()` | ❌ | Deprecated |
 | `fs.fchmod()` | ❌ | |
@@ -382,27 +382,27 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.futimes()` | ❌ | |
 | `fs.lchmod()` | ❌ | |
 | `fs.lchown()` | ❌ | |
-| `fs.link()` | ❌ | |
-| `fs.lstat()` | ❌ | |
+| `fs.link()` | ✅ | Via promises |
+| `fs.lstat()` | ✅ | Via promises |
 | `fs.lutimes()` | ❌ | |
 | `fs.mkdir()` | ✅ | |
-| `fs.mkdtemp()` | ❌ | |
+| `fs.mkdtemp()` | ✅ | Via promises |
 | `fs.open()` | ✅ | |
-| `fs.opendir()` | ❌ | |
+| `fs.opendir()` | ✅ | Via promises |
 | `fs.read()` | ✅ | |
 | `fs.readdir()` | ✅ | |
 | `fs.readFile()` | ✅ | |
-| `fs.readlink()` | ❌ | |
-| `fs.realpath()` | ❌ | |
-| `fs.rename()` | ❌ | |
-| `fs.rm()` | ❌ | |
-| `fs.rmdir()` | ❌ | |
+| `fs.readlink()` | ✅ | Via promises |
+| `fs.realpath()` | ✅ | Via promises |
+| `fs.rename()` | ✅ | Via promises |
+| `fs.rm()` | ✅ | Via promises |
+| `fs.rmdir()` | ✅ | Via promises |
 | `fs.stat()` | ✅ | |
-| `fs.symlink()` | ❌ | |
-| `fs.truncate()` | ❌ | |
+| `fs.symlink()` | ✅ | Via promises |
+| `fs.truncate()` | ✅ | Via promises |
 | `fs.unlink()` | ✅ | |
 | `fs.unwatchFile()` | ❌ | |
-| `fs.utimes()` | ❌ | |
+| `fs.utimes()` | ✅ | Via promises |
 | `fs.watch()` | ❌ | |
 | `fs.watchFile()` | ❌ | |
 | `fs.write()` | ✅ | |
@@ -429,7 +429,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stats.atime` | ⚠️ | Returns number |
 | `stats.ctime` | ⚠️ | Returns number |
 
-**File System Coverage: 32/112 (29%)**
+**File System Coverage: 89/123 (72%)**
 
 ---
 
@@ -997,7 +997,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Console | 13 | 19 | 68% |
 | Crypto | 1 | 28 | 4% |
 | Events | 14 | 21 | 67% |
-| File System | 32 | 112 | 29% |
+| File System | 89 | 123 | 72% |
 | HTTP | 25 | 68 | 37% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 13 | 36 | 36% |
@@ -1010,7 +1010,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **258** | **636** | **41%** |
+| **Total** | **315** | **647** | **49%** |
 
 ### Priority Implementation Targets
 
@@ -1018,7 +1018,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 - ✅ `console.error()`, `console.warn()` - Basic logging (implemented)
 - ✅ `process.stdout`, `process.stderr` - Stream-based output (implemented)
 - ✅ `path.parse()`, `path.format()` - Path manipulation (implemented)
-- `fs.rename*()`, `fs.copy*()` - File operations
+- ✅ `fs.rename*()`, `fs.copy*()` - File operations (implemented)
 - ✅ `URLSearchParams` - Query string handling (implemented)
 
 #### High (Common use cases)
