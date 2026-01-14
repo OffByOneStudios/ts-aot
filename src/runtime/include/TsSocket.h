@@ -55,12 +55,23 @@ public:
     bool IsPending() const { return connecting_; }
     const char* GetReadyState() const;
 
+    // Socket configuration methods
+    void SetTimeout(int msecs, void* callback);
+    void SetNoDelay(bool noDelay);
+    void SetKeepAlive(bool enable, int initialDelay);
+
+    // Returns { address, family, port } object
+    void* Address();
+
 protected:
     uv_tcp_t* handle;
     bool connected;
     bool connecting_ = false;
     size_t bytesRead_ = 0;
     size_t bytesWritten_ = 0;
+    int timeout_ = 0;
+    void* timeoutCallback_ = nullptr;
+    uv_timer_t* timeoutTimer_ = nullptr;
 
     virtual void OnConnected();
     virtual void HandleRead(ssize_t nread, const uv_buf_t* buf);
@@ -94,6 +105,12 @@ extern "C" {
     bool ts_net_socket_get_destroyed(void* socket);
     bool ts_net_socket_get_pending(void* socket);
     void* ts_net_socket_get_ready_state(void* socket);
+
+    // Socket configuration methods
+    void* ts_net_socket_set_timeout(void* socket, void* msecs, void* callback);
+    void* ts_net_socket_set_no_delay(void* socket, void* noDelay);
+    void* ts_net_socket_set_keep_alive(void* socket, void* enable, void* initialDelay);
+    void* ts_net_socket_address(void* socket);
     
     // net module utilities
     int64_t ts_net_is_ip(void* input);

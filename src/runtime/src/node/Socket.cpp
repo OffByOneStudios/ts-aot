@@ -3,6 +3,7 @@
 #include "TsBuffer.h"
 #include "TsRuntime.h"
 #include "TsArray.h"
+#include "TsMap.h"
 #include "GC.h"
 #include <string.h>
 #include <stdlib.h>
@@ -353,6 +354,84 @@ const char* TsSocket::GetReadyState() const {
     return "closed";
 }
 
+void TsSocket::SetTimeout(int msecs, void* callback) {
+    timeout_ = msecs;
+    timeoutCallback_ = callback;
+
+    // Clean up existing timer
+    if (timeoutTimer_) {
+        uv_timer_stop(timeoutTimer_);
+    }
+
+    if (msecs == 0) {
+        // Disable timeout
+        if (timeoutTimer_) {
+            uv_close((uv_handle_t*)timeoutTimer_, nullptr);
+            timeoutTimer_ = nullptr;
+        }
+        return;
+    }
+
+    // Create timer if needed
+    if (!timeoutTimer_) {
+        timeoutTimer_ = (uv_timer_t*)ts_alloc(sizeof(uv_timer_t));
+        uv_timer_init(uv_default_loop(), timeoutTimer_);
+        timeoutTimer_->data = this;
+    }
+
+    // Start the timeout timer
+    uv_timer_start(timeoutTimer_, [](uv_timer_t* timer) {
+        TsSocket* self = (TsSocket*)timer->data;
+        self->Emit("timeout", 0, nullptr);
+    }, msecs, 0);
+}
+
+void TsSocket::SetNoDelay(bool noDelay) {
+    if (handle) {
+        uv_tcp_nodelay(handle, noDelay ? 1 : 0);
+    }
+}
+
+void TsSocket::SetKeepAlive(bool enable, int initialDelay) {
+    if (handle) {
+        uv_tcp_keepalive(handle, enable ? 1 : 0, initialDelay);
+    }
+}
+
+void* TsSocket::Address() {
+    if (closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    TsMap* obj = TsMap::Create();
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        char ipStr[INET_ADDRSTRLEN];
+        uv_inet_ntop(AF_INET, &addr4->sin_addr, ipStr, sizeof(ipStr));
+
+        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv4")));
+        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr4->sin_port)));
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        char ipStr[INET6_ADDRSTRLEN];
+        uv_inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
+
+        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv6")));
+        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr6->sin6_port)));
+    } else {
+        return nullptr;
+    }
+
+    return obj;
+}
+
 extern "C" {
     void* ts_net_create_socket() {
         void* mem = ts_alloc(sizeof(TsSocket));
@@ -470,6 +549,61 @@ extern "C" {
         if (!s) return TsString::Create("closed");
         const char* state = s->GetReadyState();
         return TsString::Create(state);
+    }
+
+    // Socket configuration methods - return socket for chaining
+    void* ts_net_socket_set_timeout(void* socket, void* msecs, void* callback) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return socket;
+        TsValue* m = (TsValue*)msecs;
+        int ms = m ? (int)m->i_val : 0;
+        s->SetTimeout(ms, callback);
+        return socket;
+    }
+
+    void* ts_net_socket_set_no_delay(void* socket, void* noDelay) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return socket;
+        // Default to true if no argument or truthy
+        bool nd = true;
+        if (noDelay) {
+            TsValue* v = (TsValue*)noDelay;
+            if (v->type == ValueType::BOOLEAN) {
+                nd = v->b_val;
+            } else if (v->type == ValueType::NUMBER_INT) {
+                nd = v->i_val != 0;
+            }
+        }
+        s->SetNoDelay(nd);
+        return socket;
+    }
+
+    void* ts_net_socket_set_keep_alive(void* socket, void* enable, void* initialDelay) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return socket;
+        // Default enable to true if argument missing
+        bool en = true;
+        if (enable) {
+            TsValue* v = (TsValue*)enable;
+            if (v->type == ValueType::BOOLEAN) {
+                en = v->b_val;
+            } else if (v->type == ValueType::NUMBER_INT) {
+                en = v->i_val != 0;
+            }
+        }
+        int delay = 0;
+        if (initialDelay) {
+            TsValue* d = (TsValue*)initialDelay;
+            delay = (int)d->i_val;
+        }
+        s->SetKeepAlive(en, delay);
+        return socket;
+    }
+
+    void* ts_net_socket_address(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return nullptr;
+        return s->Address();
     }
 
     // Global state for auto-select family settings

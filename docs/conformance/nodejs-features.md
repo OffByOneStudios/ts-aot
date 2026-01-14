@@ -35,7 +35,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
-| `net` | ⚠️ | 36% | TCP sockets |
+| `net` | ⚠️ | 83% | TCP sockets |
 | `os` | ⚠️ | 91% | OS utilities |
 | `path` | ⚠️ | 80% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
@@ -591,7 +591,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net.createServer()` | ✅ | |
 | `server.listen()` | ✅ | |
 | `server.close()` | ✅ | |
-| `server.address()` | ❌ | |
+| `server.address()` | ✅ | Returns { address, family, port } |
 | `server.getConnections()` | ❌ | |
 | `server.maxConnections` | ❌ | |
 | `server.ref()` | ❌ | |
@@ -607,10 +607,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `socket.destroy()` | ✅ | |
 | `socket.pause()` | ⚠️ | |
 | `socket.resume()` | ⚠️ | |
-| `socket.setTimeout()` | ❌ | |
-| `socket.setNoDelay()` | ❌ | |
-| `socket.setKeepAlive()` | ❌ | |
-| `socket.address()` | ❌ | |
+| `socket.setTimeout()` | ✅ | Emits 'timeout' event |
+| `socket.setNoDelay()` | ✅ | Nagle algorithm control |
+| `socket.setKeepAlive()` | ✅ | TCP keepalive |
+| `socket.address()` | ✅ | Returns { address, family, port } |
 | `socket.remoteAddress` | ✅ | |
 | `socket.remoteFamily` | ✅ | |
 | `socket.remotePort` | ✅ | |
@@ -633,7 +633,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net.isIPv4()` | ✅ | |
 | `net.isIPv6()` | ✅ | |
 
-**Net Coverage: 25/36 (69%)**
+**Net Coverage: 30/36 (83%)**
 
 ---
 
@@ -1009,7 +1009,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | File System | 89 | 123 | 72% |
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
-| Net | 25 | 36 | 69% |
+| Net | 30 | 36 | 83% |
 | OS | 21 | 22 | 95% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
@@ -1019,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **419** | **653** | **64%** |
+| **Total** | **424** | **653** | **65%** |
 
 ### Priority Implementation Targets
 

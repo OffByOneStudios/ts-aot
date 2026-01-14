@@ -13,6 +13,9 @@ public:
     void Listen(int port, void* callback);
     void Close();
 
+    // Returns { address, family, port } object or null if not listening
+    void* Address();
+
 protected:
     uv_tcp_t* handle;
     bool listening;
@@ -27,4 +30,6 @@ protected:
 extern "C" {
     void* ts_net_create_server(void* callback);
     void ts_net_server_listen(void* server, void* port, void* callback);
+    void ts_net_server_close(void* server);
+    void* ts_net_server_address(void* server);
 }

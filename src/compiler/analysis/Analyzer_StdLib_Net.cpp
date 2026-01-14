@@ -32,6 +32,32 @@ void Analyzer::registerNet() {
     socketClass->fields["pending"] = std::make_shared<Type>(TypeKind::Boolean);
     socketClass->fields["readyState"] = std::make_shared<Type>(TypeKind::String);
 
+    // Socket configuration methods
+    // socket.setTimeout(msecs, callback?) -> socket
+    auto setTimeoutMethod = std::make_shared<FunctionType>();
+    setTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // msecs
+    setTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function)); // callback (optional)
+    setTimeoutMethod->returnType = socketClass;
+    socketClass->methods["setTimeout"] = setTimeoutMethod;
+
+    // socket.setNoDelay(noDelay?) -> socket
+    auto setNoDelayMethod = std::make_shared<FunctionType>();
+    setNoDelayMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // noDelay (optional, defaults to true)
+    setNoDelayMethod->returnType = socketClass;
+    socketClass->methods["setNoDelay"] = setNoDelayMethod;
+
+    // socket.setKeepAlive(enable?, initialDelay?) -> socket
+    auto setKeepAliveMethod = std::make_shared<FunctionType>();
+    setKeepAliveMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // enable (optional)
+    setKeepAliveMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // initialDelay (optional)
+    setKeepAliveMethod->returnType = socketClass;
+    socketClass->methods["setKeepAlive"] = setKeepAliveMethod;
+
+    // socket.address() -> { address, family, port } | null
+    auto socketAddressMethod = std::make_shared<FunctionType>();
+    socketAddressMethod->returnType = std::make_shared<Type>(TypeKind::Any);
+    socketClass->methods["address"] = socketAddressMethod;
+
     symbols.defineType("Socket", socketClass);
     netModule->fields["Socket"] = socketClass;
     
@@ -40,7 +66,17 @@ void Analyzer::registerNet() {
     listenMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // port
     listenMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function)); // callback
     serverClass->methods["listen"] = listenMethod;
-    
+
+    // server.close() -> void
+    auto serverCloseMethod = std::make_shared<FunctionType>();
+    serverCloseMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    serverClass->methods["close"] = serverCloseMethod;
+
+    // server.address() -> { address, family, port } | null
+    auto serverAddressMethod = std::make_shared<FunctionType>();
+    serverAddressMethod->returnType = std::make_shared<Type>(TypeKind::Any);
+    serverClass->methods["address"] = serverAddressMethod;
+
     symbols.defineType("Server", serverClass);
     netModule->fields["Server"] = serverClass;
     

@@ -1,6 +1,8 @@
 #include "TsServer.h"
 #include "TsSocket.h"
 #include "TsRuntime.h"
+#include "TsMap.h"
+#include "TsString.h"
 #include "GC.h"
 #include <new>
 
@@ -73,6 +75,40 @@ void TsServer::OnClose(uv_handle_t* handle) {
     self->Emit("close", 0, nullptr);
 }
 
+void* TsServer::Address() {
+    if (!listening || closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    TsMap* obj = TsMap::Create();
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        char ipStr[INET_ADDRSTRLEN];
+        uv_inet_ntop(AF_INET, &addr4->sin_addr, ipStr, sizeof(ipStr));
+
+        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv4")));
+        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr4->sin_port)));
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        char ipStr[INET6_ADDRSTRLEN];
+        uv_inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
+
+        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv6")));
+        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr6->sin6_port)));
+    } else {
+        return nullptr;
+    }
+
+    return obj;
+}
+
 extern "C" {
     void* ts_net_create_server(void* callback) {
         void* mem = ts_alloc(sizeof(TsServer));
@@ -87,5 +123,16 @@ extern "C" {
         TsServer* s = (TsServer*)server;
         TsValue* p = (TsValue*)port;
         s->Listen((int)p->i_val, callback);
+    }
+
+    void ts_net_server_close(void* server) {
+        TsServer* s = (TsServer*)server;
+        if (s) s->Close();
+    }
+
+    void* ts_net_server_address(void* server) {
+        TsServer* s = (TsServer*)server;
+        if (!s) return nullptr;
+        return s->Address();
     }
 }
