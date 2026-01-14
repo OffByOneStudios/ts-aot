@@ -36,7 +36,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
 | `net` | ⚠️ | 83% | TCP sockets |
-| `os` | ⚠️ | 91% | OS utilities |
+| `os` | ✅ | 100% | OS utilities |
 | `path` | ⚠️ | 80% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
 | `process` | ⚠️ | 67% | Process info |
@@ -642,6 +642,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `os.arch()` | ✅ | |
+| `os.availableParallelism()` | ✅ | Returns CPU count |
 | `os.cpus()` | ✅ | |
 | `os.endianness()` | ✅ | |
 | `os.freemem()` | ✅ | |
@@ -664,7 +665,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `os.EOL` | ✅ | |
 | `os.devNull` | ✅ | |
 
-**OS Coverage: 21/22 (95%)**
+**OS Coverage: 23/23 (100%)**
 
 ---
 
@@ -1010,7 +1011,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 30 | 36 | 83% |
-| OS | 21 | 22 | 95% |
+| OS | 23 | 23 | 100% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
 | Stream | 24 | 44 | 55% |
@@ -1019,7 +1020,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **424** | **653** | **65%** |
+| **Total** | **426** | **655** | **65%** |
 
 ### Priority Implementation Targets
 

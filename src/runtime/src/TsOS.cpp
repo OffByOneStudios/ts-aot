@@ -191,6 +191,18 @@ int64_t ts_os_freemem() {
     return (int64_t)uv_get_free_memory();
 }
 
+int64_t ts_os_availableParallelism() {
+    // Returns the number of logical CPUs available to the process
+    // Same as os.cpus().length but more efficient
+    uv_cpu_info_t* cpus;
+    int count;
+    if (uv_cpu_info(&cpus, &count) != 0) {
+        return 1;  // Fallback to 1 if we can't determine
+    }
+    uv_free_cpu_info(cpus, count);
+    return (int64_t)count;
+}
+
 double ts_os_uptime() {
     double uptime;
     if (uv_uptime(&uptime) == 0) {
