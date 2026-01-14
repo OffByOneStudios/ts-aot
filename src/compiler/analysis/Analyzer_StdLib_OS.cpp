@@ -118,6 +118,11 @@ void Analyzer::registerOS() {
     endiannessType->returnType = std::make_shared<Type>(TypeKind::String);
     osType->fields["endianness"] = endiannessType;
 
+    // os.availableParallelism(): number - returns logical CPU count
+    auto availableParallelismType = std::make_shared<FunctionType>();
+    availableParallelismType->returnType = std::make_shared<Type>(TypeKind::Int);
+    osType->fields["availableParallelism"] = availableParallelismType;
+
     // ========================================================================
     // Network
     // ========================================================================

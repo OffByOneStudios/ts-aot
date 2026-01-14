@@ -24,6 +24,7 @@ extern "C" {
     // Memory functions
     int64_t ts_os_totalmem();
     int64_t ts_os_freemem();
+    int64_t ts_os_availableParallelism();
 
     // Other info functions
     double ts_os_uptime();

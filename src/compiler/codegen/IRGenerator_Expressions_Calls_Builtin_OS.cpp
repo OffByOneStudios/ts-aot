@@ -29,6 +29,7 @@ static void ensureOSFunctionsRegistered(BoxingPolicy& bp) {
     // Memory functions (no args, return int)
     bp.registerRuntimeApi("ts_os_totalmem", {}, false);
     bp.registerRuntimeApi("ts_os_freemem", {}, false);
+    bp.registerRuntimeApi("ts_os_availableParallelism", {}, false);
 
     // Other info functions
     bp.registerRuntimeApi("ts_os_uptime", {}, false);  // returns double
@@ -78,7 +79,7 @@ bool IRGenerator::tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAcce
     // Integer-returning functions (no args)
     // ========================================================================
 
-    if (methodName == "totalmem" || methodName == "freemem") {
+    if (methodName == "totalmem" || methodName == "freemem" || methodName == "availableParallelism") {
         std::string funcName = "ts_os_" + methodName;
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
