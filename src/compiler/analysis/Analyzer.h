@@ -62,6 +62,7 @@ public:
     void registerHTTPS();
     void registerUtil();
     void registerOS();
+    void registerCrypto();
 
     void reportError(const std::string& message);
 

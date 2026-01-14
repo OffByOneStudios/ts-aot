@@ -875,6 +875,65 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
             
             lastValue = createCall(ft, fn.getCallee(), args);
             return true;
+        } else if (classType->name == "Hash") {
+            // crypto.createHash() returns Hash object
+            visit(prop->expression.get());
+            llvm::Value* hashObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hash_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { hashObj, data });
+                return true;
+            } else if (prop->name == "digest") {
+                llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (!node->arguments.empty()) {
+                    visit(node->arguments[0].get());
+                    encoding = lastValue;
+                    if (encoding->getType()->isIntegerTy(64)) {
+                        encoding = builder->CreateIntToPtr(encoding, builder->getPtrTy());
+                    }
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hash_digest", ft);
+                lastValue = createCall(ft, fn.getCallee(), { hashObj, encoding });
+                return true;
+            } else if (prop->name == "copy") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hash_copy", ft);
+                lastValue = createCall(ft, fn.getCallee(), { hashObj });
+                return true;
+            }
+        } else if (classType->name == "Hmac") {
+            // crypto.createHmac() returns Hmac object
+            visit(prop->expression.get());
+            llvm::Value* hmacObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hmac_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { hmacObj, data });
+                return true;
+            } else if (prop->name == "digest") {
+                llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (!node->arguments.empty()) {
+                    visit(node->arguments[0].get());
+                    encoding = lastValue;
+                    if (encoding->getType()->isIntegerTy(64)) {
+                        encoding = builder->CreateIntToPtr(encoding, builder->getPtrTy());
+                    }
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hmac_digest", ft);
+                lastValue = createCall(ft, fn.getCallee(), { hmacObj, encoding });
+                return true;
+            }
         } else if (classType->name == "Server") {
             if (prop->name == "listen") {
                 visit(prop->expression.get());
@@ -3774,21 +3833,183 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          createCall(forEachFt, fn.getCallee(), { obj, callback, thisArg });
          lastValue = nullptr;
          return true;
-    } else if (prop->name == "md5") {
+    } else if (prop->name == "md5" || prop->name == "createHash" || prop->name == "createHmac" ||
+               prop->name == "getHashes" || prop->name == "randomBytes" || prop->name == "randomFillSync" ||
+               prop->name == "randomInt" || prop->name == "randomUUID" || prop->name == "pbkdf2Sync" ||
+               prop->name == "scryptSync" || prop->name == "timingSafeEqual") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "crypto") {
-                if (node->arguments.empty()) return true;
-                visit(node->arguments[0].get());
-                llvm::Value* arg = lastValue;
-                if (arg->getType()->isIntegerTy(64)) {
-                    arg = builder->CreateIntToPtr(arg, llvm::PointerType::getUnqual(*context));
+                if (prop->name == "md5") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* arg = lastValue;
+                    if (arg->getType()->isIntegerTy(64)) {
+                        arg = builder->CreateIntToPtr(arg, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_md5", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { arg });
+                    return true;
+                } else if (prop->name == "createHash") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createHash", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm });
+                    return true;
+                } else if (prop->name == "createHmac") {
+                    if (node->arguments.size() < 2) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[1]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createHmac", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm, key });
+                    return true;
+                } else if (prop->name == "getHashes") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_getHashes", ft);
+                    lastValue = createCall(ft, fn.getCallee(), {});
+                    return true;
+                } else if (prop->name == "randomBytes") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* size = lastValue;
+                    if (!size->getType()->isIntegerTy(64)) {
+                        size = builder->CreatePtrToInt(size, builder->getInt64Ty());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomBytes", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { size });
+                    return true;
+                } else if (prop->name == "randomFillSync") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* buffer = lastValue;
+                    if (buffer->getType()->isIntegerTy(64)) {
+                        buffer = builder->CreateIntToPtr(buffer, builder->getPtrTy());
+                    }
+                    llvm::Value* offset = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+                    llvm::Value* size = llvm::ConstantInt::get(builder->getInt64Ty(), -1);
+                    if (node->arguments.size() > 1) {
+                        visit(node->arguments[1].get());
+                        offset = lastValue;
+                        if (!offset->getType()->isIntegerTy(64)) {
+                            offset = builder->CreatePtrToInt(offset, builder->getInt64Ty());
+                        }
+                    }
+                    if (node->arguments.size() > 2) {
+                        visit(node->arguments[2].get());
+                        size = lastValue;
+                        if (!size->getType()->isIntegerTy(64)) {
+                            size = builder->CreatePtrToInt(size, builder->getInt64Ty());
+                        }
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomFillSync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { buffer, offset, size });
+                    return true;
+                } else if (prop->name == "randomInt") {
+                    llvm::Value* min = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+                    llvm::Value* max;
+                    if (node->arguments.size() == 1) {
+                        visit(node->arguments[0].get());
+                        max = lastValue;
+                    } else if (node->arguments.size() >= 2) {
+                        visit(node->arguments[0].get());
+                        min = lastValue;
+                        visit(node->arguments[1].get());
+                        max = lastValue;
+                    } else {
+                        max = llvm::ConstantInt::get(builder->getInt64Ty(), 100);
+                    }
+                    if (!min->getType()->isIntegerTy(64)) {
+                        min = builder->CreatePtrToInt(min, builder->getInt64Ty());
+                    }
+                    if (!max->getType()->isIntegerTy(64)) {
+                        max = builder->CreatePtrToInt(max, builder->getInt64Ty());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getInt64Ty(), builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomInt", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { min, max });
+                    return true;
+                } else if (prop->name == "randomUUID") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomUUID", ft);
+                    lastValue = createCall(ft, fn.getCallee(), {});
+                    return true;
+                } else if (prop->name == "pbkdf2Sync") {
+                    if (node->arguments.size() < 5) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* password = boxValue(lastValue, node->arguments[0]->inferredType);
+                    visit(node->arguments[1].get());
+                    llvm::Value* salt = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* iterations = lastValue;
+                    if (!iterations->getType()->isIntegerTy(64)) {
+                        iterations = builder->CreatePtrToInt(iterations, builder->getInt64Ty());
+                    }
+                    visit(node->arguments[3].get());
+                    llvm::Value* keylen = lastValue;
+                    if (!keylen->getType()->isIntegerTy(64)) {
+                        keylen = builder->CreatePtrToInt(keylen, builder->getInt64Ty());
+                    }
+                    visit(node->arguments[4].get());
+                    llvm::Value* digest = lastValue;
+                    if (digest->getType()->isIntegerTy(64)) {
+                        digest = builder->CreateIntToPtr(digest, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_pbkdf2Sync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { password, salt, iterations, keylen, digest });
+                    return true;
+                } else if (prop->name == "scryptSync") {
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* password = boxValue(lastValue, node->arguments[0]->inferredType);
+                    visit(node->arguments[1].get());
+                    llvm::Value* salt = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* keylen = lastValue;
+                    if (!keylen->getType()->isIntegerTy(64)) {
+                        keylen = builder->CreatePtrToInt(keylen, builder->getInt64Ty());
+                    }
+                    // Default scrypt parameters
+                    llvm::Value* N = llvm::ConstantInt::get(builder->getInt64Ty(), 16384);
+                    llvm::Value* r = llvm::ConstantInt::get(builder->getInt64Ty(), 8);
+                    llvm::Value* p = llvm::ConstantInt::get(builder->getInt64Ty(), 1);
+                    // TODO: Parse options object if provided
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_scryptSync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { password, salt, keylen, N, r, p });
+                    return true;
+                } else if (prop->name == "timingSafeEqual") {
+                    if (node->arguments.size() < 2) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* a = lastValue;
+                    if (a->getType()->isIntegerTy(64)) {
+                        a = builder->CreateIntToPtr(a, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* b = lastValue;
+                    if (b->getType()->isIntegerTy(64)) {
+                        b = builder->CreateIntToPtr(b, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_timingSafeEqual", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { a, b });
+                    return true;
                 }
-                
-                llvm::FunctionType* md5Ft = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
-                        { llvm::PointerType::getUnqual(*context) }, false);
-                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_md5", md5Ft);
-                lastValue = createCall(md5Ft, fn.getCallee(), { arg });
-                return true;
             }
         }
     } else if (prop->name == "test" || prop->name == "exec") {

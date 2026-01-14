@@ -24,7 +24,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ⚠️ | 68% | Basic logging |
-| `crypto` | ⚠️ | 10% | Cryptographic functions |
+| `crypto` | ⚠️ | 47% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
@@ -188,14 +188,19 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Hash Functions
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.createHash(algorithm)` | ❌ | |
-| `crypto.getHashes()` | ❌ | |
+| `crypto.createHash(algorithm)` | ✅ | OpenSSL EVP API |
+| `crypto.getHashes()` | ✅ | Returns available algorithms |
 | `crypto.md5(data)` | ✅ | Non-standard helper |
+| `Hash.update(data)` | ✅ | Chainable |
+| `Hash.digest(encoding)` | ✅ | Returns hex string |
+| `Hash.copy()` | ✅ | Creates independent copy |
 
 ### HMAC
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.createHmac(algorithm, key)` | ❌ | |
+| `crypto.createHmac(algorithm, key)` | ✅ | OpenSSL HMAC API |
+| `Hmac.update(data)` | ✅ | Chainable |
+| `Hmac.digest(encoding)` | ✅ | Returns hex string |
 
 ### Cipher/Decipher
 | Feature | Status | Notes |
@@ -207,11 +212,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Random
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.randomBytes(size)` | ❌ | |
-| `crypto.randomFillSync(buffer)` | ❌ | |
+| `crypto.randomBytes(size)` | ✅ | OpenSSL RAND_bytes |
+| `crypto.randomFillSync(buffer)` | ✅ | |
 | `crypto.randomFill(buffer, callback)` | ❌ | |
-| `crypto.randomInt(min, max)` | ❌ | |
-| `crypto.randomUUID()` | ❌ | |
+| `crypto.randomInt(min, max)` | ✅ | |
+| `crypto.randomUUID()` | ✅ | RFC 4122 v4 UUID |
 
 ### Keys
 | Feature | Status | Notes |
@@ -232,16 +237,20 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `crypto.sign()` | ❌ | |
 | `crypto.verify()` | ❌ | |
 
-### Other
+### Key Derivation
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `crypto.pbkdf2()` | ❌ | |
-| `crypto.pbkdf2Sync()` | ❌ | |
+| `crypto.pbkdf2Sync()` | ✅ | OpenSSL PKCS5_PBKDF2_HMAC |
 | `crypto.scrypt()` | ❌ | |
-| `crypto.scryptSync()` | ❌ | |
-| `crypto.timingSafeEqual()` | ❌ | |
+| `crypto.scryptSync()` | ✅ | OpenSSL EVP_PBE_scrypt |
 
-**Crypto Coverage: 1/28 (4%)**
+### Utility
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
+
+**Crypto Coverage: 16/34 (47%)**
 
 ---
 
@@ -995,7 +1004,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |----------|-------------|-------|----------|
 | Buffer | 17 | 68 | 25% |
 | Console | 13 | 19 | 68% |
-| Crypto | 1 | 28 | 4% |
+| Crypto | 16 | 34 | 47% |
 | Events | 14 | 21 | 67% |
 | File System | 89 | 123 | 72% |
 | HTTP | 25 | 68 | 37% |
@@ -1010,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **315** | **647** | **49%** |
+| **Total** | **330** | **653** | **51%** |
 
 ### Priority Implementation Targets
 
@@ -1023,7 +1032,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 #### High (Common use cases)
 - ✅ `os.platform()`, `os.cpus()` - System info (implemented)
-- `crypto.randomBytes()`, `crypto.createHash()` - Basic crypto
+- ✅ `crypto.randomBytes()`, `crypto.createHash()` - Basic crypto (implemented via OpenSSL)
 - `stream.pipeline()`, `stream.finished()` - Stream utilities
 - `util.promisify()` - Callback to Promise conversion
 - ✅ `setImmediate()` - Event loop control (implemented)
@@ -1042,6 +1051,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 Current test coverage:
 - Buffer: 6 test files (basic, advanced, encoding, extended, typed_array, utilities)
 - Console: 4 test files (extended, methods, timing)
+- Crypto: 1 test file (extended - 12 tests covering hash, hmac, random, kdf, timing)
 - Events: 2 test files (basic, extended)
 - File System: 7 test files (async, dirs, links, metadata, operations, sync)
 - HTTP: 4 test files (fetch, client, constants, https)
@@ -1052,4 +1062,4 @@ Current test coverage:
 - URL: 3 test files (basic, extended, search params)
 - Util: 2 test files (basic, extended)
 
-Most Node.js API tests passing (136/139).
+Most Node.js API tests passing.

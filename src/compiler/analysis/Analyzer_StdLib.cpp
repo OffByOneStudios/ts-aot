@@ -1354,5 +1354,6 @@ Analyzer::Analyzer() {
     registerHTTPS();
     registerUtil();
     registerOS();
+    registerCrypto();
 }
 } // namespace ts

@@ -448,6 +448,26 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_cell_create",  {true}},                   // (TsValue* initial) -> TsCell*
     {"ts_cell_get",     {false}},                  // (TsCell*) -> TsValue*
     {"ts_cell_set",     {false, true}},            // (TsCell*, TsValue* value)
+
+    // =========================================================================
+    // Crypto operations
+    // =========================================================================
+    {"ts_crypto_md5",             {false}},        // (str*) -> str*
+    {"ts_crypto_createHash",      {false}},        // (algorithm*) -> Hash*
+    {"ts_crypto_hash_update",     {false, true}},  // (hash*, data: boxed) -> Hash*
+    {"ts_crypto_hash_digest",     {false, false}}, // (hash*, encoding*) -> str*/Buffer*
+    {"ts_crypto_hash_copy",       {false}},        // (hash*) -> Hash*
+    {"ts_crypto_createHmac",      {false, true}},  // (algorithm*, key: boxed) -> Hmac*
+    {"ts_crypto_hmac_update",     {false, true}},  // (hmac*, data: boxed) -> Hmac*
+    {"ts_crypto_hmac_digest",     {false, false}}, // (hmac*, encoding*) -> str*/Buffer*
+    {"ts_crypto_getHashes",       {}},             // () -> array
+    {"ts_crypto_randomBytes",     {false}},        // (size) -> Buffer*
+    {"ts_crypto_randomFillSync",  {false, false, false}}, // (buffer*, offset, size) -> Buffer*
+    {"ts_crypto_randomInt",       {false, false}}, // (min, max) -> int
+    {"ts_crypto_randomUUID",      {}},             // () -> str*
+    {"ts_crypto_pbkdf2Sync",      {true, true, false, false, false}}, // (password, salt, iterations, keylen, digest) -> Buffer*
+    {"ts_crypto_scryptSync",      {true, true, false, false, false, false}}, // (password, salt, keylen, N, r, p) -> Buffer*
+    {"ts_crypto_timingSafeEqual", {false, false}}, // (a*, b*) -> bool
 };
 
 const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
