@@ -58,6 +58,24 @@ void Analyzer::registerEvents() {
     listenerCountFn->returnType = std::make_shared<Type>(TypeKind::Int);
     eventEmitterClass->methods["listenerCount"] = listenerCountFn;
 
+    // listeners(event: string): Function[]
+    auto listenersFn = std::make_shared<FunctionType>();
+    listenersFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    auto funcArrayType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Function));
+    listenersFn->returnType = funcArrayType;
+    eventEmitterClass->methods["listeners"] = listenersFn;
+
+    // getMaxListeners(): number
+    auto getMaxListenersFn = std::make_shared<FunctionType>();
+    getMaxListenersFn->returnType = std::make_shared<Type>(TypeKind::Int);
+    eventEmitterClass->methods["getMaxListeners"] = getMaxListenersFn;
+
+    // eventNames(): string[]
+    auto eventNamesFn = std::make_shared<FunctionType>();
+    auto stringArrayType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    eventNamesFn->returnType = stringArrayType;
+    eventEmitterClass->methods["eventNames"] = eventNamesFn;
+
     symbols.defineType("EventEmitter", eventEmitterClass);
 
     auto eventsModule = std::make_shared<ObjectType>();

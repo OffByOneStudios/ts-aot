@@ -220,13 +220,33 @@ int TsEventEmitter::ListenerCount(const char* event) {
     eventVal.type = ValueType::STRING_PTR;
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
-    
+
     if (listenersVal.type == ValueType::UNDEFINED) {
         return 0;
     }
 
     TsArray* arr = (TsArray*)listenersVal.ptr_val;
     return (int)arr->Length();
+}
+
+void* TsEventEmitter::Listeners(const char* event) {
+    TsValue eventVal;
+    eventVal.type = ValueType::STRING_PTR;
+    eventVal.ptr_val = TsString::Create(event);
+    TsValue listenersVal = this->listeners->Get(eventVal);
+
+    // Return a copy of the listeners array
+    TsArray* result = TsArray::Create();
+
+    if (listenersVal.type == ValueType::UNDEFINED) {
+        return result;
+    }
+
+    TsArray* arr = (TsArray*)listenersVal.ptr_val;
+    for (int i = 0; i < arr->Length(); i++) {
+        result->Push(arr->Get(i));
+    }
+    return result;
 }
 
 void TsEventEmitter::SetMaxListeners(int n) {
@@ -496,6 +516,34 @@ extern "C" {
         TsString* s = (TsString*)event;
         if (!s) return 0;
         return e->ListenerCount(s->ToUtf8());
+    }
+
+    void* ts_event_emitter_listeners(void* emitter, void* event) {
+        if (!emitter) return TsArray::Create();
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return TsArray::Create();
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return TsArray::Create();
+
+        TsObject* obj = (TsObject*)rawPtr;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return TsArray::Create();
+        TsString* s = (TsString*)event;
+        if (!s) return TsArray::Create();
+        return e->Listeners(s->ToUtf8());
     }
 
     bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {

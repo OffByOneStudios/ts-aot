@@ -22,6 +22,7 @@ static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_event_emitter_get_max_listeners", {false}, false);  // (emitter) -> int
     bp.registerRuntimeApi("ts_event_emitter_listener_count", {false, false}, false);  // (emitter, event) -> int
     bp.registerRuntimeApi("ts_event_emitter_event_names", {false}, true);  // (emitter) -> array
+    bp.registerRuntimeApi("ts_event_emitter_listeners", {false, false}, true);  // (emitter, event) -> array
     bp.registerRuntimeApi("ts_event_emitter_static_once", {false, false}, true);  // (emitter, event) -> promise
 }
 
@@ -224,6 +225,27 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
 
         // Box the result (array)
         lastValue = boxValue(names, std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String)));
+        return true;
+    } else if (prop->name == "listeners") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        // Box the emitter if not already boxed
+        if (!boxedValues.count(obj)) {
+            obj = boxValue(obj, prop->expression->inferredType);
+        }
+
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* event = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_listeners", ft);
+        llvm::Value* listeners = createCall(ft, fn.getCallee(), { obj, event });
+
+        // Box the result (array of functions)
+        lastValue = boxValue(listeners, std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Function)));
         return true;
     }
 
