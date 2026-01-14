@@ -330,6 +330,310 @@ TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
     return result;
 }
 
+// ============================================================================
+// Buffer Read Method Implementations
+// ============================================================================
+
+int8_t TsBuffer::ReadInt8(size_t offset) {
+    if (offset >= length) return 0;
+    return (int8_t)data[offset];
+}
+
+uint8_t TsBuffer::ReadUInt8(size_t offset) {
+    if (offset >= length) return 0;
+    return data[offset];
+}
+
+int16_t TsBuffer::ReadInt16LE(size_t offset) {
+    if (offset + 2 > length) return 0;
+    int16_t val;
+    std::memcpy(&val, data + offset, 2);
+    return val;  // Assume host is little endian
+}
+
+int16_t TsBuffer::ReadInt16BE(size_t offset) {
+    if (offset + 2 > length) return 0;
+    uint16_t val;
+    std::memcpy(&val, data + offset, 2);
+    val = (val >> 8) | (val << 8);  // Swap bytes
+    return (int16_t)val;
+}
+
+uint16_t TsBuffer::ReadUInt16LE(size_t offset) {
+    if (offset + 2 > length) return 0;
+    uint16_t val;
+    std::memcpy(&val, data + offset, 2);
+    return val;
+}
+
+uint16_t TsBuffer::ReadUInt16BE(size_t offset) {
+    if (offset + 2 > length) return 0;
+    uint16_t val;
+    std::memcpy(&val, data + offset, 2);
+    return (val >> 8) | (val << 8);
+}
+
+int32_t TsBuffer::ReadInt32LE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    int32_t val;
+    std::memcpy(&val, data + offset, 4);
+    return val;
+}
+
+int32_t TsBuffer::ReadInt32BE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    uint32_t val;
+    std::memcpy(&val, data + offset, 4);
+    val = ((val >> 24) & 0xFF) | ((val >> 8) & 0xFF00) |
+          ((val << 8) & 0xFF0000) | ((val << 24) & 0xFF000000);
+    return (int32_t)val;
+}
+
+uint32_t TsBuffer::ReadUInt32LE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    uint32_t val;
+    std::memcpy(&val, data + offset, 4);
+    return val;
+}
+
+uint32_t TsBuffer::ReadUInt32BE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    uint32_t val;
+    std::memcpy(&val, data + offset, 4);
+    return ((val >> 24) & 0xFF) | ((val >> 8) & 0xFF00) |
+           ((val << 8) & 0xFF0000) | ((val << 24) & 0xFF000000);
+}
+
+float TsBuffer::ReadFloatLE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    float val;
+    std::memcpy(&val, data + offset, 4);
+    return val;
+}
+
+float TsBuffer::ReadFloatBE(size_t offset) {
+    if (offset + 4 > length) return 0;
+    uint32_t intVal;
+    std::memcpy(&intVal, data + offset, 4);
+    intVal = ((intVal >> 24) & 0xFF) | ((intVal >> 8) & 0xFF00) |
+             ((intVal << 8) & 0xFF0000) | ((intVal << 24) & 0xFF000000);
+    float val;
+    std::memcpy(&val, &intVal, 4);
+    return val;
+}
+
+double TsBuffer::ReadDoubleLE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    double val;
+    std::memcpy(&val, data + offset, 8);
+    return val;
+}
+
+double TsBuffer::ReadDoubleBE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    uint64_t intVal;
+    std::memcpy(&intVal, data + offset, 8);
+    intVal = ((intVal >> 56) & 0xFF) |
+             ((intVal >> 40) & 0xFF00) |
+             ((intVal >> 24) & 0xFF0000) |
+             ((intVal >> 8) & 0xFF000000) |
+             ((intVal << 8) & 0xFF00000000ULL) |
+             ((intVal << 24) & 0xFF0000000000ULL) |
+             ((intVal << 40) & 0xFF000000000000ULL) |
+             ((intVal << 56) & 0xFF00000000000000ULL);
+    double val;
+    std::memcpy(&val, &intVal, 8);
+    return val;
+}
+
+// ============================================================================
+// Buffer Write Method Implementations
+// ============================================================================
+
+size_t TsBuffer::WriteInt8(int8_t value, size_t offset) {
+    if (offset >= length) return offset;
+    data[offset] = (uint8_t)value;
+    return offset + 1;
+}
+
+size_t TsBuffer::WriteUInt8(uint8_t value, size_t offset) {
+    if (offset >= length) return offset;
+    data[offset] = value;
+    return offset + 1;
+}
+
+size_t TsBuffer::WriteInt16LE(int16_t value, size_t offset) {
+    if (offset + 2 > length) return offset;
+    std::memcpy(data + offset, &value, 2);
+    return offset + 2;
+}
+
+size_t TsBuffer::WriteInt16BE(int16_t value, size_t offset) {
+    if (offset + 2 > length) return offset;
+    uint16_t swapped = ((uint16_t)value >> 8) | ((uint16_t)value << 8);
+    std::memcpy(data + offset, &swapped, 2);
+    return offset + 2;
+}
+
+size_t TsBuffer::WriteUInt16LE(uint16_t value, size_t offset) {
+    if (offset + 2 > length) return offset;
+    std::memcpy(data + offset, &value, 2);
+    return offset + 2;
+}
+
+size_t TsBuffer::WriteUInt16BE(uint16_t value, size_t offset) {
+    if (offset + 2 > length) return offset;
+    uint16_t swapped = (value >> 8) | (value << 8);
+    std::memcpy(data + offset, &swapped, 2);
+    return offset + 2;
+}
+
+size_t TsBuffer::WriteInt32LE(int32_t value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    std::memcpy(data + offset, &value, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteInt32BE(int32_t value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    uint32_t v = (uint32_t)value;
+    uint32_t swapped = ((v >> 24) & 0xFF) | ((v >> 8) & 0xFF00) |
+                       ((v << 8) & 0xFF0000) | ((v << 24) & 0xFF000000);
+    std::memcpy(data + offset, &swapped, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteUInt32LE(uint32_t value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    std::memcpy(data + offset, &value, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteUInt32BE(uint32_t value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    uint32_t swapped = ((value >> 24) & 0xFF) | ((value >> 8) & 0xFF00) |
+                       ((value << 8) & 0xFF0000) | ((value << 24) & 0xFF000000);
+    std::memcpy(data + offset, &swapped, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteFloatLE(float value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    std::memcpy(data + offset, &value, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteFloatBE(float value, size_t offset) {
+    if (offset + 4 > length) return offset;
+    uint32_t intVal;
+    std::memcpy(&intVal, &value, 4);
+    intVal = ((intVal >> 24) & 0xFF) | ((intVal >> 8) & 0xFF00) |
+             ((intVal << 8) & 0xFF0000) | ((intVal << 24) & 0xFF000000);
+    std::memcpy(data + offset, &intVal, 4);
+    return offset + 4;
+}
+
+size_t TsBuffer::WriteDoubleLE(double value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    std::memcpy(data + offset, &value, 8);
+    return offset + 8;
+}
+
+size_t TsBuffer::WriteDoubleBE(double value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    uint64_t intVal;
+    std::memcpy(&intVal, &value, 8);
+    intVal = ((intVal >> 56) & 0xFF) |
+             ((intVal >> 40) & 0xFF00) |
+             ((intVal >> 24) & 0xFF0000) |
+             ((intVal >> 8) & 0xFF000000) |
+             ((intVal << 8) & 0xFF00000000ULL) |
+             ((intVal << 24) & 0xFF0000000000ULL) |
+             ((intVal << 40) & 0xFF000000000000ULL) |
+             ((intVal << 56) & 0xFF00000000000000ULL);
+    std::memcpy(data + offset, &intVal, 8);
+    return offset + 8;
+}
+
+// ============================================================================
+// Buffer Utility Method Implementations
+// ============================================================================
+
+int TsBuffer::Compare(TsBuffer* other) {
+    if (!other) return 1;
+    size_t minLen = length < other->length ? length : other->length;
+    int cmp = std::memcmp(data, other->data, minLen);
+    if (cmp != 0) return cmp;
+    if (length < other->length) return -1;
+    if (length > other->length) return 1;
+    return 0;
+}
+
+int TsBuffer::Compare(TsBuffer* buf1, TsBuffer* buf2) {
+    if (!buf1 && !buf2) return 0;
+    if (!buf1) return -1;
+    if (!buf2) return 1;
+    return buf1->Compare(buf2);
+}
+
+bool TsBuffer::Equals(TsBuffer* other) {
+    if (!other) return false;
+    if (length != other->length) return false;
+    return std::memcmp(data, other->data, length) == 0;
+}
+
+int64_t TsBuffer::IndexOf(uint8_t value, size_t byteOffset) {
+    for (size_t i = byteOffset; i < length; i++) {
+        if (data[i] == value) return (int64_t)i;
+    }
+    return -1;
+}
+
+int64_t TsBuffer::IndexOfBuffer(TsBuffer* value, size_t byteOffset) {
+    if (!value || value->length == 0) return -1;
+    if (value->length > length) return -1;
+    for (size_t i = byteOffset; i <= length - value->length; i++) {
+        if (std::memcmp(data + i, value->data, value->length) == 0) {
+            return (int64_t)i;
+        }
+    }
+    return -1;
+}
+
+int64_t TsBuffer::LastIndexOf(uint8_t value, size_t byteOffset) {
+    if (length == 0) return -1;
+    size_t start = byteOffset >= length ? length - 1 : byteOffset;
+    for (size_t i = start + 1; i > 0; i--) {
+        if (data[i - 1] == value) return (int64_t)(i - 1);
+    }
+    return -1;
+}
+
+bool TsBuffer::Includes(uint8_t value, size_t byteOffset) {
+    return IndexOf(value, byteOffset) >= 0;
+}
+
+bool TsBuffer::IncludesBuffer(TsBuffer* value, size_t byteOffset) {
+    return IndexOfBuffer(value, byteOffset) >= 0;
+}
+
+bool TsBuffer::IsEncoding(const char* encoding) {
+    if (!encoding) return false;
+    // Supported encodings
+    return strcmp(encoding, "utf8") == 0 ||
+           strcmp(encoding, "utf-8") == 0 ||
+           strcmp(encoding, "hex") == 0 ||
+           strcmp(encoding, "base64") == 0 ||
+           strcmp(encoding, "base64url") == 0 ||
+           strcmp(encoding, "ascii") == 0 ||
+           strcmp(encoding, "latin1") == 0 ||
+           strcmp(encoding, "binary") == 0 ||
+           strcmp(encoding, "ucs2") == 0 ||
+           strcmp(encoding, "ucs-2") == 0 ||
+           strcmp(encoding, "utf16le") == 0 ||
+           strcmp(encoding, "utf-16le") == 0;
+}
+
 extern "C" {
     void* ts_buffer_alloc(int64_t length) {
         return TsBuffer::Create((size_t)length);
@@ -432,15 +736,242 @@ extern "C" {
 
     bool ts_buffer_is_buffer(void* obj) {
         if (!obj) return false;
-        
+
         // Try to unbox if it's a TsValue*
         void* raw = ts_value_get_object((TsValue*)obj);
         if (raw) {
             obj = raw;
         }
-        
+
         TsBuffer* buf = (TsBuffer*)obj;
         return buf->magic == TsBuffer::MAGIC;
+    }
+
+    bool ts_buffer_is_encoding(void* encoding) {
+        if (!encoding) return false;
+        TsString* enc = (TsString*)encoding;
+        const char* encStr = enc->ToUtf8();
+        return TsBuffer::IsEncoding(encStr);
+    }
+
+    // ============================================================================
+    // Buffer Read Methods
+    // ============================================================================
+
+    static TsBuffer* getBuffer(void* buf) {
+        if (!buf) return nullptr;
+        void* raw = ts_value_get_object((TsValue*)buf);
+        if (raw) buf = raw;
+        TsBuffer* buffer = (TsBuffer*)buf;
+        if (buffer->magic != TsBuffer::MAGIC) return nullptr;
+        return buffer;
+    }
+
+    int64_t ts_buffer_read_int8(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadInt8((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_uint8(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadUInt8((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_int16le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadInt16LE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_int16be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadInt16BE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_uint16le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadUInt16LE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_uint16be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadUInt16BE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_int32le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadInt32LE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_int32be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadInt32BE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_uint32le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadUInt32LE((size_t)offset);
+    }
+
+    int64_t ts_buffer_read_uint32be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->ReadUInt32BE((size_t)offset);
+    }
+
+    double ts_buffer_read_floatle(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (double)buffer->ReadFloatLE((size_t)offset);
+    }
+
+    double ts_buffer_read_floatbe(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (double)buffer->ReadFloatBE((size_t)offset);
+    }
+
+    double ts_buffer_read_doublele(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return buffer->ReadDoubleLE((size_t)offset);
+    }
+
+    double ts_buffer_read_doublebe(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return buffer->ReadDoubleBE((size_t)offset);
+    }
+
+    // ============================================================================
+    // Buffer Write Methods
+    // ============================================================================
+
+    int64_t ts_buffer_write_int8(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteInt8((int8_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_uint8(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteUInt8((uint8_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_int16le(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteInt16LE((int16_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_int16be(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteInt16BE((int16_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_uint16le(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteUInt16LE((uint16_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_uint16be(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteUInt16BE((uint16_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_int32le(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteInt32LE((int32_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_int32be(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteInt32BE((int32_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_uint32le(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteUInt32LE((uint32_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_uint32be(void* buf, int64_t value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteUInt32BE((uint32_t)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_floatle(void* buf, double value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteFloatLE((float)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_floatbe(void* buf, double value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteFloatBE((float)value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_doublele(void* buf, double value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteDoubleLE(value, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_doublebe(void* buf, double value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        return (int64_t)buffer->WriteDoubleBE(value, (size_t)offset);
+    }
+
+    // ============================================================================
+    // Buffer Utility Methods
+    // ============================================================================
+
+    int64_t ts_buffer_compare(void* buf1, void* buf2) {
+        TsBuffer* b1 = getBuffer(buf1);
+        TsBuffer* b2 = getBuffer(buf2);
+        return (int64_t)TsBuffer::Compare(b1, b2);
+    }
+
+    bool ts_buffer_equals(void* buf, void* other) {
+        TsBuffer* b1 = getBuffer(buf);
+        TsBuffer* b2 = getBuffer(other);
+        if (!b1 || !b2) return false;
+        return b1->Equals(b2);
+    }
+
+    int64_t ts_buffer_indexof(void* buf, int64_t value, int64_t byteOffset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return -1;
+        return buffer->IndexOf((uint8_t)value, (size_t)byteOffset);
+    }
+
+    int64_t ts_buffer_lastindexof(void* buf, int64_t value, int64_t byteOffset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return -1;
+        return buffer->LastIndexOf((uint8_t)value, byteOffset < 0 ? SIZE_MAX : (size_t)byteOffset);
+    }
+
+    bool ts_buffer_includes(void* buf, int64_t value, int64_t byteOffset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return false;
+        return buffer->Includes((uint8_t)value, (size_t)byteOffset);
     }
 
     void* Buffer_toString(void* context, void* buf) {

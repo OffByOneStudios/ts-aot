@@ -35,9 +35,52 @@ public:
     void Fill(uint8_t value, int64_t start = 0, int64_t end = -1);
     int64_t Copy(TsBuffer* target, int64_t targetStart = 0, int64_t sourceStart = 0, int64_t sourceEnd = -1);
 
+    // Read methods
+    int8_t ReadInt8(size_t offset);
+    uint8_t ReadUInt8(size_t offset);
+    int16_t ReadInt16LE(size_t offset);
+    int16_t ReadInt16BE(size_t offset);
+    uint16_t ReadUInt16LE(size_t offset);
+    uint16_t ReadUInt16BE(size_t offset);
+    int32_t ReadInt32LE(size_t offset);
+    int32_t ReadInt32BE(size_t offset);
+    uint32_t ReadUInt32LE(size_t offset);
+    uint32_t ReadUInt32BE(size_t offset);
+    float ReadFloatLE(size_t offset);
+    float ReadFloatBE(size_t offset);
+    double ReadDoubleLE(size_t offset);
+    double ReadDoubleBE(size_t offset);
+
+    // Write methods - return offset + bytes written
+    size_t WriteInt8(int8_t value, size_t offset);
+    size_t WriteUInt8(uint8_t value, size_t offset);
+    size_t WriteInt16LE(int16_t value, size_t offset);
+    size_t WriteInt16BE(int16_t value, size_t offset);
+    size_t WriteUInt16LE(uint16_t value, size_t offset);
+    size_t WriteUInt16BE(uint16_t value, size_t offset);
+    size_t WriteInt32LE(int32_t value, size_t offset);
+    size_t WriteInt32BE(int32_t value, size_t offset);
+    size_t WriteUInt32LE(uint32_t value, size_t offset);
+    size_t WriteUInt32BE(uint32_t value, size_t offset);
+    size_t WriteFloatLE(float value, size_t offset);
+    size_t WriteFloatBE(float value, size_t offset);
+    size_t WriteDoubleLE(double value, size_t offset);
+    size_t WriteDoubleBE(double value, size_t offset);
+
+    // Utility methods
+    int Compare(TsBuffer* other);
+    bool Equals(TsBuffer* other);
+    int64_t IndexOf(uint8_t value, size_t byteOffset = 0);
+    int64_t IndexOfBuffer(TsBuffer* value, size_t byteOffset = 0);
+    int64_t LastIndexOf(uint8_t value, size_t byteOffset = SIZE_MAX);
+    bool Includes(uint8_t value, size_t byteOffset = 0);
+    bool IncludesBuffer(TsBuffer* value, size_t byteOffset = 0);
+
     // Static methods
     static TsBuffer* AllocUnsafe(size_t length);
     static TsBuffer* Concat(void* list, int64_t totalLength = -1);
+    static int Compare(TsBuffer* buf1, TsBuffer* buf2);
+    static bool IsEncoding(const char* encoding);
 
 private:
     TsBuffer(size_t length);
@@ -98,6 +141,46 @@ extern "C" {
     void* ts_buffer_fill(void* buf, int64_t value, int64_t start, int64_t end);
     int64_t ts_buffer_copy(void* source, void* target, int64_t targetStart, int64_t sourceStart, int64_t sourceEnd);
     bool ts_buffer_is_buffer(void* obj);
+    bool ts_buffer_is_encoding(void* encoding);
+
+    // Buffer read methods
+    int64_t ts_buffer_read_int8(void* buf, int64_t offset);
+    int64_t ts_buffer_read_uint8(void* buf, int64_t offset);
+    int64_t ts_buffer_read_int16le(void* buf, int64_t offset);
+    int64_t ts_buffer_read_int16be(void* buf, int64_t offset);
+    int64_t ts_buffer_read_uint16le(void* buf, int64_t offset);
+    int64_t ts_buffer_read_uint16be(void* buf, int64_t offset);
+    int64_t ts_buffer_read_int32le(void* buf, int64_t offset);
+    int64_t ts_buffer_read_int32be(void* buf, int64_t offset);
+    int64_t ts_buffer_read_uint32le(void* buf, int64_t offset);
+    int64_t ts_buffer_read_uint32be(void* buf, int64_t offset);
+    double ts_buffer_read_floatle(void* buf, int64_t offset);
+    double ts_buffer_read_floatbe(void* buf, int64_t offset);
+    double ts_buffer_read_doublele(void* buf, int64_t offset);
+    double ts_buffer_read_doublebe(void* buf, int64_t offset);
+
+    // Buffer write methods
+    int64_t ts_buffer_write_int8(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_uint8(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_int16le(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_int16be(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_uint16le(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_uint16be(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_int32le(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_int32be(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_uint32le(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_uint32be(void* buf, int64_t value, int64_t offset);
+    int64_t ts_buffer_write_floatle(void* buf, double value, int64_t offset);
+    int64_t ts_buffer_write_floatbe(void* buf, double value, int64_t offset);
+    int64_t ts_buffer_write_doublele(void* buf, double value, int64_t offset);
+    int64_t ts_buffer_write_doublebe(void* buf, double value, int64_t offset);
+
+    // Buffer utility methods
+    int64_t ts_buffer_compare(void* buf1, void* buf2);
+    bool ts_buffer_equals(void* buf, void* other);
+    int64_t ts_buffer_indexof(void* buf, int64_t value, int64_t byteOffset);
+    int64_t ts_buffer_lastindexof(void* buf, int64_t value, int64_t byteOffset);
+    bool ts_buffer_includes(void* buf, int64_t value, int64_t byteOffset);
 
     void* ts_typed_array_create_u8(int64_t length);
     void* ts_typed_array_create_u32(int64_t length);
