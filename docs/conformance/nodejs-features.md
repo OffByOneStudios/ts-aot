@@ -20,7 +20,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |--------|--------|----------|-------|
 | `assert` | ❌ | 0% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
-| `buffer` | ⚠️ | 25% | Binary data handling |
+| `buffer` | ⚠️ | 76% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ⚠️ | 68% | Basic logging |
@@ -68,14 +68,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `Buffer.allocUnsafe(size)` | ✅ | |
 | `Buffer.allocUnsafeSlow(size)` | ❌ | |
 | `Buffer.byteLength(string)` | ✅ | |
-| `Buffer.compare(buf1, buf2)` | ❌ | |
+| `Buffer.compare(buf1, buf2)` | ✅ | |
 | `Buffer.concat(list)` | ✅ | |
 | `Buffer.from(array)` | ✅ | |
 | `Buffer.from(arrayBuffer)` | ❌ | |
 | `Buffer.from(buffer)` | ❌ | |
 | `Buffer.from(string, encoding)` | ✅ | |
 | `Buffer.isBuffer(obj)` | ✅ | |
-| `Buffer.isEncoding(encoding)` | ❌ | |
+| `Buffer.isEncoding(encoding)` | ✅ | |
 
 ### Instance Properties
 | Feature | Status | Notes |
@@ -88,35 +88,35 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Instance Methods
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `buf.compare(target)` | ❌ | |
+| `buf.compare(target)` | ✅ | |
 | `buf.copy(target)` | ✅ | |
 | `buf.entries()` | ❌ | |
-| `buf.equals(otherBuffer)` | ❌ | |
+| `buf.equals(otherBuffer)` | ✅ | |
 | `buf.fill(value)` | ✅ | |
-| `buf.includes(value)` | ❌ | |
-| `buf.indexOf(value)` | ❌ | |
+| `buf.includes(value)` | ✅ | |
+| `buf.indexOf(value)` | ✅ | |
 | `buf.keys()` | ❌ | |
-| `buf.lastIndexOf(value)` | ❌ | |
+| `buf.lastIndexOf(value)` | ✅ | |
 | `buf.readBigInt64BE(offset)` | ❌ | |
 | `buf.readBigInt64LE(offset)` | ❌ | |
 | `buf.readBigUInt64BE(offset)` | ❌ | |
 | `buf.readBigUInt64LE(offset)` | ❌ | |
-| `buf.readDoubleBE(offset)` | ❌ | |
-| `buf.readDoubleLE(offset)` | ❌ | |
-| `buf.readFloatBE(offset)` | ❌ | |
-| `buf.readFloatLE(offset)` | ❌ | |
-| `buf.readInt8(offset)` | ❌ | |
-| `buf.readInt16BE(offset)` | ❌ | |
-| `buf.readInt16LE(offset)` | ❌ | |
-| `buf.readInt32BE(offset)` | ❌ | |
-| `buf.readInt32LE(offset)` | ❌ | |
+| `buf.readDoubleBE(offset)` | ✅ | |
+| `buf.readDoubleLE(offset)` | ✅ | |
+| `buf.readFloatBE(offset)` | ✅ | |
+| `buf.readFloatLE(offset)` | ✅ | |
+| `buf.readInt8(offset)` | ✅ | |
+| `buf.readInt16BE(offset)` | ✅ | |
+| `buf.readInt16LE(offset)` | ✅ | |
+| `buf.readInt32BE(offset)` | ✅ | |
+| `buf.readInt32LE(offset)` | ✅ | |
 | `buf.readIntBE(offset, byteLength)` | ❌ | |
 | `buf.readIntLE(offset, byteLength)` | ❌ | |
-| `buf.readUInt8(offset)` | ❌ | |
-| `buf.readUInt16BE(offset)` | ❌ | |
-| `buf.readUInt16LE(offset)` | ❌ | |
-| `buf.readUInt32BE(offset)` | ❌ | |
-| `buf.readUInt32LE(offset)` | ❌ | |
+| `buf.readUInt8(offset)` | ✅ | |
+| `buf.readUInt16BE(offset)` | ✅ | |
+| `buf.readUInt16LE(offset)` | ✅ | |
+| `buf.readUInt32BE(offset)` | ✅ | |
+| `buf.readUInt32LE(offset)` | ✅ | |
 | `buf.readUIntBE(offset, byteLength)` | ❌ | |
 | `buf.readUIntLE(offset, byteLength)` | ❌ | |
 | `buf.slice(start, end)` | ✅ | Deprecated, use subarray |
@@ -132,26 +132,26 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.writeBigInt64LE(value)` | ❌ | |
 | `buf.writeBigUInt64BE(value)` | ❌ | |
 | `buf.writeBigUInt64LE(value)` | ❌ | |
-| `buf.writeDoubleBE(value)` | ❌ | |
-| `buf.writeDoubleLE(value)` | ❌ | |
-| `buf.writeFloatBE(value)` | ❌ | |
-| `buf.writeFloatLE(value)` | ❌ | |
-| `buf.writeInt8(value)` | ❌ | |
-| `buf.writeInt16BE(value)` | ❌ | |
-| `buf.writeInt16LE(value)` | ❌ | |
-| `buf.writeInt32BE(value)` | ❌ | |
-| `buf.writeInt32LE(value)` | ❌ | |
+| `buf.writeDoubleBE(value)` | ✅ | |
+| `buf.writeDoubleLE(value)` | ✅ | |
+| `buf.writeFloatBE(value)` | ✅ | |
+| `buf.writeFloatLE(value)` | ✅ | |
+| `buf.writeInt8(value)` | ✅ | |
+| `buf.writeInt16BE(value)` | ✅ | |
+| `buf.writeInt16LE(value)` | ✅ | |
+| `buf.writeInt32BE(value)` | ✅ | |
+| `buf.writeInt32LE(value)` | ✅ | |
 | `buf.writeIntBE(value)` | ❌ | |
 | `buf.writeIntLE(value)` | ❌ | |
-| `buf.writeUInt8(value)` | ❌ | |
-| `buf.writeUInt16BE(value)` | ❌ | |
-| `buf.writeUInt16LE(value)` | ❌ | |
-| `buf.writeUInt32BE(value)` | ❌ | |
-| `buf.writeUInt32LE(value)` | ❌ | |
+| `buf.writeUInt8(value)` | ✅ | |
+| `buf.writeUInt16BE(value)` | ✅ | |
+| `buf.writeUInt16LE(value)` | ✅ | |
+| `buf.writeUInt32BE(value)` | ✅ | |
+| `buf.writeUInt32LE(value)` | ✅ | |
 | `buf.writeUIntBE(value)` | ❌ | |
 | `buf.writeUIntLE(value)` | ❌ | |
 
-**Buffer Coverage: 17/68 (25%)**
+**Buffer Coverage: 52/68 (76%)**
 
 ---
 
@@ -1002,7 +1002,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Buffer | 17 | 68 | 25% |
+| Buffer | 52 | 68 | 76% |
 | Console | 13 | 19 | 68% |
 | Crypto | 16 | 34 | 47% |
 | Events | 14 | 21 | 67% |
@@ -1019,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **330** | **653** | **51%** |
+| **Total** | **365** | **653** | **56%** |
 
 ### Priority Implementation Targets
 

@@ -3,22 +3,62 @@
 
 namespace ts {
 
-// Static helper to register Buffer module's runtime functions once (10 functions)
+// Static helper to register Buffer module's runtime functions once
 static bool bufferFunctionsRegistered = false;
 static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
     if (bufferFunctionsRegistered) return;
     bufferFunctionsRegistered = true;
-    
+
     bp.registerRuntimeApi("ts_buffer_alloc", {false}, true);  // size -> Buffer
     bp.registerRuntimeApi("ts_buffer_alloc_unsafe", {false}, true);
     bp.registerRuntimeApi("ts_buffer_from_string", {false, false}, true);  // string, encoding
     bp.registerRuntimeApi("ts_buffer_concat", {true, false}, true);  // array, totalLength
     bp.registerRuntimeApi("ts_buffer_is_buffer", {true}, false);  // obj -> bool
+    bp.registerRuntimeApi("ts_buffer_is_encoding", {false}, false);  // encoding -> bool
     bp.registerRuntimeApi("ts_buffer_to_string", {true, false, false, false}, false);  // buf, encoding, start, end
     bp.registerRuntimeApi("ts_buffer_slice", {true, false, false}, true);  // buf, start, end
     bp.registerRuntimeApi("ts_buffer_subarray", {true, false, false}, true);
     bp.registerRuntimeApi("ts_buffer_copy", {true, true, false, false, false}, false);  // src, target, targetStart, srcStart, srcEnd
     bp.registerRuntimeApi("ts_buffer_fill", {true, true, false, false, false}, true);  // buf, value, offset, end, encoding
+
+    // Read methods - all take buf and offset, return value
+    bp.registerRuntimeApi("ts_buffer_read_int8", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_uint8", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_int16le", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_int16be", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_uint16le", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_uint16be", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_int32le", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_int32be", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_uint32le", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_uint32be", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_floatle", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_floatbe", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_doublele", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_doublebe", {true, false}, false);
+
+    // Write methods - all take buf, value, offset, return new offset
+    bp.registerRuntimeApi("ts_buffer_write_int8", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_uint8", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_int16le", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_int16be", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_uint16le", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_uint16be", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_int32le", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_int32be", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_uint32le", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_uint32be", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_floatle", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_floatbe", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_doublele", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_doublebe", {true, false, false}, false);
+
+    // Utility methods
+    bp.registerRuntimeApi("ts_buffer_compare", {true, true}, false);  // buf1, buf2 -> int
+    bp.registerRuntimeApi("ts_buffer_equals", {true, true}, false);   // buf, other -> bool
+    bp.registerRuntimeApi("ts_buffer_indexof", {true, false, false}, false);  // buf, value, byteOffset -> int
+    bp.registerRuntimeApi("ts_buffer_lastindexof", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_includes", {true, false, false}, false);  // buf, value, byteOffset -> bool
 }
 
 bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -213,14 +253,14 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         if (node->arguments.empty()) return true;
         visit(prop->expression.get());
         llvm::Value* source = lastValue;
-        
+
         visit(node->arguments[0].get());
         llvm::Value* target = lastValue;
-        
+
         llvm::Value* targetStart = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
         llvm::Value* sourceStart = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
         llvm::Value* sourceEnd = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), -1);
-        
+
         if (node->arguments.size() > 1) {
             visit(node->arguments[1].get());
             targetStart = castValue(lastValue, llvm::Type::getInt64Ty(*context));
@@ -233,15 +273,244 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
             visit(node->arguments[3].get());
             sourceEnd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
         }
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
-            { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), 
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context),
               llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_copy", ft);
         lastValue = createCall(ft, fn.getCallee(), { source, target, targetStart, sourceStart, sourceEnd });
         return true;
     }
-    
+
+    // Handle Buffer.isEncoding(encoding)
+    if (prop->name == "isEncoding" && bufferId && bufferId->name == "Buffer") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* encoding = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_is_encoding", ft);
+        lastValue = createCall(ft, fn.getCallee(), { encoding });
+        return true;
+    }
+
+    // Handle Buffer.compare(buf1, buf2) - static method
+    if (prop->name == "compare" && bufferId && bufferId->name == "Buffer") {
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* buf1 = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* buf2 = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_compare", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf1, buf2 });
+        return true;
+    }
+
+    // Helper lambda for buffer read methods (offset -> value)
+    auto genReadMethod = [&](const std::string& methodName, const std::string& rtName, bool returnsDouble) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::Type* returnType = returnsDouble ? builder->getDoubleTy() : llvm::Type::getInt64Ty(*context);
+            llvm::FunctionType* ft = llvm::FunctionType::get(returnType,
+                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, offset });
+            return true;
+        }
+        return false;
+    };
+
+    // Buffer read methods
+    if (genReadMethod("readInt8", "ts_buffer_read_int8", false)) return true;
+    if (genReadMethod("readUInt8", "ts_buffer_read_uint8", false)) return true;
+    if (genReadMethod("readInt16LE", "ts_buffer_read_int16le", false)) return true;
+    if (genReadMethod("readInt16BE", "ts_buffer_read_int16be", false)) return true;
+    if (genReadMethod("readUInt16LE", "ts_buffer_read_uint16le", false)) return true;
+    if (genReadMethod("readUInt16BE", "ts_buffer_read_uint16be", false)) return true;
+    if (genReadMethod("readInt32LE", "ts_buffer_read_int32le", false)) return true;
+    if (genReadMethod("readInt32BE", "ts_buffer_read_int32be", false)) return true;
+    if (genReadMethod("readUInt32LE", "ts_buffer_read_uint32le", false)) return true;
+    if (genReadMethod("readUInt32BE", "ts_buffer_read_uint32be", false)) return true;
+    if (genReadMethod("readFloatLE", "ts_buffer_read_floatle", true)) return true;
+    if (genReadMethod("readFloatBE", "ts_buffer_read_floatbe", true)) return true;
+    if (genReadMethod("readDoubleLE", "ts_buffer_read_doublele", true)) return true;
+    if (genReadMethod("readDoubleBE", "ts_buffer_read_doublebe", true)) return true;
+
+    // Helper lambda for buffer write methods (value, offset -> newOffset)
+    auto genWriteMethodInt = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* value = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, value, offset });
+            return true;
+        }
+        return false;
+    };
+
+    auto genWriteMethodDouble = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* value = castValue(lastValue, builder->getDoubleTy());
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { builder->getPtrTy(), builder->getDoubleTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, value, offset });
+            return true;
+        }
+        return false;
+    };
+
+    // Buffer write methods - integer types
+    if (genWriteMethodInt("writeInt8", "ts_buffer_write_int8")) return true;
+    if (genWriteMethodInt("writeUInt8", "ts_buffer_write_uint8")) return true;
+    if (genWriteMethodInt("writeInt16LE", "ts_buffer_write_int16le")) return true;
+    if (genWriteMethodInt("writeInt16BE", "ts_buffer_write_int16be")) return true;
+    if (genWriteMethodInt("writeUInt16LE", "ts_buffer_write_uint16le")) return true;
+    if (genWriteMethodInt("writeUInt16BE", "ts_buffer_write_uint16be")) return true;
+    if (genWriteMethodInt("writeInt32LE", "ts_buffer_write_int32le")) return true;
+    if (genWriteMethodInt("writeInt32BE", "ts_buffer_write_int32be")) return true;
+    if (genWriteMethodInt("writeUInt32LE", "ts_buffer_write_uint32le")) return true;
+    if (genWriteMethodInt("writeUInt32BE", "ts_buffer_write_uint32be")) return true;
+
+    // Buffer write methods - float types
+    if (genWriteMethodDouble("writeFloatLE", "ts_buffer_write_floatle")) return true;
+    if (genWriteMethodDouble("writeFloatBE", "ts_buffer_write_floatbe")) return true;
+    if (genWriteMethodDouble("writeDoubleLE", "ts_buffer_write_doublele")) return true;
+    if (genWriteMethodDouble("writeDoubleBE", "ts_buffer_write_doublebe")) return true;
+
+    // Handle buf.compare(other) - instance method
+    if (prop->name == "compare" && isBuffer) {
+        if (node->arguments.empty()) return true;
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+        visit(node->arguments[0].get());
+        llvm::Value* other = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_compare", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf, other });
+        return true;
+    }
+
+    // Handle buf.equals(other)
+    if (prop->name == "equals" && isBuffer) {
+        if (node->arguments.empty()) return true;
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+        visit(node->arguments[0].get());
+        llvm::Value* other = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_equals", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf, other });
+        return true;
+    }
+
+    // Handle buf.indexOf(value, byteOffset?)
+    if (prop->name == "indexOf" && isBuffer) {
+        if (node->arguments.empty()) return true;
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        visit(node->arguments[0].get());
+        llvm::Value* value = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+        llvm::Value* byteOffset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            byteOffset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_indexof", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf, value, byteOffset });
+        return true;
+    }
+
+    // Handle buf.lastIndexOf(value, byteOffset?)
+    if (prop->name == "lastIndexOf" && isBuffer) {
+        if (node->arguments.empty()) return true;
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        visit(node->arguments[0].get());
+        llvm::Value* value = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+        // Default byteOffset is buffer.length (which we represent as -1 meaning "end")
+        llvm::Value* byteOffset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), -1);
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            byteOffset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_lastindexof", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf, value, byteOffset });
+        return true;
+    }
+
+    // Handle buf.includes(value, byteOffset?)
+    if (prop->name == "includes" && isBuffer) {
+        if (node->arguments.empty()) return true;
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        visit(node->arguments[0].get());
+        llvm::Value* value = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+        llvm::Value* byteOffset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            byteOffset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_includes", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf, value, byteOffset });
+        return true;
+    }
+
     return false;
 }
 
