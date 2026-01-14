@@ -283,6 +283,50 @@ size_t TsURLSearchParams::GetSize() {
     return (size_t)((TsArray*)entries)->Length();
 }
 
+void* TsURLSearchParams::Entries() {
+    // entries is already an array of [key, value] pairs
+    // Return a copy of it
+    TsArray* arr = (TsArray*)entries;
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < (size_t)arr->Length(); i++) {
+        result->Push(arr->Get(i));
+    }
+    return result;
+}
+
+void* TsURLSearchParams::Keys() {
+    TsArray* arr = (TsArray*)entries;
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < (size_t)arr->Length(); i++) {
+        TsArray* pair = (TsArray*)arr->Get(i);
+        result->Push(pair->Get(0));  // Get the key (first element)
+    }
+    return result;
+}
+
+void* TsURLSearchParams::Values() {
+    TsArray* arr = (TsArray*)entries;
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < (size_t)arr->Length(); i++) {
+        TsArray* pair = (TsArray*)arr->Get(i);
+        result->Push(pair->Get(1));  // Get the value (second element)
+    }
+    return result;
+}
+
+void TsURLSearchParams::ForEach(void* callback, void* thisArg) {
+    TsArray* arr = (TsArray*)entries;
+    // ForEach callback signature: (value, key, params)
+    typedef void (*ForEachCallback)(void*, void*, void*, void*);
+    ForEachCallback fn = (ForEachCallback)callback;
+    for (size_t i = 0; i < (size_t)arr->Length(); i++) {
+        TsArray* pair = (TsArray*)arr->Get(i);
+        TsString* key = (TsString*)pair->Get(0);
+        TsString* value = (TsString*)pair->Get(1);
+        fn(thisArg, value, key, this);
+    }
+}
+
 // ============ C API ============
 
 extern "C" {
@@ -388,5 +432,33 @@ extern "C" {
     }
     void* URLSearchParams_toString(void* params) {
         return ((TsURLSearchParams*)params)->ToString();
+    }
+
+    // URLSearchParams iterator methods
+    void* ts_url_search_params_entries(void* params) {
+        return ((TsURLSearchParams*)params)->Entries();
+    }
+    void* ts_url_search_params_keys(void* params) {
+        return ((TsURLSearchParams*)params)->Keys();
+    }
+    void* ts_url_search_params_values(void* params) {
+        return ((TsURLSearchParams*)params)->Values();
+    }
+    void ts_url_search_params_for_each(void* params, void* callback, void* thisArg) {
+        ((TsURLSearchParams*)params)->ForEach(callback, thisArg);
+    }
+
+    // URLSearchParams VTable iterator methods
+    void* URLSearchParams_entries(void* params) {
+        return ((TsURLSearchParams*)params)->Entries();
+    }
+    void* URLSearchParams_keys(void* params) {
+        return ((TsURLSearchParams*)params)->Keys();
+    }
+    void* URLSearchParams_values(void* params) {
+        return ((TsURLSearchParams*)params)->Values();
+    }
+    void URLSearchParams_forEach(void* params, void* callback, void* thisArg) {
+        ((TsURLSearchParams*)params)->ForEach(callback, thisArg);
     }
 }

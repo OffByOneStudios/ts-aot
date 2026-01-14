@@ -49,7 +49,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers` | ⚠️ | 43% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
-| `url` | ⚠️ | 66% | URL parsing |
+| `url` | ⚠️ | 76% | URL parsing |
 | `util` | ⚠️ | 31% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
@@ -881,17 +881,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `new URLSearchParams()` | ✅ | From string or empty |
 | `params.append()` | ✅ | |
 | `params.delete()` | ✅ | |
-| `params.entries()` | ❌ | |
-| `params.forEach()` | ❌ | |
+| `params.entries()` | ✅ | Returns array of [key, value] pairs |
+| `params.forEach()` | ✅ | |
 | `params.get()` | ✅ | |
 | `params.getAll()` | ✅ | |
 | `params.has()` | ✅ | |
-| `params.keys()` | ❌ | |
+| `params.keys()` | ✅ | Returns array of keys |
 | `params.set()` | ✅ | |
 | `params.size` | ✅ | |
 | `params.sort()` | ✅ | |
 | `params.toString()` | ✅ | |
-| `params.values()` | ❌ | |
+| `params.values()` | ✅ | Returns array of values |
 
 ### Legacy URL API
 | Feature | Status | Notes |
@@ -905,7 +905,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.pathToFileURL()` | ❌ | |
 | `url.urlToHttpOptions()` | ❌ | |
 
-**URL Coverage: 25/38 (66%)**
+**URL Coverage: 29/38 (76%)**
 
 ---
 
@@ -1016,10 +1016,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Stream | 22 | 44 | 50% |
 | Timers | 6 | 14 | 43% |
 | TLS | 6 | 20 | 30% |
-| URL | 25 | 38 | 66% |
+| URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **388** | **653** | **59%** |
+| **Total** | **392** | **653** | **60%** |
 
 ### Priority Implementation Targets
 

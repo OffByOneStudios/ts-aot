@@ -47,7 +47,33 @@ void Analyzer::registerHTTP() {
     auto toStringMethod = std::make_shared<FunctionType>();
     toStringMethod->returnType = std::make_shared<Type>(TypeKind::String);
     urlSearchParamsClass->methods["toString"] = toStringMethod;
-    
+
+    // Iterator methods
+    auto entriesMethod = std::make_shared<FunctionType>();
+    entriesMethod->returnType = std::make_shared<ArrayType>(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String)));
+    urlSearchParamsClass->methods["entries"] = entriesMethod;
+
+    auto keysMethod = std::make_shared<FunctionType>();
+    keysMethod->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    urlSearchParamsClass->methods["keys"] = keysMethod;
+
+    auto valuesMethod = std::make_shared<FunctionType>();
+    valuesMethod->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    urlSearchParamsClass->methods["values"] = valuesMethod;
+
+    // forEach(callback: (value, key, searchParams) => void, thisArg?: any)
+    auto forEachCallbackType = std::make_shared<FunctionType>();
+    forEachCallbackType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // value
+    forEachCallbackType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // key
+    forEachCallbackType->paramTypes.push_back(urlSearchParamsClass);                       // searchParams
+    forEachCallbackType->returnType = std::make_shared<Type>(TypeKind::Void);
+
+    auto forEachMethod = std::make_shared<FunctionType>();
+    forEachMethod->paramTypes.push_back(forEachCallbackType);
+    forEachMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // thisArg (optional)
+    forEachMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    urlSearchParamsClass->methods["forEach"] = forEachMethod;
+
     symbols.defineType("URLSearchParams", urlSearchParamsClass);
 
     // Register URL class
