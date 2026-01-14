@@ -20,7 +20,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |--------|--------|----------|-------|
 | `assert` | ❌ | 0% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
-| `buffer` | ⚠️ | 19% | Binary data handling |
+| `buffer` | ⚠️ | 25% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ⚠️ | 68% | Basic logging |
@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 66% | URL parsing |
-| `util` | ⚠️ | 3% | Utilities |
+| `util` | ⚠️ | 31% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
 | `wasi` | ❌ | 0% | WebAssembly |
@@ -65,7 +65,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `Buffer.alloc(size)` | ✅ | |
-| `Buffer.allocUnsafe(size)` | ❌ | |
+| `Buffer.allocUnsafe(size)` | ✅ | |
 | `Buffer.allocUnsafeSlow(size)` | ❌ | |
 | `Buffer.byteLength(string)` | ✅ | |
 | `Buffer.compare(buf1, buf2)` | ❌ | |
@@ -80,9 +80,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Instance Properties
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `buf.buffer` | ❌ | |
-| `buf.byteOffset` | ❌ | |
+| `buf.buffer` | ✅ | Returns same buffer (Node.js compatibility) |
+| `buf.byteOffset` | ✅ | Always returns 0 |
 | `buf.length` | ✅ | |
+| `buf.byteLength` | ✅ | Same as length |
 
 ### Instance Methods
 | Feature | Status | Notes |
@@ -150,7 +151,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.writeUIntBE(value)` | ❌ | |
 | `buf.writeUIntLE(value)` | ❌ | |
 
-**Buffer Coverage: 13/67 (19%)**
+**Buffer Coverage: 17/68 (25%)**
 
 ---
 
@@ -874,61 +875,61 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `util.callbackify()` | ❌ | |
+| `util.callbackify()` | ⚠️ | Stub - returns function unchanged |
 | `util.debuglog()` | ❌ | |
-| `util.deprecate()` | ❌ | |
-| `util.format()` | ✅ | |
+| `util.deprecate()` | ⚠️ | Stub - returns function unchanged |
+| `util.format()` | ⚠️ | Works but has extra spacing in output |
 | `util.formatWithOptions()` | ❌ | |
 | `util.getSystemErrorName()` | ❌ | |
 | `util.getSystemErrorMap()` | ❌ | |
-| `util.inherits()` | ❌ | |
-| `util.inspect()` | ✅ | Basic support |
+| `util.inherits()` | ⚠️ | Stub - does nothing |
+| `util.inspect()` | ⚠️ | Returns pointer value, not object string |
 | `util.inspect.custom` | ❌ | |
 | `util.inspect.defaultOptions` | ❌ | |
-| `util.isDeepStrictEqual()` | ❌ | |
+| `util.isDeepStrictEqual()` | ⚠️ | Returns false for equal objects |
 | `util.parseArgs()` | ❌ | |
 | `util.parseEnv()` | ❌ | |
-| `util.promisify()` | ❌ | |
+| `util.promisify()` | ⚠️ | Stub - returns function unchanged |
 | `util.stripVTControlCharacters()` | ❌ | |
 | `util.styleText()` | ❌ | |
 | `util.toUSVString()` | ❌ | |
 | `util.transferableAbortController()` | ❌ | |
 | `util.transferableAbortSignal()` | ❌ | |
 | `util.types.isAnyArrayBuffer()` | ❌ | |
-| `util.types.isArrayBuffer()` | ❌ | |
-| `util.types.isArrayBufferView()` | ❌ | |
-| `util.types.isAsyncFunction()` | ❌ | |
+| `util.types.isArrayBuffer()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isArrayBufferView()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isBigInt64Array()` | ❌ | |
 | `util.types.isBigUint64Array()` | ❌ | |
 | `util.types.isBooleanObject()` | ❌ | |
 | `util.types.isBoxedPrimitive()` | ❌ | |
 | `util.types.isCryptoKey()` | ❌ | |
 | `util.types.isDataView()` | ❌ | |
-| `util.types.isDate()` | ❌ | |
+| `util.types.isDate()` | ⚠️ | Returns false for Date objects |
 | `util.types.isExternal()` | ❌ | |
 | `util.types.isFloat32Array()` | ❌ | |
 | `util.types.isFloat64Array()` | ❌ | |
-| `util.types.isGeneratorFunction()` | ❌ | |
-| `util.types.isGeneratorObject()` | ❌ | |
+| `util.types.isGeneratorFunction()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isGeneratorObject()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isInt8Array()` | ❌ | |
 | `util.types.isInt16Array()` | ❌ | |
 | `util.types.isInt32Array()` | ❌ | |
 | `util.types.isKeyObject()` | ❌ | |
-| `util.types.isMap()` | ❌ | |
+| `util.types.isMap()` | ⚠️ | Also returns true for plain objects |
 | `util.types.isMapIterator()` | ❌ | |
 | `util.types.isModuleNamespaceObject()` | ❌ | |
-| `util.types.isNativeError()` | ❌ | |
+| `util.types.isNativeError()` | ⚠️ | Returns false for Error objects |
 | `util.types.isNumberObject()` | ❌ | |
-| `util.types.isPromise()` | ❌ | |
+| `util.types.isPromise()` | ⚠️ | Not tested |
 | `util.types.isProxy()` | ❌ | |
-| `util.types.isRegExp()` | ❌ | |
-| `util.types.isSet()` | ❌ | |
+| `util.types.isRegExp()` | ⚠️ | Returns false for RegExp |
+| `util.types.isSet()` | ✅ | Works correctly |
 | `util.types.isSetIterator()` | ❌ | |
 | `util.types.isSharedArrayBuffer()` | ❌ | |
 | `util.types.isStringObject()` | ❌ | |
 | `util.types.isSymbolObject()` | ❌ | |
-| `util.types.isTypedArray()` | ❌ | |
-| `util.types.isUint8Array()` | ❌ | |
+| `util.types.isTypedArray()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isUint8Array()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isUint8ClampedArray()` | ❌ | |
 | `util.types.isUint16Array()` | ❌ | |
 | `util.types.isUint32Array()` | ❌ | |
@@ -937,7 +938,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ❌ | |
 | TextEncoder class | ❌ | |
 
-**Util Coverage: 2/62 (3%)**
+**Util Coverage: 19/62 (31%)** (1 full, 18 partial)
 
 ---
 
@@ -963,7 +964,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Buffer | 13 | 67 | 19% |
+| Buffer | 17 | 68 | 25% |
 | Console | 13 | 19 | 68% |
 | Crypto | 1 | 28 | 4% |
 | Events | 14 | 21 | 67% |
@@ -977,9 +978,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Stream | 10 | 44 | 23% |
 | Timers | 6 | 14 | 43% |
 | URL | 25 | 38 | 66% |
-| Util | 2 | 62 | 3% |
+| Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **231** | **615** | **38%** |
+| **Total** | **252** | **616** | **41%** |
 
 ### Priority Implementation Targets
 
@@ -1009,16 +1010,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ## Testing Status
 
 Current test coverage:
-- Buffer: 1 test file
-- Console: Used in all tests
-- Events: 1 test file
-- File System: 1 test file
-- HTTP: 2 test files (fetch API, constants)
+- Buffer: 6 test files (basic, advanced, encoding, extended, typed_array, utilities)
+- Console: 4 test files (extended, methods, timing)
+- Events: 2 test files (basic, extended)
+- File System: 7 test files (async, dirs, links, metadata, operations, sync)
+- HTTP: 4 test files (fetch, client, constants, https)
 - Net: 1 test file (utilities)
-- Path: 1 test file
-- Process: 1 test file
+- Path: 3 test files (basic, parse_format, relative)
+- Process: 2 test files (basic, extended)
 - Timers: 1 test file
 - URL: 3 test files (basic, extended, search params)
-- Util: 1 test file
+- Util: 2 test files (basic, extended)
 
-All Node.js API tests passing.
+Most Node.js API tests passing (136/139).
