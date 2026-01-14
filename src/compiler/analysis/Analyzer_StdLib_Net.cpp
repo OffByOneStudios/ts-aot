@@ -9,13 +9,29 @@ void Analyzer::registerNet() {
     // Socket inherits from Duplex
     auto duplexClass = std::static_pointer_cast<ClassType>(symbols.lookupType("Duplex"));
     socketClass->baseClass = duplexClass;
-    
+
     auto connectMethod = std::make_shared<FunctionType>();
     connectMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // port
     connectMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // host
     connectMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function)); // callback
     socketClass->methods["connect"] = connectMethod;
-    
+
+    // Socket address properties
+    socketClass->fields["remoteAddress"] = std::make_shared<Type>(TypeKind::String);
+    socketClass->fields["remotePort"] = std::make_shared<Type>(TypeKind::Int);
+    socketClass->fields["remoteFamily"] = std::make_shared<Type>(TypeKind::String);
+    socketClass->fields["localAddress"] = std::make_shared<Type>(TypeKind::String);
+    socketClass->fields["localPort"] = std::make_shared<Type>(TypeKind::Int);
+    socketClass->fields["localFamily"] = std::make_shared<Type>(TypeKind::String);
+
+    // Socket state properties
+    socketClass->fields["bytesRead"] = std::make_shared<Type>(TypeKind::Int);
+    socketClass->fields["bytesWritten"] = std::make_shared<Type>(TypeKind::Int);
+    socketClass->fields["connecting"] = std::make_shared<Type>(TypeKind::Boolean);
+    socketClass->fields["destroyed"] = std::make_shared<Type>(TypeKind::Boolean);
+    socketClass->fields["pending"] = std::make_shared<Type>(TypeKind::Boolean);
+    socketClass->fields["readyState"] = std::make_shared<Type>(TypeKind::String);
+
     symbols.defineType("Socket", socketClass);
     netModule->fields["Socket"] = socketClass;
     

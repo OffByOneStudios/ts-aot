@@ -177,6 +177,7 @@ private:
     bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGeneratePromiseCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateStreamModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
@@ -185,6 +186,7 @@ private:
     bool tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

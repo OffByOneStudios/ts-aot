@@ -65,6 +65,12 @@ void Analyzer::registerEvents() {
     listenersFn->returnType = funcArrayType;
     eventEmitterClass->methods["listeners"] = listenersFn;
 
+    // rawListeners(event: string): Function[]
+    auto rawListenersFn = std::make_shared<FunctionType>();
+    rawListenersFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    rawListenersFn->returnType = funcArrayType;
+    eventEmitterClass->methods["rawListeners"] = rawListenersFn;
+
     // getMaxListeners(): number
     auto getMaxListenersFn = std::make_shared<FunctionType>();
     getMaxListenersFn->returnType = std::make_shared<Type>(TypeKind::Int);

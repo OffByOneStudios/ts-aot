@@ -877,6 +877,13 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "Socket") {
+            // new net.Socket(options?)
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_create_socket", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
         } else if (className == "Agent") {
             // new http.Agent(options?)
             llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());

@@ -380,7 +380,8 @@ TsValue* ts_value_make_int(int64_t i) {
             magic16 == 0x53455453 || // TsSet::MAGIC
             magic16 == 0x41525259 || // TsArray::MAGIC
             magic16 == 0x46554E43 || // TsFunction::MAGIC
-            magic16 == 0x42554646) { // TsBuffer::MAGIC
+            magic16 == 0x42554646 || // TsBuffer::MAGIC
+            magic16 == 0x534F434B) { // TsSocket::MAGIC "SOCK"
             return v;
         }
 
@@ -398,7 +399,8 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check offset 8 for objects with different layout
         uint32_t magic8 = *(uint32_t*)((char*)v + 8);
         if (magic8 == 0x4D415053 || magic8 == 0x42554646 ||
-            magic8 == 0x53455453 || magic8 == 0x46554E43) {
+            magic8 == 0x53455453 || magic8 == 0x46554E43 ||
+            magic8 == 0x534F434B) { // TsSocket::MAGIC "SOCK"
             return v;
         }
 

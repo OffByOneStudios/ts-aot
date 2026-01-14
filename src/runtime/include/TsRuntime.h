@@ -292,6 +292,13 @@ void ts_fs_write_stream_end(void* stream);
 void* ts_stream_pipe(void* src, void* dest);
 void ts_stream_pause(void* stream);
 void ts_stream_resume(void* stream);
+void* ts_stream_pipeline(void* streams, void* callback);
+void* ts_stream_finished(void* stream, void* optionsOrCallback, void* callback);
+
+// --- HTTP Response Properties ---
+bool ts_outgoing_message_get_headers_sent(void* msg);
+bool ts_outgoing_message_get_writable_ended(void* msg);
+bool ts_outgoing_message_get_writable_finished(void* msg);
 
 // --- Path ---
 void* ts_path_join(void* path1, void* path2);

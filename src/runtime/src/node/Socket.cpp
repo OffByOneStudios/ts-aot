@@ -45,6 +45,8 @@ TsSocket::~TsSocket() {
 void TsSocket::Connect(const char* host, int port, void* callback) {
     if (closed) return;
 
+    connecting_ = true;  // Set connecting state
+
     struct ConnectContext {
         TsSocket* socket;
         void* callback;
@@ -81,7 +83,9 @@ void TsSocket::Connect(const char* host, int port, void* callback) {
         int r = uv_tcp_connect(connect_req, self->handle, res->ai_addr, [](uv_connect_t* req, int status) {
             ConnectContext* ctx = (ConnectContext*)req->data;
             TsSocket* self = ctx->socket;
-            
+
+            self->connecting_ = false;  // Clear connecting state
+
             if (status == 0) {
                 self->connected = true;
                 self->OnConnected();
@@ -143,9 +147,10 @@ void TsSocket::OnRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 
 void TsSocket::HandleRead(ssize_t nread, const uv_buf_t* buf) {
     if (nread > 0) {
+        bytesRead_ += nread;  // Track bytes read
         TsBuffer* chunk = TsBuffer::Create(nread);
         memcpy(chunk->GetData(), buf->base, nread);
-        
+
         TsValue* arg0 = ts_value_make_object(chunk);
         void* args[] = { arg0 };
         Emit("data", 1, args);
@@ -195,7 +200,8 @@ void TsSocket::OnWrite(uv_write_t* req, int status) {
 
 void TsSocket::HandleWrite(int status, size_t length) {
     bufferedAmount -= length;
-    
+    bytesWritten_ += length;  // Track bytes written
+
     if (needDrain && bufferedAmount < highWaterMark) {
         needDrain = false;
         Emit("drain", 0, nullptr);
@@ -213,6 +219,140 @@ void TsSocket::OnClose(uv_handle_t* handle) {
     self->Emit("close", 0, nullptr);
 }
 
+// Socket address property implementations
+const char* TsSocket::GetRemoteAddress() {
+    if (!connected || closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getpeername(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    static char ipStr[INET6_ADDRSTRLEN];
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        uv_inet_ntop(AF_INET, &addr4->sin_addr, ipStr, sizeof(ipStr));
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        uv_inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
+    } else {
+        return nullptr;
+    }
+
+    return ipStr;
+}
+
+int TsSocket::GetRemotePort() {
+    if (!connected || closed) return 0;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getpeername(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return 0;
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        return ntohs(addr4->sin_port);
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        return ntohs(addr6->sin6_port);
+    }
+
+    return 0;
+}
+
+const char* TsSocket::GetRemoteFamily() {
+    if (!connected || closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getpeername(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    if (addr.ss_family == AF_INET) {
+        return "IPv4";
+    } else if (addr.ss_family == AF_INET6) {
+        return "IPv6";
+    }
+
+    return nullptr;
+}
+
+const char* TsSocket::GetLocalAddress() {
+    if (closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    static char ipStr[INET6_ADDRSTRLEN];
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        uv_inet_ntop(AF_INET, &addr4->sin_addr, ipStr, sizeof(ipStr));
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        uv_inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
+    } else {
+        return nullptr;
+    }
+
+    return ipStr;
+}
+
+int TsSocket::GetLocalPort() {
+    if (closed) return 0;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return 0;
+
+    if (addr.ss_family == AF_INET) {
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        return ntohs(addr4->sin_port);
+    } else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+        return ntohs(addr6->sin6_port);
+    }
+
+    return 0;
+}
+
+const char* TsSocket::GetLocalFamily() {
+    if (closed) return nullptr;
+
+    struct sockaddr_storage addr;
+    int addrLen = sizeof(addr);
+
+    int result = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &addrLen);
+    if (result != 0) return nullptr;
+
+    if (addr.ss_family == AF_INET) {
+        return "IPv4";
+    } else if (addr.ss_family == AF_INET6) {
+        return "IPv6";
+    }
+
+    return nullptr;
+}
+
+const char* TsSocket::GetReadyState() const {
+    if (closed) return "closed";
+    if (connecting_) return "opening";
+    if (connected) return "open";
+    // New socket that hasn't connected yet - returns "closed" per Node.js spec
+    // (socket.readyState is "closed" before connecting and after end)
+    return "closed";
+}
+
 extern "C" {
     void* ts_net_create_socket() {
         void* mem = ts_alloc(sizeof(TsSocket));
@@ -224,6 +364,112 @@ extern "C" {
         TsValue* p = (TsValue*)port;
         TsString* h = (TsString*)host;
         s->Connect(h->ToUtf8(), (int)p->i_val, callback);
+    }
+
+    // Socket address property getters
+    void* ts_net_socket_get_remote_address(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return ts_value_make_undefined();
+        const char* addr = s->GetRemoteAddress();
+        if (!addr) return ts_value_make_undefined();
+        return TsString::Create(addr);
+    }
+
+    int64_t ts_net_socket_get_remote_port(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return 0;
+        return s->GetRemotePort();
+    }
+
+    void* ts_net_socket_get_remote_family(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return ts_value_make_undefined();
+        const char* family = s->GetRemoteFamily();
+        if (!family) return ts_value_make_undefined();
+        return TsString::Create(family);
+    }
+
+    void* ts_net_socket_get_local_address(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return ts_value_make_undefined();
+        const char* addr = s->GetLocalAddress();
+        if (!addr) return ts_value_make_undefined();
+        return TsString::Create(addr);
+    }
+
+    int64_t ts_net_socket_get_local_port(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return 0;
+        return s->GetLocalPort();
+    }
+
+    void* ts_net_socket_get_local_family(void* socket) {
+        void* rawPtr = ts_value_get_object((TsValue*)socket);
+        if (!rawPtr) rawPtr = socket;
+        TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
+        if (!s) return ts_value_make_undefined();
+        const char* family = s->GetLocalFamily();
+        if (!family) return ts_value_make_undefined();
+        return TsString::Create(family);
+    }
+
+    // Helper to get TsSocket from void* (handles both raw and boxed)
+    // NOTE: With virtual inheritance, TsSocket's layout is complex.
+    // We directly cast since we know ts_net_create_socket returns TsSocket*.
+    static TsSocket* getSocketFromVoid(void* socket) {
+        if (!socket) return nullptr;
+
+        // Direct cast - trust that the caller passes a valid TsSocket*
+        // The codegen ensures Socket-typed values come from proper sources
+        return (TsSocket*)socket;
+    }
+
+    // Socket state property getters
+    int64_t ts_net_socket_get_bytes_read(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return 0;
+        return (int64_t)s->GetBytesRead();
+    }
+
+    int64_t ts_net_socket_get_bytes_written(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return 0;
+        return (int64_t)s->GetBytesWritten();
+    }
+
+    bool ts_net_socket_get_connecting(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return false;
+        return s->IsConnecting();
+    }
+
+    bool ts_net_socket_get_destroyed(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return true;
+        return s->IsDestroyed();
+    }
+
+    bool ts_net_socket_get_pending(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return false;
+        return s->IsPending();
+    }
+
+    void* ts_net_socket_get_ready_state(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return TsString::Create("closed");
+        const char* state = s->GetReadyState();
+        return TsString::Create(state);
     }
 
     // Global state for auto-select family settings

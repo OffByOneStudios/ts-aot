@@ -372,4 +372,132 @@ void ts_os_setPriority(int64_t pid, int64_t priority) {
 #endif
 }
 
+// ========================================================================
+// Constants
+// ========================================================================
+
+TsValue* ts_os_get_signals() {
+    TsMap* signals = TsMap::Create();
+
+    // Common POSIX signals
+    signals->Set(TsString::Create("SIGHUP"), *ts_value_make_int(1));
+    signals->Set(TsString::Create("SIGINT"), *ts_value_make_int(2));
+    signals->Set(TsString::Create("SIGQUIT"), *ts_value_make_int(3));
+    signals->Set(TsString::Create("SIGILL"), *ts_value_make_int(4));
+    signals->Set(TsString::Create("SIGTRAP"), *ts_value_make_int(5));
+    signals->Set(TsString::Create("SIGABRT"), *ts_value_make_int(6));
+    signals->Set(TsString::Create("SIGFPE"), *ts_value_make_int(8));
+    signals->Set(TsString::Create("SIGKILL"), *ts_value_make_int(9));
+    signals->Set(TsString::Create("SIGSEGV"), *ts_value_make_int(11));
+    signals->Set(TsString::Create("SIGPIPE"), *ts_value_make_int(13));
+    signals->Set(TsString::Create("SIGALRM"), *ts_value_make_int(14));
+    signals->Set(TsString::Create("SIGTERM"), *ts_value_make_int(15));
+    signals->Set(TsString::Create("SIGCHLD"), *ts_value_make_int(17));
+    signals->Set(TsString::Create("SIGCONT"), *ts_value_make_int(18));
+    signals->Set(TsString::Create("SIGSTOP"), *ts_value_make_int(19));
+    signals->Set(TsString::Create("SIGTSTP"), *ts_value_make_int(20));
+    signals->Set(TsString::Create("SIGTTIN"), *ts_value_make_int(21));
+    signals->Set(TsString::Create("SIGTTOU"), *ts_value_make_int(22));
+    signals->Set(TsString::Create("SIGURG"), *ts_value_make_int(23));
+    signals->Set(TsString::Create("SIGXCPU"), *ts_value_make_int(24));
+    signals->Set(TsString::Create("SIGXFSZ"), *ts_value_make_int(25));
+    signals->Set(TsString::Create("SIGVTALRM"), *ts_value_make_int(26));
+    signals->Set(TsString::Create("SIGPROF"), *ts_value_make_int(27));
+    signals->Set(TsString::Create("SIGWINCH"), *ts_value_make_int(28));
+    signals->Set(TsString::Create("SIGIO"), *ts_value_make_int(29));
+    signals->Set(TsString::Create("SIGUSR1"), *ts_value_make_int(10));
+    signals->Set(TsString::Create("SIGUSR2"), *ts_value_make_int(12));
+
+    return ts_value_make_object(signals);
+}
+
+TsValue* ts_os_get_errno() {
+    TsMap* errnoMap = TsMap::Create();
+
+    // Common POSIX error codes
+    errnoMap->Set(TsString::Create("EPERM"), *ts_value_make_int(1));
+    errnoMap->Set(TsString::Create("ENOENT"), *ts_value_make_int(2));
+    errnoMap->Set(TsString::Create("ESRCH"), *ts_value_make_int(3));
+    errnoMap->Set(TsString::Create("EINTR"), *ts_value_make_int(4));
+    errnoMap->Set(TsString::Create("EIO"), *ts_value_make_int(5));
+    errnoMap->Set(TsString::Create("ENXIO"), *ts_value_make_int(6));
+    errnoMap->Set(TsString::Create("E2BIG"), *ts_value_make_int(7));
+    errnoMap->Set(TsString::Create("ENOEXEC"), *ts_value_make_int(8));
+    errnoMap->Set(TsString::Create("EBADF"), *ts_value_make_int(9));
+    errnoMap->Set(TsString::Create("ECHILD"), *ts_value_make_int(10));
+    errnoMap->Set(TsString::Create("EAGAIN"), *ts_value_make_int(11));
+    errnoMap->Set(TsString::Create("ENOMEM"), *ts_value_make_int(12));
+    errnoMap->Set(TsString::Create("EACCES"), *ts_value_make_int(13));
+    errnoMap->Set(TsString::Create("EFAULT"), *ts_value_make_int(14));
+    errnoMap->Set(TsString::Create("EBUSY"), *ts_value_make_int(16));
+    errnoMap->Set(TsString::Create("EEXIST"), *ts_value_make_int(17));
+    errnoMap->Set(TsString::Create("EXDEV"), *ts_value_make_int(18));
+    errnoMap->Set(TsString::Create("ENODEV"), *ts_value_make_int(19));
+    errnoMap->Set(TsString::Create("ENOTDIR"), *ts_value_make_int(20));
+    errnoMap->Set(TsString::Create("EISDIR"), *ts_value_make_int(21));
+    errnoMap->Set(TsString::Create("EINVAL"), *ts_value_make_int(22));
+    errnoMap->Set(TsString::Create("ENFILE"), *ts_value_make_int(23));
+    errnoMap->Set(TsString::Create("EMFILE"), *ts_value_make_int(24));
+    errnoMap->Set(TsString::Create("ENOTTY"), *ts_value_make_int(25));
+    errnoMap->Set(TsString::Create("EFBIG"), *ts_value_make_int(27));
+    errnoMap->Set(TsString::Create("ENOSPC"), *ts_value_make_int(28));
+    errnoMap->Set(TsString::Create("ESPIPE"), *ts_value_make_int(29));
+    errnoMap->Set(TsString::Create("EROFS"), *ts_value_make_int(30));
+    errnoMap->Set(TsString::Create("EMLINK"), *ts_value_make_int(31));
+    errnoMap->Set(TsString::Create("EPIPE"), *ts_value_make_int(32));
+    errnoMap->Set(TsString::Create("EDOM"), *ts_value_make_int(33));
+    errnoMap->Set(TsString::Create("ERANGE"), *ts_value_make_int(34));
+    errnoMap->Set(TsString::Create("EDEADLK"), *ts_value_make_int(35));
+    errnoMap->Set(TsString::Create("ENAMETOOLONG"), *ts_value_make_int(36));
+    errnoMap->Set(TsString::Create("ENOLCK"), *ts_value_make_int(37));
+    errnoMap->Set(TsString::Create("ENOSYS"), *ts_value_make_int(38));
+    errnoMap->Set(TsString::Create("ENOTEMPTY"), *ts_value_make_int(39));
+    errnoMap->Set(TsString::Create("ELOOP"), *ts_value_make_int(40));
+    errnoMap->Set(TsString::Create("EWOULDBLOCK"), *ts_value_make_int(11));  // Same as EAGAIN
+
+    // Network errors
+    errnoMap->Set(TsString::Create("ECONNREFUSED"), *ts_value_make_int(111));
+    errnoMap->Set(TsString::Create("ECONNRESET"), *ts_value_make_int(104));
+    errnoMap->Set(TsString::Create("ECONNABORTED"), *ts_value_make_int(103));
+    errnoMap->Set(TsString::Create("ETIMEDOUT"), *ts_value_make_int(110));
+    errnoMap->Set(TsString::Create("ENETUNREACH"), *ts_value_make_int(101));
+    errnoMap->Set(TsString::Create("EHOSTUNREACH"), *ts_value_make_int(113));
+    errnoMap->Set(TsString::Create("EADDRINUSE"), *ts_value_make_int(98));
+    errnoMap->Set(TsString::Create("EADDRNOTAVAIL"), *ts_value_make_int(99));
+
+    return ts_value_make_object(errnoMap);
+}
+
+TsValue* ts_os_get_priority_constants() {
+    TsMap* priority = TsMap::Create();
+
+    // Process priority constants (matching Node.js)
+    priority->Set(TsString::Create("PRIORITY_LOW"), *ts_value_make_int(19));
+    priority->Set(TsString::Create("PRIORITY_BELOW_NORMAL"), *ts_value_make_int(10));
+    priority->Set(TsString::Create("PRIORITY_NORMAL"), *ts_value_make_int(0));
+    priority->Set(TsString::Create("PRIORITY_ABOVE_NORMAL"), *ts_value_make_int(-7));
+    priority->Set(TsString::Create("PRIORITY_HIGH"), *ts_value_make_int(-14));
+    priority->Set(TsString::Create("PRIORITY_HIGHEST"), *ts_value_make_int(-20));
+
+    return ts_value_make_object(priority);
+}
+
+TsValue* ts_os_get_constants() {
+    TsMap* constants = TsMap::Create();
+
+    // Get signals
+    TsValue* signals = ts_os_get_signals();
+    constants->Set(TsString::Create("signals"), *signals);
+
+    // Get errno
+    TsValue* errnoVal = ts_os_get_errno();
+    constants->Set(TsString::Create("errno"), *errnoVal);
+
+    // Get priority
+    TsValue* priority = ts_os_get_priority_constants();
+    constants->Set(TsString::Create("priority"), *priority);
+
+    return ts_value_make_object(constants);
+}
+
 } // extern "C"

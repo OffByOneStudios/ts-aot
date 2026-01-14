@@ -46,6 +46,9 @@ public:
     TsHeaders* headers;
     int statusCode = 0;  // For HTTP client responses
     TsString* statusMessage = nullptr;  // For HTTP client responses
+    TsString* httpVersion = nullptr;  // HTTP version string (e.g., "1.1")
+    bool complete = false;  // True when message has been fully received
+    TsArray* rawHeaders = nullptr;  // Alternating key/value array of raw headers
 
     // TsReadable implementation
     virtual void Pause() override;
@@ -150,6 +153,7 @@ public:
     int port = 80;
     std::string path = "/";
     TsString* currentHeaderField = nullptr;
+    TsString* currentHeaderFieldRaw = nullptr;  // Unmodified header field for rawHeaders
     bool is_https = false;
     TsValue options;
     class TsHttpAgent* agent = nullptr;  // Agent for connection pooling (forward declare)
@@ -247,6 +251,11 @@ extern "C" {
     void ts_outgoing_message_remove_header(void* msg, void* name);
     void* ts_outgoing_message_get_header_names(void* msg);
     void ts_outgoing_message_flush_headers(void* msg);
+
+    // IncomingMessage property getters
+    void* ts_incoming_message_httpVersion(void* ctx, void* msg);
+    bool ts_incoming_message_complete(void* ctx, void* msg);
+    void* ts_incoming_message_rawHeaders(void* ctx, void* msg);
 }
 
 // HTTP CloseEvent class (for WebSocket and other close events)

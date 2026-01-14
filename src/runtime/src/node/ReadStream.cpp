@@ -1,5 +1,6 @@
 #include "TsReadStream.h"
 #include "TsReadable.h"
+#include "TsWritable.h"
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsRuntime.h"
@@ -200,5 +201,232 @@ extern "C" {
         TsEventEmitter* emitter = (TsEventEmitter*)stream;
         TsReadable* r = dynamic_cast<TsReadable*>(emitter);
         if (r) r->Unpipe();
+    }
+
+    // --- stream.pipeline() implementation ---
+    // Pipeline connects multiple streams and handles errors
+    struct PipelineContext {
+        TsValue* callback;
+        int streamCount;
+        bool errorOccurred;
+        TsEventEmitter** streams;
+    };
+
+    static void pipeline_cleanup(PipelineContext* ctx) {
+        if (!ctx) return;
+        // Destroy all streams on error
+        for (int i = 0; i < ctx->streamCount; i++) {
+            if (ctx->streams[i]) {
+                TsReadable* r = dynamic_cast<TsReadable*>(ctx->streams[i]);
+                if (r) r->Destroy();
+                TsWritable* w = dynamic_cast<TsWritable*>(ctx->streams[i]);
+                if (w) w->Destroy();
+            }
+        }
+    }
+
+    TsValue* pipeline_error_cb(void* context, int argc, TsValue** argv) {
+        PipelineContext* ctx = (PipelineContext*)context;
+        if (ctx->errorOccurred) return ts_value_make_undefined();
+        ctx->errorOccurred = true;
+
+        pipeline_cleanup(ctx);
+
+        // Call the callback with the error
+        if (ctx->callback) {
+            ts_function_call(ctx->callback, argc, argv);
+        }
+        return ts_value_make_undefined();
+    }
+
+    TsValue* pipeline_finish_cb(void* context, int argc, TsValue** argv) {
+        PipelineContext* ctx = (PipelineContext*)context;
+        if (ctx->errorOccurred) return ts_value_make_undefined();
+
+        // Call the callback with no error (success)
+        if (ctx->callback) {
+            TsValue* args[] = { nullptr };
+            ts_function_call(ctx->callback, 0, args);
+        }
+        return ts_value_make_undefined();
+    }
+
+    void* ts_stream_pipeline(void* streams, void* callback) {
+        if (!streams) return nullptr;
+
+        // Get the array of streams
+        TsArray* arr = (TsArray*)streams;
+        int count = (int)arr->Length();
+        if (count < 2) return nullptr;  // Need at least source and destination
+
+        // Create pipeline context
+        PipelineContext* ctx = (PipelineContext*)ts_alloc(sizeof(PipelineContext));
+        ctx->callback = (TsValue*)callback;
+        ctx->streamCount = count;
+        ctx->errorOccurred = false;
+        ctx->streams = (TsEventEmitter**)ts_alloc(sizeof(TsEventEmitter*) * count);
+
+        // Get raw stream pointers
+        for (int i = 0; i < count; i++) {
+            TsValue* streamVal = (TsValue*)arr->Get(i);
+            void* rawPtr = ts_value_get_object(streamVal);
+            if (!rawPtr) rawPtr = (void*)streamVal;
+            ctx->streams[i] = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+            if (!ctx->streams[i]) {
+                ctx->streams[i] = ((TsObject*)rawPtr)->AsEventEmitter();
+            }
+        }
+
+        // Create error handler
+        TsValue* errorCb = ts_value_make_native_function((void*)pipeline_error_cb, ctx);
+        TsValue* finishCb = ts_value_make_native_function((void*)pipeline_finish_cb, ctx);
+
+        // Pipe each stream to the next
+        for (int i = 0; i < count - 1; i++) {
+            TsEventEmitter* src = ctx->streams[i];
+            TsEventEmitter* dest = ctx->streams[i + 1];
+
+            if (!src || !dest) continue;
+
+            // Listen for errors on each stream
+            src->On("error", errorCb);
+            dest->On("error", errorCb);
+
+            // Pipe source to destination
+            ts_stream_pipe(src, dest);
+        }
+
+        // Listen for finish on the last writable stream
+        TsEventEmitter* lastStream = ctx->streams[count - 1];
+        if (lastStream) {
+            lastStream->On("finish", finishCb);
+            lastStream->On("close", finishCb);
+        }
+
+        // Return the last stream (destination)
+        TsValue* lastVal = (TsValue*)arr->Get(count - 1);
+        return ts_value_get_object(lastVal) ? ts_value_get_object(lastVal) : lastVal;
+    }
+
+    // --- stream.finished() implementation ---
+    // Detects when a stream is no longer readable, writable, or has experienced an error
+    struct FinishedContext {
+        TsValue* callback;
+        TsEventEmitter* stream;
+        bool called;
+        TsValue* errorListener;
+        TsValue* closeListener;
+        TsValue* endListener;
+        TsValue* finishListener;
+    };
+
+    static void finished_call_callback(FinishedContext* ctx, TsValue* err) {
+        if (ctx->called) return;
+        ctx->called = true;
+
+        if (ctx->callback) {
+            TsValue* args[] = { err };
+            ts_function_call(ctx->callback, err ? 1 : 0, args);
+        }
+    }
+
+    TsValue* finished_error_cb(void* context, int argc, TsValue** argv) {
+        FinishedContext* ctx = (FinishedContext*)context;
+        TsValue* err = argc > 0 ? argv[0] : nullptr;
+        finished_call_callback(ctx, err);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* finished_close_cb(void* context, int argc, TsValue** argv) {
+        FinishedContext* ctx = (FinishedContext*)context;
+        finished_call_callback(ctx, nullptr);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* finished_end_cb(void* context, int argc, TsValue** argv) {
+        FinishedContext* ctx = (FinishedContext*)context;
+        finished_call_callback(ctx, nullptr);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* finished_finish_cb(void* context, int argc, TsValue** argv) {
+        FinishedContext* ctx = (FinishedContext*)context;
+        finished_call_callback(ctx, nullptr);
+        return ts_value_make_undefined();
+    }
+
+    // Cleanup function returned by stream.finished()
+    TsValue* finished_cleanup_fn(void* context, int argc, TsValue** argv) {
+        FinishedContext* ctx = (FinishedContext*)context;
+        if (!ctx || !ctx->stream) return ts_value_make_undefined();
+
+        // Remove all our listeners
+        if (ctx->errorListener)
+            ctx->stream->RemoveListener("error", ctx->errorListener);
+        if (ctx->closeListener)
+            ctx->stream->RemoveListener("close", ctx->closeListener);
+        if (ctx->endListener)
+            ctx->stream->RemoveListener("end", ctx->endListener);
+        if (ctx->finishListener)
+            ctx->stream->RemoveListener("finish", ctx->finishListener);
+
+        return ts_value_make_undefined();
+    }
+
+    void* ts_stream_finished(void* stream, void* optionsOrCallback, void* callback) {
+        if (!stream) return ts_value_make_native_function((void*)finished_cleanup_fn, nullptr);
+
+        // Get raw stream pointer
+        void* rawPtr = ts_value_get_object((TsValue*)stream);
+        if (!rawPtr) rawPtr = stream;
+
+        TsEventEmitter* emitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+        if (!emitter) {
+            emitter = ((TsObject*)rawPtr)->AsEventEmitter();
+        }
+        if (!emitter) return ts_value_make_native_function((void*)finished_cleanup_fn, nullptr);
+
+        // Handle overloaded signature: finished(stream, callback) or finished(stream, options, callback)
+        TsValue* cb = (TsValue*)callback;
+        if (!cb || cb->type == ValueType::UNDEFINED) {
+            cb = (TsValue*)optionsOrCallback;
+        }
+
+        // Create context
+        FinishedContext* ctx = (FinishedContext*)ts_alloc(sizeof(FinishedContext));
+        ctx->callback = cb;
+        ctx->stream = emitter;
+        ctx->called = false;
+
+        // Create listeners
+        ctx->errorListener = ts_value_make_native_function((void*)finished_error_cb, ctx);
+        ctx->closeListener = ts_value_make_native_function((void*)finished_close_cb, ctx);
+        ctx->endListener = ts_value_make_native_function((void*)finished_end_cb, ctx);
+        ctx->finishListener = ts_value_make_native_function((void*)finished_finish_cb, ctx);
+
+        // Check if stream is already finished
+        TsReadable* readable = dynamic_cast<TsReadable*>(emitter);
+        TsWritable* writable = dynamic_cast<TsWritable*>(emitter);
+
+        if (readable && readable->IsDestroyed()) {
+            // Stream already destroyed, call callback immediately
+            finished_call_callback(ctx, nullptr);
+        } else if (writable && writable->IsDestroyed()) {
+            finished_call_callback(ctx, nullptr);
+        } else {
+            // Register listeners
+            emitter->Once("error", ctx->errorListener);
+            emitter->Once("close", ctx->closeListener);
+
+            if (readable) {
+                emitter->Once("end", ctx->endListener);
+            }
+            if (writable) {
+                emitter->Once("finish", ctx->finishListener);
+            }
+        }
+
+        // Return cleanup function
+        return ts_value_make_native_function((void*)finished_cleanup_fn, ctx);
     }
 }

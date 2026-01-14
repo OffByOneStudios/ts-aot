@@ -36,4 +36,10 @@ extern "C" {
     // Priority functions
     int64_t ts_os_getPriority(int64_t pid);
     void ts_os_setPriority(int64_t pid, int64_t priority);
+
+    // Constants
+    TsValue* ts_os_get_constants();
+    TsValue* ts_os_get_signals();
+    TsValue* ts_os_get_errno();
+    TsValue* ts_os_get_priority_constants();
 }

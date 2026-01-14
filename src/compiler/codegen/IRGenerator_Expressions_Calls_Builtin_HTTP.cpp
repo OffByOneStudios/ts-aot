@@ -73,6 +73,17 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_outgoing_message_remove_header", {true, false}, false);  // (msg, name) -> void
     bp.registerRuntimeApi("ts_outgoing_message_get_header_names", {true}, true);  // (msg) -> string[]
     bp.registerRuntimeApi("ts_outgoing_message_flush_headers", {true}, false);  // (msg) -> void
+
+    // OutgoingMessage property getters (headersSent, writableEnded, writableFinished)
+    bp.registerRuntimeApi("ts_outgoing_message_get_headers_sent", {true}, false);  // (msg) -> bool
+    bp.registerRuntimeApi("ts_outgoing_message_get_writable_ended", {true}, false);  // (msg) -> bool
+    bp.registerRuntimeApi("ts_outgoing_message_get_writable_finished", {true}, false);  // (msg) -> bool
+
+    // IncomingMessage property getters
+    bp.registerRuntimeApi("ts_incoming_message_statusMessage", {true, true}, false);  // (ctx, msg) -> string
+    bp.registerRuntimeApi("ts_incoming_message_httpVersion", {true, true}, false);  // (ctx, msg) -> string
+    bp.registerRuntimeApi("ts_incoming_message_complete", {true, true}, false);  // (ctx, msg) -> bool
+    bp.registerRuntimeApi("ts_incoming_message_rawHeaders", {true, true}, true);  // (ctx, msg) -> array
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -521,10 +532,68 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
 bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* node) {
     // Check if this is http.METHODS, http.STATUS_CODES, or http.maxHeaderSize
     auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
-    
-    // First, check for WebSocket instance property access
+
+    // First, check for ServerResponse, IncomingMessage, ClientRequest, or WebSocket instance property access
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+
+        // ServerResponse properties (headersSent, writableEnded, writableFinished, statusCode)
+        if (classType->name == "ServerResponse" || classType->name == "OutgoingMessage" || classType->name == "ClientRequest") {
+            visit(node->expression.get());
+            llvm::Value* res = lastValue;
+
+            if (node->name == "headersSent") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_outgoing_message_get_headers_sent", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "writableEnded") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_outgoing_message_get_writable_ended", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "writableFinished") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_outgoing_message_get_writable_finished", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            }
+            // Let other properties fall through to generic object property access
+        }
+
+        // IncomingMessage properties (statusMessage, httpVersion, complete, rawHeaders)
+        if (classType->name == "IncomingMessage") {
+            visit(node->expression.get());
+            llvm::Value* msg = lastValue;
+
+            if (node->name == "statusMessage") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_statusMessage", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "httpVersion") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_httpVersion", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "complete") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_complete", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "rawHeaders") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_rawHeaders", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            }
+            // Let other properties fall through to generic object property access
+        }
+
         if (classType->name == "WebSocket") {
             visit(node->expression.get());
             llvm::Value* ws = lastValue;
@@ -696,15 +765,83 @@ bool IRGenerator::tryGenerateNetPropertyAccess(ast::PropertyAccessExpression* no
             if (node->name == "rules") {
                 visit(node->expression.get());
                 llvm::Value* blockList = lastValue;
-                
+
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_net_block_list_get_rules", ft);
                 lastValue = createCall(ft, fn.getCallee(), { blockList });
                 return true;
             }
         }
+
+        // Socket address properties (remoteAddress, remotePort, remoteFamily, localAddress, localPort, localFamily)
+        if (classType->name == "Socket") {
+            visit(node->expression.get());
+            llvm::Value* socket = lastValue;
+
+            if (node->name == "remoteAddress") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_remote_address", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "remotePort") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_remote_port", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "remoteFamily") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_remote_family", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "localAddress") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_local_address", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "localPort") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_local_port", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "localFamily") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_local_family", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "bytesRead") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_bytes_read", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "bytesWritten") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_bytes_written", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "connecting") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_connecting", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "destroyed") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_destroyed", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "pending") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_pending", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            } else if (node->name == "readyState") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_get_ready_state", ft);
+                lastValue = createCall(ft, fn.getCallee(), { socket });
+                return true;
+            }
+        }
     }
-    
+
     return false;
 }
 
