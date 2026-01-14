@@ -72,6 +72,12 @@ public:
     TsString* ToString();
     size_t GetSize();
 
+    // Iterator methods
+    void* Entries();    // Returns TsArray* of [key, value] pairs
+    void* Keys();       // Returns TsArray* of keys
+    void* Values();     // Returns TsArray* of values
+    void ForEach(void* callback, void* thisArg = nullptr);  // Calls callback for each entry
+
 private:
     TsURLSearchParams(TsString* query);
     uint32_t magic = MAGIC;
@@ -116,4 +122,10 @@ extern "C" {
     void ts_url_search_params_sort(void* params);
     void* ts_url_search_params_to_string(void* params);
     int64_t ts_url_search_params_size(void* params);
+
+    // URLSearchParams iterator methods
+    void* ts_url_search_params_entries(void* params);
+    void* ts_url_search_params_keys(void* params);
+    void* ts_url_search_params_values(void* params);
+    void ts_url_search_params_for_each(void* params, void* callback, void* thisArg);
 }

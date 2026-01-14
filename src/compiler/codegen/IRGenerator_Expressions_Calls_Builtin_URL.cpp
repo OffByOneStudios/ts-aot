@@ -23,6 +23,12 @@ static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_url_search_params_set", {true, false, false}, false);
     bp.registerRuntimeApi("ts_url_search_params_sort", {true}, false);
     bp.registerRuntimeApi("ts_url_search_params_to_string", {true}, false);
+
+    // URLSearchParams iterator methods
+    bp.registerRuntimeApi("ts_url_search_params_entries", {true}, false);  // params -> array
+    bp.registerRuntimeApi("ts_url_search_params_keys", {true}, false);     // params -> array
+    bp.registerRuntimeApi("ts_url_search_params_values", {true}, false);   // params -> array
+    bp.registerRuntimeApi("ts_url_search_params_for_each", {true, true, true}, false);  // params, callback, thisArg
 }
 
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -149,14 +155,59 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
         }
         
         if (prop->name == "toString") {
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_to_string", ft);
             lastValue = createCall(ft, fn.getCallee(), { params });
             return true;
         }
+
+        if (prop->name == "entries") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_entries", ft);
+            lastValue = createCall(ft, fn.getCallee(), { params });
+            return true;
+        }
+
+        if (prop->name == "keys") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_keys", ft);
+            lastValue = createCall(ft, fn.getCallee(), { params });
+            return true;
+        }
+
+        if (prop->name == "values") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_values", ft);
+            lastValue = createCall(ft, fn.getCallee(), { params });
+            return true;
+        }
+
+        if (prop->name == "forEach") {
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* callback = lastValue;
+
+            llvm::Value* thisArg = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                thisArg = lastValue;
+            } else {
+                thisArg = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_url_search_params_for_each", ft);
+            createCall(ft, fn.getCallee(), { params, callback, thisArg });
+            lastValue = getUndefinedValue();
+            return true;
+        }
     }
-    
+
     return false;
 }
 
