@@ -53,6 +53,16 @@ static void ensureNetFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_net_socket_get_destroyed", {true}, false);  // socket -> bool
     bp.registerRuntimeApi("ts_net_socket_get_pending", {true}, false);  // socket -> bool
     bp.registerRuntimeApi("ts_net_socket_get_ready_state", {true}, false);  // socket -> string
+
+    // Socket configuration methods
+    bp.registerRuntimeApi("ts_net_socket_set_timeout", {true, true, true}, true);  // socket, msecs, callback -> socket
+    bp.registerRuntimeApi("ts_net_socket_set_no_delay", {true, true}, true);  // socket, noDelay -> socket
+    bp.registerRuntimeApi("ts_net_socket_set_keep_alive", {true, true, true}, true);  // socket, enable, initialDelay -> socket
+    bp.registerRuntimeApi("ts_net_socket_address", {true}, true);  // socket -> object
+
+    // Server methods
+    bp.registerRuntimeApi("ts_net_server_close", {true}, false);  // server -> void
+    bp.registerRuntimeApi("ts_net_server_address", {true}, true);  // server -> object
 }
 
 bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -374,7 +384,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::Value* socket = lastValue;
             visit(node->arguments[0].get());
             llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
-            
+
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_write", ft);
             lastValue = createCall(ft, fn.getCallee(), { socket, data });
@@ -383,7 +393,7 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
         } else if (prop->name == "end") {
             visit(prop->expression.get());
             llvm::Value* socket = lastValue;
-            
+
             llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
@@ -395,6 +405,71 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             createCall(ft, fn.getCallee(), { socket, data });
             lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy()); // returns undefined
             return true;
+        } else if (prop->name == "setTimeout") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::Value* msecs = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                msecs = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                callback = boxValue(lastValue, node->arguments[1]->inferredType);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_set_timeout", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket, msecs, callback });
+            return true;
+        } else if (prop->name == "setNoDelay") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::Value* noDelay = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                noDelay = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_set_no_delay", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket, noDelay });
+            return true;
+        } else if (prop->name == "setKeepAlive") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::Value* enable = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                enable = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            llvm::Value* initialDelay = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                initialDelay = boxValue(lastValue, node->arguments[1]->inferredType);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_set_keep_alive", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket, enable, initialDelay });
+            return true;
+        } else if (prop->name == "address") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_address", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket });
+            return true;
         }
     }
 
@@ -403,20 +478,37 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
             llvm::Value* server = lastValue;
-            
+
             visit(node->arguments[0].get());
             llvm::Value* port = boxValue(lastValue, node->arguments[0]->inferredType);
-            
+
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
                 visit(node->arguments[1].get());
                 callback = boxValue(lastValue, node->arguments[1]->inferredType);
             }
-            
+
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_listen", ft);
             createCall(ft, fn.getCallee(), { server, port, callback });
             lastValue = server; // listen() returns the server
+            return true;
+        } else if (prop->name == "close") {
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_close", ft);
+            createCall(ft, fn.getCallee(), { server });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        } else if (prop->name == "address") {
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_address", ft);
+            lastValue = createCall(ft, fn.getCallee(), { server });
             return true;
         }
     }
