@@ -28,7 +28,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
-| `events` | ✅ | 67% | EventEmitter |
+| `events` | ✅ | 71% | EventEmitter |
 | `fs` | ⚠️ | 29% | File system |
 | `http` | ⚠️ | 37% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
@@ -271,7 +271,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `emitter.eventNames()` | ✅ | |
 | `emitter.getMaxListeners()` | ✅ | |
 | `emitter.listenerCount(event)` | ✅ | |
-| `emitter.listeners(event)` | ❌ | |
+| `emitter.listeners(event)` | ✅ | |
 | `emitter.off(event, listener)` | ✅ | Alias for removeListener |
 | `emitter.on(event, listener)` | ✅ | |
 | `emitter.once(event, listener)` | ✅ | |
@@ -289,7 +289,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'newListener'` event | ❌ | |
 | `'removeListener'` event | ❌ | |
 
-**Events Coverage: 14/21 (67%)**
+**Events Coverage: 15/21 (71%)**
 
 ---
 
@@ -1005,7 +1005,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Buffer | 52 | 68 | 76% |
 | Console | 13 | 19 | 68% |
 | Crypto | 16 | 34 | 47% |
-| Events | 14 | 21 | 67% |
+| Events | 15 | 21 | 71% |
 | File System | 89 | 123 | 72% |
 | HTTP | 25 | 68 | 37% |
 | HTTPS | 5 | 7 | 71% |
@@ -1019,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **377** | **653** | **58%** |
+| **Total** | **378** | **653** | **58%** |
 
 ### Priority Implementation Targets
 
