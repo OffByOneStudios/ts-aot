@@ -36,10 +36,10 @@ extern "C" {
         if (!writable) {
             return;
         }
-        
+
         // Check if writable is actually a TsObject with magic
         TsObject* obj = (TsObject*)writable;
-        
+
         // The pointer may be TsEventEmitter* (due to virtual inheritance),
         // so we use dynamic_cast to get TsWritable*
         TsEventEmitter* emitter = (TsEventEmitter*)writable;
@@ -48,10 +48,67 @@ extern "C" {
             // Fallback to direct cast (for non-virtual cases)
             w = (TsWritable*)writable;
         }
-        
+
         if (data && data->type != ValueType::UNDEFINED) {
             ts_writable_write(writable, data);
         }
         w->End();
+    }
+
+    // Stream state property accessors
+    bool ts_writable_destroyed(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return true;
+        return w->IsDestroyed();
+    }
+
+    bool ts_writable_writable(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return false;
+        return w->IsWritable();
+    }
+
+    bool ts_writable_writable_ended(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return true;
+        return w->IsWritableEnded();
+    }
+
+    bool ts_writable_writable_finished(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return true;
+        return w->IsWritableFinished();
+    }
+
+    bool ts_writable_writable_need_drain(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return false;
+        return w->IsWritableNeedDrain();
+    }
+
+    int64_t ts_writable_writable_high_water_mark(void* stream) {
+        if (!stream) return 0;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return 0;
+        return (int64_t)w->GetWritableHighWaterMark();
+    }
+
+    int64_t ts_writable_writable_length(void* stream) {
+        if (!stream) return 0;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return 0;
+        return (int64_t)w->GetWritableLength();
     }
 }

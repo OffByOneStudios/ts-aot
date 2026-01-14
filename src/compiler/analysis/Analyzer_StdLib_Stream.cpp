@@ -16,7 +16,7 @@ void Analyzer::registerStreams() {
     // Readable
     auto readableClass = std::make_shared<ClassType>("Readable");
     readableClass->baseClass = streamClass;
-    
+
     auto readFn = std::make_shared<FunctionType>();
     readFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
     readFn->returnType = std::make_shared<Type>(TypeKind::Any);
@@ -34,6 +34,25 @@ void Analyzer::registerStreams() {
     pipeFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // Writable
     pipeFn->returnType = std::make_shared<Type>(TypeKind::Any);
     readableClass->methods["pipe"] = pipeFn;
+
+    // Readable state properties
+    readableClass->fields["destroyed"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readable"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readableEnded"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readableFlowing"] = std::make_shared<Type>(TypeKind::Boolean);
+
+    // Readable methods
+    auto isPausedFn = std::make_shared<FunctionType>();
+    isPausedFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->methods["isPaused"] = isPausedFn;
+
+    auto unpipeFn = std::make_shared<FunctionType>();
+    unpipeFn->returnType = readableClass;
+    readableClass->methods["unpipe"] = unpipeFn;
+
+    auto destroyFn = std::make_shared<FunctionType>();
+    destroyFn->returnType = readableClass;
+    readableClass->methods["destroy"] = destroyFn;
 
     symbols.defineType("Readable", readableClass);
 
@@ -54,6 +73,20 @@ void Analyzer::registerStreams() {
     endFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
     endFn->returnType = writableClass;
     writableClass->methods["end"] = endFn;
+
+    // Writable state properties
+    writableClass->fields["destroyed"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writable"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writableEnded"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writableFinished"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writableNeedDrain"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
+    writableClass->fields["writableLength"] = std::make_shared<Type>(TypeKind::Int);
+
+    // Writable methods
+    auto writableDestroyFn = std::make_shared<FunctionType>();
+    writableDestroyFn->returnType = writableClass;
+    writableClass->methods["destroy"] = writableDestroyFn;
 
     symbols.defineType("Writable", writableClass);
 

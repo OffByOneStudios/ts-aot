@@ -1,4 +1,5 @@
 #include "TsReadStream.h"
+#include "TsReadable.h"
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsRuntime.h"
@@ -151,5 +152,53 @@ extern "C" {
     void ts_stream_resume(void* stream) {
         TsReadStream* s = (TsReadStream*)stream;
         s->Resume();
+    }
+
+    // Readable stream state property accessors
+    bool ts_readable_destroyed(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return true;
+        return r->IsDestroyed();
+    }
+
+    bool ts_readable_readable(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return false;
+        return r->IsReadable();
+    }
+
+    bool ts_readable_is_paused(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return true;
+        return r->IsPaused();
+    }
+
+    bool ts_readable_readable_ended(void* stream) {
+        if (!stream) return true;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return true;
+        return r->IsReadableEnded();
+    }
+
+    bool ts_readable_readable_flowing(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return false;
+        return r->IsReadableFlowing();
+    }
+
+    void ts_readable_unpipe(void* stream) {
+        if (!stream) return;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (r) r->Unpipe();
     }
 }
