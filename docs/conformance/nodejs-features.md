@@ -545,6 +545,35 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 ---
 
+## TLS
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `tls.createServer()` | ✅ | Via HTTPS |
+| `tls.connect()` | ✅ | Via HTTPS client |
+| `tls.createSecureContext()` | ❌ | |
+| TLSSocket class | ✅ | As TsSecureSocket |
+| `socket.authorized` | ❌ | |
+| `socket.authorizationError` | ❌ | |
+| `socket.encrypted` | ❌ | |
+| `socket.getCertificate()` | ❌ | |
+| `socket.getPeerCertificate()` | ❌ | |
+| `socket.getProtocol()` | ❌ | |
+| `socket.getSession()` | ❌ | |
+| `socket.renegotiate()` | ❌ | |
+| `socket.setMaxSendFragment()` | ❌ | |
+| Server certificate options | ✅ | key, cert supported |
+| Client verification options | ⚠️ | rejectUnauthorized basic |
+| CA certificate support | ⚠️ | Basic support |
+| SNI support | ❌ | |
+| ALPN support | ❌ | |
+| Session resumption | ❌ | |
+| Client certificates | ❌ | |
+
+**TLS Coverage: 6/20 (30%)**
+
+---
+
 ## Net
 
 ### Server
@@ -977,10 +1006,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Process | 37 | 55 | 67% |
 | Stream | 10 | 44 | 23% |
 | Timers | 6 | 14 | 43% |
+| TLS | 6 | 20 | 30% |
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **252** | **616** | **41%** |
+| **Total** | **258** | **636** | **41%** |
 
 ### Priority Implementation Targets
 
