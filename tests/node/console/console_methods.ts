@@ -31,6 +31,22 @@ function user_main(): number {
   console.warn('stderr: warn');
   console.log('stdout: log again');
 
+  // Test 9: console.debug
+  console.log('\nTest 9: console.debug');
+  console.debug('PASS: console.debug works');
+
+  // Test 10: console.info
+  console.log('\nTest 10: console.info');
+  console.info('PASS: console.info works');
+
+  // Test 11: console.assert with true condition (should NOT print)
+  console.log('\nTest 11: console.assert (true - should NOT print assertion)');
+  console.assert(true, 'FAIL: This should not appear');
+
+  // Test 12: console.assert with false condition (should print)
+  console.log('\nTest 12: console.assert (false - should print assertion)');
+  console.assert(false, 'PASS: console.assert with false condition');
+
   console.log('\n=== Summary ===');
   if (failures === 0) {
     console.log('All tests passed!');

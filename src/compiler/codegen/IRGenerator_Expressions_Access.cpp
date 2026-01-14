@@ -848,6 +848,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGeneratePathPropertyAccess(node)) return;
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
+    if (tryGenerateOSPropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {

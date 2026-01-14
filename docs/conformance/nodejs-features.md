@@ -161,24 +161,24 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console.log()` | ✅ | |
 | `console.error()` | ✅ | Outputs to stderr |
 | `console.warn()` | ✅ | Outputs to stderr |
-| `console.info()` | ❌ | |
-| `console.debug()` | ❌ | |
-| `console.trace()` | ❌ | |
-| `console.dir()` | ❌ | |
+| `console.info()` | ✅ | |
+| `console.debug()` | ✅ | |
+| `console.trace()` | ⚠️ | Stub message (no stack trace) |
+| `console.dir()` | ✅ | |
 | `console.dirxml()` | ❌ | |
 | `console.table()` | ❌ | |
-| `console.count()` | ❌ | |
-| `console.countReset()` | ❌ | |
+| `console.count()` | ✅ | |
+| `console.countReset()` | ✅ | |
 | `console.group()` | ❌ | |
 | `console.groupCollapsed()` | ❌ | |
 | `console.groupEnd()` | ❌ | |
-| `console.time()` | ❌ | |
-| `console.timeEnd()` | ❌ | |
-| `console.timeLog()` | ❌ | |
-| `console.assert()` | ❌ | |
+| `console.time()` | ✅ | |
+| `console.timeEnd()` | ✅ | |
+| `console.timeLog()` | ✅ | |
+| `console.assert()` | ✅ | Logs on failure |
 | `console.clear()` | ❌ | |
 
-**Console Coverage: 3/19 (16%)**
+**Console Coverage: 13/19 (68%)**
 
 ---
 
@@ -593,30 +593,30 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `os.arch()` | ❌ | |
-| `os.cpus()` | ❌ | |
-| `os.endianness()` | ❌ | |
-| `os.freemem()` | ❌ | |
-| `os.getPriority()` | ❌ | |
-| `os.homedir()` | ❌ | |
-| `os.hostname()` | ❌ | |
-| `os.loadavg()` | ❌ | |
-| `os.machine()` | ❌ | |
-| `os.networkInterfaces()` | ❌ | |
-| `os.platform()` | ❌ | |
-| `os.release()` | ❌ | |
-| `os.setPriority()` | ❌ | |
-| `os.tmpdir()` | ❌ | |
-| `os.totalmem()` | ❌ | |
-| `os.type()` | ❌ | |
-| `os.uptime()` | ❌ | |
-| `os.userInfo()` | ❌ | |
-| `os.version()` | ❌ | |
+| `os.arch()` | ✅ | |
+| `os.cpus()` | ✅ | |
+| `os.endianness()` | ✅ | |
+| `os.freemem()` | ✅ | |
+| `os.getPriority()` | ✅ | |
+| `os.homedir()` | ✅ | |
+| `os.hostname()` | ✅ | |
+| `os.loadavg()` | ✅ | Returns [0,0,0] on Windows |
+| `os.machine()` | ✅ | |
+| `os.networkInterfaces()` | ✅ | |
+| `os.platform()` | ✅ | |
+| `os.release()` | ✅ | |
+| `os.setPriority()` | ✅ | |
+| `os.tmpdir()` | ✅ | |
+| `os.totalmem()` | ✅ | |
+| `os.type()` | ✅ | |
+| `os.uptime()` | ✅ | |
+| `os.userInfo()` | ✅ | |
+| `os.version()` | ✅ | |
 | `os.constants` | ❌ | |
-| `os.EOL` | ❌ | |
-| `os.devNull` | ❌ | |
+| `os.EOL` | ✅ | |
+| `os.devNull` | ✅ | |
 
-**OS Coverage: 0/22 (0%)**
+**OS Coverage: 20/22 (91%)**
 
 ---
 
@@ -628,11 +628,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `path.delimiter` | ✅ | |
 | `path.dirname()` | ✅ | |
 | `path.extname()` | ✅ | |
-| `path.format()` | ❌ | |
+| `path.format()` | ✅ | |
 | `path.isAbsolute()` | ✅ | |
 | `path.join()` | ✅ | |
 | `path.normalize()` | ✅ | |
-| `path.parse()` | ❌ | |
+| `path.parse()` | ✅ | |
 | `path.posix` | ❌ | |
 | `path.relative()` | ❌ | |
 | `path.resolve()` | ✅ | |
@@ -640,7 +640,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `path.toNamespacedPath()` | ❌ | |
 | `path.win32` | ❌ | |
 
-**Path Coverage: 9/15 (60%)**
+**Path Coverage: 11/15 (73%)**
 
 ---
 
@@ -790,8 +790,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `clearTimeout()` | ✅ | |
 | `setInterval()` | ✅ | |
 | `clearInterval()` | ✅ | |
-| `setImmediate()` | ❌ | |
-| `clearImmediate()` | ❌ | |
+| `setImmediate()` | ✅ | |
+| `clearImmediate()` | ✅ | |
 | `timers.setTimeout()` | ❌ | |
 | `timers.setInterval()` | ❌ | |
 | `timers.setImmediate()` | ❌ | |
@@ -801,7 +801,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers/promises.scheduler.wait()` | ❌ | |
 | `timers/promises.scheduler.yield()` | ❌ | |
 
-**Timers Coverage: 4/14 (29%)**
+**Timers Coverage: 6/14 (43%)**
 
 ---
 
@@ -955,38 +955,38 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
 | Buffer | 7 | 67 | 10% |
-| Console | 3 | 19 | 16% |
+| Console | 13 | 19 | 68% |
 | Crypto | 1 | 28 | 4% |
 | Events | 8 | 21 | 38% |
 | File System | 32 | 112 | 29% |
 | HTTP | 18 | 63 | 29% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 10 | 36 | 28% |
-| OS | 0 | 22 | 0% |
-| Path | 9 | 15 | 60% |
+| OS | 20 | 22 | 91% |
+| Path | 11 | 15 | 73% |
 | Process | 5 | 55 | 9% |
 | Stream | 10 | 44 | 23% |
-| Timers | 4 | 14 | 29% |
+| Timers | 6 | 14 | 43% |
 | URL | 6 | 38 | 16% |
 | Util | 2 | 62 | 3% |
 | Global | 1 | 7 | 14% |
-| **Total** | **121** | **610** | **20%** |
+| **Total** | **155** | **610** | **25%** |
 
 ### Priority Implementation Targets
 
 #### Critical (Required for most apps)
-- `console.error()`, `console.warn()` - Basic logging
+- ✅ `console.error()`, `console.warn()` - Basic logging (implemented)
 - `process.stdout`, `process.stderr` - Stream-based output
-- `path.parse()`, `path.format()` - Path manipulation
+- ✅ `path.parse()`, `path.format()` - Path manipulation (implemented)
 - `fs.rename*()`, `fs.copy*()` - File operations
 - `URLSearchParams` - Query string handling
 
 #### High (Common use cases)
-- `os.platform()`, `os.cpus()` - System info
+- ✅ `os.platform()`, `os.cpus()` - System info (implemented)
 - `crypto.randomBytes()`, `crypto.createHash()` - Basic crypto
 - `stream.pipeline()`, `stream.finished()` - Stream utilities
 - `util.promisify()` - Callback to Promise conversion
-- `setImmediate()` - Event loop control
+- ✅ `setImmediate()` - Event loop control (implemented)
 
 #### Medium (Framework support)
 - `http.Agent` - Connection pooling
