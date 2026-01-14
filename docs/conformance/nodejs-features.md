@@ -20,37 +20,37 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |--------|--------|----------|-------|
 | `assert` | ❌ | 0% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
-| `buffer` | ⚠️ | 40% | Binary data handling |
+| `buffer` | ⚠️ | 19% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
-| `console` | ⚠️ | 30% | Basic logging |
+| `console` | ⚠️ | 68% | Basic logging |
 | `crypto` | ⚠️ | 10% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
-| `events` | ✅ | 90% | EventEmitter |
-| `fs` | ⚠️ | 60% | File system |
-| `http` | ⚠️ | 70% | HTTP server/client |
+| `events` | ✅ | 67% | EventEmitter |
+| `fs` | ⚠️ | 29% | File system |
+| `http` | ⚠️ | 29% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
-| `https` | ⚠️ | 70% | HTTPS server/client |
+| `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
-| `net` | ⚠️ | 60% | TCP sockets |
-| `os` | ❌ | 0% | OS utilities |
-| `path` | ✅ | 95% | Path utilities |
+| `net` | ⚠️ | 28% | TCP sockets |
+| `os` | ⚠️ | 91% | OS utilities |
+| `path` | ⚠️ | 80% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
-| `process` | ⚠️ | 30% | Process info |
+| `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ❌ | 0% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
-| `stream` | ⚠️ | 50% | Streams |
+| `stream` | ⚠️ | 23% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
-| `timers` | ⚠️ | 60% | Timers |
+| `timers` | ⚠️ | 43% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
-| `url` | ⚠️ | 50% | URL parsing |
-| `util` | ⚠️ | 20% | Utilities |
+| `url` | ⚠️ | 16% | URL parsing |
+| `util` | ⚠️ | 3% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
 | `wasi` | ❌ | 0% | WebAssembly |
@@ -258,19 +258,19 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `emitter.addListener(event, listener)` | ✅ | Alias for on() |
 | `emitter.emit(event, ...args)` | ✅ | |
-| `emitter.eventNames()` | ❌ | |
-| `emitter.getMaxListeners()` | ❌ | |
-| `emitter.listenerCount(event)` | ❌ | |
+| `emitter.eventNames()` | ✅ | |
+| `emitter.getMaxListeners()` | ✅ | |
+| `emitter.listenerCount(event)` | ✅ | |
 | `emitter.listeners(event)` | ❌ | |
 | `emitter.off(event, listener)` | ✅ | Alias for removeListener |
 | `emitter.on(event, listener)` | ✅ | |
 | `emitter.once(event, listener)` | ✅ | |
-| `emitter.prependListener(event, listener)` | ❌ | |
-| `emitter.prependOnceListener(event, listener)` | ❌ | |
+| `emitter.prependListener(event, listener)` | ✅ | |
+| `emitter.prependOnceListener(event, listener)` | ⚠️ | Once semantics issue |
 | `emitter.rawListeners(event)` | ❌ | |
 | `emitter.removeAllListeners(event)` | ✅ | |
 | `emitter.removeListener(event, listener)` | ✅ | |
-| `emitter.setMaxListeners(n)` | ❌ | |
+| `emitter.setMaxListeners(n)` | ✅ | |
 
 ### Events
 | Feature | Status | Notes |
@@ -279,7 +279,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'newListener'` event | ❌ | |
 | `'removeListener'` event | ❌ | |
 
-**Events Coverage: 8/21 (38%)**
+**Events Coverage: 14/21 (67%)**
 
 ---
 
@@ -649,55 +649,55 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Properties
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `process.arch` | ❌ | |
+| `process.arch` | ✅ | |
 | `process.argv` | ✅ | |
-| `process.argv0` | ❌ | |
+| `process.argv0` | ✅ | |
 | `process.channel` | ❌ | |
-| `process.config` | ❌ | |
+| `process.config` | ✅ | |
 | `process.connected` | ❌ | |
-| `process.debugPort` | ❌ | |
+| `process.debugPort` | ✅ | |
 | `process.env` | ✅ | |
-| `process.execArgv` | ❌ | |
-| `process.execPath` | ❌ | |
-| `process.exitCode` | ❌ | |
-| `process.pid` | ❌ | |
-| `process.platform` | ❌ | |
-| `process.ppid` | ❌ | |
-| `process.release` | ❌ | |
-| `process.report` | ❌ | |
-| `process.stdin` | ❌ | |
-| `process.stdout` | ❌ | |
-| `process.stderr` | ❌ | |
-| `process.title` | ❌ | |
-| `process.version` | ❌ | |
-| `process.versions` | ❌ | |
+| `process.execArgv` | ✅ | |
+| `process.execPath` | ✅ | |
+| `process.exitCode` | ✅ | |
+| `process.pid` | ✅ | |
+| `process.platform` | ✅ | |
+| `process.ppid` | ✅ | |
+| `process.release` | ✅ | |
+| `process.report` | ✅ | |
+| `process.stdin` | ✅ | |
+| `process.stdout` | ✅ | |
+| `process.stderr` | ✅ | |
+| `process.title` | ✅ | |
+| `process.version` | ✅ | |
+| `process.versions` | ✅ | |
 
 ### Methods
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `process.abort()` | ❌ | |
-| `process.chdir()` | ❌ | |
-| `process.cpuUsage()` | ❌ | |
+| `process.abort()` | ✅ | |
+| `process.chdir()` | ✅ | |
+| `process.cpuUsage()` | ✅ | |
 | `process.cwd()` | ✅ | |
 | `process.disconnect()` | ❌ | |
 | `process.dlopen()` | ❌ | |
-| `process.emitWarning()` | ❌ | |
+| `process.emitWarning()` | ✅ | |
 | `process.exit()` | ✅ | |
-| `process.getActiveResourcesInfo()` | ❌ | |
+| `process.getActiveResourcesInfo()` | ✅ | |
 | `process.getegid()` | ❌ | |
 | `process.geteuid()` | ❌ | |
 | `process.getgid()` | ❌ | |
 | `process.getgroups()` | ❌ | |
 | `process.getuid()` | ❌ | |
-| `process.hasUncaughtExceptionCaptureCallback()` | ❌ | |
-| `process.hrtime()` | ❌ | |
-| `process.hrtime.bigint()` | ❌ | |
+| `process.hasUncaughtExceptionCaptureCallback()` | ✅ | |
+| `process.hrtime()` | ✅ | |
+| `process.hrtime.bigint()` | ✅ | |
 | `process.initgroups()` | ❌ | |
-| `process.kill()` | ❌ | |
-| `process.memoryUsage()` | ❌ | |
-| `process.memoryUsage.rss()` | ❌ | |
-| `process.nextTick()` | ⚠️ | Basic support |
-| `process.resourceUsage()` | ❌ | |
+| `process.kill()` | ✅ | |
+| `process.memoryUsage()` | ✅ | |
+| `process.memoryUsage.rss()` | ✅ | |
+| `process.nextTick()` | ✅ | |
+| `process.resourceUsage()` | ✅ | |
 | `process.send()` | ❌ | |
 | `process.setegid()` | ❌ | |
 | `process.seteuid()` | ❌ | |
@@ -705,11 +705,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process.setgroups()` | ❌ | |
 | `process.setuid()` | ❌ | |
 | `process.setSourceMapsEnabled()` | ❌ | |
-| `process.setUncaughtExceptionCaptureCallback()` | ❌ | |
-| `process.umask()` | ❌ | |
-| `process.uptime()` | ❌ | |
+| `process.setUncaughtExceptionCaptureCallback()` | ✅ | |
+| `process.umask()` | ✅ | |
+| `process.uptime()` | ✅ | |
 
-**Process Coverage: 5/55 (9%)**
+**Process Coverage: 37/55 (67%)**
 
 ---
 
@@ -957,26 +957,26 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Buffer | 13 | 67 | 19% |
 | Console | 13 | 19 | 68% |
 | Crypto | 1 | 28 | 4% |
-| Events | 8 | 21 | 38% |
+| Events | 14 | 21 | 67% |
 | File System | 32 | 112 | 29% |
 | HTTP | 18 | 63 | 29% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 10 | 36 | 28% |
 | OS | 20 | 22 | 91% |
 | Path | 12 | 15 | 80% |
-| Process | 5 | 55 | 9% |
+| Process | 37 | 55 | 67% |
 | Stream | 10 | 44 | 23% |
 | Timers | 6 | 14 | 43% |
 | URL | 6 | 38 | 16% |
 | Util | 2 | 62 | 3% |
 | Global | 3 | 7 | 43% |
-| **Total** | **164** | **610** | **27%** |
+| **Total** | **202** | **610** | **33%** |
 
 ### Priority Implementation Targets
 
 #### Critical (Required for most apps)
 - ✅ `console.error()`, `console.warn()` - Basic logging (implemented)
-- `process.stdout`, `process.stderr` - Stream-based output
+- ✅ `process.stdout`, `process.stderr` - Stream-based output (implemented)
 - ✅ `path.parse()`, `path.format()` - Path manipulation (implemented)
 - `fs.rename*()`, `fs.copy*()` - File operations
 - `URLSearchParams` - Query string handling
