@@ -62,6 +62,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Process.cpp
     analysis/Analyzer_StdLib_Util.cpp
     analysis/Analyzer_StdLib_OS.cpp
+    analysis/Analyzer_StdLib_Crypto.cpp
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
