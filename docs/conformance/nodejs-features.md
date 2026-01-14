@@ -30,12 +30,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 67% | EventEmitter |
 | `fs` | ⚠️ | 29% | File system |
-| `http` | ⚠️ | 29% | HTTP server/client |
+| `http` | ⚠️ | 37% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
-| `net` | ⚠️ | 28% | TCP sockets |
+| `net` | ⚠️ | 36% | TCP sockets |
 | `os` | ⚠️ | 91% | OS utilities |
 | `path` | ⚠️ | 80% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
@@ -489,8 +489,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `http.request()` | ✅ | |
 | `http.get()` | ✅ | |
-| `http.Agent` | ❌ | |
-| `http.globalAgent` | ❌ | |
+| `http.Agent` | ✅ | Constructor and basic functionality |
+| `http.globalAgent` | ✅ | |
+
+### Module Constants
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `http.METHODS` | ✅ | Array of HTTP method strings |
+| `http.STATUS_CODES` | ⚠️ | Object exists but property access issues |
+| `http.maxHeaderSize` | ✅ | Returns 16384 |
+| `http.validateHeaderName()` | ✅ | |
+| `http.validateHeaderValue()` | ✅ | |
 
 ### Client Request
 | Feature | Status | Notes |
@@ -515,7 +524,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 18/63 (29%)**
+**HTTP Coverage: 25/68 (37%)**
 
 ---
 
@@ -581,11 +590,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Utilities
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `net.isIP()` | ❌ | |
-| `net.isIPv4()` | ❌ | |
-| `net.isIPv6()` | ❌ | |
+| `net.isIP()` | ✅ | Returns 4, 6, or 0 |
+| `net.isIPv4()` | ✅ | |
+| `net.isIPv6()` | ✅ | |
 
-**Net Coverage: 10/36 (28%)**
+**Net Coverage: 13/36 (36%)**
 
 ---
 
@@ -959,9 +968,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Crypto | 1 | 28 | 4% |
 | Events | 14 | 21 | 67% |
 | File System | 32 | 112 | 29% |
-| HTTP | 18 | 63 | 29% |
+| HTTP | 25 | 68 | 37% |
 | HTTPS | 5 | 7 | 71% |
-| Net | 10 | 36 | 28% |
+| Net | 13 | 36 | 36% |
 | OS | 20 | 22 | 91% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
@@ -970,7 +979,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 2 | 62 | 3% |
 | Global | 3 | 7 | 43% |
-| **Total** | **221** | **610** | **36%** |
+| **Total** | **231** | **615** | **38%** |
 
 ### Priority Implementation Targets
 
@@ -1004,7 +1013,8 @@ Current test coverage:
 - Console: Used in all tests
 - Events: 1 test file
 - File System: 1 test file
-- HTTP: 1 test file (fetch API)
+- HTTP: 2 test files (fetch API, constants)
+- Net: 1 test file (utilities)
 - Path: 1 test file
 - Process: 1 test file
 - Timers: 1 test file
