@@ -64,6 +64,15 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_writable_write", {true, true}, true);
     bp.registerRuntimeApi("ts_writable_end", {true}, true);
     bp.registerRuntimeApi("ts_value_get_object", {true}, false);  // Returns raw pointer
+
+    // OutgoingMessage header methods
+    bp.registerRuntimeApi("ts_outgoing_message_set_header", {true, false, true}, false);  // (msg, name, value) -> void
+    bp.registerRuntimeApi("ts_outgoing_message_get_header", {true, false}, true);  // (msg, name) -> any
+    bp.registerRuntimeApi("ts_outgoing_message_get_headers", {true}, true);  // (msg) -> object
+    bp.registerRuntimeApi("ts_outgoing_message_has_header", {true, false}, false);  // (msg, name) -> bool
+    bp.registerRuntimeApi("ts_outgoing_message_remove_header", {true, false}, false);  // (msg, name) -> void
+    bp.registerRuntimeApi("ts_outgoing_message_get_header_names", {true}, true);  // (msg) -> string[]
+    bp.registerRuntimeApi("ts_outgoing_message_flush_headers", {true}, false);  // (msg) -> void
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -101,8 +110,10 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             // For untyped variables (e.g., callback parameters without type annotations),
             // try to infer the type from the method name being called
             SPDLOG_INFO("tryGenerateHTTPCall: expression has Any type, checking method name={}", prop->name);
-            if (prop->name == "writeHead" || prop->name == "write" || prop->name == "end" || 
-                prop->name == "statusCode" || prop->name == "setHeader") {
+            if (prop->name == "writeHead" || prop->name == "write" || prop->name == "end" ||
+                prop->name == "statusCode" || prop->name == "setHeader" ||
+                prop->name == "getHeader" || prop->name == "getHeaders" || prop->name == "hasHeader" ||
+                prop->name == "removeHeader" || prop->name == "getHeaderNames" || prop->name == "flushHeaders") {
                 // Could be ServerResponse or ClientRequest
                 isServerResponse = true;  // Default to ServerResponse for these methods
                 SPDLOG_INFO("tryGenerateHTTPCall: inferred isServerResponse=true from method name");
@@ -306,7 +317,7 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
         } else if (prop->name == "end") {
             visit(prop->expression.get());
             llvm::Value* boxedRes = lastValue;
-            
+
             // For Any-typed expressions, we need to unbox as Object
             llvm::Value* res;
             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Any) {
@@ -320,17 +331,101 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
                 SPDLOG_ERROR("tryGenerateHTTPCall: end: res is NULL!");
                 return true;
             }
-            
+
             llvm::Value* data = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (!node->arguments.empty()) {
                 visit(node->arguments[0].get());
                 data = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
             }
-            
+
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_end", ft);
             createCall(ft, fn.getCallee(), { res, data });
             lastValue = boxedRes; // Return 'this' for chaining
+            return true;
+        } else if (prop->name == "setHeader") {
+            if (node->arguments.size() < 2) return true;
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+            visit(node->arguments[1].get());
+            llvm::Value* value = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_set_header", ft);
+            createCall(ft, fn.getCallee(), { msg, name, value });
+            lastValue = msg; // Return 'this' for chaining
+            return true;
+        } else if (prop->name == "getHeader") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_get_header", ft);
+            lastValue = createCall(ft, fn.getCallee(), { msg, name });
+            return true;
+        } else if (prop->name == "getHeaders") {
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_get_headers", ft);
+            lastValue = createCall(ft, fn.getCallee(), { msg });
+            return true;
+        } else if (prop->name == "hasHeader") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_has_header", ft);
+            lastValue = createCall(ft, fn.getCallee(), { msg, name });
+            return true;
+        } else if (prop->name == "removeHeader") {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* name = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_remove_header", ft);
+            createCall(ft, fn.getCallee(), { msg, name });
+            lastValue = msg; // Return 'this' for chaining
+            return true;
+        } else if (prop->name == "getHeaderNames") {
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_get_header_names", ft);
+            lastValue = createCall(ft, fn.getCallee(), { msg });
+            return true;
+        } else if (prop->name == "flushHeaders") {
+            visit(prop->expression.get());
+            llvm::Value* msg = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_outgoing_message_flush_headers", ft);
+            createCall(ft, fn.getCallee(), { msg });
+            lastValue = msg; // Return 'this' for chaining
             return true;
         }
     }
