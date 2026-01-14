@@ -49,7 +49,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers` | ⚠️ | 43% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
-| `url` | ⚠️ | 16% | URL parsing |
+| `url` | ⚠️ | 66% | URL parsing |
 | `util` | ⚠️ | 3% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
@@ -811,38 +811,38 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `new URL(input)` | ✅ | |
-| `new URL(input, base)` | ❌ | |
-| `url.hash` | ❌ | |
+| `new URL(input, base)` | ⚠️ | Base parameter not fully working |
+| `url.hash` | ✅ | |
 | `url.host` | ✅ | |
 | `url.hostname` | ✅ | |
-| `url.href` | ❌ | |
-| `url.origin` | ❌ | |
-| `url.password` | ❌ | |
+| `url.href` | ✅ | |
+| `url.origin` | ✅ | |
+| `url.password` | ✅ | |
 | `url.pathname` | ✅ | |
-| `url.port` | ⚠️ | |
+| `url.port` | ✅ | |
 | `url.protocol` | ✅ | |
 | `url.search` | ✅ | |
-| `url.searchParams` | ❌ | |
-| `url.username` | ❌ | |
-| `url.toString()` | ❌ | |
-| `url.toJSON()` | ❌ | |
+| `url.searchParams` | ✅ | Returns URLSearchParams object |
+| `url.username` | ✅ | |
+| `url.toString()` | ✅ | |
+| `url.toJSON()` | ✅ | |
 
 ### URLSearchParams
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `new URLSearchParams()` | ❌ | |
-| `params.append()` | ❌ | |
-| `params.delete()` | ❌ | |
+| `new URLSearchParams()` | ✅ | From string or empty |
+| `params.append()` | ✅ | |
+| `params.delete()` | ✅ | |
 | `params.entries()` | ❌ | |
 | `params.forEach()` | ❌ | |
-| `params.get()` | ❌ | |
-| `params.getAll()` | ❌ | |
-| `params.has()` | ❌ | |
+| `params.get()` | ✅ | |
+| `params.getAll()` | ✅ | |
+| `params.has()` | ✅ | |
 | `params.keys()` | ❌ | |
-| `params.set()` | ❌ | |
-| `params.size` | ❌ | |
-| `params.sort()` | ❌ | |
-| `params.toString()` | ❌ | |
+| `params.set()` | ✅ | |
+| `params.size` | ✅ | |
+| `params.sort()` | ✅ | |
+| `params.toString()` | ✅ | |
 | `params.values()` | ❌ | |
 
 ### Legacy URL API
@@ -857,7 +857,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.pathToFileURL()` | ❌ | |
 | `url.urlToHttpOptions()` | ❌ | |
 
-**URL Coverage: 6/38 (16%)**
+**URL Coverage: 25/38 (66%)**
 
 ---
 
@@ -967,10 +967,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Process | 37 | 55 | 67% |
 | Stream | 10 | 44 | 23% |
 | Timers | 6 | 14 | 43% |
-| URL | 6 | 38 | 16% |
+| URL | 25 | 38 | 66% |
 | Util | 2 | 62 | 3% |
 | Global | 3 | 7 | 43% |
-| **Total** | **202** | **610** | **33%** |
+| **Total** | **221** | **610** | **36%** |
 
 ### Priority Implementation Targets
 
@@ -979,7 +979,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 - ✅ `process.stdout`, `process.stderr` - Stream-based output (implemented)
 - ✅ `path.parse()`, `path.format()` - Path manipulation (implemented)
 - `fs.rename*()`, `fs.copy*()` - File operations
-- `URLSearchParams` - Query string handling
+- ✅ `URLSearchParams` - Query string handling (implemented)
 
 #### High (Common use cases)
 - ✅ `os.platform()`, `os.cpus()` - System info (implemented)
@@ -1008,7 +1008,7 @@ Current test coverage:
 - Path: 1 test file
 - Process: 1 test file
 - Timers: 1 test file
-- URL: 1 test file
+- URL: 3 test files (basic, extended, search params)
 - Util: 1 test file
 
-All 42 Node.js API tests passing (28 TypeScript + 14 JavaScript).
+All Node.js API tests passing.
