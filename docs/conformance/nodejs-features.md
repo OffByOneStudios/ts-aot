@@ -67,14 +67,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `Buffer.alloc(size)` | ✅ | |
 | `Buffer.allocUnsafe(size)` | ❌ | |
 | `Buffer.allocUnsafeSlow(size)` | ❌ | |
-| `Buffer.byteLength(string)` | ❌ | |
+| `Buffer.byteLength(string)` | ✅ | |
 | `Buffer.compare(buf1, buf2)` | ❌ | |
-| `Buffer.concat(list)` | ❌ | |
+| `Buffer.concat(list)` | ✅ | |
 | `Buffer.from(array)` | ✅ | |
 | `Buffer.from(arrayBuffer)` | ❌ | |
 | `Buffer.from(buffer)` | ❌ | |
 | `Buffer.from(string, encoding)` | ✅ | |
-| `Buffer.isBuffer(obj)` | ❌ | |
+| `Buffer.isBuffer(obj)` | ✅ | |
 | `Buffer.isEncoding(encoding)` | ❌ | |
 
 ### Instance Properties
@@ -88,10 +88,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `buf.compare(target)` | ❌ | |
-| `buf.copy(target)` | ❌ | |
+| `buf.copy(target)` | ✅ | |
 | `buf.entries()` | ❌ | |
 | `buf.equals(otherBuffer)` | ❌ | |
-| `buf.fill(value)` | ❌ | |
+| `buf.fill(value)` | ✅ | |
 | `buf.includes(value)` | ❌ | |
 | `buf.indexOf(value)` | ❌ | |
 | `buf.keys()` | ❌ | |
@@ -118,8 +118,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.readUInt32LE(offset)` | ❌ | |
 | `buf.readUIntBE(offset, byteLength)` | ❌ | |
 | `buf.readUIntLE(offset, byteLength)` | ❌ | |
-| `buf.slice(start, end)` | ⚠️ | Deprecated, use subarray |
-| `buf.subarray(start, end)` | ❌ | |
+| `buf.slice(start, end)` | ✅ | Deprecated, use subarray |
+| `buf.subarray(start, end)` | ✅ | |
 | `buf.swap16()` | ❌ | |
 | `buf.swap32()` | ❌ | |
 | `buf.swap64()` | ❌ | |
@@ -150,7 +150,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.writeUIntBE(value)` | ❌ | |
 | `buf.writeUIntLE(value)` | ❌ | |
 
-**Buffer Coverage: 7/67 (10%)**
+**Buffer Coverage: 13/67 (19%)**
 
 ---
 
@@ -634,13 +634,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `path.normalize()` | ✅ | |
 | `path.parse()` | ✅ | |
 | `path.posix` | ❌ | |
-| `path.relative()` | ❌ | |
+| `path.relative()` | ✅ | |
 | `path.resolve()` | ✅ | |
 | `path.sep` | ✅ | |
 | `path.toNamespacedPath()` | ❌ | |
 | `path.win32` | ❌ | |
 
-**Path Coverage: 11/15 (73%)**
+**Path Coverage: 12/15 (80%)**
 
 ---
 
@@ -936,15 +936,15 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `global` | ❌ | |
-| `globalThis` | ❌ | |
+| `global` | ✅ | |
+| `globalThis` | ✅ | ES2020 alias for global |
 | `__dirname` | ❌ | |
 | `__filename` | ❌ | |
 | `exports` | ❌ | |
 | `module` | ❌ | |
 | `require()` | ⚠️ | Basic support |
 
-**Global Coverage: 1/7 (14%)**
+**Global Coverage: 3/7 (43%)**
 
 ---
 
@@ -954,7 +954,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Buffer | 7 | 67 | 10% |
+| Buffer | 13 | 67 | 19% |
 | Console | 13 | 19 | 68% |
 | Crypto | 1 | 28 | 4% |
 | Events | 8 | 21 | 38% |
@@ -963,14 +963,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | HTTPS | 5 | 7 | 71% |
 | Net | 10 | 36 | 28% |
 | OS | 20 | 22 | 91% |
-| Path | 11 | 15 | 73% |
+| Path | 12 | 15 | 80% |
 | Process | 5 | 55 | 9% |
 | Stream | 10 | 44 | 23% |
 | Timers | 6 | 14 | 43% |
 | URL | 6 | 38 | 16% |
 | Util | 2 | 62 | 3% |
-| Global | 1 | 7 | 14% |
-| **Total** | **155** | **610** | **25%** |
+| Global | 3 | 7 | 43% |
+| **Total** | **164** | **610** | **27%** |
 
 ### Priority Implementation Targets
 
