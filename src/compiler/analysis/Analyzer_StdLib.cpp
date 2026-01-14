@@ -518,6 +518,23 @@ Analyzer::Analyzer() {
     consoleType->fields["count"] = countType;
     consoleType->fields["countReset"] = countType;
 
+    // console.group(label?) and console.groupCollapsed(label?)
+    auto groupType = std::make_shared<FunctionType>();
+    groupType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    groupType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["group"] = groupType;
+    consoleType->fields["groupCollapsed"] = groupType;
+
+    // console.groupEnd()
+    auto groupEndType = std::make_shared<FunctionType>();
+    groupEndType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["groupEnd"] = groupEndType;
+
+    // console.clear()
+    auto clearType = std::make_shared<FunctionType>();
+    clearType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["clear"] = clearType;
+
     symbols.define("console", consoleType);
 
     // Register global object (contains all global variables and functions)

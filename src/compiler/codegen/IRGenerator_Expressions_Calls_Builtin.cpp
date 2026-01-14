@@ -103,6 +103,10 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_console_dir", {true}, false);  // boxed value
     bp.registerRuntimeApi("ts_console_count", {false}, false);  // label
     bp.registerRuntimeApi("ts_console_count_reset", {false}, false);
+    bp.registerRuntimeApi("ts_console_group", {false}, false);  // label
+    bp.registerRuntimeApi("ts_console_group_collapsed", {false}, false);
+    bp.registerRuntimeApi("ts_console_group_end", {}, false);  // no args
+    bp.registerRuntimeApi("ts_console_clear", {}, false);  // no args
 
     // ========== Math ==========
     bp.registerRuntimeApi("ts_math_abs", {false}, false);  // double -> double
@@ -1026,7 +1030,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
         }
     }
 
-    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "debug" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog" || prop->name == "trace" || prop->name == "assert" || prop->name == "dir" || prop->name == "count" || prop->name == "countReset") {
+    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "debug" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog" || prop->name == "trace" || prop->name == "assert" || prop->name == "dir" || prop->name == "count" || prop->name == "countReset" || prop->name == "group" || prop->name == "groupCollapsed" || prop->name == "groupEnd" || prop->name == "clear") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "console") {
                 // console.assert(condition, ...messages) - only logs if condition is falsy
@@ -1165,6 +1169,41 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 if (prop->name == "trace") {
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_console_trace", ft);
+                    createCall(ft, fn.getCallee(), {});
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "group" || prop->name == "groupCollapsed") {
+                    llvm::Value* label;
+                    if (node->arguments.empty()) {
+                        // No label - pass nullptr
+                        label = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    } else {
+                        visit(node->arguments[0].get());
+                        // String arguments are already TsString*, don't unbox
+                        label = lastValue;
+                    }
+
+                    std::string funcName = (prop->name == "group") ? "ts_console_group" : "ts_console_group_collapsed";
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+                    createCall(ft, fn.getCallee(), { label });
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "groupEnd") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_group_end", ft);
+                    createCall(ft, fn.getCallee(), {});
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "clear") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_clear", ft);
                     createCall(ft, fn.getCallee(), {});
                     lastValue = nullptr;
                     return true;

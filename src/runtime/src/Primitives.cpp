@@ -15,10 +15,19 @@
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 static std::map<std::string, int64_t> consoleCounters;
+static int consoleGroupDepth = 0;
+
+// Helper to print indentation based on console group depth
+static void printConsoleIndent(FILE* stream = stdout) {
+    for (int i = 0; i < consoleGroupDepth; i++) {
+        std::fprintf(stream, "  ");
+    }
+}
 
 extern "C" {
 
 void ts_console_error(TsString* str) {
+    printConsoleIndent(stderr);
     if (str) {
         std::fprintf(stderr, "%s\n", str->ToUtf8());
     } else {
@@ -28,16 +37,19 @@ void ts_console_error(TsString* str) {
 }
 
 void ts_console_error_int(int64_t val) {
+    printConsoleIndent(stderr);
     std::fprintf(stderr, "%lld\n", val);
     std::fflush(stderr);
 }
 
 void ts_console_error_double(double val) {
+    printConsoleIndent(stderr);
     std::fprintf(stderr, "%f\n", val);
     std::fflush(stderr);
 }
 
 void ts_console_error_bool(bool val) {
+    printConsoleIndent(stderr);
     std::fprintf(stderr, "%s\n", val ? "true" : "false");
     std::fflush(stderr);
 }
@@ -46,6 +58,7 @@ void ts_console_error_bool(bool val) {
 static void ts_console_print_value_to_stream(TsValue* val, FILE* stream);
 
 void ts_console_error_value(TsValue* val) {
+    printConsoleIndent(stderr);
     ts_console_print_value_to_stream(val, stderr);
     std::fprintf(stderr, "\n");
     std::fflush(stderr);
@@ -103,6 +116,37 @@ void ts_console_count_reset(TsString* label) {
     consoleCounters[key] = 0;
 }
 
+void ts_console_group(TsString* label) {
+    // Print indent based on current depth
+    for (int i = 0; i < consoleGroupDepth; i++) {
+        std::printf("  ");
+    }
+    if (label) {
+        std::printf("%s\n", label->ToUtf8());
+    }
+    consoleGroupDepth++;
+    std::fflush(stdout);
+}
+
+void ts_console_group_collapsed(TsString* label) {
+    // In a terminal, collapsed behaves the same as group
+    // (collapsing is a browser DevTools feature)
+    ts_console_group(label);
+}
+
+void ts_console_group_end() {
+    if (consoleGroupDepth > 0) {
+        consoleGroupDepth--;
+    }
+}
+
+void ts_console_clear() {
+    // Clear terminal screen using ANSI escape codes
+    // Works on Windows 10+ and Unix terminals
+    std::printf("\033[2J\033[H");
+    std::fflush(stdout);
+}
+
 int32_t ts_double_to_int32(double d) {
     if (std::isnan(d) || std::isinf(d)) return 0;
     double i = std::trunc(std::fmod(d, 4294967296.0));
@@ -119,6 +163,7 @@ uint32_t ts_double_to_uint32(double d) {
 }
 
 void ts_console_log(TsString* str) {
+    printConsoleIndent();
     if (str) {
         std::printf("%s\n", str->ToUtf8());
     } else {
@@ -128,16 +173,19 @@ void ts_console_log(TsString* str) {
 }
 
 void ts_console_log_int(int64_t val) {
+    printConsoleIndent();
     std::printf("%lld\n", val);
     std::fflush(stdout);
 }
 
 void ts_console_log_double(double val) {
+    printConsoleIndent();
     std::printf("%f\n", val);
     std::fflush(stdout);
 }
 
 void ts_console_log_bool(bool val) {
+    printConsoleIndent();
     std::printf("%s\n", val ? "true" : "false");
     std::fflush(stdout);
 }
@@ -308,11 +356,13 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
 }
 
 extern "C" void ts_console_log_value_no_newline(TsValue* val) {
+    printConsoleIndent();
     ts_console_print_value_to_stream(val, stdout);
 }
 
 extern "C" void ts_console_log_value(TsValue* val) {
-    ts_console_log_value_no_newline(val);
+    printConsoleIndent();
+    ts_console_print_value_to_stream(val, stdout);
     std::printf("\n");
     std::fflush(stdout);
 }
