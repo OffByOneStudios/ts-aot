@@ -24,9 +24,11 @@ struct HttpContext {
     TsIncomingMessage* currentRequest;
     TsServerResponse* currentResponse;
     TsString* currentHeaderField;
+    TsString* currentHeaderFieldRaw;  // Unmodified header field for rawHeaders
 
-    HttpContext(TsHttpServer* s, TsSocket* sock) 
-        : server(s), socket(sock), currentRequest(nullptr), currentResponse(nullptr), currentHeaderField(nullptr) {
+    HttpContext(TsHttpServer* s, TsSocket* sock)
+        : server(s), socket(sock), currentRequest(nullptr), currentResponse(nullptr),
+          currentHeaderField(nullptr), currentHeaderFieldRaw(nullptr) {
         parser.data = this;
     }
 };
@@ -35,6 +37,7 @@ struct HttpContext {
 TsIncomingMessage::TsIncomingMessage() : TsEventEmitter(), TsReadable(), method(nullptr), url(nullptr) {
     this->magic = MAGIC;
     headers = TsHeaders::Create();
+    rawHeaders = TsArray::Create();  // Initialize empty rawHeaders array
 }
 
 TsIncomingMessage* TsIncomingMessage::Create() {
@@ -274,6 +277,7 @@ static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
     HttpContext* ctx = (HttpContext*)parser->data;
     if (!ctx) return -1;
     std::string field(at, length);
+    ctx->currentHeaderFieldRaw = TsString::Create(field.c_str());  // Keep original case for rawHeaders
     for (auto& c : field) c = std::tolower(c);
     ctx->currentHeaderField = TsString::Create(field.c_str());
     return 0;
@@ -285,22 +289,39 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
     if (!ctx->currentRequest || !ctx->currentRequest->headers) {
         return -1;
     }
-    ctx->currentRequest->headers->Append(ctx->currentHeaderField, TsString::Create(std::string(at, length).c_str()));
+    TsString* valueStr = TsString::Create(std::string(at, length).c_str());
+    ctx->currentRequest->headers->Append(ctx->currentHeaderField, valueStr);
+    // Add to rawHeaders (alternating key/value array)
+    if (ctx->currentRequest->rawHeaders) {
+        ts_array_push(ctx->currentRequest->rawHeaders, ts_value_make_string(ctx->currentHeaderFieldRaw));
+        ts_array_push(ctx->currentRequest->rawHeaders, ts_value_make_string(valueStr));
+    }
     return 0;
 }
 
 static int on_headers_complete(llhttp_t* parser) {
+    HttpContext* ctx = (HttpContext*)parser->data;
+    if (!ctx || !ctx->currentRequest) return 0;
+    // Set HTTP version string (e.g., "1.1" or "1.0")
+    char versionBuf[8];
+    snprintf(versionBuf, sizeof(versionBuf), "%d.%d", parser->http_major, parser->http_minor);
+    ctx->currentRequest->httpVersion = TsString::Create(versionBuf);
     return 0;
 }
 
 static int on_message_complete(llhttp_t* parser) {
     HttpContext* ctx = (HttpContext*)parser->data;
     if (!ctx) return -1;
-    
+
+    // Mark the message as complete
+    if (ctx->currentRequest) {
+        ctx->currentRequest->complete = true;
+    }
+
     TsValue* reqVal = ts_value_make_object(ctx->currentRequest);
     TsValue* resVal = ts_value_make_object(ctx->currentResponse);
     TsValue* args[] = { reqVal, resVal };
-    
+
     ctx->server->Emit("request", 2, (void**)args);
     return 0;
 }
@@ -480,6 +501,7 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
     settings.on_header_field = [](llhttp_t* p, const char* at, size_t len) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
         std::string field(at, len);
+        req->currentHeaderFieldRaw = TsString::Create(field.c_str());  // Keep original case
         for (auto& c : field) c = std::tolower(c);
         req->currentHeaderField = TsString::Create(field.c_str());
         return 0;
@@ -487,13 +509,23 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
     settings.on_header_value = [](llhttp_t* p, const char* at, size_t len) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
         if (req->currentHeaderField) {
-            req->response->headers->Set(req->currentHeaderField, TsString::Create(std::string(at, len).c_str()));
+            TsString* valueStr = TsString::Create(std::string(at, len).c_str());
+            req->response->headers->Set(req->currentHeaderField, valueStr);
+            // Add to rawHeaders (alternating key/value array)
+            if (req->response->rawHeaders) {
+                ts_array_push(req->response->rawHeaders, ts_value_make_string(req->currentHeaderFieldRaw));
+                ts_array_push(req->response->rawHeaders, ts_value_make_string(valueStr));
+            }
         }
         return 0;
     };
     settings.on_headers_complete = [](llhttp_t* p) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
         req->response->statusCode = p->status_code;  // Set the status code from the response
+        // Set HTTP version string (e.g., "1.1" or "1.0")
+        char versionBuf[8];
+        snprintf(versionBuf, sizeof(versionBuf), "%d.%d", p->http_major, p->http_minor);
+        req->response->httpVersion = TsString::Create(versionBuf);
         TsValue* resVal = ts_value_make_object(req->response);
         req->Emit("response", 1, (void**)&resVal);
         return 0;
@@ -508,6 +540,8 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
     };
     settings.on_message_complete = [](llhttp_t* p) -> int {
         TsClientRequest* req = (TsClientRequest*)p->data;
+        // Mark the message as complete
+        req->response->complete = true;
         req->response->Emit("end", 0, nullptr);
         // Return socket to agent pool if keepAlive is enabled
         req->ReturnSocketToAgent();
@@ -884,6 +918,46 @@ void* ts_incoming_message_statusCode(void* ctx, void* msg) {
 void* ts_incoming_message_statusMessage(void* ctx, void* msg) {
     TsIncomingMessage* m = (TsIncomingMessage*)msg;
     return m->statusMessage;
+}
+
+void* ts_incoming_message_httpVersion(void* ctx, void* msg) {
+    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    return m->httpVersion ? m->httpVersion : TsString::Create("");
+}
+
+bool ts_incoming_message_complete(void* ctx, void* msg) {
+    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    return m->complete;
+}
+
+void* ts_incoming_message_rawHeaders(void* ctx, void* msg) {
+    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    return m->rawHeaders ? m->rawHeaders : TsArray::Create();
+}
+
+// OutgoingMessage/ServerResponse property getters
+bool ts_outgoing_message_get_headers_sent(void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
+    if (!m) return false;
+    return m->headersSent;
+}
+
+bool ts_outgoing_message_get_writable_ended(void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
+    if (!m) return false;
+    return m->writableEnded;
+}
+
+bool ts_outgoing_message_get_writable_finished(void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
+    if (!m) return false;
+    return m->writableFinished;
 }
 
 void* ts_http_request(TsValue* options, void* callback) {

@@ -36,6 +36,7 @@ public:
     bool Emit(const char* event, int argc, void** argv);
     int ListenerCount(const char* event);
     void* Listeners(const char* event);
+    void* RawListeners(const char* event);
     void SetMaxListeners(int n);
     int GetMaxListeners();
     void* EventNames();
@@ -57,6 +58,7 @@ extern "C" {
     int ts_event_emitter_get_max_listeners(void* emitter);
     int ts_event_emitter_listener_count(void* emitter, void* event);
     void* ts_event_emitter_listeners(void* emitter, void* event);
+    void* ts_event_emitter_raw_listeners(void* emitter, void* event);
     bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
     void* ts_event_emitter_event_names(void* emitter);
 }

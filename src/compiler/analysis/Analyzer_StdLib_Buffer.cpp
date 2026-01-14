@@ -112,6 +112,26 @@ void Analyzer::registerBuffer() {
     readDoubleBE->returnType = std::make_shared<Type>(TypeKind::Double);
     bufferClass->methods["readDoubleBE"] = readDoubleBE;
 
+    auto readBigInt64LE = std::make_shared<FunctionType>();
+    readBigInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readBigInt64LE->returnType = std::make_shared<Type>(TypeKind::BigInt);
+    bufferClass->methods["readBigInt64LE"] = readBigInt64LE;
+
+    auto readBigInt64BE = std::make_shared<FunctionType>();
+    readBigInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readBigInt64BE->returnType = std::make_shared<Type>(TypeKind::BigInt);
+    bufferClass->methods["readBigInt64BE"] = readBigInt64BE;
+
+    auto readBigUInt64LE = std::make_shared<FunctionType>();
+    readBigUInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readBigUInt64LE->returnType = std::make_shared<Type>(TypeKind::BigInt);
+    bufferClass->methods["readBigUInt64LE"] = readBigUInt64LE;
+
+    auto readBigUInt64BE = std::make_shared<FunctionType>();
+    readBigUInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readBigUInt64BE->returnType = std::make_shared<Type>(TypeKind::BigInt);
+    bufferClass->methods["readBigUInt64BE"] = readBigUInt64BE;
+
     // Write methods - take value and offset, return offset after written bytes
     auto writeInt8 = std::make_shared<FunctionType>();
     writeInt8->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
@@ -197,6 +217,30 @@ void Analyzer::registerBuffer() {
     writeDoubleBE->returnType = std::make_shared<Type>(TypeKind::Int);
     bufferClass->methods["writeDoubleBE"] = writeDoubleBE;
 
+    auto writeBigInt64LE = std::make_shared<FunctionType>();
+    writeBigInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::BigInt)); // value
+    writeBigInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeBigInt64LE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeBigInt64LE"] = writeBigInt64LE;
+
+    auto writeBigInt64BE = std::make_shared<FunctionType>();
+    writeBigInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::BigInt)); // value
+    writeBigInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeBigInt64BE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeBigInt64BE"] = writeBigInt64BE;
+
+    auto writeBigUInt64LE = std::make_shared<FunctionType>();
+    writeBigUInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::BigInt)); // value
+    writeBigUInt64LE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeBigUInt64LE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeBigUInt64LE"] = writeBigUInt64LE;
+
+    auto writeBigUInt64BE = std::make_shared<FunctionType>();
+    writeBigUInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::BigInt)); // value
+    writeBigUInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeBigUInt64BE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeBigUInt64BE"] = writeBigUInt64BE;
+
     // Utility methods
     auto bufferCompare = std::make_shared<FunctionType>();
     bufferCompare->paramTypes.push_back(bufferClass); // other buffer
@@ -225,6 +269,24 @@ void Analyzer::registerBuffer() {
     bufferIncludes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteOffset
     bufferIncludes->returnType = std::make_shared<Type>(TypeKind::Boolean);
     bufferClass->methods["includes"] = bufferIncludes;
+
+    // Iterator methods
+    auto bufferEntries = std::make_shared<FunctionType>();
+    bufferEntries->returnType = std::make_shared<ArrayType>(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int)));
+    bufferClass->methods["entries"] = bufferEntries;
+
+    auto bufferKeys = std::make_shared<FunctionType>();
+    bufferKeys->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
+    bufferClass->methods["keys"] = bufferKeys;
+
+    auto bufferValues = std::make_shared<FunctionType>();
+    bufferValues->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
+    bufferClass->methods["values"] = bufferValues;
+
+    // toJSON method - returns object { type: "Buffer", data: number[] }
+    auto bufferToJSON = std::make_shared<FunctionType>();
+    bufferToJSON->returnType = std::make_shared<Type>(TypeKind::Any);
+    bufferClass->methods["toJSON"] = bufferToJSON;
 
     symbols.defineType("Buffer", bufferClass);
 

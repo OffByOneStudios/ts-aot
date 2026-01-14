@@ -26,6 +26,10 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_readable_flowing", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_unpipe", {true}, false);  // stream -> void
 
+    // Stream module functions
+    bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
+    bp.registerRuntimeApi("ts_stream_finished", {true, true, true}, true);  // stream, options/callback, callback -> cleanup fn
+
     // Writable state property accessors
     bp.registerRuntimeApi("ts_writable_destroyed", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_writable_writable", {true}, false);  // stream -> bool
@@ -36,9 +40,104 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_writable_writable_length", {true}, false);  // stream -> i64
 }
 
+bool IRGenerator::tryGenerateStreamModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    // Check if this is stream.pipeline() or stream.finished()
+    auto id = dynamic_cast<ast::Identifier*>(prop->expression.get());
+    if (!id || id->name != "stream") return false;
+
+    ensureStreamFunctionsRegistered(boxingPolicy);
+
+    if (prop->name == "pipeline") {
+        // stream.pipeline(...streams, callback)
+        // We need to collect all arguments into an array and extract the callback
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        // Create an array to hold the streams (all but the last argument if it's a function)
+        llvm::FunctionType* createArrayFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee createArrayFn = getRuntimeFunction("ts_array_create", createArrayFt);
+        llvm::Value* streamsArray = createCall(createArrayFt, createArrayFn.getCallee(), {});
+
+        // Check if the last argument is a callback function
+        int lastIdx = (int)node->arguments.size() - 1;
+        llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        int numStreams = (int)node->arguments.size();
+
+        if (lastIdx >= 0) {
+            auto lastArgType = node->arguments[lastIdx]->inferredType;
+            if (lastArgType && lastArgType->kind == TypeKind::Function) {
+                // Last argument is a callback
+                visit(node->arguments[lastIdx].get());
+                callback = boxValue(lastValue, lastArgType);
+                numStreams = lastIdx;  // Don't include callback in stream array
+            }
+        }
+
+        // Push all stream arguments into the array
+        llvm::FunctionType* pushFt = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFt);
+
+        for (int i = 0; i < numStreams; i++) {
+            visit(node->arguments[i].get());
+            llvm::Value* stream = boxValue(lastValue, node->arguments[i]->inferredType);
+            createCall(pushFt, pushFn.getCallee(), { streamsArray, stream });
+        }
+
+        // Call ts_stream_pipeline(streams, callback)
+        llvm::FunctionType* pipelineFt = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee pipelineFn = getRuntimeFunction("ts_stream_pipeline", pipelineFt);
+        lastValue = createCall(pipelineFt, pipelineFn.getCallee(), { streamsArray, callback });
+        return true;
+    }
+
+    if (prop->name == "finished") {
+        // stream.finished(stream, options?, callback)
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        // Get stream argument
+        visit(node->arguments[0].get());
+        llvm::Value* stream = boxValue(lastValue, node->arguments[0]->inferredType);
+
+        // Get optional second argument (options or callback)
+        llvm::Value* optionsOrCallback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            optionsOrCallback = boxValue(lastValue, node->arguments[1]->inferredType);
+        }
+
+        // Get optional third argument (callback if second was options)
+        llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            callback = boxValue(lastValue, node->arguments[2]->inferredType);
+        }
+
+        // Call ts_stream_finished(stream, optionsOrCallback, callback)
+        llvm::FunctionType* finishedFt = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee finishedFn = getRuntimeFunction("ts_stream_finished", finishedFt);
+        lastValue = createCall(finishedFt, finishedFn.getCallee(), { stream, optionsOrCallback, callback });
+        return true;
+    }
+
+    return false;
+}
+
 bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     ensureStreamFunctionsRegistered(boxingPolicy);
-    
+
+    // First check for module-level stream functions
+    if (tryGenerateStreamModuleCall(node, prop)) {
+        return true;
+    }
+
     if (prop->name == "write") {
         visit(prop->expression.get());
         llvm::Value* boxedObj = lastValue;

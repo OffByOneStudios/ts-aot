@@ -147,10 +147,15 @@ void Analyzer::registerHTTP() {
     incomingMessageClass->fields["method"] = std::make_shared<Type>(TypeKind::String);
     incomingMessageClass->fields["url"] = std::make_shared<Type>(TypeKind::String);
     incomingMessageClass->fields["headers"] = std::make_shared<Type>(TypeKind::Any);
-    
+
     // Response properties (client-side) - IncomingMessage is used for http.ClientResponse too
     incomingMessageClass->fields["statusCode"] = std::make_shared<Type>(TypeKind::Int);
     incomingMessageClass->fields["statusMessage"] = std::make_shared<Type>(TypeKind::String);
+
+    // Common properties
+    incomingMessageClass->fields["httpVersion"] = std::make_shared<Type>(TypeKind::String);
+    incomingMessageClass->fields["complete"] = std::make_shared<Type>(TypeKind::Boolean);
+    incomingMessageClass->fields["rawHeaders"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     
     symbols.defineType("IncomingMessage", incomingMessageClass);
 

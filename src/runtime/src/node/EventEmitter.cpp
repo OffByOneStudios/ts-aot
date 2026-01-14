@@ -235,7 +235,39 @@ void* TsEventEmitter::Listeners(const char* event) {
     eventVal.ptr_val = TsString::Create(event);
     TsValue listenersVal = this->listeners->Get(eventVal);
 
-    // Return a copy of the listeners array
+    // Return a copy of the listeners array, unwrapping once-wrappers
+    TsArray* result = TsArray::Create();
+
+    if (listenersVal.type == ValueType::UNDEFINED) {
+        return result;
+    }
+
+    TsArray* arr = (TsArray*)listenersVal.ptr_val;
+    for (int i = 0; i < arr->Length(); i++) {
+        TsValue* callback = (TsValue*)arr->Get(i);
+
+        // Check if this is a once-wrapper and unwrap it
+        if (callback && callback->type == ValueType::OBJECT_PTR) {
+            TsFunction* f = (TsFunction*)callback->ptr_val;
+            if (f->funcPtr == (void*)once_wrapper_func) {
+                // Unwrap to get original callback
+                OnceContext* ctx = (OnceContext*)f->context;
+                result->Push((int64_t)ctx->originalCallback);
+                continue;
+            }
+        }
+        result->Push(arr->Get(i));
+    }
+    return result;
+}
+
+void* TsEventEmitter::RawListeners(const char* event) {
+    TsValue eventVal;
+    eventVal.type = ValueType::STRING_PTR;
+    eventVal.ptr_val = TsString::Create(event);
+    TsValue listenersVal = this->listeners->Get(eventVal);
+
+    // Return a copy of the raw listeners array (including wrappers)
     TsArray* result = TsArray::Create();
 
     if (listenersVal.type == ValueType::UNDEFINED) {
@@ -544,6 +576,34 @@ extern "C" {
         TsString* s = (TsString*)event;
         if (!s) return TsArray::Create();
         return e->Listeners(s->ToUtf8());
+    }
+
+    void* ts_event_emitter_raw_listeners(void* emitter, void* event) {
+        if (!emitter) return TsArray::Create();
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return TsArray::Create();
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return TsArray::Create();
+
+        TsObject* obj = (TsObject*)rawPtr;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return TsArray::Create();
+        TsString* s = (TsString*)event;
+        if (!s) return TsArray::Create();
+        return e->RawListeners(s->ToUtf8());
     }
 
     bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv) {

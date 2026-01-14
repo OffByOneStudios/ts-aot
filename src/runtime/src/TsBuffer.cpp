@@ -2,6 +2,8 @@
 #include "GC.h"
 #include "TsRuntime.h"
 #include "TsArray.h"
+#include "TsMap.h"
+#include "TsBigInt.h"
 #include <cstring>
 #include <new>
 #include <unicode/unistr.h>
@@ -555,6 +557,92 @@ size_t TsBuffer::WriteDoubleBE(double value, size_t offset) {
     return offset + 8;
 }
 
+// BigInt64 read methods
+int64_t TsBuffer::ReadBigInt64LE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    int64_t val;
+    std::memcpy(&val, data + offset, 8);
+    return val;  // Assume host is little endian
+}
+
+int64_t TsBuffer::ReadBigInt64BE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    uint64_t val;
+    std::memcpy(&val, data + offset, 8);
+    val = ((val >> 56) & 0xFF) |
+          ((val >> 40) & 0xFF00) |
+          ((val >> 24) & 0xFF0000) |
+          ((val >> 8) & 0xFF000000) |
+          ((val << 8) & 0xFF00000000ULL) |
+          ((val << 24) & 0xFF0000000000ULL) |
+          ((val << 40) & 0xFF000000000000ULL) |
+          ((val << 56) & 0xFF00000000000000ULL);
+    return (int64_t)val;
+}
+
+uint64_t TsBuffer::ReadBigUInt64LE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    uint64_t val;
+    std::memcpy(&val, data + offset, 8);
+    return val;  // Assume host is little endian
+}
+
+uint64_t TsBuffer::ReadBigUInt64BE(size_t offset) {
+    if (offset + 8 > length) return 0;
+    uint64_t val;
+    std::memcpy(&val, data + offset, 8);
+    return ((val >> 56) & 0xFF) |
+           ((val >> 40) & 0xFF00) |
+           ((val >> 24) & 0xFF0000) |
+           ((val >> 8) & 0xFF000000) |
+           ((val << 8) & 0xFF00000000ULL) |
+           ((val << 24) & 0xFF0000000000ULL) |
+           ((val << 40) & 0xFF000000000000ULL) |
+           ((val << 56) & 0xFF00000000000000ULL);
+}
+
+// BigInt64 write methods
+size_t TsBuffer::WriteBigInt64LE(int64_t value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    std::memcpy(data + offset, &value, 8);
+    return offset + 8;
+}
+
+size_t TsBuffer::WriteBigInt64BE(int64_t value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    uint64_t v = (uint64_t)value;
+    uint64_t swapped = ((v >> 56) & 0xFF) |
+                       ((v >> 40) & 0xFF00) |
+                       ((v >> 24) & 0xFF0000) |
+                       ((v >> 8) & 0xFF000000) |
+                       ((v << 8) & 0xFF00000000ULL) |
+                       ((v << 24) & 0xFF0000000000ULL) |
+                       ((v << 40) & 0xFF000000000000ULL) |
+                       ((v << 56) & 0xFF00000000000000ULL);
+    std::memcpy(data + offset, &swapped, 8);
+    return offset + 8;
+}
+
+size_t TsBuffer::WriteBigUInt64LE(uint64_t value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    std::memcpy(data + offset, &value, 8);
+    return offset + 8;
+}
+
+size_t TsBuffer::WriteBigUInt64BE(uint64_t value, size_t offset) {
+    if (offset + 8 > length) return offset;
+    uint64_t swapped = ((value >> 56) & 0xFF) |
+                       ((value >> 40) & 0xFF00) |
+                       ((value >> 24) & 0xFF0000) |
+                       ((value >> 8) & 0xFF000000) |
+                       ((value << 8) & 0xFF00000000ULL) |
+                       ((value << 24) & 0xFF0000000000ULL) |
+                       ((value << 40) & 0xFF000000000000ULL) |
+                       ((value << 56) & 0xFF00000000000000ULL);
+    std::memcpy(data + offset, &swapped, 8);
+    return offset + 8;
+}
+
 // ============================================================================
 // Buffer Utility Method Implementations
 // ============================================================================
@@ -632,6 +720,47 @@ bool TsBuffer::IsEncoding(const char* encoding) {
            strcmp(encoding, "ucs-2") == 0 ||
            strcmp(encoding, "utf16le") == 0 ||
            strcmp(encoding, "utf-16le") == 0;
+}
+
+void* TsBuffer::Entries() {
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < length; i++) {
+        TsArray* pair = TsArray::Create();
+        pair->Push((int64_t)i);
+        pair->Push((int64_t)data[i]);
+        result->Push(reinterpret_cast<int64_t>(pair));
+    }
+    return result;
+}
+
+void* TsBuffer::Keys() {
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < length; i++) {
+        result->Push((int64_t)i);
+    }
+    return result;
+}
+
+void* TsBuffer::Values() {
+    TsArray* result = TsArray::Create();
+    for (size_t i = 0; i < length; i++) {
+        result->Push((int64_t)data[i]);
+    }
+    return result;
+}
+
+void* TsBuffer::ToJSON() {
+    // Returns { type: "Buffer", data: [byte values] }
+    TsMap* obj = TsMap::Create();
+    obj->Set(TsString::Create("type"), reinterpret_cast<int64_t>(TsString::Create("Buffer")));
+
+    TsArray* dataArr = TsArray::Create();
+    for (size_t i = 0; i < length; i++) {
+        dataArr->Push((int64_t)data[i]);
+    }
+    obj->Set(TsString::Create("data"), reinterpret_cast<int64_t>(dataArr));
+
+    return obj;
 }
 
 extern "C" {
@@ -851,6 +980,32 @@ extern "C" {
         return buffer->ReadDoubleBE((size_t)offset);
     }
 
+    void* ts_buffer_read_bigint64le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return ts_bigint_create_int(0);
+        return ts_bigint_create_int(buffer->ReadBigInt64LE((size_t)offset));
+    }
+
+    void* ts_buffer_read_bigint64be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return ts_bigint_create_int(0);
+        return ts_bigint_create_int(buffer->ReadBigInt64BE((size_t)offset));
+    }
+
+    void* ts_buffer_read_biguint64le(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return ts_bigint_create_int(0);
+        // Cast to int64_t for BigInt creation - the BigInt library handles this correctly
+        return ts_bigint_create_int((int64_t)buffer->ReadBigUInt64LE((size_t)offset));
+    }
+
+    void* ts_buffer_read_biguint64be(void* buf, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return ts_bigint_create_int(0);
+        // Cast to int64_t for BigInt creation - the BigInt library handles this correctly
+        return ts_bigint_create_int((int64_t)buffer->ReadBigUInt64BE((size_t)offset));
+    }
+
     // ============================================================================
     // Buffer Write Methods
     // ============================================================================
@@ -939,6 +1094,44 @@ extern "C" {
         return (int64_t)buffer->WriteDoubleBE(value, (size_t)offset);
     }
 
+    int64_t ts_buffer_write_bigint64le(void* buf, void* value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        // Extract int64_t from BigInt
+        TsBigInt* bi = (TsBigInt*)value;
+        if (!bi) return 0;
+        int64_t val = mp_get_i64(&bi->value);
+        return (int64_t)buffer->WriteBigInt64LE(val, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_bigint64be(void* buf, void* value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        TsBigInt* bi = (TsBigInt*)value;
+        if (!bi) return 0;
+        int64_t val = mp_get_i64(&bi->value);
+        return (int64_t)buffer->WriteBigInt64BE(val, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_biguint64le(void* buf, void* value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        TsBigInt* bi = (TsBigInt*)value;
+        if (!bi) return 0;
+        // Get as unsigned - use mp_get_u64 if value is positive
+        uint64_t val = (uint64_t)mp_get_i64(&bi->value);
+        return (int64_t)buffer->WriteBigUInt64LE(val, (size_t)offset);
+    }
+
+    int64_t ts_buffer_write_biguint64be(void* buf, void* value, int64_t offset) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return 0;
+        TsBigInt* bi = (TsBigInt*)value;
+        if (!bi) return 0;
+        uint64_t val = (uint64_t)mp_get_i64(&bi->value);
+        return (int64_t)buffer->WriteBigUInt64BE(val, (size_t)offset);
+    }
+
     // ============================================================================
     // Buffer Utility Methods
     // ============================================================================
@@ -972,6 +1165,33 @@ extern "C" {
         TsBuffer* buffer = getBuffer(buf);
         if (!buffer) return false;
         return buffer->Includes((uint8_t)value, (size_t)byteOffset);
+    }
+
+    void* ts_buffer_entries(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return TsArray::Create();
+        return buffer->Entries();
+    }
+
+    void* ts_buffer_keys(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return TsArray::Create();
+        return buffer->Keys();
+    }
+
+    void* ts_buffer_values(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return TsArray::Create();
+        return buffer->Values();
+    }
+
+    void* ts_buffer_to_json(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) {
+            // Return empty object
+            return TsMap::Create();
+        }
+        return buffer->ToJSON();
     }
 
     void* Buffer_toString(void* context, void* buf) {

@@ -23,12 +23,12 @@ public:
     TsSocket();
     TsSocket(uv_tcp_t* handle);
     virtual ~TsSocket();
-    
+
     // Safe casting helper
     virtual TsSocket* AsSocket() override { return this; }
 
     void Connect(const char* host, int port, void* callback);
-    
+
     // TsDuplex implementation
     virtual void Pause() override;
     virtual void Resume() override;
@@ -39,9 +39,28 @@ public:
 
     uv_stream_t* GetStream() { return (uv_stream_t*)handle; }
 
+    // Socket address properties
+    const char* GetRemoteAddress();
+    int GetRemotePort();
+    const char* GetRemoteFamily();
+    const char* GetLocalAddress();
+    int GetLocalPort();
+    const char* GetLocalFamily();
+
+    // Socket state properties
+    size_t GetBytesRead() const { return bytesRead_; }
+    size_t GetBytesWritten() const { return bytesWritten_; }
+    bool IsConnecting() const { return connecting_; }
+    bool IsDestroyed() const { return closed; }
+    bool IsPending() const { return connecting_; }
+    const char* GetReadyState() const;
+
 protected:
     uv_tcp_t* handle;
     bool connected;
+    bool connecting_ = false;
+    size_t bytesRead_ = 0;
+    size_t bytesWritten_ = 0;
 
     virtual void OnConnected();
     virtual void HandleRead(ssize_t nread, const uv_buf_t* buf);
@@ -59,6 +78,22 @@ extern "C" {
     void ts_net_socket_connect(void* socket, void* port, void* host, void* callback);
     bool ts_net_socket_write(void* socket, void* data);
     void ts_net_socket_end(void* socket);
+
+    // Socket address properties
+    void* ts_net_socket_get_remote_address(void* socket);
+    int64_t ts_net_socket_get_remote_port(void* socket);
+    void* ts_net_socket_get_remote_family(void* socket);
+    void* ts_net_socket_get_local_address(void* socket);
+    int64_t ts_net_socket_get_local_port(void* socket);
+    void* ts_net_socket_get_local_family(void* socket);
+
+    // Socket state properties
+    int64_t ts_net_socket_get_bytes_read(void* socket);
+    int64_t ts_net_socket_get_bytes_written(void* socket);
+    bool ts_net_socket_get_connecting(void* socket);
+    bool ts_net_socket_get_destroyed(void* socket);
+    bool ts_net_socket_get_pending(void* socket);
+    void* ts_net_socket_get_ready_state(void* socket);
     
     // net module utilities
     int64_t ts_net_is_ip(void* input);

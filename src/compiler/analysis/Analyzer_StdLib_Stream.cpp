@@ -114,6 +114,23 @@ void Analyzer::registerStreams() {
     streamModule->fields["Writable"] = writableClass;
     streamModule->fields["Duplex"] = duplexClass;
     streamModule->fields["Transform"] = transformClass;
+
+    // stream.pipeline(...streams, callback) -> returns last stream
+    // Simplified signature: takes array of streams and optional callback
+    auto pipelineFn = std::make_shared<FunctionType>();
+    pipelineFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // ...streams (variadic, simplified as any)
+    pipelineFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // callback (optional)
+    pipelineFn->returnType = std::make_shared<Type>(TypeKind::Any);  // returns last stream
+    streamModule->fields["pipeline"] = pipelineFn;
+
+    // stream.finished(stream, options?, callback) -> cleanup function
+    auto finishedFn = std::make_shared<FunctionType>();
+    finishedFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // stream
+    finishedFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // options or callback
+    finishedFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // callback (optional)
+    finishedFn->returnType = std::make_shared<FunctionType>();  // returns cleanup function
+    streamModule->fields["finished"] = finishedFn;
+
     symbols.define("stream", streamModule);
 }
 

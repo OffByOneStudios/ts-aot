@@ -50,6 +50,10 @@ public:
     float ReadFloatBE(size_t offset);
     double ReadDoubleLE(size_t offset);
     double ReadDoubleBE(size_t offset);
+    int64_t ReadBigInt64LE(size_t offset);
+    int64_t ReadBigInt64BE(size_t offset);
+    uint64_t ReadBigUInt64LE(size_t offset);
+    uint64_t ReadBigUInt64BE(size_t offset);
 
     // Write methods - return offset + bytes written
     size_t WriteInt8(int8_t value, size_t offset);
@@ -66,6 +70,10 @@ public:
     size_t WriteFloatBE(float value, size_t offset);
     size_t WriteDoubleLE(double value, size_t offset);
     size_t WriteDoubleBE(double value, size_t offset);
+    size_t WriteBigInt64LE(int64_t value, size_t offset);
+    size_t WriteBigInt64BE(int64_t value, size_t offset);
+    size_t WriteBigUInt64LE(uint64_t value, size_t offset);
+    size_t WriteBigUInt64BE(uint64_t value, size_t offset);
 
     // Utility methods
     int Compare(TsBuffer* other);
@@ -75,6 +83,14 @@ public:
     int64_t LastIndexOf(uint8_t value, size_t byteOffset = SIZE_MAX);
     bool Includes(uint8_t value, size_t byteOffset = 0);
     bool IncludesBuffer(TsBuffer* value, size_t byteOffset = 0);
+
+    // Iterator methods
+    void* Entries();   // Returns TsArray* of [index, byte] pairs
+    void* Keys();      // Returns TsArray* of indices
+    void* Values();    // Returns TsArray* of byte values
+
+    // JSON serialization
+    void* ToJSON();    // Returns object with type and data array
 
     // Static methods
     static TsBuffer* AllocUnsafe(size_t length);
@@ -158,6 +174,10 @@ extern "C" {
     double ts_buffer_read_floatbe(void* buf, int64_t offset);
     double ts_buffer_read_doublele(void* buf, int64_t offset);
     double ts_buffer_read_doublebe(void* buf, int64_t offset);
+    void* ts_buffer_read_bigint64le(void* buf, int64_t offset);
+    void* ts_buffer_read_bigint64be(void* buf, int64_t offset);
+    void* ts_buffer_read_biguint64le(void* buf, int64_t offset);
+    void* ts_buffer_read_biguint64be(void* buf, int64_t offset);
 
     // Buffer write methods
     int64_t ts_buffer_write_int8(void* buf, int64_t value, int64_t offset);
@@ -174,6 +194,10 @@ extern "C" {
     int64_t ts_buffer_write_floatbe(void* buf, double value, int64_t offset);
     int64_t ts_buffer_write_doublele(void* buf, double value, int64_t offset);
     int64_t ts_buffer_write_doublebe(void* buf, double value, int64_t offset);
+    int64_t ts_buffer_write_bigint64le(void* buf, void* value, int64_t offset);
+    int64_t ts_buffer_write_bigint64be(void* buf, void* value, int64_t offset);
+    int64_t ts_buffer_write_biguint64le(void* buf, void* value, int64_t offset);
+    int64_t ts_buffer_write_biguint64be(void* buf, void* value, int64_t offset);
 
     // Buffer utility methods
     int64_t ts_buffer_compare(void* buf1, void* buf2);
@@ -181,6 +205,12 @@ extern "C" {
     int64_t ts_buffer_indexof(void* buf, int64_t value, int64_t byteOffset);
     int64_t ts_buffer_lastindexof(void* buf, int64_t value, int64_t byteOffset);
     bool ts_buffer_includes(void* buf, int64_t value, int64_t byteOffset);
+
+    // Buffer iterator methods
+    void* ts_buffer_entries(void* buf);
+    void* ts_buffer_keys(void* buf);
+    void* ts_buffer_values(void* buf);
+    void* ts_buffer_to_json(void* buf);
 
     void* ts_typed_array_create_u8(int64_t length);
     void* ts_typed_array_create_u32(int64_t length);

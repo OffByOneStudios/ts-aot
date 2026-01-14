@@ -20,7 +20,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |--------|--------|----------|-------|
 | `assert` | ❌ | 0% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
-| `buffer` | ⚠️ | 76% | Binary data handling |
+| `buffer` | ⚠️ | 88% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ⚠️ | 89% | Basic logging |
@@ -28,9 +28,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
-| `events` | ✅ | 71% | EventEmitter |
+| `events` | ✅ | 86% | EventEmitter |
 | `fs` | ⚠️ | 29% | File system |
-| `http` | ⚠️ | 46% | HTTP server/client |
+| `http` | ⚠️ | 56% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
@@ -44,7 +44,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `querystring` | ❌ | 0% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
-| `stream` | ⚠️ | 23% | Streams |
+| `stream` | ⚠️ | 55% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
 | `timers` | ⚠️ | 43% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
@@ -90,17 +90,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `buf.compare(target)` | ✅ | |
 | `buf.copy(target)` | ✅ | |
-| `buf.entries()` | ❌ | |
+| `buf.entries()` | ✅ | Returns array of [index, byte] pairs |
 | `buf.equals(otherBuffer)` | ✅ | |
 | `buf.fill(value)` | ✅ | |
 | `buf.includes(value)` | ✅ | |
 | `buf.indexOf(value)` | ✅ | |
-| `buf.keys()` | ❌ | |
+| `buf.keys()` | ✅ | Returns array of indices |
 | `buf.lastIndexOf(value)` | ✅ | |
-| `buf.readBigInt64BE(offset)` | ❌ | |
-| `buf.readBigInt64LE(offset)` | ❌ | |
-| `buf.readBigUInt64BE(offset)` | ❌ | |
-| `buf.readBigUInt64LE(offset)` | ❌ | |
+| `buf.readBigInt64BE(offset)` | ✅ | |
+| `buf.readBigInt64LE(offset)` | ✅ | |
+| `buf.readBigUInt64BE(offset)` | ✅ | |
+| `buf.readBigUInt64LE(offset)` | ✅ | |
 | `buf.readDoubleBE(offset)` | ✅ | |
 | `buf.readDoubleLE(offset)` | ✅ | |
 | `buf.readFloatBE(offset)` | ✅ | |
@@ -124,14 +124,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.swap16()` | ❌ | |
 | `buf.swap32()` | ❌ | |
 | `buf.swap64()` | ❌ | |
-| `buf.toJSON()` | ❌ | |
+| `buf.toJSON()` | ✅ | Returns { type: "Buffer", data: [...] } |
 | `buf.toString(encoding)` | ✅ | |
-| `buf.values()` | ❌ | |
+| `buf.values()` | ✅ | Returns array of byte values |
 | `buf.write(string)` | ✅ | |
-| `buf.writeBigInt64BE(value)` | ❌ | |
-| `buf.writeBigInt64LE(value)` | ❌ | |
-| `buf.writeBigUInt64BE(value)` | ❌ | |
-| `buf.writeBigUInt64LE(value)` | ❌ | |
+| `buf.writeBigInt64BE(value)` | ✅ | |
+| `buf.writeBigInt64LE(value)` | ✅ | |
+| `buf.writeBigUInt64BE(value)` | ✅ | |
+| `buf.writeBigUInt64LE(value)` | ✅ | |
 | `buf.writeDoubleBE(value)` | ✅ | |
 | `buf.writeDoubleLE(value)` | ✅ | |
 | `buf.writeFloatBE(value)` | ✅ | |
@@ -151,7 +151,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.writeUIntBE(value)` | ❌ | |
 | `buf.writeUIntLE(value)` | ❌ | |
 
-**Buffer Coverage: 52/68 (76%)**
+**Buffer Coverage: 60/68 (88%)**
 
 ---
 
@@ -277,7 +277,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `emitter.once(event, listener)` | ✅ | |
 | `emitter.prependListener(event, listener)` | ✅ | |
 | `emitter.prependOnceListener(event, listener)` | ⚠️ | Once semantics issue |
-| `emitter.rawListeners(event)` | ❌ | |
+| `emitter.rawListeners(event)` | ✅ | Returns wrappers for once listeners |
 | `emitter.removeAllListeners(event)` | ✅ | |
 | `emitter.removeListener(event, listener)` | ✅ | |
 | `emitter.setMaxListeners(n)` | ✅ | |
@@ -286,10 +286,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `'error'` event | ✅ | |
-| `'newListener'` event | ❌ | |
-| `'removeListener'` event | ❌ | |
+| `'newListener'` event | ✅ | Emitted before adding listener |
+| `'removeListener'` event | ✅ | Emitted after removing listener |
 
-**Events Coverage: 15/21 (71%)**
+**Events Coverage: 18/21 (86%)**
 
 ---
 
@@ -461,16 +461,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `req.headers` | ✅ | |
-| `req.httpVersion` | ❌ | |
+| `req.httpVersion` | ✅ | HTTP version string (e.g., "1.1") |
 | `req.method` | ✅ | |
 | `req.url` | ✅ | |
 | `req.socket` | ⚠️ | |
-| `req.complete` | ❌ | |
+| `req.complete` | ✅ | Set true after message fully received |
 | `req.aborted` | ❌ | |
-| `req.rawHeaders` | ❌ | |
+| `req.rawHeaders` | ✅ | Alternating key/value array with original case |
 | `req.rawTrailers` | ❌ | |
 | `req.statusCode` | ✅ | |
-| `req.statusMessage` | ❌ | |
+| `req.statusMessage` | ✅ | For HTTP client responses |
 | `req.trailers` | ❌ | |
 
 ### Response (ServerResponse)
@@ -487,9 +487,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `res.removeHeader()` | ✅ | |
 | `res.statusCode` | ✅ | |
 | `res.statusMessage` | ❌ | |
-| `res.headersSent` | ❌ | |
-| `res.writableEnded` | ❌ | |
-| `res.writableFinished` | ❌ | |
+| `res.headersSent` | ✅ | |
+| `res.writableEnded` | ✅ | |
+| `res.writableFinished` | ✅ | |
 | `res.flushHeaders()` | ✅ | |
 | `res.setTimeout()` | ❌ | |
 | `res.addTrailers()` | ❌ | |
@@ -534,7 +534,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 31/68 (46%)**
+**HTTP Coverage: 38/68 (56%)**
 
 ---
 
@@ -611,18 +611,18 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `socket.setNoDelay()` | ❌ | |
 | `socket.setKeepAlive()` | ❌ | |
 | `socket.address()` | ❌ | |
-| `socket.remoteAddress` | ❌ | |
-| `socket.remoteFamily` | ❌ | |
-| `socket.remotePort` | ❌ | |
-| `socket.localAddress` | ❌ | |
-| `socket.localPort` | ❌ | |
-| `socket.localFamily` | ❌ | |
-| `socket.bytesRead` | ❌ | |
-| `socket.bytesWritten` | ❌ | |
-| `socket.connecting` | ❌ | |
-| `socket.destroyed` | ❌ | |
-| `socket.pending` | ❌ | |
-| `socket.readyState` | ❌ | |
+| `socket.remoteAddress` | ✅ | |
+| `socket.remoteFamily` | ✅ | |
+| `socket.remotePort` | ✅ | |
+| `socket.localAddress` | ✅ | |
+| `socket.localPort` | ✅ | |
+| `socket.localFamily` | ✅ | |
+| `socket.bytesRead` | ✅ | |
+| `socket.bytesWritten` | ✅ | |
+| `socket.connecting` | ✅ | |
+| `socket.destroyed` | ✅ | |
+| `socket.pending` | ✅ | |
+| `socket.readyState` | ✅ | |
 | `socket.ref()` | ❌ | |
 | `socket.unref()` | ❌ | |
 
@@ -633,7 +633,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net.isIPv4()` | ✅ | |
 | `net.isIPv6()` | ✅ | |
 
-**Net Coverage: 13/36 (36%)**
+**Net Coverage: 25/36 (69%)**
 
 ---
 
@@ -660,11 +660,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `os.uptime()` | ✅ | |
 | `os.userInfo()` | ✅ | |
 | `os.version()` | ✅ | |
-| `os.constants` | ❌ | |
+| `os.constants` | ✅ | signals, errno, priority |
 | `os.EOL` | ✅ | |
 | `os.devNull` | ✅ | |
 
-**OS Coverage: 20/22 (91%)**
+**OS Coverage: 21/22 (95%)**
 
 ---
 
@@ -822,11 +822,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Utilities
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `stream.pipeline()` | ❌ | |
-| `stream.finished()` | ❌ | |
+| `stream.pipeline()` | ✅ | Pipes streams with error handling |
+| `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ❌ | |
 
-**Stream Coverage: 22/44 (50%)**
+**Stream Coverage: 24/44 (55%)**
 
 ---
 
@@ -1002,24 +1002,24 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Buffer | 52 | 68 | 76% |
+| Buffer | 60 | 68 | 88% |
 | Console | 17 | 19 | 89% |
 | Crypto | 16 | 34 | 47% |
-| Events | 15 | 21 | 71% |
+| Events | 18 | 21 | 86% |
 | File System | 89 | 123 | 72% |
-| HTTP | 31 | 68 | 46% |
+| HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
-| Net | 13 | 36 | 36% |
-| OS | 20 | 22 | 91% |
+| Net | 25 | 36 | 69% |
+| OS | 21 | 22 | 95% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
-| Stream | 22 | 44 | 50% |
+| Stream | 24 | 44 | 55% |
 | Timers | 6 | 14 | 43% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **392** | **653** | **60%** |
+| **Total** | **419** | **653** | **64%** |
 
 ### Priority Implementation Targets
 
@@ -1033,7 +1033,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 #### High (Common use cases)
 - ✅ `os.platform()`, `os.cpus()` - System info (implemented)
 - ✅ `crypto.randomBytes()`, `crypto.createHash()` - Basic crypto (implemented via OpenSSL)
-- `stream.pipeline()`, `stream.finished()` - Stream utilities
+- ✅ `stream.pipeline()`, `stream.finished()` - Stream utilities (implemented)
 - `util.promisify()` - Callback to Promise conversion
 - ✅ `setImmediate()` - Event loop control (implemented)
 

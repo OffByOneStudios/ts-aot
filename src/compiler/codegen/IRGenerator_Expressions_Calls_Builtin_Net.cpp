@@ -37,6 +37,22 @@ static void ensureNetFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_net_block_list_add_range", {true, false, false, false}, false);  // list, start, end, family
     bp.registerRuntimeApi("ts_net_block_list_add_subnet", {true, false, false, false}, false);  // list, address, prefix, family
     bp.registerRuntimeApi("ts_net_block_list_check", {true, false, false}, false);  // list, address, family -> bool
+
+    // Socket address properties
+    bp.registerRuntimeApi("ts_net_socket_get_remote_address", {true}, false);  // socket -> string
+    bp.registerRuntimeApi("ts_net_socket_get_remote_port", {true}, false);  // socket -> number
+    bp.registerRuntimeApi("ts_net_socket_get_remote_family", {true}, false);  // socket -> string
+    bp.registerRuntimeApi("ts_net_socket_get_local_address", {true}, false);  // socket -> string
+    bp.registerRuntimeApi("ts_net_socket_get_local_port", {true}, false);  // socket -> number
+    bp.registerRuntimeApi("ts_net_socket_get_local_family", {true}, false);  // socket -> string
+
+    // Socket state properties
+    bp.registerRuntimeApi("ts_net_socket_get_bytes_read", {true}, false);  // socket -> number
+    bp.registerRuntimeApi("ts_net_socket_get_bytes_written", {true}, false);  // socket -> number
+    bp.registerRuntimeApi("ts_net_socket_get_connecting", {true}, false);  // socket -> bool
+    bp.registerRuntimeApi("ts_net_socket_get_destroyed", {true}, false);  // socket -> bool
+    bp.registerRuntimeApi("ts_net_socket_get_pending", {true}, false);  // socket -> bool
+    bp.registerRuntimeApi("ts_net_socket_get_ready_state", {true}, false);  // socket -> string
 }
 
 bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

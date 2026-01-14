@@ -36,6 +36,10 @@ static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_buffer_read_floatbe", {true, false}, false);
     bp.registerRuntimeApi("ts_buffer_read_doublele", {true, false}, false);
     bp.registerRuntimeApi("ts_buffer_read_doublebe", {true, false}, false);
+    bp.registerRuntimeApi("ts_buffer_read_bigint64le", {true, false}, true);  // returns BigInt (ptr)
+    bp.registerRuntimeApi("ts_buffer_read_bigint64be", {true, false}, true);
+    bp.registerRuntimeApi("ts_buffer_read_biguint64le", {true, false}, true);
+    bp.registerRuntimeApi("ts_buffer_read_biguint64be", {true, false}, true);
 
     // Write methods - all take buf, value, offset, return new offset
     bp.registerRuntimeApi("ts_buffer_write_int8", {true, false, false}, false);
@@ -52,6 +56,10 @@ static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_buffer_write_floatbe", {true, false, false}, false);
     bp.registerRuntimeApi("ts_buffer_write_doublele", {true, false, false}, false);
     bp.registerRuntimeApi("ts_buffer_write_doublebe", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_bigint64le", {true, false, false}, false);  // buf, bigint value, offset
+    bp.registerRuntimeApi("ts_buffer_write_bigint64be", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_biguint64le", {true, false, false}, false);
+    bp.registerRuntimeApi("ts_buffer_write_biguint64be", {true, false, false}, false);
 
     // Utility methods
     bp.registerRuntimeApi("ts_buffer_compare", {true, true}, false);  // buf1, buf2 -> int
@@ -59,6 +67,12 @@ static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_buffer_indexof", {true, false, false}, false);  // buf, value, byteOffset -> int
     bp.registerRuntimeApi("ts_buffer_lastindexof", {true, false, false}, false);
     bp.registerRuntimeApi("ts_buffer_includes", {true, false, false}, false);  // buf, value, byteOffset -> bool
+
+    // Iterator methods
+    bp.registerRuntimeApi("ts_buffer_entries", {true}, false);  // buf -> array of [index, byte] pairs
+    bp.registerRuntimeApi("ts_buffer_keys", {true}, false);     // buf -> array of indices
+    bp.registerRuntimeApi("ts_buffer_values", {true}, false);   // buf -> array of byte values
+    bp.registerRuntimeApi("ts_buffer_to_json", {true}, false);  // buf -> object { type, data }
 }
 
 bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -347,6 +361,33 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     if (genReadMethod("readDoubleLE", "ts_buffer_read_doublele", true)) return true;
     if (genReadMethod("readDoubleBE", "ts_buffer_read_doublebe", true)) return true;
 
+    // Helper lambda for buffer BigInt read methods (offset -> BigInt ptr)
+    auto genReadMethodBigInt = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, offset });
+            return true;
+        }
+        return false;
+    };
+
+    // BigInt read methods
+    if (genReadMethodBigInt("readBigInt64LE", "ts_buffer_read_bigint64le")) return true;
+    if (genReadMethodBigInt("readBigInt64BE", "ts_buffer_read_bigint64be")) return true;
+    if (genReadMethodBigInt("readBigUInt64LE", "ts_buffer_read_biguint64le")) return true;
+    if (genReadMethodBigInt("readBigUInt64BE", "ts_buffer_read_biguint64be")) return true;
+
     // Helper lambda for buffer write methods (value, offset -> newOffset)
     auto genWriteMethodInt = [&](const std::string& methodName, const std::string& rtName) -> bool {
         if (prop->name == methodName && isBuffer) {
@@ -413,6 +454,37 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     if (genWriteMethodDouble("writeFloatBE", "ts_buffer_write_floatbe")) return true;
     if (genWriteMethodDouble("writeDoubleLE", "ts_buffer_write_doublele")) return true;
     if (genWriteMethodDouble("writeDoubleBE", "ts_buffer_write_doublebe")) return true;
+
+    // Helper lambda for buffer BigInt write methods (bigint value, offset -> newOffset)
+    auto genWriteMethodBigInt = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* value = lastValue;  // BigInt pointer
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, value, offset });
+            return true;
+        }
+        return false;
+    };
+
+    // BigInt write methods
+    if (genWriteMethodBigInt("writeBigInt64LE", "ts_buffer_write_bigint64le")) return true;
+    if (genWriteMethodBigInt("writeBigInt64BE", "ts_buffer_write_bigint64be")) return true;
+    if (genWriteMethodBigInt("writeBigUInt64LE", "ts_buffer_write_biguint64le")) return true;
+    if (genWriteMethodBigInt("writeBigUInt64BE", "ts_buffer_write_biguint64be")) return true;
 
     // Handle buf.compare(other) - instance method
     if (prop->name == "compare" && isBuffer) {
@@ -508,6 +580,54 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
             { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_includes", ft);
         lastValue = createCall(ft, fn.getCallee(), { buf, value, byteOffset });
+        return true;
+    }
+
+    // Handle buf.entries() - returns array of [index, byte] pairs
+    if (prop->name == "entries" && isBuffer) {
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_entries", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf });
+        return true;
+    }
+
+    // Handle buf.keys() - returns array of indices
+    if (prop->name == "keys" && isBuffer) {
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_keys", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf });
+        return true;
+    }
+
+    // Handle buf.values() - returns array of byte values
+    if (prop->name == "values" && isBuffer) {
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_values", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf });
+        return true;
+    }
+
+    // Handle buf.toJSON() - returns { type: "Buffer", data: [...] }
+    if (prop->name == "toJSON" && isBuffer) {
+        visit(prop->expression.get());
+        llvm::Value* buf = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_to_json", ft);
+        lastValue = createCall(ft, fn.getCallee(), { buf });
         return true;
     }
 

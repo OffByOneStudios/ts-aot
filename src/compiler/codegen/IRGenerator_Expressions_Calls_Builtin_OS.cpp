@@ -41,6 +41,12 @@ static void ensureOSFunctionsRegistered(BoxingPolicy& bp) {
     // Priority functions
     bp.registerRuntimeApi("ts_os_getPriority", {false}, false);  // pid -> int
     bp.registerRuntimeApi("ts_os_setPriority", {false, false}, false);  // pid, priority -> void
+
+    // Constants functions
+    bp.registerRuntimeApi("ts_os_get_constants", {}, true);
+    bp.registerRuntimeApi("ts_os_get_signals", {}, true);
+    bp.registerRuntimeApi("ts_os_get_errno", {}, true);
+    bp.registerRuntimeApi("ts_os_get_priority_constants", {}, true);
 }
 
 bool IRGenerator::tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -193,6 +199,53 @@ bool IRGenerator::tryGenerateOSPropertyAccess(ast::PropertyAccessExpression* nod
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_os_get_devnull", ft);
         lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    // os.constants - returns the full constants object
+    if (propName == "constants") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_os_get_constants", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node) {
+    // Handle os.constants.signals, os.constants.errno, os.constants.priority
+    auto parentProp = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get());
+    if (!parentProp) return false;
+
+    auto id = dynamic_cast<ast::Identifier*>(parentProp->expression.get());
+    if (!id || id->name != "os") return false;
+    if (parentProp->name != "constants") return false;
+
+    const std::string& propName = node->name;
+
+    if (propName == "signals") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_os_get_signals", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    if (propName == "errno") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_os_get_errno", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    if (propName == "priority") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_os_get_priority_constants", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
         return true;
     }
 
