@@ -98,8 +98,12 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_console_error_value", {true}, false);
     bp.registerRuntimeApi("ts_console_time", {false}, false);  // label
     bp.registerRuntimeApi("ts_console_time_end", {false}, false);
-    bp.registerRuntimeApi("ts_console_trace", {false}, false);
-    
+    bp.registerRuntimeApi("ts_console_time_log", {false}, false);
+    bp.registerRuntimeApi("ts_console_trace", {}, false);
+    bp.registerRuntimeApi("ts_console_dir", {true}, false);  // boxed value
+    bp.registerRuntimeApi("ts_console_count", {false}, false);  // label
+    bp.registerRuntimeApi("ts_console_count_reset", {false}, false);
+
     // ========== Math ==========
     bp.registerRuntimeApi("ts_math_abs", {false}, false);  // double -> double
     bp.registerRuntimeApi("ts_math_ceil", {false}, false);
@@ -236,6 +240,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateTextEncodingCall(node, prop)) return true;
     if (tryGenerateURLCall(node, prop)) return true;
     if (tryGenerateUtilCall(node, prop)) return true;
+    if (tryGenerateOSCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
@@ -962,18 +967,138 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
         }
     }
 
-    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "trace") {
+    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "debug" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog" || prop->name == "trace" || prop->name == "assert" || prop->name == "dir" || prop->name == "count" || prop->name == "countReset") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "console") {
-                if (prop->name == "time" || prop->name == "timeEnd") {
+                // console.assert(condition, ...messages) - only logs if condition is falsy
+                if (prop->name == "assert") {
+                    if (node->arguments.empty()) return true;
+
+                    // Evaluate condition
+                    visit(node->arguments[0].get());
+                    llvm::Value* condition = lastValue;
+
+                    // Convert to i1 if needed
+                    if (!condition->getType()->isIntegerTy(1)) {
+                        if (condition->getType()->isIntegerTy(64)) {
+                            condition = builder->CreateICmpNE(condition, llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+                        } else if (condition->getType()->isDoubleTy()) {
+                            condition = builder->CreateFCmpONE(condition, llvm::ConstantFP::get(builder->getDoubleTy(), 0.0));
+                        } else if (condition->getType()->isPointerTy()) {
+                            condition = builder->CreateICmpNE(condition, llvm::ConstantPointerNull::get(builder->getPtrTy()));
+                        }
+                    }
+
+                    // Create basic blocks for assert failure path
+                    llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* failBB = llvm::BasicBlock::Create(*context, "assert.fail", currentFunc);
+                    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "assert.end", currentFunc);
+
+                    // Branch: if condition is true, skip; if false, print assertion failure
+                    builder->CreateCondBr(condition, endBB, failBB);
+
+                    // Fail block - print "Assertion failed: " and any messages
+                    builder->SetInsertPoint(failBB);
+
+                    // Print "Assertion failed: "
+                    llvm::FunctionType* logFt = llvm::FunctionType::get(
+                        llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee logFn = module->getOrInsertFunction("ts_console_error", logFt);
+                    llvm::Value* assertMsgPtr = builder->CreateGlobalStringPtr("Assertion failed:");
+                    llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                    llvm::Value* assertMsg = createCall(createStrFt, createStrFn.getCallee(), { assertMsgPtr });
+                    createCall(logFt, logFn.getCallee(), { assertMsg });
+
+                    // Print remaining arguments as messages
+                    for (size_t i = 1; i < node->arguments.size(); ++i) {
+                        visit(node->arguments[i].get());
+                        llvm::Value* arg = lastValue;
+                        if (!arg) continue;
+
+                        std::string funcName = "ts_console_error";
+                        llvm::Type* paramType = builder->getPtrTy();
+
+                        if (arg->getType()->isIntegerTy(64)) {
+                            funcName = "ts_console_error_int";
+                            paramType = builder->getInt64Ty();
+                        } else if (arg->getType()->isDoubleTy()) {
+                            funcName = "ts_console_error_double";
+                            paramType = builder->getDoubleTy();
+                        } else if (arg->getType()->isIntegerTy(1)) {
+                            funcName = "ts_console_error_bool";
+                            paramType = builder->getInt1Ty();
+                        } else if (arg->getType()->isPointerTy()) {
+                            if (boxedValues.count(arg)) {
+                                funcName = "ts_console_error_value";
+                            } else if (node->arguments[i]->inferredType && node->arguments[i]->inferredType->kind == TypeKind::String) {
+                                funcName = "ts_console_error";
+                            } else {
+                                funcName = "ts_console_error_value";
+                                arg = boxValue(arg, node->arguments[i]->inferredType);
+                            }
+                        }
+
+                        llvm::FunctionType* ft = llvm::FunctionType::get(
+                            llvm::Type::getVoidTy(*context), { paramType }, false);
+                        llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+                        createCall(ft, fn.getCallee(), { arg });
+                    }
+
+                    builder->CreateBr(endBB);
+
+                    // End block
+                    builder->SetInsertPoint(endBB);
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog") {
                     if (node->arguments.empty()) return true;
                     visit(node->arguments[0].get());
                     llvm::Value* label = unboxValue(lastValue, node->arguments[0]->inferredType);
-                    
-                    std::string funcName = (prop->name == "time") ? "ts_console_time" : "ts_console_time_end";
+
+                    std::string funcName;
+                    if (prop->name == "time") funcName = "ts_console_time";
+                    else if (prop->name == "timeEnd") funcName = "ts_console_time_end";
+                    else funcName = "ts_console_time_log";
+
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
                     createCall(ft, fn.getCallee(), { label });
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "count" || prop->name == "countReset") {
+                    llvm::Value* label;
+                    if (node->arguments.empty()) {
+                        // Default label
+                        llvm::Value* defaultPtr = builder->CreateGlobalStringPtr("default");
+                        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                        llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                        label = createCall(createStrFt, createStrFn.getCallee(), { defaultPtr });
+                    } else {
+                        visit(node->arguments[0].get());
+                        label = unboxValue(lastValue, node->arguments[0]->inferredType);
+                    }
+
+                    std::string funcName = (prop->name == "count") ? "ts_console_count" : "ts_console_count_reset";
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction(funcName, ft);
+                    createCall(ft, fn.getCallee(), { label });
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "dir") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_dir", ft);
+                    createCall(ft, fn.getCallee(), { val });
                     lastValue = nullptr;
                     return true;
                 }

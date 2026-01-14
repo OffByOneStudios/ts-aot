@@ -61,6 +61,7 @@ public:
     void registerHTTP();
     void registerHTTPS();
     void registerUtil();
+    void registerOS();
 
     void reportError(const std::string& message);
 

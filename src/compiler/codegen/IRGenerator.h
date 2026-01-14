@@ -182,6 +182,8 @@ private:
     bool tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateOSPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

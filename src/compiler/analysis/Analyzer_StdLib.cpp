@@ -499,10 +499,24 @@ Analyzer::Analyzer() {
     timeType->returnType = std::make_shared<Type>(TypeKind::Void);
     consoleType->fields["time"] = timeType;
     consoleType->fields["timeEnd"] = timeType;
+    consoleType->fields["timeLog"] = timeType;
 
     auto traceType = std::make_shared<FunctionType>();
     traceType->returnType = std::make_shared<Type>(TypeKind::Void);
     consoleType->fields["trace"] = traceType;
+
+    // console.dir(obj) - inspect an object
+    auto dirType = std::make_shared<FunctionType>();
+    dirType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    dirType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["dir"] = dirType;
+
+    // console.count(label?) and console.countReset(label?)
+    auto countType = std::make_shared<FunctionType>();
+    countType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    countType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["count"] = countType;
+    consoleType->fields["countReset"] = countType;
 
     symbols.define("console", consoleType);
 
@@ -1339,5 +1353,6 @@ Analyzer::Analyzer() {
     registerHTTP();
     registerHTTPS();
     registerUtil();
+    registerOS();
 }
 } // namespace ts

@@ -14,6 +14,7 @@
 #include <windows.h>
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
+static std::map<std::string, int64_t> consoleCounters;
 
 extern "C" {
 
@@ -68,6 +69,38 @@ void ts_console_time_end(TsString* label) {
 
 void ts_console_trace() {
     std::printf("Trace: (stack trace not yet implemented)\n");
+}
+
+void ts_console_time_log(TsString* label) {
+    std::string key = label ? label->ToUtf8() : "default";
+    auto it = consoleTimers.find(key);
+    if (it != consoleTimers.end()) {
+        auto now = std::chrono::steady_clock::now();
+        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
+        std::printf("%s: %lldms\n", key.c_str(), (long long)diff);
+    } else {
+        std::printf("Timer '%s' does not exist\n", key.c_str());
+    }
+    std::fflush(stdout);
+}
+
+void ts_console_dir(TsValue* val) {
+    // Forward declaration - use ts_console_print_value_to_stream
+    ts_console_print_value_to_stream(val, stdout);
+    std::printf("\n");
+    std::fflush(stdout);
+}
+
+void ts_console_count(TsString* label) {
+    std::string key = label ? label->ToUtf8() : "default";
+    consoleCounters[key]++;
+    std::printf("%s: %lld\n", key.c_str(), (long long)consoleCounters[key]);
+    std::fflush(stdout);
+}
+
+void ts_console_count_reset(TsString* label) {
+    std::string key = label ? label->ToUtf8() : "default";
+    consoleCounters[key] = 0;
 }
 
 int32_t ts_double_to_int32(double d) {
