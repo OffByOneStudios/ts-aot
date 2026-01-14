@@ -30,7 +30,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 71% | EventEmitter |
 | `fs` | ⚠️ | 29% | File system |
-| `http` | ⚠️ | 37% | HTTP server/client |
+| `http` | ⚠️ | 46% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
@@ -480,17 +480,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `res.write()` | ✅ | |
 | `res.end()` | ✅ | |
 | `res.setHeader()` | ✅ | |
-| `res.getHeader()` | ❌ | |
-| `res.getHeaders()` | ❌ | |
-| `res.getHeaderNames()` | ❌ | |
-| `res.hasHeader()` | ❌ | |
-| `res.removeHeader()` | ❌ | |
+| `res.getHeader()` | ✅ | |
+| `res.getHeaders()` | ✅ | |
+| `res.getHeaderNames()` | ✅ | |
+| `res.hasHeader()` | ✅ | |
+| `res.removeHeader()` | ✅ | |
 | `res.statusCode` | ✅ | |
 | `res.statusMessage` | ❌ | |
 | `res.headersSent` | ❌ | |
 | `res.writableEnded` | ❌ | |
 | `res.writableFinished` | ❌ | |
-| `res.flushHeaders()` | ❌ | |
+| `res.flushHeaders()` | ✅ | |
 | `res.setTimeout()` | ❌ | |
 | `res.addTrailers()` | ❌ | |
 
@@ -534,7 +534,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 25/68 (37%)**
+**HTTP Coverage: 31/68 (46%)**
 
 ---
 
@@ -1007,7 +1007,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Crypto | 16 | 34 | 47% |
 | Events | 15 | 21 | 71% |
 | File System | 89 | 123 | 72% |
-| HTTP | 25 | 68 | 37% |
+| HTTP | 31 | 68 | 46% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 13 | 36 | 36% |
 | OS | 20 | 22 | 91% |
@@ -1019,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **378** | **653** | **58%** |
+| **Total** | **384** | **653** | **59%** |
 
 ### Priority Implementation Targets
 
