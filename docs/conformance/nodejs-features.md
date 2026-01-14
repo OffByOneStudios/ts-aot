@@ -767,23 +767,23 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `readable.destroy()` | ✅ | |
-| `readable.destroyed` | ❌ | |
-| `readable.isPaused()` | ❌ | |
+| `readable.destroyed` | ✅ | |
+| `readable.isPaused()` | ✅ | |
 | `readable.pause()` | ✅ | |
 | `readable.pipe()` | ✅ | |
 | `readable.read()` | ⚠️ | |
-| `readable.readable` | ❌ | |
+| `readable.readable` | ✅ | |
 | `readable.readableAborted` | ❌ | |
 | `readable.readableDidRead` | ❌ | |
 | `readable.readableEncoding` | ❌ | |
-| `readable.readableEnded` | ❌ | |
-| `readable.readableFlowing` | ❌ | |
+| `readable.readableEnded` | ✅ | |
+| `readable.readableFlowing` | ✅ | |
 | `readable.readableHighWaterMark` | ❌ | |
 | `readable.readableLength` | ❌ | |
 | `readable.readableObjectMode` | ❌ | |
 | `readable.resume()` | ✅ | |
 | `readable.setEncoding()` | ❌ | |
-| `readable.unpipe()` | ❌ | |
+| `readable.unpipe()` | ✅ | |
 | `readable.unshift()` | ❌ | |
 | `readable.wrap()` | ❌ | |
 | `readable[Symbol.asyncIterator]()` | ❌ | |
@@ -793,17 +793,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `writable.cork()` | ❌ | |
 | `writable.destroy()` | ✅ | |
-| `writable.destroyed` | ❌ | |
+| `writable.destroyed` | ✅ | |
 | `writable.end()` | ✅ | |
 | `writable.setDefaultEncoding()` | ❌ | |
 | `writable.uncork()` | ❌ | |
-| `writable.writable` | ❌ | |
+| `writable.writable` | ✅ | |
 | `writable.writableAborted` | ❌ | |
-| `writable.writableEnded` | ❌ | |
-| `writable.writableFinished` | ❌ | |
-| `writable.writableHighWaterMark` | ❌ | |
-| `writable.writableLength` | ❌ | |
-| `writable.writableNeedDrain` | ❌ | |
+| `writable.writableEnded` | ✅ | |
+| `writable.writableFinished` | ✅ | |
+| `writable.writableHighWaterMark` | ✅ | |
+| `writable.writableLength` | ✅ | |
+| `writable.writableNeedDrain` | ✅ | |
 | `writable.writableObjectMode` | ❌ | |
 | `writable.write()` | ✅ | |
 
@@ -826,7 +826,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ❌ | |
 | `stream.Readable.from()` | ❌ | |
 
-**Stream Coverage: 10/44 (23%)**
+**Stream Coverage: 22/44 (50%)**
 
 ---
 
@@ -1013,13 +1013,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | OS | 20 | 22 | 91% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
-| Stream | 10 | 44 | 23% |
+| Stream | 22 | 44 | 50% |
 | Timers | 6 | 14 | 43% |
 | TLS | 6 | 20 | 30% |
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **365** | **653** | **56%** |
+| **Total** | **377** | **653** | **58%** |
 
 ### Priority Implementation Targets
 

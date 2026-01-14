@@ -177,6 +177,7 @@ private:
     bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGeneratePromiseCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
