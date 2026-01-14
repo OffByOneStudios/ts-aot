@@ -38,6 +38,10 @@ void ts_console_trace();
 void ts_console_dir(TsValue* val);
 void ts_console_count(TsString* label);
 void ts_console_count_reset(TsString* label);
+void ts_console_group(TsString* label);
+void ts_console_group_collapsed(TsString* label);
+void ts_console_group_end();
+void ts_console_clear();
 
 bool ts_value_is_nullish(TsValue* v);
 TsValue* ts_value_make_undefined();

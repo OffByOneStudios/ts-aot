@@ -23,7 +23,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buffer` | ⚠️ | 76% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
-| `console` | ⚠️ | 68% | Basic logging |
+| `console` | ⚠️ | 89% | Basic logging |
 | `crypto` | ⚠️ | 47% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
@@ -170,16 +170,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console.table()` | ❌ | |
 | `console.count()` | ✅ | |
 | `console.countReset()` | ✅ | |
-| `console.group()` | ❌ | |
-| `console.groupCollapsed()` | ❌ | |
-| `console.groupEnd()` | ❌ | |
+| `console.group()` | ✅ | Indents subsequent output |
+| `console.groupCollapsed()` | ✅ | Same as group in terminal |
+| `console.groupEnd()` | ✅ | |
 | `console.time()` | ✅ | |
 | `console.timeEnd()` | ✅ | |
 | `console.timeLog()` | ✅ | |
 | `console.assert()` | ✅ | Logs on failure |
-| `console.clear()` | ❌ | |
+| `console.clear()` | ✅ | ANSI escape sequence |
 
-**Console Coverage: 13/19 (68%)**
+**Console Coverage: 17/19 (89%)**
 
 ---
 
@@ -1003,7 +1003,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
 | Buffer | 52 | 68 | 76% |
-| Console | 13 | 19 | 68% |
+| Console | 17 | 19 | 89% |
 | Crypto | 16 | 34 | 47% |
 | Events | 15 | 21 | 71% |
 | File System | 89 | 123 | 72% |
@@ -1019,7 +1019,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 25 | 38 | 66% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **384** | **653** | **59%** |
+| **Total** | **388** | **653** | **59%** |
 
 ### Priority Implementation Targets
 
