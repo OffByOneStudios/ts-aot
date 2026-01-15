@@ -987,13 +987,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `global` | ✅ | |
 | `globalThis` | ✅ | ES2020 alias for global |
-| `__dirname` | ❌ | |
-| `__filename` | ❌ | |
+| `__dirname` | ✅ | Absolute path to directory |
+| `__filename` | ✅ | Absolute path to file |
 | `exports` | ❌ | |
 | `module` | ❌ | |
 | `require()` | ⚠️ | Basic support |
 
-**Global Coverage: 3/7 (43%)**
+**Global Coverage: 5/7 (71%)**
 
 ---
 
@@ -1019,8 +1019,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
-| Global | 3 | 7 | 43% |
-| **Total** | **433** | **655** | **66%** |
+| Global | 5 | 7 | 71% |
+| **Total** | **435** | **655** | **66%** |
 
 ### Priority Implementation Targets
 
