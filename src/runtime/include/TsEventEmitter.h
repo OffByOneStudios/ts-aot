@@ -61,4 +61,8 @@ extern "C" {
     void* ts_event_emitter_raw_listeners(void* emitter, void* event);
     bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
     void* ts_event_emitter_event_names(void* emitter);
+
+    // Static methods on the events module
+    TsValue* ts_event_emitter_static_once(void* emitter, void* event);  // events.once()
+    TsValue* ts_event_emitter_static_on(void* emitter, void* event);    // events.on()
 }

@@ -1,6 +1,8 @@
 #include "TsRuntime.h"
 #include "TsObject.h"
 #include "TsPromise.h"
+#include "TsMap.h"
+#include "GC.h"
 #include <uv.h>
 #include <vector>
 #include <functional>
@@ -201,4 +203,219 @@ extern "C" TsValue* ts_timers_promises_setImmediate(TsValue* value) {
     uv_timer_start(timer, on_promise_timer_callback, 0, 0);  // Zero delay = immediate
 
     return ts_value_make_promise(promise);  // Use PROMISE_PTR type for await
+}
+
+// ============================================================================
+// timers/promises.setInterval - Returns an AsyncIterable
+// ============================================================================
+
+// IntervalState - holds the mutable state for an interval iterator
+// This is stored separately from the TsMap to avoid inheritance issues
+struct IntervalState {
+    int64_t delay;
+    TsValue* resolveValue;
+    bool stopped;
+    uv_timer_t* timer;
+    TsPromise* pendingPromise;
+
+    IntervalState(int64_t delayMs, TsValue* value)
+        : delay(delayMs), resolveValue(value), stopped(false),
+          timer(nullptr), pendingPromise(nullptr) {}
+
+    void stop() {
+        stopped = true;
+        if (timer) {
+            uv_timer_stop(timer);
+            uv_close((uv_handle_t*)timer, [](uv_handle_t* handle) {
+                free(handle);
+            });
+            timer = nullptr;
+        }
+        // If there's a pending promise, resolve it as done
+        if (pendingPromise) {
+            TsMap* result = TsMap::Create();
+            TsValue undefinedVal;
+            undefinedVal.type = ValueType::UNDEFINED;
+            TsValue k1, k2;
+            k1.type = ValueType::STRING_PTR;
+            k1.ptr_val = TsString::Create("value");
+            k2.type = ValueType::STRING_PTR;
+            k2.ptr_val = TsString::Create("done");
+            result->Set(k1, undefinedVal);
+            TsValue doneVal;
+            doneVal.type = ValueType::BOOLEAN;
+            doneVal.b_val = true;
+            result->Set(k2, doneVal);
+            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            res->type = ValueType::OBJECT_PTR;
+            res->ptr_val = result;
+            ts_promise_resolve_internal(pendingPromise, res);
+            pendingPromise = nullptr;
+        }
+    }
+};
+
+static void on_interval_timer_callback(uv_timer_t* handle) {
+    IntervalState* state = (IntervalState*)handle->data;
+    if (!state || state->stopped) return;
+
+    if (state->pendingPromise) {
+        // Create the result { value: <value>, done: false }
+        TsMap* result = TsMap::Create();
+        TsValue k1, k2;
+        k1.type = ValueType::STRING_PTR;
+        k1.ptr_val = TsString::Create("value");
+        k2.type = ValueType::STRING_PTR;
+        k2.ptr_val = TsString::Create("done");
+
+        if (state->resolveValue) {
+            result->Set(k1, *state->resolveValue);
+        } else {
+            TsValue undefinedVal;
+            undefinedVal.type = ValueType::UNDEFINED;
+            result->Set(k1, undefinedVal);
+        }
+        TsValue doneVal;
+        doneVal.type = ValueType::BOOLEAN;
+        doneVal.b_val = false;
+        result->Set(k2, doneVal);
+
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::OBJECT_PTR;
+        res->ptr_val = result;
+
+        ts_promise_resolve_internal(state->pendingPromise, res);
+        state->pendingPromise = nullptr;
+    }
+
+    // Stop the timer after each iteration - next() will restart it
+    uv_timer_stop(handle);
+}
+
+// The next() function for interval iterator
+// NOTE: For ts_call_0, COMPILED functions expect TsValue* (*)(void*)
+static TsValue* IntervalIterator_next_internal(void* context) {
+    IntervalState* state = (IntervalState*)context;
+    if (!state) {
+        return ts_value_make_undefined();
+    }
+
+    TsPromise* promise = ts_promise_create();
+
+    if (state->stopped) {
+        // Already stopped - return done
+        TsMap* result = TsMap::Create();
+        TsValue k1, k2;
+        k1.type = ValueType::STRING_PTR;
+        k1.ptr_val = TsString::Create("value");
+        k2.type = ValueType::STRING_PTR;
+        k2.ptr_val = TsString::Create("done");
+        TsValue undefinedVal;
+        undefinedVal.type = ValueType::UNDEFINED;
+        result->Set(k1, undefinedVal);
+        TsValue doneVal;
+        doneVal.type = ValueType::BOOLEAN;
+        doneVal.b_val = true;
+        result->Set(k2, doneVal);
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::OBJECT_PTR;
+        res->ptr_val = result;
+        ts_promise_resolve_internal(promise, res);
+        return ts_value_make_promise(promise);
+    }
+
+    state->pendingPromise = promise;
+
+    // Create or restart the timer
+    if (!state->timer) {
+        state->timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+        uv_timer_init(uv_default_loop(), state->timer);
+        state->timer->data = state;
+    }
+
+    // Start the timer with the interval delay
+    uv_timer_start(state->timer, on_interval_timer_callback, state->delay, 0);
+
+    return ts_value_make_promise(promise);
+}
+
+// The return() function for interval iterator (for breaking out of for await)
+// NOTE: For ts_call_0, COMPILED functions expect TsValue* (*)(void*)
+static TsValue* IntervalIterator_return_internal(void* context) {
+    IntervalState* state = (IntervalState*)context;
+    if (!state) return ts_value_make_undefined();
+
+    state->stop();
+
+    TsPromise* promise = ts_promise_create();
+    TsMap* result = TsMap::Create();
+    TsValue k1, k2;
+    k1.type = ValueType::STRING_PTR;
+    k1.ptr_val = TsString::Create("value");
+    k2.type = ValueType::STRING_PTR;
+    k2.ptr_val = TsString::Create("done");
+    TsValue undefinedVal;
+    undefinedVal.type = ValueType::UNDEFINED;
+    result->Set(k1, undefinedVal);
+    TsValue doneVal;
+    doneVal.type = ValueType::BOOLEAN;
+    doneVal.b_val = true;
+    result->Set(k2, doneVal);
+    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+    res->type = ValueType::OBJECT_PTR;
+    res->ptr_val = result;
+    ts_promise_resolve_internal(promise, res);
+    return ts_value_make_promise(promise);
+}
+
+// timers/promises.setInterval(delay, value?) -> AsyncIterable
+extern "C" TsValue* ts_timers_promises_setInterval(int64_t delay, TsValue* value) {
+    // Create the interval state - holds mutable state for the interval
+    void* stateMem = ts_alloc(sizeof(IntervalState));
+    IntervalState* state = new (stateMem) IntervalState(delay, value);
+
+    // Create a TsMap to hold the iterator methods
+    TsMap* iteratorMap = TsMap::Create();
+
+    // Set up the next() method - context is the IntervalState
+    TsValue* nextFunc = ts_value_make_function((void*)IntervalIterator_next_internal, state);
+    TsValue nextKey;
+    nextKey.type = ValueType::STRING_PTR;
+    nextKey.ptr_val = TsString::Create("next");
+    iteratorMap->Set(nextKey, *nextFunc);
+
+    // Set up the return() method (for early termination)
+    TsValue* returnFunc = ts_value_make_function((void*)IntervalIterator_return_internal, state);
+    TsValue returnKey;
+    returnKey.type = ValueType::STRING_PTR;
+    returnKey.ptr_val = TsString::Create("return");
+    iteratorMap->Set(returnKey, *returnFunc);
+
+    // Set up [Symbol.asyncIterator] to return itself
+    // NOTE: For ts_call_0, COMPILED functions expect TsValue* (*)(void*)
+    TsValue* iterFunc = ts_value_make_function((void*)[](void* ctx) -> TsValue* {
+        return ts_value_make_object(ctx);
+    }, iteratorMap);
+    TsValue iterKey;
+    iterKey.type = ValueType::STRING_PTR;
+    iterKey.ptr_val = TsString::Create("[Symbol.asyncIterator]");
+    iteratorMap->Set(iterKey, *iterFunc);
+
+    return ts_value_make_object(iteratorMap);
+}
+
+// ============================================================================
+// timers/promises.scheduler - Scheduler API
+// ============================================================================
+
+// scheduler.wait(delay, options?) -> Promise<void>
+// Similar to setTimeout but more explicit about scheduling semantics
+extern "C" TsValue* ts_timers_scheduler_wait(int64_t delay) {
+    return ts_timers_promises_setTimeout(delay, nullptr);
+}
+
+// scheduler.yield() -> Promise<void>
+// Yields to the event loop, similar to setImmediate but scheduler-aware
+extern "C" TsValue* ts_timers_scheduler_yield() {
+    return ts_timers_promises_setImmediate(nullptr);
 }

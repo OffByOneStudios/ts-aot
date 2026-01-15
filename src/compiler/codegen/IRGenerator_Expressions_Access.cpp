@@ -442,7 +442,10 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         return;
     }
 
-    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+    // Handle Any and TypeParameter types with dynamic property access
+    if (node->expression->inferredType &&
+        (node->expression->inferredType->kind == TypeKind::Any ||
+         node->expression->inferredType->kind == TypeKind::TypeParameter)) {
         visit(node->expression.get());
         llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);
         visit(node->argumentExpression.get());
@@ -907,10 +910,13 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         SPDLOG_INFO("NOT an enum: inferredType={}", node->expression->inferredType ? (int)node->expression->inferredType->kind : -999);
     }
 
-    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+    // Handle Any and TypeParameter types with dynamic property access
+    if (node->expression->inferredType &&
+        (node->expression->inferredType->kind == TypeKind::Any ||
+         node->expression->inferredType->kind == TypeKind::TypeParameter)) {
         visit(node->expression.get());
         llvm::Value* obj = boxValue(lastValue, node->expression->inferredType);
-        
+
         llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
         llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
@@ -919,7 +925,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
 
         llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
-        
+
         lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
         boxedValues.insert(lastValue);
         return;
@@ -1765,23 +1771,26 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             return;
         }
 
-        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Any) {
+        // Handle Any and TypeParameter types with dynamic property access
+        if (node->expression->inferredType &&
+            (node->expression->inferredType->kind == TypeKind::Any ||
+             node->expression->inferredType->kind == TypeKind::TypeParameter)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
             emitNullCheckForExpression(node->expression.get(), objPtr);
-            
+
             // Use inline IR operations for any-typed object property access
             llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
             llvm::Value* propNameStr = builder->CreateGlobalStringPtr(node->name);
             llvm::Value* propName = createCall(createStrFt, createStrFn.getCallee(), { propNameStr });
             llvm::Value* propNameBoxed = boxValue(propName, std::make_shared<Type>(TypeKind::String));
-            
+
             lastValue = emitInlineObjectGetProp(objPtr, propNameBoxed);
             // emitInlineObjectGetProp returns boxed TsValue* - already marked as boxed
             return;
         }
-        
+
         lastValue = nullptr;
     }
 } // namespace ts

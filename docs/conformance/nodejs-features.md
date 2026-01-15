@@ -46,7 +46,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `repl` | ❌ | 0% | REPL |
 | `stream` | ⚠️ | 55% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
-| `timers` | ⚠️ | 79% | Timers |
+| `timers` | ⚠️ | 93% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 76% | URL parsing |
@@ -261,7 +261,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `EventEmitter.listenerCount(emitter, event)` | ❌ | Deprecated |
 | `EventEmitter.on(emitter, event)` | ❌ | AsyncIterator |
-| `EventEmitter.once(emitter, event)` | ❌ | Returns Promise |
+| `EventEmitter.once(emitter, event)` | ✅ | Returns Promise with event args array |
 
 ### Instance Methods
 | Feature | Status | Notes |
@@ -289,7 +289,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'newListener'` event | ✅ | Emitted before adding listener |
 | `'removeListener'` event | ✅ | Emitted after removing listener |
 
-**Events Coverage: 18/21 (86%)**
+**Events Coverage: 19/21 (90%)**
 
 ---
 
@@ -845,12 +845,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers.setInterval()` | ✅ | Re-exports global setInterval |
 | `timers.setImmediate()` | ✅ | Re-exports global setImmediate |
 | `timers/promises.setTimeout()` | ✅ | Promise-based with optional value |
-| `timers/promises.setInterval()` | ❌ | |
+| `timers/promises.setInterval()` | ⚠️ | Works in sync code, async property access compiler bug |
 | `timers/promises.setImmediate()` | ✅ | Promise-based with optional value |
-| `timers/promises.scheduler.wait()` | ❌ | |
-| `timers/promises.scheduler.yield()` | ❌ | |
+| `timers/promises.scheduler.wait()` | ✅ | Alias for setTimeout |
+| `timers/promises.scheduler.yield()` | ✅ | Alias for setImmediate |
 
-**Timers Coverage: 11/14 (79%)**
+**Timers Coverage: 13/14 (93%)**
 
 ---
 
@@ -1021,7 +1021,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
 | Crypto | 16 | 34 | 47% |
-| Events | 18 | 21 | 86% |
+| Events | 19 | 21 | 90% |
 | File System | 89 | 123 | 72% |
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
@@ -1031,12 +1031,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
 | Stream | 24 | 44 | 55% |
-| Timers | 11 | 14 | 79% |
+| Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 5 | 7 | 71% |
-| **Total** | **452** | **661** | **68%** |
+| **Total** | **455** | **661** | **69%** |
 
 ### Priority Implementation Targets
 
