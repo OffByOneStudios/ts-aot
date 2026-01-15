@@ -184,12 +184,13 @@ bool isAsyncFunction(void* value) {
 
 bool isDate(void* value) {
     if (!value) return false;
-    
+
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
-    TsObject* obj = (TsObject*)rawPtr;
-    return obj->magic == TsDate::MAGIC;
+
+    // TsDate does NOT inherit from TsObject - magic is at offset 0
+    uint32_t* magicPtr = (uint32_t*)rawPtr;
+    return *magicPtr == TsDate::MAGIC;
 }
 
 bool isMap(void* value) {
@@ -215,23 +216,45 @@ bool isSet(void* value) {
 
 bool isRegExp(void* value) {
     if (!value) return false;
-    
+
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
-    TsObject* obj = (TsObject*)rawPtr;
-    return obj->magic == TsRegExp::MAGIC;
+
+    // TsRegExp does NOT inherit from TsObject - magic is at offset 0
+    uint32_t* magicPtr = (uint32_t*)rawPtr;
+    return *magicPtr == TsRegExp::MAGIC;
 }
 
 bool isNativeError(void* value) {
     if (!value) return false;
-    
-    // Check if it's a TsError - simplified check
+
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
-    // TsError is hard to identify without magic - return false for now
-    return false;
+
+    // TsError is a TsMap with "name", "message", and "stack" properties
+    // Check magic at offset 16 (TsMap/TsObject layout)
+    uint32_t* magicPtr = (uint32_t*)((char*)rawPtr + 16);
+    if (*magicPtr != TsMap::MAGIC) return false;
+
+    // Check for "name" property containing error type
+    TsMap* map = (TsMap*)rawPtr;
+    TsValue nameVal = map->Get(TsString::Create("name"));
+    if (nameVal.type != ValueType::STRING_PTR) return false;
+
+    TsString* name = (TsString*)nameVal.ptr_val;
+    if (!name) return false;
+
+    const char* nameStr = name->ToUtf8();
+    // Check for standard error types
+    return nameStr && (
+        strcmp(nameStr, "Error") == 0 ||
+        strcmp(nameStr, "TypeError") == 0 ||
+        strcmp(nameStr, "ReferenceError") == 0 ||
+        strcmp(nameStr, "SyntaxError") == 0 ||
+        strcmp(nameStr, "RangeError") == 0 ||
+        strcmp(nameStr, "URIError") == 0 ||
+        strcmp(nameStr, "EvalError") == 0
+    );
 }
 
 bool isUint8Array(void* value) {

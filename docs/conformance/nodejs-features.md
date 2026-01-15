@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 76% | URL parsing |
-| `util` | ⚠️ | 31% | Utilities |
+| `util` | ⚠️ | 35% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
 | `wasi` | ❌ | 0% | WebAssembly |
@@ -959,7 +959,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isBoxedPrimitive()` | ❌ | |
 | `util.types.isCryptoKey()` | ❌ | |
 | `util.types.isDataView()` | ❌ | |
-| `util.types.isDate()` | ⚠️ | Returns false for Date objects |
+| `util.types.isDate()` | ✅ | |
 | `util.types.isExternal()` | ❌ | |
 | `util.types.isFloat32Array()` | ❌ | |
 | `util.types.isFloat64Array()` | ❌ | |
@@ -972,11 +972,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isMap()` | ⚠️ | Also returns true for plain objects |
 | `util.types.isMapIterator()` | ❌ | |
 | `util.types.isModuleNamespaceObject()` | ❌ | |
-| `util.types.isNativeError()` | ⚠️ | Returns false for Error objects |
+| `util.types.isNativeError()` | ✅ | |
 | `util.types.isNumberObject()` | ❌ | |
 | `util.types.isPromise()` | ⚠️ | Not tested |
 | `util.types.isProxy()` | ❌ | |
-| `util.types.isRegExp()` | ⚠️ | Returns false for RegExp |
+| `util.types.isRegExp()` | ✅ | |
 | `util.types.isSet()` | ✅ | Works correctly |
 | `util.types.isSetIterator()` | ❌ | |
 | `util.types.isSharedArrayBuffer()` | ❌ | |
@@ -992,7 +992,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ❌ | |
 | TextEncoder class | ❌ | |
 
-**Util Coverage: 19/62 (31%)** (1 full, 18 partial)
+**Util Coverage: 22/62 (35%)** (4 full, 15 partial)
 
 ---
 
@@ -1034,9 +1034,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
-| Util | 19 | 62 | 31% |
+| Util | 22 | 62 | 35% |
 | Global | 5 | 7 | 71% |
-| **Total** | **455** | **661** | **69%** |
+| **Total** | **458** | **661** | **69%** |
 
 ### Priority Implementation Targets
 
