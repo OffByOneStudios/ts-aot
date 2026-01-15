@@ -1,6 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
 #include <iostream>
+#include <filesystem>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -19,6 +20,34 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
 
     if (node->name == "NaN") {
         lastValue = llvm::ConstantFP::getNaN(builder->getDoubleTy());
+        return;
+    }
+
+    // __filename - returns the absolute path of the current source file
+    if (node->name == "__filename") {
+        std::filesystem::path sourcePath = std::filesystem::absolute(currentSourceFile);
+        std::string filename = sourcePath.string();
+        // Normalize path separators for cross-platform compatibility
+        std::replace(filename.begin(), filename.end(), '\\', '/');
+
+        llvm::Value* strPtr = builder->CreateGlobalStringPtr(filename);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        lastValue = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
+        return;
+    }
+
+    // __dirname - returns the directory containing the current source file
+    if (node->name == "__dirname") {
+        std::filesystem::path sourcePath = std::filesystem::absolute(currentSourceFile);
+        std::string dirname = sourcePath.parent_path().string();
+        // Normalize path separators for cross-platform compatibility
+        std::replace(dirname.begin(), dirname.end(), '\\', '/');
+
+        llvm::Value* strPtr = builder->CreateGlobalStringPtr(dirname);
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        lastValue = createCall(createStrFt, createStrFn.getCallee(), { strPtr });
         return;
     }
 

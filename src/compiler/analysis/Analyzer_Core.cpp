@@ -38,6 +38,11 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
     symbols.define("module", moduleType);
     symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
+
+    // __dirname and __filename are available in all module types
+    symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
+    symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
+
     if (currentModuleType == ModuleType::UntypedJavaScript) {
         auto requireFn = std::make_shared<FunctionType>();
         requireFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
@@ -49,8 +54,6 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         symbols.define("Function", std::make_shared<Type>(TypeKind::Any));
         symbols.define("process", std::make_shared<Type>(TypeKind::Any));
         symbols.define("console", std::make_shared<Type>(TypeKind::Any));
-        symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
-        symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
         auto parseFloatFn = std::make_shared<FunctionType>();
         parseFloatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
         parseFloatFn->returnType = std::make_shared<Type>(TypeKind::Any);
