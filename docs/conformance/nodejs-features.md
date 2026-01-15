@@ -37,7 +37,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `module` | ❌ | 0% | Module system |
 | `net` | ⚠️ | 83% | TCP sockets |
 | `os` | ✅ | 100% | OS utilities |
-| `path` | ⚠️ | 80% | Path utilities |
+| `path` | ✅ | 100% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
@@ -682,14 +682,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `path.join()` | ✅ | |
 | `path.normalize()` | ✅ | |
 | `path.parse()` | ✅ | |
-| `path.posix` | ❌ | |
+| `path.posix` | ✅ | sep, delimiter, join, basename, dirname |
 | `path.relative()` | ✅ | |
 | `path.resolve()` | ✅ | |
 | `path.sep` | ✅ | |
-| `path.toNamespacedPath()` | ❌ | |
-| `path.win32` | ❌ | |
+| `path.toNamespacedPath()` | ✅ | |
+| `path.win32` | ✅ | sep, delimiter, join, basename, dirname |
 
-**Path Coverage: 12/15 (80%)**
+**Path Coverage: 15/15 (100%)**
 
 ---
 
@@ -1027,7 +1027,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | HTTPS | 5 | 7 | 71% |
 | Net | 30 | 36 | 83% |
 | OS | 23 | 23 | 100% |
-| Path | 12 | 15 | 80% |
+| Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
 | Stream | 24 | 44 | 55% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 5 | 7 | 71% |
-| **Total** | **442** | **661** | **67%** |
+| **Total** | **445** | **661** | **67%** |
 
 ### Priority Implementation Targets
 

@@ -59,9 +59,10 @@ static void ensurePathFunctionsRegistered(BoxingPolicy& bp) {
 bool IRGenerator::tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     // Register boxing info for path functions on first call
     ensurePathFunctionsRegistered(boxingPolicy);
-    
+
     bool isPath = false;
     int platform = 0; // 0: default, 1: win32, 2: posix
+
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "path") isPath = true;
     } else if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
