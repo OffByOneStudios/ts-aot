@@ -351,6 +351,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_buffer_byte_length",      {false}},             // (buf*) -> int
     {"ts_buffer_byte_offset",      {false}},             // (buf*) -> int
     {"ts_buffer_get_array_buffer", {false}},             // (buf*) -> ArrayBuffer*
+    {"ts_buffer_from_buffer",      {false}},             // (buf*) -> Buffer* (copy)
     {"ts_data_view_create",        {false, false, false}}, // (buf, offset, len) -> DataView*
 
     // =========================================================================

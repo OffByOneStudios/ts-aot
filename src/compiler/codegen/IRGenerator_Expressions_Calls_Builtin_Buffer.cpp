@@ -107,9 +107,28 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     auto* bufferId = dynamic_cast<ast::Identifier*>(prop->expression.get());
     if (prop->name == "from" && bufferId && bufferId->name == "Buffer") {
         if (node->arguments.empty()) return true;
-        visit(node->arguments[0].get());
+
+        // Check if argument is a Buffer type - if so, copy the buffer
+        auto* arg0 = node->arguments[0].get();
+        bool isBuffer = false;
+        if (arg0->inferredType && arg0->inferredType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(arg0->inferredType);
+            if (classType->name == "Buffer") isBuffer = true;
+        }
+
+        visit(arg0);
         llvm::Value* data = lastValue;
 
+        if (isBuffer) {
+            // Buffer.from(buffer) - copy the buffer
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_buffer", ft);
+            lastValue = createCall(ft, fn.getCallee(), { data });
+            return true;
+        }
+
+        // Otherwise treat as string with optional encoding
         llvm::Value* encoding;
         if (node->arguments.size() > 1) {
             visit(node->arguments[1].get());
