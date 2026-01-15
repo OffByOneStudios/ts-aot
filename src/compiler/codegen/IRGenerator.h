@@ -184,6 +184,7 @@ private:
     bool tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateQueryStringCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateTimersCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);

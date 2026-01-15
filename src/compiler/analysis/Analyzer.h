@@ -63,6 +63,7 @@ public:
     void registerUtil();
     void registerOS();
     void registerCrypto();
+    void registerQueryString();
 
     void reportError(const std::string& message);
 

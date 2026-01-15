@@ -41,7 +41,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `perf_hooks` | ❌ | 0% | Performance |
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
-| `querystring` | ❌ | 0% | Query parsing |
+| `querystring` | ✅ | 100% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
 | `stream` | ⚠️ | 55% | Streams |
@@ -854,6 +854,21 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 ---
 
+## QueryString
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `querystring.parse(str, sep?, eq?)` | ✅ | Parses query string to object |
+| `querystring.stringify(obj, sep?, eq?)` | ✅ | Stringifies object to query string |
+| `querystring.escape(str)` | ✅ | Percent-encodes a string |
+| `querystring.unescape(str)` | ✅ | Decodes percent-encoded string |
+| `querystring.decode()` | ✅ | Alias for parse |
+| `querystring.encode()` | ✅ | Alias for stringify |
+
+**QueryString Coverage: 6/6 (100%)**
+
+---
+
 ## URL
 
 ### URL Class
@@ -1014,13 +1029,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | OS | 23 | 23 | 100% |
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
+| QueryString | 6 | 6 | 100% |
 | Stream | 24 | 44 | 55% |
 | Timers | 11 | 14 | 79% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 5 | 7 | 71% |
-| **Total** | **436** | **655** | **67%** |
+| **Total** | **442** | **661** | **67%** |
 
 ### Priority Implementation Targets
 
@@ -1059,6 +1075,7 @@ Current test coverage:
 - Net: 1 test file (utilities)
 - Path: 3 test files (basic, parse_format, relative)
 - Process: 2 test files (basic, extended)
+- QueryString: 1 test file (basic - 11 tests covering parse, stringify, escape, unescape, encode, decode)
 - Timers: 1 test file
 - URL: 3 test files (basic, extended, search params)
 - Util: 2 test files (basic, extended)

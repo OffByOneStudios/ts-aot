@@ -1411,5 +1411,6 @@ Analyzer::Analyzer() {
     registerUtil();
     registerOS();
     registerCrypto();
+    registerQueryString();
 }
 } // namespace ts
