@@ -20,7 +20,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |--------|--------|----------|-------|
 | `assert` | ❌ | 0% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
-| `buffer` | ⚠️ | 88% | Binary data handling |
+| `buffer` | ⚠️ | 90% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
@@ -72,7 +72,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `Buffer.concat(list)` | ✅ | |
 | `Buffer.from(array)` | ✅ | |
 | `Buffer.from(arrayBuffer)` | ❌ | |
-| `Buffer.from(buffer)` | ❌ | |
+| `Buffer.from(buffer)` | ✅ | Creates a copy of the buffer |
 | `Buffer.from(string, encoding)` | ✅ | |
 | `Buffer.isBuffer(obj)` | ✅ | |
 | `Buffer.isEncoding(encoding)` | ✅ | |
@@ -151,7 +151,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `buf.writeUIntBE(value)` | ❌ | |
 | `buf.writeUIntLE(value)` | ❌ | |
 
-**Buffer Coverage: 60/68 (88%)**
+**Buffer Coverage: 61/68 (90%)**
 
 ---
 
@@ -1003,7 +1003,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Buffer | 60 | 68 | 88% |
+| Buffer | 61 | 68 | 90% |
 | Console | 19 | 19 | 100% |
 | Crypto | 16 | 34 | 47% |
 | Events | 18 | 21 | 86% |
@@ -1020,7 +1020,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 5 | 7 | 71% |
-| **Total** | **435** | **655** | **66%** |
+| **Total** | **436** | **655** | **67%** |
 
 ### Priority Implementation Targets
 

@@ -10,6 +10,7 @@ public:
     static constexpr uint32_t MAGIC = 0x42554646; // "BUFF"
     static TsBuffer* Create(size_t length);
     static TsBuffer* FromString(TsString* str, TsString* encoding = nullptr);
+    static TsBuffer* FromBuffer(TsBuffer* source);  // Copy buffer
     static TsBuffer* FromHex(TsString* hexStr);
     static TsBuffer* FromBase64(TsString* b64Str);
 
@@ -144,6 +145,7 @@ extern "C" {
     void* ts_buffer_alloc_unsafe(int64_t length);
     void* ts_buffer_from(void* data);
     void* ts_buffer_from_string(void* str, void* encoding);
+    void* ts_buffer_from_buffer(void* buf);
     void* ts_buffer_concat(void* list, int64_t totalLength);
     int64_t ts_buffer_length(void* buf);
     int64_t ts_buffer_byte_length(void* buf);

@@ -35,6 +35,14 @@ TsBuffer* TsBuffer::FromString(TsString* str, TsString* encoding) {
     return buf;
 }
 
+TsBuffer* TsBuffer::FromBuffer(TsBuffer* source) {
+    if (!source) return Create(0);
+    size_t len = source->GetLength();
+    TsBuffer* buf = Create(len);
+    std::memcpy(buf->data, source->data, len);
+    return buf;
+}
+
 TsBuffer::TsBuffer(size_t length) {
     this->magic = MAGIC;
     this->length = length;
@@ -785,6 +793,16 @@ extern "C" {
 
     void* ts_buffer_from_string(void* str, void* encoding) {
         return TsBuffer::FromString((TsString*)str, (TsString*)encoding);
+    }
+
+    void* ts_buffer_from_buffer(void* buf) {
+        if (!buf) return TsBuffer::Create(0);
+        // Unbox if needed
+        void* rawPtr = ts_value_get_object((TsValue*)buf);
+        if (!rawPtr) rawPtr = buf;
+        TsBuffer* srcBuf = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
+        if (!srcBuf) return TsBuffer::Create(0);
+        return TsBuffer::FromBuffer(srcBuf);
     }
 
     void* ts_buffer_concat(void* list, int64_t totalLength) {
