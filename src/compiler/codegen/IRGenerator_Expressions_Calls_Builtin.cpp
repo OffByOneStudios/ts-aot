@@ -246,6 +246,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateTextEncodingCall(node, prop)) return true;
     if (tryGenerateURLCall(node, prop)) return true;
     if (tryGenerateUtilCall(node, prop)) return true;
+    if (tryGenerateQueryStringCall(node, prop)) return true;
     if (tryGenerateOSCall(node, prop)) return true;
     if (tryGenerateTimersCall(node, prop)) return true;
     if (tryGenerateTimersPromisesCall(node, prop)) return true;
