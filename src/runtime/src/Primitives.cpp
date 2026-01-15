@@ -147,6 +147,92 @@ void ts_console_clear() {
     std::fflush(stdout);
 }
 
+void ts_console_table(TsValue* data, TsValue* properties) {
+    // console.table displays data in tabular format
+    // For arrays of objects, show columns for each property
+    // For arrays of primitives, show index and value columns
+    // For objects, show key-value pairs
+
+    if (!data) {
+        std::printf("undefined\n");
+        std::fflush(stdout);
+        return;
+    }
+
+    printConsoleIndent();
+
+    // Check if it's an array
+    TsArray* arr = nullptr;
+    TsMap* obj = nullptr;
+
+    if (data->type == ValueType::ARRAY_PTR) {
+        arr = (TsArray*)data->ptr_val;
+    } else if (data->type == ValueType::OBJECT_PTR) {
+        void* ptr = data->ptr_val;
+        // Check for TsArray at offset 8 (after vtable - TsArray doesn't have virtual methods)
+        uint32_t magic8 = *((uint32_t*)((char*)ptr + 8));
+        // Check for TsMap at offset 16 (after vtable + impl pointer)
+        uint32_t magic16 = *((uint32_t*)((char*)ptr + 16));
+        if (magic8 == TsArray::MAGIC) {
+            arr = (TsArray*)ptr;
+        } else if (magic16 == TsMap::MAGIC) {
+            obj = (TsMap*)ptr;
+        }
+    }
+
+    if (arr) {
+        // Print array in tabular format
+        int64_t len = arr->Length();
+        std::printf("| (index) | Value |\n");
+        std::printf("|---------|-------|\n");
+        for (int64_t i = 0; i < len; i++) {
+            TsValue* elem = arr->GetElementBoxed(i);
+            std::printf("| %lld | ", (long long)i);
+            ts_console_print_value_to_stream(elem, stdout);
+            std::printf(" |\n");
+        }
+    } else if (obj) {
+        // Print object in tabular format
+        std::printf("| (key) | Value |\n");
+        std::printf("|-------|-------|\n");
+        TsArray* keys = (TsArray*)obj->GetKeys();
+        if (keys) {
+            int64_t len = keys->Length();
+            for (int64_t i = 0; i < len; i++) {
+                TsValue* keyVal = keys->GetElementBoxed(i);
+                if (keyVal) {
+                    // GetElementBoxed wraps pointer in OBJECT_PTR
+                    // The actual key TsValue is inside ptr_val
+                    TsValue* actualKey = nullptr;
+                    TsString* keyStr = nullptr;
+
+                    if (keyVal->type == ValueType::OBJECT_PTR && keyVal->ptr_val) {
+                        actualKey = (TsValue*)keyVal->ptr_val;
+                        if (actualKey->type == ValueType::STRING_PTR) {
+                            keyStr = (TsString*)actualKey->ptr_val;
+                        }
+                    } else if (keyVal->type == ValueType::STRING_PTR) {
+                        keyStr = (TsString*)keyVal->ptr_val;
+                        actualKey = keyVal;
+                    }
+
+                    if (keyStr && actualKey) {
+                        TsValue val = obj->Get(*actualKey);
+                        std::printf("| %s | ", keyStr->ToUtf8());
+                        ts_console_print_value_to_stream(&val, stdout);
+                        std::printf(" |\n");
+                    }
+                }
+            }
+        }
+    } else {
+        // Just print the value
+        ts_console_print_value_to_stream(data, stdout);
+        std::printf("\n");
+    }
+    std::fflush(stdout);
+}
+
 int32_t ts_double_to_int32(double d) {
     if (std::isnan(d) || std::isinf(d)) return 0;
     double i = std::trunc(std::fmod(d, 4294967296.0));
@@ -266,15 +352,23 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
             if (!val->ptr_val) {
                 std::fprintf(stream, "null");
             } else {
-                uint32_t objMagic = *(uint32_t*)val->ptr_val;
-                if (objMagic == 0x4D415053) { // MAPS
-                    std::fprintf(stream, "Map(%lld)", ((TsMap*)val->ptr_val)->Size());
-                } else if (objMagic == 0x53455453) { // SETS
-                    std::fprintf(stream, "Set(%lld)", ((TsSet*)val->ptr_val)->Size());
-                } else if (objMagic == 0x53545247) { // STRG
-                    std::fprintf(stream, "%s", ((TsString*)val->ptr_val)->ToUtf8());
+                // Check if ptr_val points to a TsValue (nested boxing)
+                TsValue* inner = (TsValue*)val->ptr_val;
+                uint8_t firstByte = *(uint8_t*)inner;
+                if (firstByte <= 10) {
+                    // Looks like a TsValue - recurse
+                    ts_console_print_value_to_stream(inner, stream);
                 } else {
-                    std::fprintf(stream, "[object Object]");
+                    uint32_t objMagic = *(uint32_t*)val->ptr_val;
+                    if (objMagic == 0x4D415053) { // MAPS
+                        std::fprintf(stream, "Map(%lld)", ((TsMap*)val->ptr_val)->Size());
+                    } else if (objMagic == 0x53455453) { // SETS
+                        std::fprintf(stream, "Set(%lld)", ((TsSet*)val->ptr_val)->Size());
+                    } else if (objMagic == 0x53545247) { // STRG
+                        std::fprintf(stream, "%s", ((TsString*)val->ptr_val)->ToUtf8());
+                    } else {
+                        std::fprintf(stream, "[object Object]");
+                    }
                 }
             }
             break;

@@ -107,6 +107,7 @@ static void ensureBuiltinFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_console_group_collapsed", {false}, false);
     bp.registerRuntimeApi("ts_console_group_end", {}, false);  // no args
     bp.registerRuntimeApi("ts_console_clear", {}, false);  // no args
+    bp.registerRuntimeApi("ts_console_table", {true, true}, false);  // data, properties (both boxed)
 
     // ========== Math ==========
     bp.registerRuntimeApi("ts_math_abs", {false}, false);  // double -> double
@@ -1030,7 +1031,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
         }
     }
 
-    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "debug" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog" || prop->name == "trace" || prop->name == "assert" || prop->name == "dir" || prop->name == "count" || prop->name == "countReset" || prop->name == "group" || prop->name == "groupCollapsed" || prop->name == "groupEnd" || prop->name == "clear") {
+    if (prop->name == "log" || prop->name == "error" || prop->name == "warn" || prop->name == "info" || prop->name == "debug" || prop->name == "time" || prop->name == "timeEnd" || prop->name == "timeLog" || prop->name == "trace" || prop->name == "assert" || prop->name == "dir" || prop->name == "dirxml" || prop->name == "table" || prop->name == "count" || prop->name == "countReset" || prop->name == "group" || prop->name == "groupCollapsed" || prop->name == "groupEnd" || prop->name == "clear") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "console") {
                 // console.assert(condition, ...messages) - only logs if condition is falsy
@@ -1154,7 +1155,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     return true;
                 }
 
-                if (prop->name == "dir") {
+                if (prop->name == "dir" || prop->name == "dirxml") {
+                    // dirxml is an alias for dir in Node.js
                     if (node->arguments.empty()) return true;
                     visit(node->arguments[0].get());
                     llvm::Value* val = boxValue(lastValue, node->arguments[0]->inferredType);
@@ -1162,6 +1164,25 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_dir", ft);
                     createCall(ft, fn.getCallee(), { val });
+                    lastValue = nullptr;
+                    return true;
+                }
+
+                if (prop->name == "table") {
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+
+                    llvm::Value* properties = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    if (node->arguments.size() > 1) {
+                        visit(node->arguments[1].get());
+                        properties = boxValue(lastValue, node->arguments[1]->inferredType);
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_console_table", ft);
+                    createCall(ft, fn.getCallee(), { data, properties });
                     lastValue = nullptr;
                     return true;
                 }

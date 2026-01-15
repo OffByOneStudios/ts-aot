@@ -535,6 +535,16 @@ Analyzer::Analyzer() {
     clearType->returnType = std::make_shared<Type>(TypeKind::Void);
     consoleType->fields["clear"] = clearType;
 
+    // console.table(tabularData, properties?)
+    auto tableType = std::make_shared<FunctionType>();
+    tableType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    tableType->paramTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String)));
+    tableType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["table"] = tableType;
+
+    // console.dirxml(value) - alias for console.dir in Node.js
+    consoleType->fields["dirxml"] = dirType;
+
     symbols.define("console", consoleType);
 
     // Register global object (contains all global variables and functions)

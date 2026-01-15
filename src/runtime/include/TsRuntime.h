@@ -42,6 +42,7 @@ void ts_console_group(TsString* label);
 void ts_console_group_collapsed(TsString* label);
 void ts_console_group_end();
 void ts_console_clear();
+void ts_console_table(TsValue* data, TsValue* properties);
 
 bool ts_value_is_nullish(TsValue* v);
 TsValue* ts_value_make_undefined();
