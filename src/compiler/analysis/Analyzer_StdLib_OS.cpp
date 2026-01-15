@@ -203,7 +203,22 @@ void Analyzer::registerOS() {
     errnoType->fields["EEXIST"] = std::make_shared<Type>(TypeKind::Int);
     errnoType->fields["EPERM"] = std::make_shared<Type>(TypeKind::Int);
     errnoType->fields["ENOTEMPTY"] = std::make_shared<Type>(TypeKind::Int);
+    errnoType->fields["EINVAL"] = std::make_shared<Type>(TypeKind::Int);
+    errnoType->fields["EBUSY"] = std::make_shared<Type>(TypeKind::Int);
+    errnoType->fields["ENOMEM"] = std::make_shared<Type>(TypeKind::Int);
+    errnoType->fields["ECONNREFUSED"] = std::make_shared<Type>(TypeKind::Int);
+    errnoType->fields["ETIMEDOUT"] = std::make_shared<Type>(TypeKind::Int);
     constantsType->fields["errno"] = errnoType;
+
+    // os.constants.priority - process priority constants
+    auto priorityType = std::make_shared<ObjectType>();
+    priorityType->fields["PRIORITY_LOW"] = std::make_shared<Type>(TypeKind::Int);
+    priorityType->fields["PRIORITY_BELOW_NORMAL"] = std::make_shared<Type>(TypeKind::Int);
+    priorityType->fields["PRIORITY_NORMAL"] = std::make_shared<Type>(TypeKind::Int);
+    priorityType->fields["PRIORITY_ABOVE_NORMAL"] = std::make_shared<Type>(TypeKind::Int);
+    priorityType->fields["PRIORITY_HIGH"] = std::make_shared<Type>(TypeKind::Int);
+    priorityType->fields["PRIORITY_HIGHEST"] = std::make_shared<Type>(TypeKind::Int);
+    constantsType->fields["priority"] = priorityType;
 
     osType->fields["constants"] = constantsType;
 
