@@ -368,24 +368,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
 
-        // IMPORTANT: Check for known object magics FIRST before checking typeField.
-        // This is because a vtable pointer's first byte might coincidentally be <= 10,
-        // causing us to incorrectly treat a raw object pointer as a TsValue.
-
-        // Check for TsObject-derived classes with vtable
-        // Layout: [C++ vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
-        // So TsObject::magic is at offset 16
-        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
-        if (magic16 == 0x4D415053 || // TsMap::MAGIC
-            magic16 == 0x53455453 || // TsSet::MAGIC
-            magic16 == 0x41525259 || // TsArray::MAGIC
-            magic16 == 0x46554E43 || // TsFunction::MAGIC
-            magic16 == 0x42554646 || // TsBuffer::MAGIC
-            magic16 == 0x534F434B) { // TsSocket::MAGIC "SOCK"
-            return v;
+        // FIRST: Check if this is a boxed TsValue by examining the type field
+        // TsValue has ValueType enum at offset 0, which is <= 10
+        // Check this BEFORE dereferencing at offset 16 (which would be out of bounds for TsValue)
+        uint8_t typeField = *(uint8_t*)v;
+        if (typeField <= 10) {
+            // It's a proper boxed TsValue - extract ptr_val
+            if (v->type == ValueType::OBJECT_PTR ||
+                v->type == ValueType::ARRAY_PTR ||
+                v->type == ValueType::PROMISE_PTR ||
+                v->type == ValueType::FUNCTION_PTR) {
+                return v->ptr_val;
+            }
+            // It's a TsValue but not an object type (e.g., int, bool, undefined)
+            return nullptr;
         }
 
-        // Check magic at offset 0 for structs without virtual methods
+        // Not a TsValue - check for raw object pointers by magic numbers
+        // Check magic at offset 0 for structs without virtual methods (TsArray layout: [magic(4)] ...)
         uint32_t magic = *(uint32_t*)v;
         if (magic == 0x41525259 || // TsArray::MAGIC
             magic == 0x4D415053 || // TsMap::MAGIC
@@ -404,19 +404,17 @@ TsValue* ts_value_make_int(int64_t i) {
             return v;
         }
 
-        // NOW check if this is a TsValue by examining the type field
-        // TsValue has ValueType enum at offset 0, which is <= 10
-        uint8_t typeField = *(uint8_t*)v;
-        if (typeField <= 10) {
-            // It's a proper boxed TsValue - extract ptr_val
-            if (v->type == ValueType::OBJECT_PTR ||
-                v->type == ValueType::ARRAY_PTR ||
-                v->type == ValueType::PROMISE_PTR ||
-                v->type == ValueType::FUNCTION_PTR) {
-                return v->ptr_val;
-            }
-            // It's a TsValue but not an object type (e.g., int, bool, undefined)
-            return nullptr;
+        // Check for TsObject-derived classes with vtable
+        // Layout: [C++ vtable ptr (8)] [explicit vtable (8)] [TsObject::magic (4)] ...
+        // So TsObject::magic is at offset 16
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        if (magic16 == 0x4D415053 || // TsMap::MAGIC
+            magic16 == 0x53455453 || // TsSet::MAGIC
+            magic16 == 0x41525259 || // TsArray::MAGIC
+            magic16 == 0x46554E43 || // TsFunction::MAGIC
+            magic16 == 0x42554646 || // TsBuffer::MAGIC
+            magic16 == 0x534F434B) { // TsSocket::MAGIC "SOCK"
+            return v;
         }
 
         // Unknown - assume it's an object pointer (fallback)
@@ -2362,6 +2360,28 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
+
+        // Check if obj is ARRAY_PTR FIRST - TsArray is NOT a TsObject, so we can't use dynamic_cast on it
+        if (obj->type == ValueType::ARRAY_PTR) {
+            void* arrPtr = obj->ptr_val;
+            if (!arrPtr) return ts_value_make_undefined();
+            TsArray* arr = (TsArray*)arrPtr;
+            if (key->type == ValueType::NUMBER_INT) {
+                return ts_array_get_as_value(arrPtr, key->i_val);
+            } else if (key->type == ValueType::NUMBER_DBL) {
+                return ts_array_get_as_value(arrPtr, (int64_t)key->d_val);
+            } else if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k && strcmp(k, "length") == 0) {
+                        return ts_value_make_int(arr->Length());
+                    }
+                }
+            }
+            return ts_value_make_undefined();
+        }
+
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return ts_value_make_undefined();
 
@@ -2372,7 +2392,9 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Check magic at offset 0 first (TsArray has magic at offset 0)
+        // Note: ARRAY_PTR is handled early above, but this catches raw array pointers
         uint32_t magic0 = *(uint32_t*)rawObj;
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
         if (magic0 == 0x41525259) { // TsArray::MAGIC = "ARRY"
             // This is an array
             if (key->type == ValueType::NUMBER_INT) {
@@ -2393,7 +2415,6 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         
         // Check if this is a TsFunction and get its properties map
-        uint32_t magic16 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 16);
         if (magic16 == TsFunction::MAGIC) {
             TsFunction* func = (TsFunction*)rawObj;
 

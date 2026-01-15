@@ -72,9 +72,33 @@ Analyzer::Analyzer() {
     promiseSetImmediateType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value (optional)
     promiseSetImmediateType->returnType = promiseType;
 
+    // timers/promises.setInterval(delay: number, value?: T) => AsyncIterable<T>
+    // Returns an async iterable object that can be used with for await...of
+    auto asyncIterableType = std::make_shared<ClassType>("AsyncIterable");
+    auto promiseSetIntervalType = std::make_shared<FunctionType>();
+    promiseSetIntervalType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // delay
+    promiseSetIntervalType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value (optional)
+    promiseSetIntervalType->returnType = asyncIterableType;
+
+    // scheduler.wait(delay: number, options?: object) => Promise<void>
+    auto schedulerWaitType = std::make_shared<FunctionType>();
+    schedulerWaitType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // delay
+    schedulerWaitType->returnType = promiseType;
+
+    // scheduler.yield() => Promise<void>
+    auto schedulerYieldType = std::make_shared<FunctionType>();
+    schedulerYieldType->returnType = promiseType;
+
+    // Create scheduler sub-object
+    auto schedulerObject = std::make_shared<ObjectType>();
+    schedulerObject->fields["wait"] = schedulerWaitType;
+    schedulerObject->fields["yield"] = schedulerYieldType;
+
     auto timersPromisesModule = std::make_shared<ObjectType>();
     timersPromisesModule->fields["setTimeout"] = promiseSetTimeoutType;
     timersPromisesModule->fields["setImmediate"] = promiseSetImmediateType;
+    timersPromisesModule->fields["setInterval"] = promiseSetIntervalType;
+    timersPromisesModule->fields["scheduler"] = schedulerObject;
     symbols.define("timers/promises", timersPromisesModule);
 
     // Register require global

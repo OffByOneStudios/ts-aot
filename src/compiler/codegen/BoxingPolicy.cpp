@@ -487,6 +487,15 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_crypto_pbkdf2Sync",      {true, true, false, false, false}}, // (password, salt, iterations, keylen, digest) -> Buffer*
     {"ts_crypto_scryptSync",      {true, true, false, false, false, false}}, // (password, salt, keylen, N, r, p) -> Buffer*
     {"ts_crypto_timingSafeEqual", {false, false}}, // (a*, b*) -> bool
+
+    // =========================================================================
+    // Timers/Promises operations
+    // =========================================================================
+    {"ts_timers_promises_setTimeout",   {false, true}},   // (delay, value?) -> Promise*
+    {"ts_timers_promises_setImmediate", {true}},          // (value?) -> Promise*
+    {"ts_timers_promises_setInterval",  {false, true}},   // (delay, value?) -> AsyncIterable*
+    {"ts_timers_scheduler_wait",        {false}},         // (delay) -> Promise*
+    {"ts_timers_scheduler_yield",       {}},              // () -> Promise*
 };
 
 const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED = {
@@ -528,6 +537,11 @@ const std::unordered_set<std::string> BoxingPolicy::CORE_RUNTIME_RETURNS_BOXED =
     "ts_require",
     "ts_function_call_with_this",
     "ts_function_apply",
+    "ts_timers_promises_setTimeout",
+    "ts_timers_promises_setImmediate",
+    "ts_timers_promises_setInterval",
+    "ts_timers_scheduler_wait",
+    "ts_timers_scheduler_yield",
 };
 
 // =============================================================================

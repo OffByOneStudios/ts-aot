@@ -91,7 +91,7 @@ void Analyzer::registerEvents() {
     auto staticOnceFn = std::make_shared<FunctionType>();
     staticOnceFn->paramTypes.push_back(eventEmitterClass);
     staticOnceFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    
+
     auto promiseType = symbols.lookupType("Promise");
     if (promiseType) {
         staticOnceFn->returnType = promiseType;
@@ -99,6 +99,14 @@ void Analyzer::registerEvents() {
         staticOnceFn->returnType = std::make_shared<Type>(TypeKind::Any);
     }
     eventsModule->fields["once"] = staticOnceFn;
+
+    // events.on(emitter: EventEmitter, event: string): AsyncIterable<any[]>
+    auto staticOnFn = std::make_shared<FunctionType>();
+    staticOnFn->paramTypes.push_back(eventEmitterClass);
+    staticOnFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    // AsyncIterable returns as Any type (it's an object with next/return methods)
+    staticOnFn->returnType = std::make_shared<Type>(TypeKind::Any);
+    eventsModule->fields["on"] = staticOnFn;
 
     symbols.define("events", eventsModule);
 }

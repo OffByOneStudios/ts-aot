@@ -250,6 +250,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateOSCall(node, prop)) return true;
     if (tryGenerateTimersCall(node, prop)) return true;
     if (tryGenerateTimersPromisesCall(node, prop)) return true;
+    if (tryGenerateTimersSchedulerCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
@@ -4297,6 +4298,99 @@ bool IRGenerator::tryGenerateTimersPromisesCall(ast::CallExpression* node, ast::
             { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_promises_setImmediate", ft);
         lastValue = createCall(ft, fn.getCallee(), { value });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // timers/promises.setInterval(delay, value?) -> AsyncIterable
+    if (methodName == "setInterval") {
+        // First arg is delay (required)
+        llvm::Value* delay = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            delay = lastValue;
+            if (delay->getType()->isPointerTy()) {
+                delay = unboxValue(delay, std::make_shared<Type>(TypeKind::Int));
+            }
+        }
+
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            value = boxValue(lastValue, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getInt64Ty(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_promises_setInterval", ft);
+        lastValue = createCall(ft, fn.getCallee(), { delay, value });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    return false;
+}
+
+// Handle timers/promises.scheduler.wait() and scheduler.yield()
+bool IRGenerator::tryGenerateTimersSchedulerCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    // Check if this is scheduler.wait or scheduler.yield
+    // The access pattern is: timersPromises.scheduler.wait() or timersPromises.scheduler.yield()
+    auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get());
+    if (!innerProp) return false;
+
+    // innerProp should be something.scheduler
+    if (innerProp->name != "scheduler") return false;
+
+    // Check if the expression of innerProp is the timers/promises module
+    auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get());
+    if (!id) return false;
+
+    auto exprType = innerProp->expression->inferredType;
+    if (!exprType) return false;
+
+    // Check if this is the timers/promises module
+    bool isTimersPromises = false;
+    if (exprType->kind == TypeKind::Namespace) {
+        auto nsType = std::static_pointer_cast<NamespaceType>(exprType);
+        if (nsType->module && nsType->module->path == "builtin:timers/promises") {
+            isTimersPromises = true;
+        }
+    } else if (exprType->kind == TypeKind::Object) {
+        auto objType = std::static_pointer_cast<ObjectType>(exprType);
+        if (objType->fields.find("scheduler") != objType->fields.end()) {
+            isTimersPromises = true;
+        }
+    }
+
+    if (!isTimersPromises) return false;
+
+    const std::string& methodName = prop->name;
+
+    // scheduler.wait(delay, options?) -> Promise<void>
+    if (methodName == "wait") {
+        llvm::Value* delay = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            delay = lastValue;
+            if (delay->getType()->isPointerTy()) {
+                delay = unboxValue(delay, std::make_shared<Type>(TypeKind::Int));
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_scheduler_wait", ft);
+        lastValue = createCall(ft, fn.getCallee(), { delay });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // scheduler.yield() -> Promise<void>
+    if (methodName == "yield") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_scheduler_yield", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
         boxedValues.insert(lastValue);
         return true;
     }

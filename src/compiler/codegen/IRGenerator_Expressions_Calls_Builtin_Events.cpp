@@ -25,6 +25,7 @@ static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_event_emitter_listeners", {false, false}, true);  // (emitter, event) -> array
     bp.registerRuntimeApi("ts_event_emitter_raw_listeners", {false, false}, true);  // (emitter, event) -> array
     bp.registerRuntimeApi("ts_event_emitter_static_once", {false, false}, true);  // (emitter, event) -> promise
+    bp.registerRuntimeApi("ts_event_emitter_static_on", {false, false}, true);    // (emitter, event) -> async iterator
 }
 
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -43,6 +44,20 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_static_once", ft);
+            lastValue = createCall(ft, fn.getCallee(), { emitter, event });
+            return true;
+        }
+
+        if (id->name == "events" && prop->name == "on") {
+            if (node->arguments.size() < 2) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* emitter = lastValue;
+            visit(node->arguments[1].get());
+            llvm::Value* event = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_static_on", ft);
             lastValue = createCall(ft, fn.getCallee(), { emitter, event });
             return true;
         }
