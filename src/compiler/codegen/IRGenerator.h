@@ -186,6 +186,7 @@ private:
     bool tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateTimersCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);

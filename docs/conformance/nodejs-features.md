@@ -46,7 +46,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `repl` | ❌ | 0% | REPL |
 | `stream` | ⚠️ | 55% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
-| `timers` | ⚠️ | 43% | Timers |
+| `timers` | ⚠️ | 64% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 76% | URL parsing |
@@ -841,16 +841,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `clearInterval()` | ✅ | |
 | `setImmediate()` | ✅ | |
 | `clearImmediate()` | ✅ | |
-| `timers.setTimeout()` | ❌ | |
-| `timers.setInterval()` | ❌ | |
-| `timers.setImmediate()` | ❌ | |
+| `timers.setTimeout()` | ✅ | Re-exports global setTimeout |
+| `timers.setInterval()` | ✅ | Re-exports global setInterval |
+| `timers.setImmediate()` | ✅ | Re-exports global setImmediate |
 | `timers/promises.setTimeout()` | ❌ | |
 | `timers/promises.setInterval()` | ❌ | |
 | `timers/promises.setImmediate()` | ❌ | |
 | `timers/promises.scheduler.wait()` | ❌ | |
 | `timers/promises.scheduler.yield()` | ❌ | |
 
-**Timers Coverage: 6/14 (43%)**
+**Timers Coverage: 9/14 (64%)**
 
 ---
 
@@ -1015,12 +1015,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 12 | 15 | 80% |
 | Process | 37 | 55 | 67% |
 | Stream | 24 | 44 | 55% |
-| Timers | 6 | 14 | 43% |
+| Timers | 9 | 14 | 64% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 19 | 62 | 31% |
 | Global | 3 | 7 | 43% |
-| **Total** | **428** | **655** | **65%** |
+| **Total** | **431** | **655** | **66%** |
 
 ### Priority Implementation Targets
 
