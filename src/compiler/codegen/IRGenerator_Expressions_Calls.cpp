@@ -386,6 +386,16 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                 }
             }
 
+            // Also check for nested property access on known modules (e.g., path.posix.join, path.win32.join)
+            if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+                if (auto innerId = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+                    // path.posix.xxx or path.win32.xxx
+                    if (innerId->name == "path" && (innerProp->name == "posix" || innerProp->name == "win32")) {
+                        shouldTryBuiltin = true;
+                    }
+                }
+            }
+
             if (shouldTryBuiltin) {
                 if (tryGenerateBuiltinCall(node, prop)) {
                     return;
