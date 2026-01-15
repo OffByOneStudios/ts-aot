@@ -132,6 +132,31 @@ void Analyzer::registerBuffer() {
     readBigUInt64BE->returnType = std::make_shared<Type>(TypeKind::BigInt);
     bufferClass->methods["readBigUInt64BE"] = readBigUInt64BE;
 
+    // Variable-length read methods - take offset and byteLength, return value
+    auto readIntLE = std::make_shared<FunctionType>();
+    readIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    readIntLE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["readIntLE"] = readIntLE;
+
+    auto readIntBE = std::make_shared<FunctionType>();
+    readIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    readIntBE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["readIntBE"] = readIntBE;
+
+    auto readUIntLE = std::make_shared<FunctionType>();
+    readUIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readUIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    readUIntLE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["readUIntLE"] = readUIntLE;
+
+    auto readUIntBE = std::make_shared<FunctionType>();
+    readUIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    readUIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    readUIntBE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["readUIntBE"] = readUIntBE;
+
     // Write methods - take value and offset, return offset after written bytes
     auto writeInt8 = std::make_shared<FunctionType>();
     writeInt8->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
@@ -240,6 +265,48 @@ void Analyzer::registerBuffer() {
     writeBigUInt64BE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
     writeBigUInt64BE->returnType = std::make_shared<Type>(TypeKind::Int);
     bufferClass->methods["writeBigUInt64BE"] = writeBigUInt64BE;
+
+    // Variable-length write methods - take value, offset, and byteLength
+    auto writeIntLE = std::make_shared<FunctionType>();
+    writeIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+    writeIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    writeIntLE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeIntLE"] = writeIntLE;
+
+    auto writeIntBE = std::make_shared<FunctionType>();
+    writeIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+    writeIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    writeIntBE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeIntBE"] = writeIntBE;
+
+    auto writeUIntLE = std::make_shared<FunctionType>();
+    writeUIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+    writeUIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeUIntLE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    writeUIntLE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeUIntLE"] = writeUIntLE;
+
+    auto writeUIntBE = std::make_shared<FunctionType>();
+    writeUIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // value
+    writeUIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset
+    writeUIntBE->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // byteLength
+    writeUIntBE->returnType = std::make_shared<Type>(TypeKind::Int);
+    bufferClass->methods["writeUIntBE"] = writeUIntBE;
+
+    // Swap methods - return this buffer for chaining
+    auto swap16 = std::make_shared<FunctionType>();
+    swap16->returnType = bufferClass;
+    bufferClass->methods["swap16"] = swap16;
+
+    auto swap32 = std::make_shared<FunctionType>();
+    swap32->returnType = bufferClass;
+    bufferClass->methods["swap32"] = swap32;
+
+    auto swap64 = std::make_shared<FunctionType>();
+    swap64->returnType = bufferClass;
+    bufferClass->methods["swap64"] = swap64;
 
     // Utility methods
     auto bufferCompare = std::make_shared<FunctionType>();

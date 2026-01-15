@@ -108,12 +108,17 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     if (prop->name == "from" && bufferId && bufferId->name == "Buffer") {
         if (node->arguments.empty()) return true;
 
-        // Check if argument is a Buffer type - if so, copy the buffer
+        // Check the argument type to determine which runtime function to call
         auto* arg0 = node->arguments[0].get();
         bool isBuffer = false;
-        if (arg0->inferredType && arg0->inferredType->kind == TypeKind::Class) {
-            auto classType = std::static_pointer_cast<ClassType>(arg0->inferredType);
-            if (classType->name == "Buffer") isBuffer = true;
+        bool isArray = false;
+        if (arg0->inferredType) {
+            if (arg0->inferredType->kind == TypeKind::Class) {
+                auto classType = std::static_pointer_cast<ClassType>(arg0->inferredType);
+                if (classType->name == "Buffer") isBuffer = true;
+            } else if (arg0->inferredType->kind == TypeKind::Array) {
+                isArray = true;
+            }
         }
 
         visit(arg0);
@@ -124,6 +129,15 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_buffer", ft);
+            lastValue = createCall(ft, fn.getCallee(), { data });
+            return true;
+        }
+
+        if (isArray) {
+            // Buffer.from(array) - create buffer from array of numbers
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_array", ft);
             lastValue = createCall(ft, fn.getCallee(), { data });
             return true;
         }
@@ -504,6 +518,95 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
     if (genWriteMethodBigInt("writeBigInt64BE", "ts_buffer_write_bigint64be")) return true;
     if (genWriteMethodBigInt("writeBigUInt64LE", "ts_buffer_write_biguint64le")) return true;
     if (genWriteMethodBigInt("writeBigUInt64BE", "ts_buffer_write_biguint64be")) return true;
+
+    // Helper lambda for variable-length read methods (offset, byteLength -> value)
+    auto genVarReadMethod = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::Value* byteLength = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                byteLength = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, offset, byteLength });
+            return true;
+        }
+        return false;
+    };
+
+    // Variable-length read methods
+    if (genVarReadMethod("readIntLE", "ts_buffer_read_intle")) return true;
+    if (genVarReadMethod("readIntBE", "ts_buffer_read_intbe")) return true;
+    if (genVarReadMethod("readUIntLE", "ts_buffer_read_uintle")) return true;
+    if (genVarReadMethod("readUIntBE", "ts_buffer_read_uintbe")) return true;
+
+    // Helper lambda for variable-length write methods (value, offset, byteLength -> newOffset)
+    auto genVarWriteMethod = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            if (node->arguments.empty()) return true;
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            visit(node->arguments[0].get());
+            llvm::Value* value = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+            llvm::Value* offset = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::Value* byteLength = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 1);
+            if (node->arguments.size() > 2) {
+                visit(node->arguments[2].get());
+                byteLength = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                { builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf, value, offset, byteLength });
+            return true;
+        }
+        return false;
+    };
+
+    // Variable-length write methods
+    if (genVarWriteMethod("writeIntLE", "ts_buffer_write_intle")) return true;
+    if (genVarWriteMethod("writeIntBE", "ts_buffer_write_intbe")) return true;
+    if (genVarWriteMethod("writeUIntLE", "ts_buffer_write_uintle")) return true;
+    if (genVarWriteMethod("writeUIntBE", "ts_buffer_write_uintbe")) return true;
+
+    // Buffer swap methods (returns this for chaining)
+    auto genSwapMethod = [&](const std::string& methodName, const std::string& rtName) -> bool {
+        if (prop->name == methodName && isBuffer) {
+            visit(prop->expression.get());
+            llvm::Value* buf = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(rtName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { buf });
+            return true;
+        }
+        return false;
+    };
+
+    if (genSwapMethod("swap16", "ts_buffer_swap16")) return true;
+    if (genSwapMethod("swap32", "ts_buffer_swap32")) return true;
+    if (genSwapMethod("swap64", "ts_buffer_swap64")) return true;
 
     // Handle buf.compare(other) - instance method
     if (prop->name == "compare" && isBuffer) {
