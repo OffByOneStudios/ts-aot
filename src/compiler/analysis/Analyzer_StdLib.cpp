@@ -48,6 +48,16 @@ Analyzer::Analyzer() {
     symbols.define("setImmediate", setImmediateType);
     symbols.define("clearImmediate", clearTimeoutType);
 
+    // Register timers module (re-exports of global timer functions)
+    auto timersModule = std::make_shared<ObjectType>();
+    timersModule->fields["setTimeout"] = setTimeoutType;
+    timersModule->fields["setInterval"] = setTimeoutType;
+    timersModule->fields["clearTimeout"] = clearTimeoutType;
+    timersModule->fields["clearInterval"] = clearTimeoutType;
+    timersModule->fields["setImmediate"] = setImmediateType;
+    timersModule->fields["clearImmediate"] = clearTimeoutType;
+    symbols.define("timers", timersModule);
+
     // Register require global
     auto requireType = std::make_shared<FunctionType>();
     requireType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
