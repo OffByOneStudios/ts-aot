@@ -175,6 +175,10 @@ TsValue* ts_set_interval(TsValue* callback, int64_t delay);
 TsValue* ts_set_immediate(TsValue* callback);
 void ts_clear_timer(TsValue* timerId);
 
+// timers/promises API - Promise-based timer functions
+TsValue* ts_timers_promises_setTimeout(int64_t delay, TsValue* value);
+TsValue* ts_timers_promises_setImmediate(TsValue* value);
+
 // --- BigInt ---
 void* ts_bigint_create_int(int64_t val);
 void* ts_bigint_create_str(const char* str, int32_t radix);

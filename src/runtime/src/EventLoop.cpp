@@ -1,13 +1,23 @@
 #include "TsRuntime.h"
 #include "TsObject.h"
+#include "TsPromise.h"
 #include <uv.h>
 #include <vector>
 #include <functional>
+
+using namespace ts;
 
 struct TimerData {
     TsValue* callback;
     uv_timer_t* timer;
     bool isInterval;
+};
+
+// For timers/promises - stores promise to resolve
+struct PromiseTimerData {
+    TsPromise* promise;
+    uv_timer_t* timer;
+    TsValue* resolveValue;  // Optional value to resolve with
 };
 
 static void on_timer_close(uv_handle_t* handle) {
@@ -127,4 +137,68 @@ extern "C" void ts_loop_run() {
 
 extern "C" void ts_loop_init() {
     // uv_default_loop() initializes itself on first call
+}
+
+// ============================================================================
+// timers/promises API - Promise-based timer functions
+// ============================================================================
+
+static void on_promise_timer_close(uv_handle_t* handle) {
+    PromiseTimerData* data = (PromiseTimerData*)handle->data;
+    delete data;
+    free(handle);
+}
+
+static void on_promise_timer_callback(uv_timer_t* handle) {
+    PromiseTimerData* data = (PromiseTimerData*)handle->data;
+
+    if (data->promise) {
+        // Resolve the promise with the provided value (or undefined)
+        if (data->resolveValue) {
+            ts_promise_resolve_internal(data->promise, data->resolveValue);
+        } else {
+            TsValue undefinedVal;
+            undefinedVal.type = ValueType::UNDEFINED;
+            ts_promise_resolve_internal(data->promise, &undefinedVal);
+        }
+    }
+
+    uv_timer_stop(handle);
+    uv_close((uv_handle_t*)handle, on_promise_timer_close);
+}
+
+// timers/promises.setTimeout(delay, value?) -> Promise<value>
+extern "C" TsValue* ts_timers_promises_setTimeout(int64_t delay, TsValue* value) {
+    TsPromise* promise = ts_promise_create();
+
+    uv_timer_t* timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+    uv_timer_init(uv_default_loop(), timer);
+
+    PromiseTimerData* data = new PromiseTimerData();
+    data->promise = promise;
+    data->timer = timer;
+    data->resolveValue = value;
+
+    timer->data = data;
+    uv_timer_start(timer, on_promise_timer_callback, delay, 0);
+
+    return ts_value_make_promise(promise);  // Use PROMISE_PTR type for await
+}
+
+// timers/promises.setImmediate(value?) -> Promise<value>
+extern "C" TsValue* ts_timers_promises_setImmediate(TsValue* value) {
+    TsPromise* promise = ts_promise_create();
+
+    uv_timer_t* timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+    uv_timer_init(uv_default_loop(), timer);
+
+    PromiseTimerData* data = new PromiseTimerData();
+    data->promise = promise;
+    data->timer = timer;
+    data->resolveValue = value;
+
+    timer->data = data;
+    uv_timer_start(timer, on_promise_timer_callback, 0, 0);  // Zero delay = immediate
+
+    return ts_value_make_promise(promise);  // Use PROMISE_PTR type for await
 }

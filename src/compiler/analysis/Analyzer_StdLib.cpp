@@ -58,6 +58,25 @@ Analyzer::Analyzer() {
     timersModule->fields["clearImmediate"] = clearTimeoutType;
     symbols.define("timers", timersModule);
 
+    // Register timers/promises module (Promise-based timer functions)
+    auto promiseType = std::make_shared<ClassType>("Promise");
+
+    // timers/promises.setTimeout(delay: number, value?: T) => Promise<T>
+    auto promiseSetTimeoutType = std::make_shared<FunctionType>();
+    promiseSetTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // delay
+    promiseSetTimeoutType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value (optional)
+    promiseSetTimeoutType->returnType = promiseType;
+
+    // timers/promises.setImmediate(value?: T) => Promise<T>
+    auto promiseSetImmediateType = std::make_shared<FunctionType>();
+    promiseSetImmediateType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // value (optional)
+    promiseSetImmediateType->returnType = promiseType;
+
+    auto timersPromisesModule = std::make_shared<ObjectType>();
+    timersPromisesModule->fields["setTimeout"] = promiseSetTimeoutType;
+    timersPromisesModule->fields["setImmediate"] = promiseSetImmediateType;
+    symbols.define("timers/promises", timersPromisesModule);
+
     // Register require global
     auto requireType = std::make_shared<FunctionType>();
     requireType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));

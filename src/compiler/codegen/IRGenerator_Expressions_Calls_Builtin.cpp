@@ -1,6 +1,7 @@
 #include "IRGenerator.h"
 #include "BoxingPolicy.h"
 #include "../analysis/Monomorphizer.h"
+#include "../analysis/Module.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -247,6 +248,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateUtilCall(node, prop)) return true;
     if (tryGenerateOSCall(node, prop)) return true;
     if (tryGenerateTimersCall(node, prop)) return true;
+    if (tryGenerateTimersPromisesCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
@@ -4204,6 +4206,97 @@ bool IRGenerator::tryGenerateTimersCall(ast::CallExpression* node, ast::Property
 
         llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback });
         lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
+        return true;
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGenerateTimersPromisesCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    auto id = dynamic_cast<ast::Identifier*>(prop->expression.get());
+    if (!id) return false;
+
+    // Check if this is the timers/promises module by examining the inferred type
+    auto exprType = prop->expression->inferredType;
+    if (!exprType) return false;
+
+    // Handle namespace imports: import * as timersPromises from 'timers/promises'
+    if (exprType->kind == TypeKind::Namespace) {
+        auto nsType = std::static_pointer_cast<NamespaceType>(exprType);
+        if (!nsType->module) return false;
+        // Check if this is the timers/promises builtin module
+        if (nsType->module->path != "builtin:timers/promises") return false;
+    } else if (exprType->kind == TypeKind::Object) {
+        // Handle direct symbol lookup (less common)
+        auto objType = std::static_pointer_cast<ObjectType>(exprType);
+        auto setTimeoutIt = objType->fields.find("setTimeout");
+        if (setTimeoutIt == objType->fields.end()) return false;
+
+        // Check if setTimeout returns Promise (timers/promises) vs int (timers)
+        auto setTimeoutType = setTimeoutIt->second;
+        if (!setTimeoutType || setTimeoutType->kind != TypeKind::Function) return false;
+
+        auto funcType = std::static_pointer_cast<FunctionType>(setTimeoutType);
+        if (!funcType->returnType || funcType->returnType->kind != TypeKind::Class) return false;
+
+        auto returnClass = std::static_pointer_cast<ClassType>(funcType->returnType);
+        if (returnClass->name != "Promise") return false;
+    } else {
+        return false;
+    }
+
+    // This is the timers/promises module
+    const std::string& methodName = prop->name;
+
+    // timers/promises.setTimeout(delay, value?) -> Promise
+    if (methodName == "setTimeout") {
+        // First arg is delay (required)
+        if (node->arguments.empty()) {
+            // No delay provided, use 0
+            llvm::Value* delay = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getInt64Ty(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_promises_setTimeout", ft);
+            lastValue = createCall(ft, fn.getCallee(), { delay, value });
+            boxedValues.insert(lastValue);
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* delay = lastValue;
+        if (delay->getType()->isPointerTy()) {
+            delay = unboxValue(delay, std::make_shared<Type>(TypeKind::Int));
+        }
+
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            value = boxValue(lastValue, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getInt64Ty(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_promises_setTimeout", ft);
+        lastValue = createCall(ft, fn.getCallee(), { delay, value });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // timers/promises.setImmediate(value?) -> Promise
+    if (methodName == "setImmediate") {
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            value = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_timers_promises_setImmediate", ft);
+        lastValue = createCall(ft, fn.getCallee(), { value });
+        boxedValues.insert(lastValue);
         return true;
     }
 

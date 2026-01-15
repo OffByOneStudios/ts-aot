@@ -21,12 +21,12 @@ const std::vector<std::string> ModuleResolver::INDEX_FILES = {
 
 // Builtin modules that don't need resolution
 static const std::vector<std::string> BUILTIN_MODULES = {
-    "fs", "path", "crypto", "os", "http", "https", "events", "net", 
+    "fs", "path", "crypto", "os", "http", "https", "events", "net",
     "stream", "util", "url", "buffer", "process", "child_process",
     "cluster", "dgram", "dns", "domain", "readline", "repl", "tls",
     "tty", "v8", "vm", "zlib", "assert", "async_hooks", "console",
     "constants", "module", "perf_hooks", "querystring", "string_decoder",
-    "timers", "trace_events", "worker_threads"
+    "timers", "timers/promises", "trace_events", "worker_threads"
 };
 
 ModuleResolver::ModuleResolver() {}
