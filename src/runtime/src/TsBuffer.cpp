@@ -43,6 +43,18 @@ TsBuffer* TsBuffer::FromBuffer(TsBuffer* source) {
     return buf;
 }
 
+TsBuffer* TsBuffer::FromArray(void* arrPtr) {
+    if (!arrPtr) return Create(0);
+    TsArray* arr = (TsArray*)arrPtr;
+    size_t len = arr->Length();
+    TsBuffer* buf = Create(len);
+    for (size_t i = 0; i < len; i++) {
+        int64_t val = arr->Get(i);
+        buf->data[i] = (uint8_t)(val & 0xFF);
+    }
+    return buf;
+}
+
 TsBuffer::TsBuffer(size_t length) {
     this->magic = MAGIC;
     this->length = length;
@@ -805,6 +817,11 @@ extern "C" {
         return TsBuffer::FromBuffer(srcBuf);
     }
 
+    void* ts_buffer_from_array(void* arr) {
+        if (!arr) return TsBuffer::Create(0);
+        return TsBuffer::FromArray(arr);
+    }
+
     void* ts_buffer_concat(void* list, int64_t totalLength) {
         return TsBuffer::Concat(list, totalLength);
     }
@@ -1148,6 +1165,183 @@ extern "C" {
         if (!bi) return 0;
         uint64_t val = (uint64_t)mp_get_i64(&bi->value);
         return (int64_t)buffer->WriteBigUInt64BE(val, (size_t)offset);
+    }
+
+    // ============================================================================
+    // Buffer Variable-Length Read Methods
+    // ============================================================================
+
+    int64_t ts_buffer_read_intle(void* buf, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        int64_t value = 0;
+        for (int64_t i = 0; i < byteLength; i++) {
+            value |= ((int64_t)data[off + i]) << (i * 8);
+        }
+        // Sign-extend if negative
+        int64_t signBit = 1LL << (byteLength * 8 - 1);
+        if (value & signBit) {
+            value |= ~((1LL << (byteLength * 8)) - 1);
+        }
+        return value;
+    }
+
+    int64_t ts_buffer_read_intbe(void* buf, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        int64_t value = 0;
+        for (int64_t i = 0; i < byteLength; i++) {
+            value = (value << 8) | data[off + i];
+        }
+        // Sign-extend if negative
+        int64_t signBit = 1LL << (byteLength * 8 - 1);
+        if (value & signBit) {
+            value |= ~((1LL << (byteLength * 8)) - 1);
+        }
+        return value;
+    }
+
+    int64_t ts_buffer_read_uintle(void* buf, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        int64_t value = 0;
+        for (int64_t i = 0; i < byteLength; i++) {
+            value |= ((int64_t)data[off + i]) << (i * 8);
+        }
+        return value;
+    }
+
+    int64_t ts_buffer_read_uintbe(void* buf, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        int64_t value = 0;
+        for (int64_t i = 0; i < byteLength; i++) {
+            value = (value << 8) | data[off + i];
+        }
+        return value;
+    }
+
+    // ============================================================================
+    // Buffer Variable-Length Write Methods
+    // ============================================================================
+
+    int64_t ts_buffer_write_intle(void* buf, int64_t value, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        for (int64_t i = 0; i < byteLength; i++) {
+            data[off + i] = (uint8_t)(value >> (i * 8));
+        }
+        return offset + byteLength;
+    }
+
+    int64_t ts_buffer_write_intbe(void* buf, int64_t value, int64_t offset, int64_t byteLength) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || byteLength < 1 || byteLength > 6) return 0;
+        size_t off = (size_t)offset;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (off + byteLength > len) return 0;
+
+        for (int64_t i = byteLength - 1; i >= 0; i--) {
+            data[off + (byteLength - 1 - i)] = (uint8_t)(value >> (i * 8));
+        }
+        return offset + byteLength;
+    }
+
+    int64_t ts_buffer_write_uintle(void* buf, int64_t value, int64_t offset, int64_t byteLength) {
+        // Same implementation as write_intle - unsigned values are stored the same way
+        return ts_buffer_write_intle(buf, value, offset, byteLength);
+    }
+
+    int64_t ts_buffer_write_uintbe(void* buf, int64_t value, int64_t offset, int64_t byteLength) {
+        // Same implementation as write_intbe - unsigned values are stored the same way
+        return ts_buffer_write_intbe(buf, value, offset, byteLength);
+    }
+
+    // ============================================================================
+    // Buffer Swap Methods
+    // ============================================================================
+
+    void* ts_buffer_swap16(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return buf;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (len % 2 != 0) return buf; // Must be divisible by 2
+
+        for (size_t i = 0; i < len; i += 2) {
+            uint8_t temp = data[i];
+            data[i] = data[i + 1];
+            data[i + 1] = temp;
+        }
+        return buf;
+    }
+
+    void* ts_buffer_swap32(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return buf;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (len % 4 != 0) return buf; // Must be divisible by 4
+
+        for (size_t i = 0; i < len; i += 4) {
+            uint8_t t0 = data[i];
+            uint8_t t1 = data[i + 1];
+            data[i] = data[i + 3];
+            data[i + 1] = data[i + 2];
+            data[i + 2] = t1;
+            data[i + 3] = t0;
+        }
+        return buf;
+    }
+
+    void* ts_buffer_swap64(void* buf) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return buf;
+        size_t len = buffer->GetLength();
+        uint8_t* data = buffer->GetData();
+        if (len % 8 != 0) return buf; // Must be divisible by 8
+
+        for (size_t i = 0; i < len; i += 8) {
+            uint8_t t0 = data[i];
+            uint8_t t1 = data[i + 1];
+            uint8_t t2 = data[i + 2];
+            uint8_t t3 = data[i + 3];
+            data[i] = data[i + 7];
+            data[i + 1] = data[i + 6];
+            data[i + 2] = data[i + 5];
+            data[i + 3] = data[i + 4];
+            data[i + 4] = t3;
+            data[i + 5] = t2;
+            data[i + 6] = t1;
+            data[i + 7] = t0;
+        }
+        return buf;
     }
 
     // ============================================================================

@@ -352,6 +352,24 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_buffer_byte_offset",      {false}},             // (buf*) -> int
     {"ts_buffer_get_array_buffer", {false}},             // (buf*) -> ArrayBuffer*
     {"ts_buffer_from_buffer",      {false}},             // (buf*) -> Buffer* (copy)
+    {"ts_buffer_from_array",       {false}},             // (arr*) -> Buffer*
+
+    // Buffer variable-length read methods
+    {"ts_buffer_read_intle",       {false, false, false}}, // (buf*, offset, byteLength) -> int
+    {"ts_buffer_read_intbe",       {false, false, false}}, // (buf*, offset, byteLength) -> int
+    {"ts_buffer_read_uintle",      {false, false, false}}, // (buf*, offset, byteLength) -> int
+    {"ts_buffer_read_uintbe",      {false, false, false}}, // (buf*, offset, byteLength) -> int
+
+    // Buffer variable-length write methods
+    {"ts_buffer_write_intle",      {false, false, false, false}}, // (buf*, value, offset, byteLength) -> int
+    {"ts_buffer_write_intbe",      {false, false, false, false}}, // (buf*, value, offset, byteLength) -> int
+    {"ts_buffer_write_uintle",     {false, false, false, false}}, // (buf*, value, offset, byteLength) -> int
+    {"ts_buffer_write_uintbe",     {false, false, false, false}}, // (buf*, value, offset, byteLength) -> int
+
+    // Buffer swap methods
+    {"ts_buffer_swap16",           {false}},             // (buf*) -> buf*
+    {"ts_buffer_swap32",           {false}},             // (buf*) -> buf*
+    {"ts_buffer_swap64",           {false}},             // (buf*) -> buf*
     {"ts_data_view_create",        {false, false, false}}, // (buf, offset, len) -> DataView*
 
     // =========================================================================
