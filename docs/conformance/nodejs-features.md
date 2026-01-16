@@ -486,7 +486,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `res.hasHeader()` | ✅ | |
 | `res.removeHeader()` | ✅ | |
 | `res.statusCode` | ✅ | |
-| `res.statusMessage` | ❌ | |
+| `res.statusMessage` | ✅ | |
 | `res.headersSent` | ✅ | |
 | `res.writableEnded` | ✅ | |
 | `res.writableFinished` | ✅ | |
@@ -534,7 +534,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 38/68 (56%)**
+**HTTP Coverage: 39/68 (57%)**
 
 ---
 
@@ -1023,7 +1023,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Crypto | 16 | 34 | 47% |
 | Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
-| HTTP | 38 | 68 | 56% |
+| HTTP | 39 | 68 | 57% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 31 | 38 | 82% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **496** | **661** | **75%** |
+| **Total** | **497** | **661** | **75%** |
 
 ### Priority Implementation Targets
 

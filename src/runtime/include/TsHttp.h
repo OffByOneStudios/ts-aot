@@ -256,6 +256,12 @@ extern "C" {
     void* ts_incoming_message_httpVersion(void* ctx, void* msg);
     bool ts_incoming_message_complete(void* ctx, void* msg);
     void* ts_incoming_message_rawHeaders(void* ctx, void* msg);
+
+    // ServerResponse property getters/setters
+    int64_t ts_server_response_get_status_code(void* res);
+    void* ts_server_response_get_status_message(void* res);
+    void ts_server_response_set_status_code(void* res, int64_t code);
+    void ts_server_response_set_status_message(void* res, void* msg);
 }
 
 // HTTP CloseEvent class (for WebSocket and other close events)
