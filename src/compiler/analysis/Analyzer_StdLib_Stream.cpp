@@ -41,6 +41,7 @@ void Analyzer::registerStreams() {
     readableClass->fields["readableEnded"] = std::make_shared<Type>(TypeKind::Boolean);
     readableClass->fields["readableFlowing"] = std::make_shared<Type>(TypeKind::Boolean);
     readableClass->fields["readableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
+    readableClass->fields["readableLength"] = std::make_shared<Type>(TypeKind::Int);
 
     // Readable methods
     auto isPausedFn = std::make_shared<FunctionType>();
