@@ -33,6 +33,9 @@ static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
     // url module static functions
     bp.registerRuntimeApi("ts_url_file_url_to_path", {true}, false);  // url -> string
     bp.registerRuntimeApi("ts_url_path_to_file_url", {true}, true);   // path -> URL
+    bp.registerRuntimeApi("ts_url_format", {true, true}, false);      // urlObj, options -> string
+    bp.registerRuntimeApi("ts_url_resolve", {true, true}, false);     // from, to -> string
+    bp.registerRuntimeApi("ts_url_to_http_options", {true}, true);    // url -> options object
 }
 
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -251,6 +254,64 @@ bool IRGenerator::tryGenerateURLModuleCall(ast::CallExpression* node, ast::Prope
             { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_url_path_to_file_url", ft);
         lastValue = createCall(ft, fn.getCallee(), { path });
+        return true;
+    }
+
+    // url.format(urlObject, options?) - format URL or legacy object to string
+    if (prop->name == "format") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* urlObj = boxValue(lastValue, node->arguments[0]->inferredType);
+
+        llvm::Value* options = nullptr;
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            options = boxValue(lastValue, node->arguments[1]->inferredType);
+        } else {
+            options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_format", ft);
+        lastValue = createCall(ft, fn.getCallee(), { urlObj, options });
+        return true;
+    }
+
+    // url.resolve(from, to) - resolve relative URL
+    if (prop->name == "resolve") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* from = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* to = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_resolve", ft);
+        lastValue = createCall(ft, fn.getCallee(), { from, to });
+        return true;
+    }
+
+    // url.urlToHttpOptions(url) - extract HTTP options from URL
+    if (prop->name == "urlToHttpOptions") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* url = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_to_http_options", ft);
+        lastValue = createCall(ft, fn.getCallee(), { url });
         return true;
     }
 

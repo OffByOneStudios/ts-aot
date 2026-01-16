@@ -126,4 +126,7 @@ extern "C" {
 
     // Unshift - push data back to the front of the internal buffer
     void ts_readable_unshift(void* stream, void* chunk);
+
+    // wrap() - wrap an old-style stream in a Readable class
+    void* ts_readable_wrap(void* readable, void* oldStream);
 }

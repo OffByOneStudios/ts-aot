@@ -74,6 +74,12 @@ void Analyzer::registerStreams() {
     // readable.readableEncoding property
     readableClass->fields["readableEncoding"] = std::make_shared<Type>(TypeKind::String);
 
+    // readable.wrap(stream) - wrap an old-style stream in a new Readable
+    auto wrapFn = std::make_shared<FunctionType>();
+    wrapFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // oldStream
+    wrapFn->returnType = readableClass;  // returns this for chaining
+    readableClass->methods["wrap"] = wrapFn;
+
     symbols.defineType("Readable", readableClass);
 
     // Create static Readable object with from() method

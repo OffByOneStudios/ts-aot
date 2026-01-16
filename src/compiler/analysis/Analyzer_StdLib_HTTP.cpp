@@ -501,6 +501,26 @@ void Analyzer::registerURLModule() {
     pathToFileURLFn->returnType = urlClass;
     urlModule->fields["pathToFileURL"] = pathToFileURLFn;
 
+    // url.format(urlObject: URL | object, options?: object): string
+    auto formatFn = std::make_shared<FunctionType>();
+    formatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // URL or legacy object
+    formatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // options (optional)
+    formatFn->returnType = std::make_shared<Type>(TypeKind::String);
+    urlModule->fields["format"] = formatFn;
+
+    // url.resolve(from: string, to: string): string
+    auto resolveFn = std::make_shared<FunctionType>();
+    resolveFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // from
+    resolveFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // to
+    resolveFn->returnType = std::make_shared<Type>(TypeKind::String);
+    urlModule->fields["resolve"] = resolveFn;
+
+    // url.urlToHttpOptions(url: URL): object
+    auto urlToHttpOptionsFn = std::make_shared<FunctionType>();
+    urlToHttpOptionsFn->paramTypes.push_back(urlClass);  // URL object
+    urlToHttpOptionsFn->returnType = std::make_shared<ObjectType>();  // Returns options object
+    urlModule->fields["urlToHttpOptions"] = urlToHttpOptionsFn;
+
     symbols.define("url", urlModule);
 }
 

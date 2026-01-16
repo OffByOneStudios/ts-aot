@@ -617,4 +617,98 @@ extern "C" {
 
         r->Unshift(chunk);
     }
+
+    // --- readable.wrap() implementation ---
+    // Wraps an old-style stream (with 'data' and 'end' events) into a new Readable
+    // The wrapped stream will emit data through the new Readable
+
+    struct WrapContext {
+        TsReadable* readable;
+        TsEventEmitter* oldStream;
+        TsValue* dataListener;
+        TsValue* endListener;
+        TsValue* errorListener;
+        TsValue* closeListener;
+    };
+
+    TsValue* wrap_data_cb(void* context, int argc, TsValue** argv) {
+        WrapContext* ctx = (WrapContext*)context;
+        if (!ctx || !ctx->readable) return ts_value_make_undefined();
+
+        // Push data from old stream to new readable
+        if (argc > 0 && argv[0]) {
+            ctx->readable->Unshift(argv[0]);
+            // Emit 'data' event on the new readable
+            void* args[] = { argv[0] };
+            ctx->readable->Emit("data", 1, args);
+        }
+        return ts_value_make_undefined();
+    }
+
+    TsValue* wrap_end_cb(void* context, int argc, TsValue** argv) {
+        WrapContext* ctx = (WrapContext*)context;
+        if (!ctx || !ctx->readable) return ts_value_make_undefined();
+
+        // Emit 'end' event on the new readable
+        ctx->readable->Emit("end", 0, nullptr);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* wrap_error_cb(void* context, int argc, TsValue** argv) {
+        WrapContext* ctx = (WrapContext*)context;
+        if (!ctx || !ctx->readable) return ts_value_make_undefined();
+
+        // Forward error to the new readable
+        ctx->readable->Emit("error", argc, (void**)argv);
+        return ts_value_make_undefined();
+    }
+
+    TsValue* wrap_close_cb(void* context, int argc, TsValue** argv) {
+        WrapContext* ctx = (WrapContext*)context;
+        if (!ctx || !ctx->readable) return ts_value_make_undefined();
+
+        // Emit 'close' event on the new readable
+        ctx->readable->Emit("close", 0, nullptr);
+        return ts_value_make_undefined();
+    }
+
+    void* ts_readable_wrap(void* readable, void* oldStream) {
+        if (!readable || !oldStream) return readable;
+
+        // Unbox readable if needed
+        void* rawReadable = ts_value_get_object((TsValue*)readable);
+        if (!rawReadable) rawReadable = readable;
+
+        TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawReadable);
+        if (!r) r = ((TsObject*)rawReadable)->AsReadable();
+        if (!r) return readable;
+
+        // Unbox old stream if needed
+        void* rawOldStream = ts_value_get_object((TsValue*)oldStream);
+        if (!rawOldStream) rawOldStream = oldStream;
+
+        TsEventEmitter* oldEmitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawOldStream);
+        if (!oldEmitter) oldEmitter = ((TsObject*)rawOldStream)->AsEventEmitter();
+        if (!oldEmitter) return readable;
+
+        // Create wrap context
+        WrapContext* ctx = (WrapContext*)ts_alloc(sizeof(WrapContext));
+        ctx->readable = r;
+        ctx->oldStream = oldEmitter;
+
+        // Create event listeners
+        ctx->dataListener = ts_value_make_native_function((void*)wrap_data_cb, ctx);
+        ctx->endListener = ts_value_make_native_function((void*)wrap_end_cb, ctx);
+        ctx->errorListener = ts_value_make_native_function((void*)wrap_error_cb, ctx);
+        ctx->closeListener = ts_value_make_native_function((void*)wrap_close_cb, ctx);
+
+        // Listen to events on the old stream
+        oldEmitter->On("data", ctx->dataListener);
+        oldEmitter->On("end", ctx->endListener);
+        oldEmitter->On("error", ctx->errorListener);
+        oldEmitter->On("close", ctx->closeListener);
+
+        // Return the new readable stream for chaining
+        return readable;
+    }
 }
