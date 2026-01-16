@@ -97,12 +97,13 @@ class NodeTestRunner:
             result = subprocess.run(
                 [str(self.compiler_path), str(test_file), '-o', str(exe_path)],
                 capture_output=True,
-                text=True,
-                timeout=30
+                timeout=30,
+                encoding='utf-8',
+                errors='replace'
             )
 
             if result.returncode != 0:
-                return False, result.stderr
+                return False, result.stderr or ""
 
             return True, ""
         except subprocess.TimeoutExpired:
@@ -116,11 +117,12 @@ class NodeTestRunner:
             result = subprocess.run(
                 [str(exe_path)],
                 capture_output=True,
-                text=True,
-                timeout=10
+                timeout=10,
+                encoding='utf-8',
+                errors='replace'
             )
 
-            return result.returncode, result.stdout, result.stderr
+            return result.returncode, result.stdout or "", result.stderr or ""
         except subprocess.TimeoutExpired:
             return -1, "", "Test execution timeout"
         except Exception as e:
@@ -128,6 +130,9 @@ class NodeTestRunner:
 
     def check_test_status(self, output: str) -> tuple[bool, bool]:
         """Check if test is skipped or blocked based on output."""
+        if not output:
+            return False, False
+
         blocked_keywords = [
             "blocked pending async",
             "blocked pending event loop",
