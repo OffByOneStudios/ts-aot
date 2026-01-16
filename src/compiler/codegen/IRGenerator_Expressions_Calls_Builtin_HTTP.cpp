@@ -90,6 +90,14 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_incoming_message_httpVersion", {true, true}, false);  // (ctx, msg) -> string
     bp.registerRuntimeApi("ts_incoming_message_complete", {true, true}, false);  // (ctx, msg) -> bool
     bp.registerRuntimeApi("ts_incoming_message_rawHeaders", {true, true}, true);  // (ctx, msg) -> array
+
+    // ClientRequest property getters and methods
+    bp.registerRuntimeApi("ts_client_request_get_path", {true}, false);  // (req) -> string
+    bp.registerRuntimeApi("ts_client_request_get_method", {true}, false);  // (req) -> string
+    bp.registerRuntimeApi("ts_client_request_get_host", {true}, false);  // (req) -> string
+    bp.registerRuntimeApi("ts_client_request_get_protocol", {true}, false);  // (req) -> string
+    bp.registerRuntimeApi("ts_client_request_get_header", {true, false}, true);  // (req, name) -> any
+    bp.registerRuntimeApi("ts_client_request_set_header", {true, false, true}, false);  // (req, name, value) -> void
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -571,6 +579,26 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
             } else if (node->name == "statusMessage" && classType->name == "ServerResponse") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_get_status_message", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "path" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_path", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "method" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_method", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "host" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_host", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "protocol" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_protocol", ft);
                 lastValue = createCall(ft, fn.getCallee(), { res });
                 return true;
             }

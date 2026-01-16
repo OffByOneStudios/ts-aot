@@ -518,23 +518,23 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.destroy()` | ❌ | |
 | `req.end()` | ✅ | |
 | `req.flushHeaders()` | ❌ | |
-| `req.getHeader()` | ❌ | |
+| `req.getHeader()` | ✅ | |
 | `req.getRawHeaderNames()` | ❌ | |
 | `req.maxHeadersCount` | ❌ | |
-| `req.path` | ❌ | |
-| `req.method` | ❌ | |
-| `req.host` | ❌ | |
-| `req.protocol` | ❌ | |
+| `req.path` | ✅ | |
+| `req.method` | ✅ | |
+| `req.host` | ✅ | |
+| `req.protocol` | ✅ | |
 | `req.removeHeader()` | ❌ | |
 | `req.reusedSocket` | ❌ | |
-| `req.setHeader()` | ❌ | |
+| `req.setHeader()` | ✅ | |
 | `req.setNoDelay()` | ❌ | |
 | `req.setSocketKeepAlive()` | ❌ | |
 | `req.setTimeout()` | ❌ | |
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 39/68 (57%)**
+**HTTP Coverage: 45/68 (66%)**
 
 ---
 
@@ -1023,7 +1023,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Crypto | 16 | 34 | 47% |
 | Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
-| HTTP | 39 | 68 | 57% |
+| HTTP | 45 | 68 | 66% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 31 | 38 | 82% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **497** | **661** | **75%** |
+| **Total** | **503** | **661** | **76%** |
 
 ### Priority Implementation Targets
 
