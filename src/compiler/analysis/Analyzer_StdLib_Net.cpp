@@ -58,6 +58,16 @@ void Analyzer::registerNet() {
     socketAddressMethod->returnType = std::make_shared<Type>(TypeKind::Any);
     socketClass->methods["address"] = socketAddressMethod;
 
+    // socket.ref() -> socket
+    auto socketRefMethod = std::make_shared<FunctionType>();
+    socketRefMethod->returnType = socketClass;
+    socketClass->methods["ref"] = socketRefMethod;
+
+    // socket.unref() -> socket
+    auto socketUnrefMethod = std::make_shared<FunctionType>();
+    socketUnrefMethod->returnType = socketClass;
+    socketClass->methods["unref"] = socketUnrefMethod;
+
     symbols.defineType("Socket", socketClass);
     netModule->fields["Socket"] = socketClass;
     
@@ -76,6 +86,22 @@ void Analyzer::registerNet() {
     auto serverAddressMethod = std::make_shared<FunctionType>();
     serverAddressMethod->returnType = std::make_shared<Type>(TypeKind::Any);
     serverClass->methods["address"] = serverAddressMethod;
+
+    // server.ref() -> server
+    auto serverRefMethod = std::make_shared<FunctionType>();
+    serverRefMethod->returnType = serverClass;
+    serverClass->methods["ref"] = serverRefMethod;
+
+    // server.unref() -> server
+    auto serverUnrefMethod = std::make_shared<FunctionType>();
+    serverUnrefMethod->returnType = serverClass;
+    serverClass->methods["unref"] = serverUnrefMethod;
+
+    // server.getConnections(callback) -> void
+    auto serverGetConnectionsMethod = std::make_shared<FunctionType>();
+    serverGetConnectionsMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    serverGetConnectionsMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    serverClass->methods["getConnections"] = serverGetConnectionsMethod;
 
     symbols.defineType("Server", serverClass);
     netModule->fields["Server"] = serverClass;

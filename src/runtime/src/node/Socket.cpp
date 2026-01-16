@@ -432,6 +432,18 @@ void* TsSocket::Address() {
     return obj;
 }
 
+void TsSocket::Ref() {
+    if (handle && !closed) {
+        uv_ref((uv_handle_t*)handle);
+    }
+}
+
+void TsSocket::Unref() {
+    if (handle && !closed) {
+        uv_unref((uv_handle_t*)handle);
+    }
+}
+
 extern "C" {
     void* ts_net_create_socket() {
         void* mem = ts_alloc(sizeof(TsSocket));
@@ -604,6 +616,18 @@ extern "C" {
         TsSocket* s = getSocketFromVoid(socket);
         if (!s) return nullptr;
         return s->Address();
+    }
+
+    void* ts_net_socket_ref(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (s) s->Ref();
+        return socket;  // Return socket for chaining
+    }
+
+    void* ts_net_socket_unref(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (s) s->Unref();
+        return socket;  // Return socket for chaining
     }
 
     // Global state for auto-select family settings

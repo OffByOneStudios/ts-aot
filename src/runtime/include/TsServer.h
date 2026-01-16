@@ -16,6 +16,13 @@ public:
     // Returns { address, family, port } object or null if not listening
     void* Address();
 
+    // Handle reference control
+    void Ref();
+    void Unref();
+
+    // Get connection count
+    void GetConnections(void* callback);
+
 protected:
     uv_tcp_t* handle;
     bool listening;
@@ -32,4 +39,11 @@ extern "C" {
     void ts_net_server_listen(void* server, void* port, void* callback);
     void ts_net_server_close(void* server);
     void* ts_net_server_address(void* server);
+
+    // Handle reference control
+    void* ts_net_server_ref(void* server);
+    void* ts_net_server_unref(void* server);
+
+    // Get connection count
+    void ts_net_server_get_connections(void* server, void* callback);
 }

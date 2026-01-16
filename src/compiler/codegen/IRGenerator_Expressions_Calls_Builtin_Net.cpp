@@ -63,6 +63,13 @@ static void ensureNetFunctionsRegistered(BoxingPolicy& bp) {
     // Server methods
     bp.registerRuntimeApi("ts_net_server_close", {true}, false);  // server -> void
     bp.registerRuntimeApi("ts_net_server_address", {true}, true);  // server -> object
+    bp.registerRuntimeApi("ts_net_server_ref", {true}, true);  // server -> server
+    bp.registerRuntimeApi("ts_net_server_unref", {true}, true);  // server -> server
+    bp.registerRuntimeApi("ts_net_server_get_connections", {true, true}, false);  // server, callback -> void
+
+    // Socket ref/unref methods
+    bp.registerRuntimeApi("ts_net_socket_ref", {true}, true);  // socket -> socket
+    bp.registerRuntimeApi("ts_net_socket_unref", {true}, true);  // socket -> socket
 }
 
 bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -470,6 +477,22 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_address", ft);
             lastValue = createCall(ft, fn.getCallee(), { socket });
             return true;
+        } else if (prop->name == "ref") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_ref", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket });
+            return true;
+        } else if (prop->name == "unref") {
+            visit(prop->expression.get());
+            llvm::Value* socket = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_socket_unref", ft);
+            lastValue = createCall(ft, fn.getCallee(), { socket });
+            return true;
         }
     }
 
@@ -509,6 +532,38 @@ bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAcc
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_address", ft);
             lastValue = createCall(ft, fn.getCallee(), { server });
+            return true;
+        } else if (prop->name == "ref") {
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_ref", ft);
+            lastValue = createCall(ft, fn.getCallee(), { server });
+            return true;
+        } else if (prop->name == "unref") {
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_unref", ft);
+            lastValue = createCall(ft, fn.getCallee(), { server });
+            return true;
+        } else if (prop->name == "getConnections") {
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                callback = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_get_connections", ft);
+            createCall(ft, fn.getCallee(), { server, callback });
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
             return true;
         }
     }
