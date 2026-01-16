@@ -103,6 +103,9 @@ void Analyzer::registerNet() {
     serverGetConnectionsMethod->returnType = std::make_shared<Type>(TypeKind::Void);
     serverClass->methods["getConnections"] = serverGetConnectionsMethod;
 
+    // server.maxConnections (number, -1 = unlimited)
+    serverClass->fields["maxConnections"] = std::make_shared<Type>(TypeKind::Int);
+
     symbols.defineType("Server", serverClass);
     netModule->fields["Server"] = serverClass;
     

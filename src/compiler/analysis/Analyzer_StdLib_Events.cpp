@@ -84,8 +84,18 @@ void Analyzer::registerEvents() {
 
     symbols.defineType("EventEmitter", eventEmitterClass);
 
+    // Create EventEmitter static object with listenerCount static method (deprecated but still available)
+    auto eventEmitterStatic = std::make_shared<ObjectType>();
+
+    // EventEmitter.listenerCount(emitter, eventName): number (deprecated)
+    auto staticListenerCountFn = std::make_shared<FunctionType>();
+    staticListenerCountFn->paramTypes.push_back(eventEmitterClass);
+    staticListenerCountFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    staticListenerCountFn->returnType = std::make_shared<Type>(TypeKind::Int);
+    eventEmitterStatic->fields["listenerCount"] = staticListenerCountFn;
+
     auto eventsModule = std::make_shared<ObjectType>();
-    eventsModule->fields["EventEmitter"] = eventEmitterClass;
+    eventsModule->fields["EventEmitter"] = eventEmitterStatic;
 
     // events.once(emitter: EventEmitter, event: string): Promise<any[]>
     auto staticOnceFn = std::make_shared<FunctionType>();

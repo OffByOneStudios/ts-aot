@@ -26,12 +26,32 @@ static void ensureEventsFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_event_emitter_raw_listeners", {false, false}, true);  // (emitter, event) -> array
     bp.registerRuntimeApi("ts_event_emitter_static_once", {false, false}, true);  // (emitter, event) -> promise
     bp.registerRuntimeApi("ts_event_emitter_static_on", {false, false}, true);    // (emitter, event) -> async iterator
+    bp.registerRuntimeApi("ts_event_emitter_static_listener_count", {false, false}, false);  // (emitter, event) -> int (deprecated)
 }
 
 bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
     ensureEventsFunctionsRegistered(boxingPolicy);
 
     SPDLOG_DEBUG("tryGenerateEventsCall: checking method '{}'", prop->name);
+
+    // Check for events.EventEmitter.listenerCount(emitter, event) - static method (deprecated)
+    if (auto innerProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+        if (auto id = dynamic_cast<ast::Identifier*>(innerProp->expression.get())) {
+            if (id->name == "events" && innerProp->name == "EventEmitter" && prop->name == "listenerCount") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* emitter = lastValue;
+                visit(node->arguments[1].get());
+                llvm::Value* event = lastValue;
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
+                        { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_event_emitter_static_listener_count", ft);
+                lastValue = createCall(ft, fn.getCallee(), { emitter, event });
+                return true;
+            }
+        }
+    }
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "events" && prop->name == "once") {
