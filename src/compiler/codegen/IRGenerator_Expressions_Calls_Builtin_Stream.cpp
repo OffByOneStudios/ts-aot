@@ -26,6 +26,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_readable_flowing", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_unpipe", {true}, false);  // stream -> void
     bp.registerRuntimeApi("ts_readable_readable_high_water_mark", {true}, false);  // stream -> i64
+    bp.registerRuntimeApi("ts_readable_readable_length", {true}, false);  // stream -> i64
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -350,6 +351,14 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
                     { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_high_water_mark", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "readableLength") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_length", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
         }

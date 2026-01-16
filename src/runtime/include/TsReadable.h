@@ -36,6 +36,7 @@ public:
     bool IsReadableFlowing() const { return flowing; }
     int64_t GetHighWaterMark() const { return highWaterMark_; }
     void SetHighWaterMark(int64_t hwm) { highWaterMark_ = hwm; }
+    virtual int64_t GetReadableLength() const { return 0; }  // No internal buffer by default
 
     // Pipe management
     void SetPipeDest(TsWritable* dest) { pipeDest_ = dest; }
@@ -61,6 +62,7 @@ extern "C" {
     bool ts_readable_readable_flowing(void* stream);
     void ts_readable_unpipe(void* stream);
     int64_t ts_readable_readable_high_water_mark(void* stream);
+    int64_t ts_readable_readable_length(void* stream);
 
     // Readable.from() - create a readable stream from an iterable (array)
     void* ts_readable_from(void* iterable);

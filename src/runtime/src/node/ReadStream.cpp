@@ -211,6 +211,14 @@ extern "C" {
         return r->GetHighWaterMark();
     }
 
+    int64_t ts_readable_readable_length(void* stream) {
+        if (!stream) return 0;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return 0;
+        return r->GetReadableLength();
+    }
+
     // --- stream.pipeline() implementation ---
     // Pipeline connects multiple streams and handles errors
     struct PipelineContext {
