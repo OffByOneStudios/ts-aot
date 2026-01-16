@@ -930,4 +930,34 @@ extern "C" {
 
         return ts_value_make_object(iteratorMap);
     }
+
+    int64_t ts_event_emitter_static_listener_count(void* emitter, void* event) {
+        // EventEmitter.listenerCount(emitter, eventName) - deprecated static method
+        // Simply delegates to the instance method
+        if (!emitter) return 0;
+
+        // Check if emitter is a boxed TsValue* and unbox it
+        TsValue* val = (TsValue*)emitter;
+        void* rawPtr = nullptr;
+
+        if ((uint8_t)val->type <= 10) {
+            if (val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+                rawPtr = val->ptr_val;
+            } else {
+                return 0;
+            }
+        } else {
+            rawPtr = emitter;
+        }
+
+        if (!rawPtr) return 0;
+
+        TsObject* obj = (TsObject*)rawPtr;
+        TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
+        if (!e) e = obj->AsEventEmitter();
+        if (!e) return 0;
+        TsString* s = (TsString*)event;
+        if (!s) return 0;
+        return (int64_t)e->ListenerCount(s->ToUtf8());
+    }
 }

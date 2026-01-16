@@ -259,7 +259,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Static Methods
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `EventEmitter.listenerCount(emitter, event)` | ❌ | Deprecated |
+| `EventEmitter.listenerCount(emitter, event)` | ✅ | Deprecated but still available |
 | `EventEmitter.on(emitter, event)` | ❌ | AsyncIterator |
 | `EventEmitter.once(emitter, event)` | ✅ | Returns Promise with event args array |
 
@@ -289,7 +289,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'newListener'` event | ✅ | Emitted before adding listener |
 | `'removeListener'` event | ✅ | Emitted after removing listener |
 
-**Events Coverage: 19/21 (90%)**
+**Events Coverage: 20/21 (95%)**
 
 ---
 
@@ -593,7 +593,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `server.close()` | ✅ | |
 | `server.address()` | ✅ | Returns { address, family, port } |
 | `server.getConnections()` | ✅ | Returns 0 (connection tracking not implemented) |
-| `server.maxConnections` | ❌ | |
+| `server.maxConnections` | ✅ | Default -1 (unlimited) |
 | `server.ref()` | ✅ | |
 | `server.unref()` | ✅ | |
 
@@ -633,7 +633,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net.isIPv4()` | ✅ | |
 | `net.isIPv6()` | ✅ | |
 
-**Net Coverage: 35/36 (97%)**
+**Net Coverage: 36/36 (100%)**
 
 ---
 
@@ -1021,11 +1021,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
 | Crypto | 16 | 34 | 47% |
-| Events | 19 | 21 | 90% |
+| Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
-| Net | 35 | 36 | 97% |
+| Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **488** | **661** | **74%** |
+| **Total** | **490** | **661** | **74%** |
 
 ### Priority Implementation Targets
 

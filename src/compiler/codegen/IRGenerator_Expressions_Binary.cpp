@@ -1307,8 +1307,23 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 return;
             }
             
+            // Server.maxConnections property assignment
+            if (cls->name == "Server" && prop->name == "maxConnections") {
+                visit(prop->expression.get());
+                llvm::Value* server = lastValue;
+
+                llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+
+                llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_net_server_set_maxConnections", setFt);
+
+                createCall(setFt, fn.getCallee(), { server, boxedVal });
+                lastValue = val;
+                return;
+            }
+
             // WebSocket event handler property assignment
-            if (cls->name == "WebSocket" && (prop->name == "onopen" || prop->name == "onmessage" || 
+            if (cls->name == "WebSocket" && (prop->name == "onopen" || prop->name == "onmessage" ||
                 prop->name == "onclose" || prop->name == "onerror" || prop->name == "binaryType")) {
                 visit(prop->expression.get());
                 llvm::Value* ws = lastValue;

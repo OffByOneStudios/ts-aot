@@ -70,6 +70,10 @@ static void ensureNetFunctionsRegistered(BoxingPolicy& bp) {
     // Socket ref/unref methods
     bp.registerRuntimeApi("ts_net_socket_ref", {true}, true);  // socket -> socket
     bp.registerRuntimeApi("ts_net_socket_unref", {true}, true);  // socket -> socket
+
+    // Server maxConnections property
+    bp.registerRuntimeApi("ts_net_server_get_maxConnections", {true}, false);  // server -> number
+    bp.registerRuntimeApi("ts_net_server_set_maxConnections", {true, true}, false);  // server, value -> void
 }
 
 bool IRGenerator::tryGenerateNetCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

@@ -23,6 +23,9 @@ public:
     // Get connection count
     void GetConnections(void* callback);
 
+    // Max connections property (-1 = unlimited)
+    int maxConnections;
+
 protected:
     uv_tcp_t* handle;
     bool listening;
@@ -46,4 +49,8 @@ extern "C" {
 
     // Get connection count
     void ts_net_server_get_connections(void* server, void* callback);
+
+    // Max connections property
+    int64_t ts_net_server_get_maxConnections(void* server);
+    void ts_net_server_set_maxConnections(void* server, void* value);
 }

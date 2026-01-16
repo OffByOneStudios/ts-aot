@@ -6,7 +6,7 @@
 #include "GC.h"
 #include <new>
 
-TsServer::TsServer() : listening(false), closed(false) {
+TsServer::TsServer() : listening(false), closed(false), maxConnections(-1) {
     this->magic = MAGIC;
     handle = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(uv_default_loop(), handle);
@@ -175,5 +175,20 @@ extern "C" {
     void ts_net_server_get_connections(void* server, void* callback) {
         TsServer* s = (TsServer*)server;
         if (s) s->GetConnections(callback);
+    }
+
+    int64_t ts_net_server_get_maxConnections(void* server) {
+        TsServer* s = (TsServer*)server;
+        if (!s) return -1;
+        return s->maxConnections;
+    }
+
+    void ts_net_server_set_maxConnections(void* server, void* value) {
+        TsServer* s = (TsServer*)server;
+        if (!s) return;
+        TsValue* v = (TsValue*)value;
+        if (v && v->type == ValueType::NUMBER_INT) {
+            s->maxConnections = (int)v->i_val;
+        }
     }
 }

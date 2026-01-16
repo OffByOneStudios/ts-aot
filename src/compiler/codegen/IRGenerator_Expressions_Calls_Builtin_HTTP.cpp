@@ -840,6 +840,19 @@ bool IRGenerator::tryGenerateNetPropertyAccess(ast::PropertyAccessExpression* no
                 return true;
             }
         }
+
+        // Server properties
+        if (classType->name == "Server") {
+            visit(node->expression.get());
+            llvm::Value* server = lastValue;
+
+            if (node->name == "maxConnections") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_net_server_get_maxConnections", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            }
+        }
     }
 
     return false;

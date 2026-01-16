@@ -65,4 +65,7 @@ extern "C" {
     // Static methods on the events module
     TsValue* ts_event_emitter_static_once(void* emitter, void* event);  // events.once()
     TsValue* ts_event_emitter_static_on(void* emitter, void* event);    // events.on()
+
+    // Static method: EventEmitter.listenerCount(emitter, eventName) - deprecated but still available
+    int64_t ts_event_emitter_static_listener_count(void* emitter, void* event);
 }
