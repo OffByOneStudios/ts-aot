@@ -42,6 +42,7 @@ void Analyzer::registerStreams() {
     readableClass->fields["readableFlowing"] = std::make_shared<Type>(TypeKind::Boolean);
     readableClass->fields["readableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
     readableClass->fields["readableLength"] = std::make_shared<Type>(TypeKind::Int);
+    readableClass->fields["readableObjectMode"] = std::make_shared<Type>(TypeKind::Boolean);
 
     // Readable methods
     auto isPausedFn = std::make_shared<FunctionType>();
@@ -92,11 +93,20 @@ void Analyzer::registerStreams() {
     writableClass->fields["writableNeedDrain"] = std::make_shared<Type>(TypeKind::Boolean);
     writableClass->fields["writableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
     writableClass->fields["writableLength"] = std::make_shared<Type>(TypeKind::Int);
+    writableClass->fields["writableObjectMode"] = std::make_shared<Type>(TypeKind::Boolean);
 
     // Writable methods
     auto writableDestroyFn = std::make_shared<FunctionType>();
     writableDestroyFn->returnType = writableClass;
     writableClass->methods["destroy"] = writableDestroyFn;
+
+    auto corkFn = std::make_shared<FunctionType>();
+    corkFn->returnType = writableClass;
+    writableClass->methods["cork"] = corkFn;
+
+    auto uncorkFn = std::make_shared<FunctionType>();
+    uncorkFn->returnType = writableClass;
+    writableClass->methods["uncork"] = uncorkFn;
 
     symbols.defineType("Writable", writableClass);
 

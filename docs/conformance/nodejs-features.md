@@ -781,7 +781,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.readableFlowing` | ✅ | |
 | `readable.readableHighWaterMark` | ✅ | |
 | `readable.readableLength` | ✅ | Returns 0 (no internal buffer) |
-| `readable.readableObjectMode` | ❌ | |
+| `readable.readableObjectMode` | ✅ | |
 | `readable.resume()` | ✅ | |
 | `readable.setEncoding()` | ❌ | |
 | `readable.unpipe()` | ✅ | |
@@ -792,12 +792,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Writable
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `writable.cork()` | ❌ | |
+| `writable.cork()` | ✅ | |
 | `writable.destroy()` | ✅ | |
 | `writable.destroyed` | ✅ | |
 | `writable.end()` | ✅ | |
 | `writable.setDefaultEncoding()` | ❌ | |
-| `writable.uncork()` | ❌ | |
+| `writable.uncork()` | ✅ | |
 | `writable.writable` | ✅ | |
 | `writable.writableAborted` | ❌ | |
 | `writable.writableEnded` | ✅ | |
@@ -805,7 +805,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `writable.writableHighWaterMark` | ✅ | |
 | `writable.writableLength` | ✅ | |
 | `writable.writableNeedDrain` | ✅ | |
-| `writable.writableObjectMode` | ❌ | |
+| `writable.writableObjectMode` | ✅ | |
 | `writable.write()` | ✅ | |
 
 ### Duplex
@@ -827,7 +827,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 29/44 (66%)**
+**Stream Coverage: 33/44 (75%)**
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 29 | 44 | 66% |
+| Stream | 33 | 44 | 75% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **471** | **661** | **71%** |
+| **Total** | **475** | **661** | **72%** |
 
 ### Priority Implementation Targets
 

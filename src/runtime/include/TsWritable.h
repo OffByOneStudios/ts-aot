@@ -4,7 +4,8 @@
 class TsWritable : public virtual TsEventEmitter {
 public:
     TsWritable() : closed(false), bufferedAmount(0), highWaterMark(16384), needDrain(false),
-                   destroyed_(false), ended_(false), finished_(false) {}
+                   destroyed_(false), ended_(false), finished_(false), objectMode_(false),
+                   corked_(false) {}
     virtual ~TsWritable() {}
 
     // Safe casting helper
@@ -31,6 +32,13 @@ public:
     bool IsWritableNeedDrain() const { return needDrain; }
     size_t GetWritableHighWaterMark() const { return highWaterMark; }
     size_t GetWritableLength() const { return bufferedAmount; }
+    bool IsObjectMode() const { return objectMode_; }
+    void SetObjectMode(bool mode) { objectMode_ = mode; }
+
+    // Cork/Uncork methods
+    void Cork() { corked_ = true; }
+    void Uncork() { corked_ = false; }
+    bool IsCorked() const { return corked_; }
 
 protected:
     bool closed;
@@ -40,6 +48,8 @@ protected:
     bool destroyed_;
     bool ended_;
     bool finished_;
+    bool objectMode_;
+    bool corked_;
 };
 
 // C API for stream properties
@@ -51,4 +61,7 @@ extern "C" {
     bool ts_writable_writable_need_drain(void* stream);
     int64_t ts_writable_writable_high_water_mark(void* stream);
     int64_t ts_writable_writable_length(void* stream);
+    bool ts_writable_writable_object_mode(void* stream);
+    void ts_writable_cork(void* stream);
+    void ts_writable_uncork(void* stream);
 }

@@ -111,4 +111,26 @@ extern "C" {
         if (!w) return 0;
         return (int64_t)w->GetWritableLength();
     }
+
+    bool ts_writable_writable_object_mode(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return false;
+        return w->IsObjectMode();
+    }
+
+    void ts_writable_cork(void* stream) {
+        if (!stream) return;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (w) w->Cork();
+    }
+
+    void ts_writable_uncork(void* stream) {
+        if (!stream) return;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (w) w->Uncork();
+    }
 }
