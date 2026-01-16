@@ -183,6 +183,7 @@ private:
     bool tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateURLModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateQueryStringCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);

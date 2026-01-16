@@ -44,12 +44,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `querystring` | ✅ | 100% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
-| `stream` | ⚠️ | 66% | Streams |
+| `stream` | ⚠️ | 86% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
 | `timers` | ⚠️ | 93% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
-| `url` | ⚠️ | 76% | URL parsing |
+| `url` | ⚠️ | 82% | URL parsing |
 | `util` | ⚠️ | 42% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
@@ -776,14 +776,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.readable` | ✅ | |
 | `readable.readableAborted` | ✅ | |
 | `readable.readableDidRead` | ✅ | |
-| `readable.readableEncoding` | ❌ | |
+| `readable.readableEncoding` | ✅ | |
 | `readable.readableEnded` | ✅ | |
 | `readable.readableFlowing` | ✅ | |
 | `readable.readableHighWaterMark` | ✅ | |
 | `readable.readableLength` | ✅ | Returns 0 (no internal buffer) |
 | `readable.readableObjectMode` | ✅ | |
 | `readable.resume()` | ✅ | |
-| `readable.setEncoding()` | ❌ | |
+| `readable.setEncoding()` | ✅ | |
 | `readable.unpipe()` | ✅ | |
 | `readable.unshift()` | ❌ | |
 | `readable.wrap()` | ❌ | |
@@ -827,7 +827,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 36/44 (82%)**
+**Stream Coverage: 38/44 (86%)**
 
 ---
 
@@ -917,11 +917,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.resolve()` | ❌ | |
 | `url.domainToASCII()` | ❌ | |
 | `url.domainToUnicode()` | ❌ | |
-| `url.fileURLToPath()` | ❌ | |
-| `url.pathToFileURL()` | ❌ | |
+| `url.fileURLToPath()` | ✅ | |
+| `url.pathToFileURL()` | ✅ | |
 | `url.urlToHttpOptions()` | ❌ | |
 
-**URL Coverage: 29/38 (76%)**
+**URL Coverage: 31/38 (82%)**
 
 ---
 
@@ -969,7 +969,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isInt16Array()` | ❌ | |
 | `util.types.isInt32Array()` | ❌ | |
 | `util.types.isKeyObject()` | ❌ | |
-| `util.types.isMap()` | ⚠️ | Also returns true for plain objects |
+| `util.types.isMap()` | ✅ | Correctly distinguishes Map from plain objects |
 | `util.types.isMapIterator()` | ❌ | |
 | `util.types.isModuleNamespaceObject()` | ❌ | |
 | `util.types.isNativeError()` | ✅ | |
@@ -992,7 +992,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 30/62 (48%)** (12 full, 9 partial)
+**Util Coverage: 30/62 (48%)** (13 full, 8 partial)
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 36 | 44 | 82% |
+| Stream | 38 | 44 | 86% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
-| URL | 29 | 38 | 76% |
+| URL | 31 | 38 | 82% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **490** | **661** | **74%** |
+| **Total** | **494** | **661** | **75%** |
 
 ### Priority Implementation Targets
 

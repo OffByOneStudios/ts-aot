@@ -454,4 +454,30 @@ void Analyzer::registerHTTPS() {
     symbols.define("https", httpsType);
 }
 
+void Analyzer::registerURLModule() {
+    // Register the 'url' module with static utility functions
+    auto urlModule = std::make_shared<ObjectType>();
+
+    auto urlClass = std::static_pointer_cast<ClassType>(symbols.lookupType("URL"));
+    auto urlSearchParamsClass = std::static_pointer_cast<ClassType>(symbols.lookupType("URLSearchParams"));
+
+    // Re-export URL and URLSearchParams classes
+    urlModule->fields["URL"] = urlClass;
+    urlModule->fields["URLSearchParams"] = urlSearchParamsClass;
+
+    // url.fileURLToPath(url: string | URL): string
+    auto fileURLToPathFn = std::make_shared<FunctionType>();
+    fileURLToPathFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // string or URL
+    fileURLToPathFn->returnType = std::make_shared<Type>(TypeKind::String);
+    urlModule->fields["fileURLToPath"] = fileURLToPathFn;
+
+    // url.pathToFileURL(path: string): URL
+    auto pathToFileURLFn = std::make_shared<FunctionType>();
+    pathToFileURLFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    pathToFileURLFn->returnType = urlClass;
+    urlModule->fields["pathToFileURL"] = pathToFileURLFn;
+
+    symbols.define("url", urlModule);
+}
+
 } // namespace ts

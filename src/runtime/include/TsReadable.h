@@ -8,7 +8,7 @@ public:
     TsReadable() : flowing(false), reading(false), destroyed_(false),
                    ended_(false), paused_(true), pipeDest_(nullptr),
                    highWaterMark_(16384), objectMode_(false), aborted_(false),
-                   didRead_(false) {}  // Default 16KB highWaterMark
+                   didRead_(false), encoding_(nullptr) {}  // Default 16KB highWaterMark
     virtual ~TsReadable() {}
 
     // Safe casting helper
@@ -45,6 +45,13 @@ public:
     bool IsReadableDidRead() const { return didRead_; }
     void SetReadableDidRead(bool didRead) { didRead_ = didRead; }
 
+    // Encoding support
+    const char* GetEncoding() const { return encoding_; }
+    TsReadable* SetEncoding(const char* encoding) {
+        encoding_ = encoding;
+        return this;  // For chaining
+    }
+
     // Pipe management
     void SetPipeDest(TsWritable* dest) { pipeDest_ = dest; }
     TsWritable* GetPipeDest() const { return pipeDest_; }
@@ -61,6 +68,7 @@ protected:
     bool objectMode_;
     bool aborted_;
     bool didRead_;
+    const char* encoding_;
 };
 
 // C API for stream properties
@@ -79,4 +87,9 @@ extern "C" {
 
     // Readable.from() - create a readable stream from an iterable (array)
     void* ts_readable_from(void* iterable);
+
+    // Set encoding - returns the stream for chaining
+    void* ts_readable_set_encoding(void* stream, void* encoding);
+    // Get encoding - returns null if not set
+    void* ts_readable_readable_encoding(void* stream);
 }

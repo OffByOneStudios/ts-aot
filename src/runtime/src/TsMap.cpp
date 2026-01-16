@@ -284,6 +284,12 @@ void* ts_map_create() {
     return TsMap::Create();
 }
 
+void* ts_map_create_explicit() {
+    TsMap* map = TsMap::Create();
+    map->SetExplicitMap(true);
+    return map;
+}
+
 // Value-based API variants - avoid heap allocation by passing/returning TsValue by value
 // These are more efficient for hot paths where the caller can use stack-allocated TsValue
 void ts_map_set_v(void* map, TsValue key, TsValue value) {

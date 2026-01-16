@@ -29,6 +29,10 @@ static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_url_search_params_keys", {true}, false);     // params -> array
     bp.registerRuntimeApi("ts_url_search_params_values", {true}, false);   // params -> array
     bp.registerRuntimeApi("ts_url_search_params_for_each", {true, true, true}, false);  // params, callback, thisArg
+
+    // url module static functions
+    bp.registerRuntimeApi("ts_url_file_url_to_path", {true}, false);  // url -> string
+    bp.registerRuntimeApi("ts_url_path_to_file_url", {true}, true);   // path -> URL
 }
 
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -206,6 +210,48 @@ bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAcc
             lastValue = getUndefinedValue();
             return true;
         }
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGenerateURLModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureURLFunctionsRegistered(boxingPolicy);
+
+    // Check if this is a url.* call
+    auto id = dynamic_cast<ast::Identifier*>(prop->expression.get());
+    if (!id || id->name != "url") return false;
+
+    SPDLOG_DEBUG("tryGenerateURLModuleCall: url.{}", prop->name);
+
+    if (prop->name == "fileURLToPath") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* url = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_file_url_to_path", ft);
+        lastValue = createCall(ft, fn.getCallee(), { url });
+        return true;
+    }
+
+    if (prop->name == "pathToFileURL") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_path_to_file_url", ft);
+        lastValue = createCall(ft, fn.getCallee(), { path });
+        return true;
     }
 
     return false;
