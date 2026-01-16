@@ -79,6 +79,12 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_outgoing_message_get_writable_ended", {true}, false);  // (msg) -> bool
     bp.registerRuntimeApi("ts_outgoing_message_get_writable_finished", {true}, false);  // (msg) -> bool
 
+    // ServerResponse property getters/setters
+    bp.registerRuntimeApi("ts_server_response_get_status_code", {true}, false);  // (res) -> int
+    bp.registerRuntimeApi("ts_server_response_get_status_message", {true}, false);  // (res) -> string
+    bp.registerRuntimeApi("ts_server_response_set_status_code", {true, false}, false);  // (res, code) -> void
+    bp.registerRuntimeApi("ts_server_response_set_status_message", {true, false}, false);  // (res, msg) -> void
+
     // IncomingMessage property getters
     bp.registerRuntimeApi("ts_incoming_message_statusMessage", {true, true}, false);  // (ctx, msg) -> string
     bp.registerRuntimeApi("ts_incoming_message_httpVersion", {true, true}, false);  // (ctx, msg) -> string
@@ -555,6 +561,16 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
             } else if (node->name == "writableFinished") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_outgoing_message_get_writable_finished", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "statusCode" && classType->name == "ServerResponse") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_get_status_code", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "statusMessage" && classType->name == "ServerResponse") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_get_status_message", ft);
                 lastValue = createCall(ft, fn.getCallee(), { res });
                 return true;
             }

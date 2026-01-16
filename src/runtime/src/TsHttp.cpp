@@ -960,6 +960,45 @@ bool ts_outgoing_message_get_writable_finished(void* msg) {
     return m->writableFinished;
 }
 
+// ServerResponse-specific property getters
+int64_t ts_server_response_get_status_code(void* res) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return 200;  // Default
+    return r->statusCode;
+}
+
+void* ts_server_response_get_status_message(void* res) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return r->statusMessage;
+}
+
+void ts_server_response_set_status_code(void* res, int64_t code) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->statusCode = (int)code;
+}
+
+void ts_server_response_set_status_message(void* res, void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return;
+
+    void* rawMsg = ts_value_get_string((TsValue*)msg);
+    if (rawMsg) {
+        r->statusMessage = (TsString*)rawMsg;
+    } else if (msg) {
+        r->statusMessage = (TsString*)msg;
+    }
+}
+
 void* ts_http_request(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     return static_cast<TsEventEmitter*>(req);

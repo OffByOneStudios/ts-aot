@@ -1327,18 +1327,48 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 prop->name == "onclose" || prop->name == "onerror" || prop->name == "binaryType")) {
                 visit(prop->expression.get());
                 llvm::Value* ws = lastValue;
-                
+
                 llvm::Value* callback = boxValue(val, node->right->inferredType);
-                
+
                 // Convert binaryType to binary_type for C API
                 std::string propName = prop->name == "binaryType" ? "binary_type" : prop->name;
                 std::string fnName = "ts_websocket_set_" + propName;
                 llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction(fnName, setFt);
-                
+
                 createCall(setFt, fn.getCallee(), { ws, callback });
                 lastValue = val;
                 return;
+            }
+
+            // ServerResponse property assignment (statusCode, statusMessage)
+            if (cls->name == "ServerResponse") {
+                if (prop->name == "statusCode") {
+                    visit(prop->expression.get());
+                    llvm::Value* res = lastValue;
+
+                    llvm::Value* codeVal = val;
+                    if (codeVal->getType()->isDoubleTy()) {
+                        codeVal = builder->CreateFPToSI(codeVal, llvm::Type::getInt64Ty(*context));
+                    }
+
+                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_set_status_code", setFt);
+
+                    createCall(setFt, fn.getCallee(), { res, codeVal });
+                    lastValue = val;
+                    return;
+                } else if (prop->name == "statusMessage") {
+                    visit(prop->expression.get());
+                    llvm::Value* res = lastValue;
+
+                    llvm::FunctionType* setFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_server_response_set_status_message", setFt);
+
+                    createCall(setFt, fn.getCallee(), { res, val });
+                    lastValue = val;
+                    return;
+                }
             }
         }
 

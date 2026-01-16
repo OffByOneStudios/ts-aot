@@ -176,6 +176,11 @@ void Analyzer::registerHTTP() {
     auto endMethod = std::make_shared<FunctionType>();
     endMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     serverResponseClass->methods["end"] = endMethod;
+
+    // ServerResponse-specific properties
+    serverResponseClass->fields["statusCode"] = std::make_shared<Type>(TypeKind::Int);
+    serverResponseClass->fields["statusMessage"] = std::make_shared<Type>(TypeKind::String);
+
     symbols.defineType("ServerResponse", serverResponseClass);
 
     // Use existing Server class from net module, or create one
