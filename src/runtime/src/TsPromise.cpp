@@ -853,18 +853,18 @@ TsValue* ts_promise_new(TsValue* executor) {
 TsValue* ts_promise_await(TsValue* promise) {
     if (!promise || promise->type != ValueType::PROMISE_PTR) return promise;
     TsPromise* p = (TsPromise*)promise->ptr_val;
-    
+
     // If already settled, return value immediately
     if (p->state != PromiseState::Pending) {
         TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
         *res = p->value;
         return res;
     }
-    
+
     while (p->state == PromiseState::Pending) {
         ts_run_microtasks();
     }
-    
+
     TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
     *res = p->value;
     return res;

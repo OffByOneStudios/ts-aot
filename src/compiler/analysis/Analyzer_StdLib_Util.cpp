@@ -8,12 +8,13 @@ void Analyzer::registerUtil() {
     auto utilType = std::make_shared<ObjectType>();
 
     // =========================================================================
-    // util.promisify(fn: Function): Function
+    // util.promisify(fn: Function): any
     // Wraps a callback-style function to return a Promise
+    // Return type is Any since we can't know the actual promisified signature
     // =========================================================================
     auto promisifyType = std::make_shared<FunctionType>();
     promisifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
-    promisifyType->returnType = std::make_shared<Type>(TypeKind::Function);
+    promisifyType->returnType = std::make_shared<Type>(TypeKind::Any);
     utilType->fields["promisify"] = promisifyType;
 
     // =========================================================================
