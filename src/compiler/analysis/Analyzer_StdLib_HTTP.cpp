@@ -206,6 +206,25 @@ void Analyzer::registerHTTP() {
 
     auto clientRequestClass = std::make_shared<ClassType>("ClientRequest");
     clientRequestClass->baseClass = writableClass;
+
+    // ClientRequest properties
+    clientRequestClass->fields["path"] = std::make_shared<Type>(TypeKind::String);
+    clientRequestClass->fields["method"] = std::make_shared<Type>(TypeKind::String);
+    clientRequestClass->fields["host"] = std::make_shared<Type>(TypeKind::String);
+    clientRequestClass->fields["protocol"] = std::make_shared<Type>(TypeKind::String);
+
+    // ClientRequest methods
+    auto getHeaderMethod = std::make_shared<FunctionType>();
+    getHeaderMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    getHeaderMethod->returnType = std::make_shared<Type>(TypeKind::Any);
+    clientRequestClass->methods["getHeader"] = getHeaderMethod;
+
+    auto setHeaderMethod = std::make_shared<FunctionType>();
+    setHeaderMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    setHeaderMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    setHeaderMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    clientRequestClass->methods["setHeader"] = setHeaderMethod;
+
     symbols.defineType("ClientRequest", clientRequestClass);
 
     auto responseCallback = std::make_shared<FunctionType>();

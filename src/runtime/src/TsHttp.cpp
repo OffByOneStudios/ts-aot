@@ -999,6 +999,78 @@ void ts_server_response_set_status_message(void* res, void* msg) {
     }
 }
 
+// ClientRequest property getters
+void* ts_client_request_get_path(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return TsString::Create(r->path.c_str());
+}
+
+void* ts_client_request_get_method(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return TsString::Create(r->method.c_str());
+}
+
+void* ts_client_request_get_host(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return TsString::Create(r->host.c_str());
+}
+
+void* ts_client_request_get_protocol(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return TsString::Create(r->is_https ? "https:" : "http:");
+}
+
+void* ts_client_request_get_header(void* req, void* name) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+
+    // Get header name as string
+    void* rawName = ts_value_get_string((TsValue*)name);
+    if (!rawName) rawName = name;
+    TsString* nameStr = (TsString*)rawName;
+    if (!nameStr) return nullptr;
+
+    // Look up in headers map
+    if (r->headers) {
+        TsValue* val = r->GetHeader(nameStr);
+        return val;
+    }
+    return nullptr;
+}
+
+void ts_client_request_set_header(void* req, void* name, void* value) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+
+    // Get header name as string
+    void* rawName = ts_value_get_string((TsValue*)name);
+    if (!rawName) rawName = name;
+    TsString* nameStr = (TsString*)rawName;
+    if (!nameStr) return;
+
+    // Get value
+    TsValue* val = (TsValue*)value;
+
+    // Set header
+    r->SetHeader(nameStr, val);
+}
+
 void* ts_http_request(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     return static_cast<TsEventEmitter*>(req);

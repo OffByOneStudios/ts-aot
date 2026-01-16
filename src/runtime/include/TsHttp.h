@@ -262,6 +262,14 @@ extern "C" {
     void* ts_server_response_get_status_message(void* res);
     void ts_server_response_set_status_code(void* res, int64_t code);
     void ts_server_response_set_status_message(void* res, void* msg);
+
+    // ClientRequest property getters
+    void* ts_client_request_get_path(void* req);
+    void* ts_client_request_get_method(void* req);
+    void* ts_client_request_get_host(void* req);
+    void* ts_client_request_get_protocol(void* req);
+    void* ts_client_request_get_header(void* req, void* name);
+    void ts_client_request_set_header(void* req, void* name, void* value);
 }
 
 // HTTP CloseEvent class (for WebSocket and other close events)
