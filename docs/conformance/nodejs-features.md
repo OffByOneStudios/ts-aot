@@ -774,8 +774,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.pipe()` | ✅ | |
 | `readable.read()` | ⚠️ | |
 | `readable.readable` | ✅ | |
-| `readable.readableAborted` | ❌ | |
-| `readable.readableDidRead` | ❌ | |
+| `readable.readableAborted` | ✅ | |
+| `readable.readableDidRead` | ✅ | |
 | `readable.readableEncoding` | ❌ | |
 | `readable.readableEnded` | ✅ | |
 | `readable.readableFlowing` | ✅ | |
@@ -799,7 +799,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `writable.setDefaultEncoding()` | ❌ | |
 | `writable.uncork()` | ✅ | |
 | `writable.writable` | ✅ | |
-| `writable.writableAborted` | ❌ | |
+| `writable.writableAborted` | ✅ | |
 | `writable.writableEnded` | ✅ | |
 | `writable.writableFinished` | ✅ | |
 | `writable.writableHighWaterMark` | ✅ | |
@@ -827,7 +827,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 33/44 (75%)**
+**Stream Coverage: 36/44 (82%)**
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 33 | 44 | 75% |
+| Stream | 36 | 44 | 82% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **475** | **661** | **72%** |
+| **Total** | **478** | **661** | **72%** |
 
 ### Priority Implementation Targets
 

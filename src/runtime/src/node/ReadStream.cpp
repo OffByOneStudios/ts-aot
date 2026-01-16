@@ -227,6 +227,22 @@ extern "C" {
         return r->IsObjectMode();
     }
 
+    bool ts_readable_readable_aborted(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return false;
+        return r->IsReadableAborted();
+    }
+
+    bool ts_readable_readable_did_read(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return false;
+        return r->IsReadableDidRead();
+    }
+
     // --- stream.pipeline() implementation ---
     // Pipeline connects multiple streams and handles errors
     struct PipelineContext {
