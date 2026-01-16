@@ -109,6 +109,30 @@ void* TsServer::Address() {
     return obj;
 }
 
+void TsServer::Ref() {
+    if (handle && !closed) {
+        uv_ref((uv_handle_t*)handle);
+    }
+}
+
+void TsServer::Unref() {
+    if (handle && !closed) {
+        uv_unref((uv_handle_t*)handle);
+    }
+}
+
+void TsServer::GetConnections(void* callback) {
+    // For now, we don't track active connections
+    // Just call the callback with 0 connections
+    // In a full implementation, we'd track all accepted sockets
+    if (callback) {
+        TsValue* err = ts_value_make_null();
+        TsValue* count = ts_value_make_int(0);
+        TsValue* args[] = { err, count };
+        ts_function_call((TsValue*)callback, 2, args);
+    }
+}
+
 extern "C" {
     void* ts_net_create_server(void* callback) {
         void* mem = ts_alloc(sizeof(TsServer));
@@ -134,5 +158,22 @@ extern "C" {
         TsServer* s = (TsServer*)server;
         if (!s) return nullptr;
         return s->Address();
+    }
+
+    void* ts_net_server_ref(void* server) {
+        TsServer* s = (TsServer*)server;
+        if (s) s->Ref();
+        return server;  // Return server for chaining
+    }
+
+    void* ts_net_server_unref(void* server) {
+        TsServer* s = (TsServer*)server;
+        if (s) s->Unref();
+        return server;  // Return server for chaining
+    }
+
+    void ts_net_server_get_connections(void* server, void* callback) {
+        TsServer* s = (TsServer*)server;
+        if (s) s->GetConnections(callback);
     }
 }

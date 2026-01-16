@@ -592,10 +592,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `server.listen()` | ✅ | |
 | `server.close()` | ✅ | |
 | `server.address()` | ✅ | Returns { address, family, port } |
-| `server.getConnections()` | ❌ | |
+| `server.getConnections()` | ✅ | Returns 0 (connection tracking not implemented) |
 | `server.maxConnections` | ❌ | |
-| `server.ref()` | ❌ | |
-| `server.unref()` | ❌ | |
+| `server.ref()` | ✅ | |
+| `server.unref()` | ✅ | |
 
 ### Socket
 | Feature | Status | Notes |
@@ -623,8 +623,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `socket.destroyed` | ✅ | |
 | `socket.pending` | ✅ | |
 | `socket.readyState` | ✅ | |
-| `socket.ref()` | ❌ | |
-| `socket.unref()` | ❌ | |
+| `socket.ref()` | ✅ | |
+| `socket.unref()` | ✅ | |
 
 ### Utilities
 | Feature | Status | Notes |
@@ -633,7 +633,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net.isIPv4()` | ✅ | |
 | `net.isIPv6()` | ✅ | |
 
-**Net Coverage: 30/36 (83%)**
+**Net Coverage: 35/36 (97%)**
 
 ---
 
@@ -1025,7 +1025,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | File System | 94 | 123 | 76% |
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
-| Net | 30 | 36 | 83% |
+| Net | 35 | 36 | 97% |
 | OS | 23 | 23 | 100% |
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **483** | **661** | **73%** |
+| **Total** | **488** | **661** | **74%** |
 
 ### Priority Implementation Targets
 

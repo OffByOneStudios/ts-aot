@@ -63,6 +63,10 @@ public:
     // Returns { address, family, port } object
     void* Address();
 
+    // Handle reference control
+    void Ref();
+    void Unref();
+
 protected:
     uv_tcp_t* handle;
     bool connected;
@@ -111,7 +115,11 @@ extern "C" {
     void* ts_net_socket_set_no_delay(void* socket, void* noDelay);
     void* ts_net_socket_set_keep_alive(void* socket, void* enable, void* initialDelay);
     void* ts_net_socket_address(void* socket);
-    
+
+    // Handle reference control
+    void* ts_net_socket_ref(void* socket);
+    void* ts_net_socket_unref(void* socket);
+
     // net module utilities
     int64_t ts_net_is_ip(void* input);
     bool ts_net_is_ipv4(void* input);
