@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 76% | URL parsing |
-| `util` | ⚠️ | 35% | Utilities |
+| `util` | ⚠️ | 42% | Utilities |
 | `v8` | ❌ | 0% | V8 specific |
 | `vm` | ❌ | 0% | VM contexts |
 | `wasi` | ❌ | 0% | WebAssembly |
@@ -929,7 +929,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `util.callbackify()` | ⚠️ | Stub - returns function unchanged |
+| `util.callbackify()` | ✅ | Converts Promise-returning functions to callback style |
 | `util.debuglog()` | ❌ | |
 | `util.deprecate()` | ⚠️ | Stub - returns function unchanged |
 | `util.format()` | ⚠️ | Works but has extra spacing in output |
@@ -989,10 +989,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isUint32Array()` | ❌ | |
 | `util.types.isWeakMap()` | ❌ | |
 | `util.types.isWeakSet()` | ❌ | |
-| TextDecoder class | ❌ | |
-| TextEncoder class | ❌ | |
+| TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
+| TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 26/62 (42%)** (8 full, 11 partial)
+**Util Coverage: 29/62 (47%)** (11 full, 10 partial)
 
 ---
 
@@ -1034,9 +1034,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
-| Util | 26 | 62 | 42% |
+| Util | 29 | 62 | 47% |
 | Global | 5 | 7 | 71% |
-| **Total** | **462** | **661** | **70%** |
+| **Total** | **465** | **661** | **70%** |
 
 ### Priority Implementation Targets
 

@@ -11,10 +11,10 @@ static void ensureTextEncodingFunctionsRegistered(BoxingPolicy& bp) {
     if (textEncodingFunctionsRegistered) return;
     textEncodingFunctionsRegistered = true;
     
-    bp.registerRuntimeApi("ts_text_encoder_encode", {true, false}, true);  // encoder, string -> Uint8Array
-    bp.registerRuntimeApi("ts_text_encoder_encode_into", {true, false, true}, true);  // encoder, string, dest
-    bp.registerRuntimeApi("ts_text_decoder_decode", {true, true}, false);  // decoder, buffer -> string
-    bp.registerRuntimeApi("ts_typed_array_create_u8", {false}, true);  // length -> Uint8Array
+    bp.registerRuntimeApi("ts_text_encoder_encode", {false, false}, false);  // encoder*, string* -> Buffer*
+    bp.registerRuntimeApi("ts_text_encoder_encode_into", {false, false, false}, true);  // encoder*, string*, dest* -> obj
+    bp.registerRuntimeApi("ts_text_decoder_decode", {false, false}, false);  // decoder*, buffer* -> string*
+    bp.registerRuntimeApi("ts_typed_array_create_u8", {false}, false);  // length -> Uint8Array*
 }
 
 bool IRGenerator::tryGenerateTextEncodingCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

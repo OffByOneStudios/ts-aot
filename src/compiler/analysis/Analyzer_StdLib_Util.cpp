@@ -60,12 +60,13 @@ void Analyzer::registerUtil() {
     utilType->fields["deprecate"] = deprecateType;
 
     // =========================================================================
-    // util.callbackify(fn: Function): Function
+    // util.callbackify(fn: Function): any
     // Convert a Promise-returning function to callback style
+    // Return type is Any since we can't know the actual callbackified signature
     // =========================================================================
     auto callbackifyType = std::make_shared<FunctionType>();
     callbackifyType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
-    callbackifyType->returnType = std::make_shared<Type>(TypeKind::Function);
+    callbackifyType->returnType = std::make_shared<Type>(TypeKind::Any);
     utilType->fields["callbackify"] = callbackifyType;
 
     // =========================================================================

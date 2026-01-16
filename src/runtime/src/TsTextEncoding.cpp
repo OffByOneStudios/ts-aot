@@ -147,8 +147,8 @@ void* ts_text_encoder_encode_into(void* encoder, void* source, void* destination
 
 void* ts_text_encoder_get_encoding(void* encoder) {
     TsTextEncoder* enc = (TsTextEncoder*)encoder;
-    if (!enc) return ts_value_make_string(TsString::Create("utf-8"));
-    return ts_value_make_string(enc->GetEncoding());
+    if (!enc) return TsString::Create("utf-8");
+    return enc->GetEncoding();
 }
 
 void* ts_text_decoder_create(void* label, bool fatal, bool ignoreBOM) {
@@ -175,8 +175,8 @@ void* ts_text_decoder_decode(void* decoder, void* input) {
 
 void* ts_text_decoder_get_encoding(void* decoder) {
     TsTextDecoder* dec = (TsTextDecoder*)decoder;
-    if (!dec) return ts_value_make_string(TsString::Create("utf-8"));
-    return ts_value_make_string(dec->GetEncoding());
+    if (!dec) return TsString::Create("utf-8");
+    return dec->GetEncoding();
 }
 
 bool ts_text_decoder_is_fatal(void* decoder) {
