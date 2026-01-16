@@ -1,11 +1,14 @@
-// Test for HTTP ClientRequest properties (no network connection)
+// Test for HTTP ClientRequest properties (synchronous test, no network)
 import * as http from 'http';
+
+// This test verifies ClientRequest properties are accessible immediately after creation
+// WITHOUT actually making a network connection (to avoid timeouts)
 
 function user_main(): number {
     console.log("Testing HTTP ClientRequest properties...");
     let failed = 0;
 
-    // Create a request with local options (no actual connection)
+    // Create request options
     const options = {
         hostname: '127.0.0.1',
         port: 9999,  // Non-existent port
@@ -13,17 +16,17 @@ function user_main(): number {
         method: 'POST'
     };
 
-    // Create request but don't let it connect by destroying immediately
+    // Create request - properties should be accessible immediately
     const req = http.request(options, (res: http.IncomingMessage) => {
-        // Response callback - never called
+        // Response callback - never called since we destroy immediately
     });
 
-    // Suppress error events and destroy request immediately
+    // Suppress error events
     req.on('error', (err: any) => {
-        // Expected - connection refused
+        // Expected - we're destroying the request
     });
 
-    // Test path property (before connection attempt)
+    // Test path property (BEFORE any async operation)
     const path = req.path;
     if (path === "/api/test") {
         console.log("PASS: req.path is /api/test");
@@ -58,6 +61,9 @@ function user_main(): number {
         console.log("FAIL: req.protocol is http:, got: " + protocol);
         failed++;
     }
+
+    // Destroy the request immediately to prevent any connection attempt
+    req.destroy();
 
     console.log("");
     console.log("Results: " + (4 - failed) + " passed, " + failed + " failed");
