@@ -7,7 +7,7 @@ class TsReadable : public virtual TsEventEmitter {
 public:
     TsReadable() : flowing(false), reading(false), destroyed_(false),
                    ended_(false), paused_(true), pipeDest_(nullptr),
-                   highWaterMark_(16384) {}  // Default 16KB highWaterMark
+                   highWaterMark_(16384), objectMode_(false) {}  // Default 16KB highWaterMark
     virtual ~TsReadable() {}
 
     // Safe casting helper
@@ -37,6 +37,8 @@ public:
     int64_t GetHighWaterMark() const { return highWaterMark_; }
     void SetHighWaterMark(int64_t hwm) { highWaterMark_ = hwm; }
     virtual int64_t GetReadableLength() const { return 0; }  // No internal buffer by default
+    bool IsObjectMode() const { return objectMode_; }
+    void SetObjectMode(bool mode) { objectMode_ = mode; }
 
     // Pipe management
     void SetPipeDest(TsWritable* dest) { pipeDest_ = dest; }
@@ -51,6 +53,7 @@ protected:
     bool paused_;
     TsWritable* pipeDest_;
     int64_t highWaterMark_;
+    bool objectMode_;
 };
 
 // C API for stream properties
@@ -63,6 +66,7 @@ extern "C" {
     void ts_readable_unpipe(void* stream);
     int64_t ts_readable_readable_high_water_mark(void* stream);
     int64_t ts_readable_readable_length(void* stream);
+    bool ts_readable_readable_object_mode(void* stream);
 
     // Readable.from() - create a readable stream from an iterable (array)
     void* ts_readable_from(void* iterable);

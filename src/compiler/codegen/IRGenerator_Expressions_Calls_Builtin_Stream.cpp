@@ -27,6 +27,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_unpipe", {true}, false);  // stream -> void
     bp.registerRuntimeApi("ts_readable_readable_high_water_mark", {true}, false);  // stream -> i64
     bp.registerRuntimeApi("ts_readable_readable_length", {true}, false);  // stream -> i64
+    bp.registerRuntimeApi("ts_readable_readable_object_mode", {true}, false);  // stream -> bool
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -40,6 +41,9 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_writable_writable_need_drain", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_writable_writable_high_water_mark", {true}, false);  // stream -> i64
     bp.registerRuntimeApi("ts_writable_writable_length", {true}, false);  // stream -> i64
+    bp.registerRuntimeApi("ts_writable_writable_object_mode", {true}, false);  // stream -> bool
+    bp.registerRuntimeApi("ts_writable_cork", {true}, false);  // stream -> void
+    bp.registerRuntimeApi("ts_writable_uncork", {true}, false);  // stream -> void
 
     // Transform stream functions
     bp.registerRuntimeApi("ts_stream_transform_create", {true}, true);  // options -> transform
@@ -293,6 +297,26 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         // For now return the object since destroy is a method that modifies state
         lastValue = obj;
         return true;
+    } else if (prop->name == "cork") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_cork", ft);
+        createCall(ft, fn.getCallee(), { obj });
+        lastValue = obj;  // Return the stream for chaining
+        return true;
+    } else if (prop->name == "uncork") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_uncork", ft);
+        createCall(ft, fn.getCallee(), { obj });
+        lastValue = obj;  // Return the stream for chaining
+        return true;
     }
 
     return false;
@@ -361,6 +385,14 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_length", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
+        } else if (prop->name == "readableObjectMode") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_object_mode", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
         }
     }
 
@@ -420,6 +452,14 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
                     { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_writable_length", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "writableObjectMode") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_writable_object_mode", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
         }

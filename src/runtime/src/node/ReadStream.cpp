@@ -219,6 +219,14 @@ extern "C" {
         return r->GetReadableLength();
     }
 
+    bool ts_readable_readable_object_mode(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return false;
+        return r->IsObjectMode();
+    }
+
     // --- stream.pipeline() implementation ---
     // Pipeline connects multiple streams and handles errors
     struct PipelineContext {
