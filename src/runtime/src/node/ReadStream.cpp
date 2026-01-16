@@ -203,6 +203,14 @@ extern "C" {
         if (r) r->Unpipe();
     }
 
+    int64_t ts_readable_readable_high_water_mark(void* stream) {
+        if (!stream) return 16384;  // Default 16KB
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+        if (!r) return 16384;
+        return r->GetHighWaterMark();
+    }
+
     // --- stream.pipeline() implementation ---
     // Pipeline connects multiple streams and handles errors
     struct PipelineContext {
@@ -428,5 +436,98 @@ extern "C" {
 
         // Return cleanup function
         return ts_value_make_native_function((void*)finished_cleanup_fn, ctx);
+    }
+
+    // --- stream.Readable.from() implementation ---
+    // Creates a readable stream from an iterable (array)
+
+    class TsArrayReadable : public TsReadable {
+    public:
+        TsArrayReadable(TsArray* source) : TsReadable(), source_(source), index_(0), started_(false) {}
+
+        virtual TsReadable* AsReadable() override { return this; }
+
+        void Start() {
+            if (started_ || !source_) return;
+            started_ = true;
+
+            // Schedule data emission on next tick
+            EmitNextChunk();
+        }
+
+        void EmitNextChunk() {
+            if (destroyed_ || ended_) return;
+
+            if (index_ < source_->Length()) {
+                // Emit 'data' event with current element
+                TsValue* chunk = (TsValue*)source_->Get(index_);
+                index_++;
+
+                void* args[] = { chunk };
+                Emit("data", 1, args);
+
+                // Schedule next chunk emission if flowing
+                if (flowing && !destroyed_ && !ended_) {
+                    // Use setImmediate to emit next chunk asynchronously
+                    uv_idle_t* idle = (uv_idle_t*)ts_alloc(sizeof(uv_idle_t));
+                    idle->data = this;
+                    uv_idle_init(uv_default_loop(), idle);
+                    uv_idle_start(idle, [](uv_idle_t* handle) {
+                        TsArrayReadable* self = (TsArrayReadable*)handle->data;
+                        uv_idle_stop(handle);
+                        uv_close((uv_handle_t*)handle, nullptr);
+                        self->EmitNextChunk();
+                    });
+                }
+            } else {
+                // End of array
+                ended_ = true;
+                Emit("end", 0, nullptr);
+            }
+        }
+
+        virtual void On(const char* event, void* callback) override {
+            TsEventEmitter::On(event, callback);
+            if (strcmp(event, "data") == 0) {
+                Resume();
+                Start();
+            }
+        }
+
+        virtual void Resume() override {
+            TsReadable::Resume();
+            if (started_ && !ended_) {
+                EmitNextChunk();
+            }
+        }
+
+    private:
+        TsArray* source_;
+        int64_t index_;
+        bool started_;
+    };
+
+    void* ts_readable_from(void* iterable) {
+        if (!iterable) return nullptr;
+
+        // Unbox if needed
+        void* rawPtr = ts_value_get_object((TsValue*)iterable);
+        if (!rawPtr) rawPtr = iterable;
+
+        // Check if this is a TsArray by checking magic number
+        // TsArray has magic at offset 8 (after vtable pointer - but TsArray has no vtable!)
+        // TsArray memory layout: magic(4 bytes) + padding + other fields
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic != TsArray::MAGIC) {
+            return nullptr;
+        }
+
+        TsArray* arr = (TsArray*)rawPtr;
+
+        // Create the readable stream
+        void* mem = ts_alloc(sizeof(TsArrayReadable));
+        TsArrayReadable* stream = new(mem) TsArrayReadable(arr);
+
+        return stream;
     }
 }

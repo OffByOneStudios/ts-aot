@@ -779,7 +779,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.readableEncoding` | ❌ | |
 | `readable.readableEnded` | ✅ | |
 | `readable.readableFlowing` | ✅ | |
-| `readable.readableHighWaterMark` | ❌ | |
+| `readable.readableHighWaterMark` | ✅ | |
 | `readable.readableLength` | ❌ | |
 | `readable.readableObjectMode` | ❌ | |
 | `readable.resume()` | ✅ | |
@@ -817,17 +817,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Transform
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Transform stream | ❌ | |
-| `stream.Transform` class | ❌ | |
+| Transform stream | ✅ | Basic support |
+| `stream.Transform` class | ✅ | |
 
 ### Utilities
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `stream.pipeline()` | ✅ | Pipes streams with error handling |
 | `stream.finished()` | ✅ | Detects stream completion/error |
-| `stream.Readable.from()` | ❌ | |
+| `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 24/44 (55%)**
+**Stream Coverage: 28/44 (64%)**
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 24 | 44 | 55% |
+| Stream | 28 | 44 | 64% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **466** | **661** | **71%** |
+| **Total** | **470** | **661** | **71%** |
 
 ### Priority Implementation Targets
 

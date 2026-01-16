@@ -40,6 +40,7 @@ void Analyzer::registerStreams() {
     readableClass->fields["readable"] = std::make_shared<Type>(TypeKind::Boolean);
     readableClass->fields["readableEnded"] = std::make_shared<Type>(TypeKind::Boolean);
     readableClass->fields["readableFlowing"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
 
     // Readable methods
     auto isPausedFn = std::make_shared<FunctionType>();
@@ -55,6 +56,14 @@ void Analyzer::registerStreams() {
     readableClass->methods["destroy"] = destroyFn;
 
     symbols.defineType("Readable", readableClass);
+
+    // Create static Readable object with from() method
+    auto readableStatic = std::make_shared<ObjectType>();
+    auto fromFn = std::make_shared<FunctionType>();
+    fromFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // iterable (array)
+    fromFn->returnType = readableClass;
+    readableStatic->fields["from"] = fromFn;
+    symbols.define("Readable", readableStatic);
 
     // Writable
     auto writableClass = std::make_shared<ClassType>("Writable");
@@ -110,7 +119,15 @@ void Analyzer::registerStreams() {
 
     auto streamModule = std::make_shared<ObjectType>();
     streamModule->fields["Stream"] = streamClass;
-    streamModule->fields["Readable"] = readableClass;
+
+    // Create static Readable object for stream.Readable with from() method
+    auto streamReadableStatic = std::make_shared<ObjectType>();
+    auto streamFromFn = std::make_shared<FunctionType>();
+    streamFromFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // iterable (array)
+    streamFromFn->returnType = readableClass;
+    streamReadableStatic->fields["from"] = streamFromFn;
+    streamModule->fields["Readable"] = streamReadableStatic;
+
     streamModule->fields["Writable"] = writableClass;
     streamModule->fields["Duplex"] = duplexClass;
     streamModule->fields["Transform"] = transformClass;
