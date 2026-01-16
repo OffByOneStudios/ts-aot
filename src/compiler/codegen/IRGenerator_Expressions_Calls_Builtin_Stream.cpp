@@ -25,6 +25,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_readable_ended", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_readable_flowing", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_unpipe", {true}, false);  // stream -> void
+    bp.registerRuntimeApi("ts_readable_readable_high_water_mark", {true}, false);  // stream -> i64
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -38,14 +39,45 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_writable_writable_need_drain", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_writable_writable_high_water_mark", {true}, false);  // stream -> i64
     bp.registerRuntimeApi("ts_writable_writable_length", {true}, false);  // stream -> i64
+
+    // Transform stream functions
+    bp.registerRuntimeApi("ts_stream_transform_create", {true}, true);  // options -> transform
+    bp.registerRuntimeApi("ts_stream_transform_push", {true, true}, false);  // transform, data -> void
+    bp.registerRuntimeApi("ts_stream_transform_push_null", {true}, false);  // transform -> void
+    bp.registerRuntimeApi("ts_stream_transform_set_transform", {true, true}, false);  // transform, callback -> void
+    bp.registerRuntimeApi("ts_stream_transform_set_flush", {true, true}, false);  // transform, callback -> void
+
+    // Readable.from() static method
+    bp.registerRuntimeApi("ts_readable_from", {true}, true);  // iterable -> readable
 }
 
 bool IRGenerator::tryGenerateStreamModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    ensureStreamFunctionsRegistered(boxingPolicy);
+
+    // Check for stream.Readable.from() - nested property access
+    if (auto nestedProp = dynamic_cast<ast::PropertyAccessExpression*>(prop->expression.get())) {
+        auto moduleId = dynamic_cast<ast::Identifier*>(nestedProp->expression.get());
+        if (moduleId && moduleId->name == "stream" && nestedProp->name == "Readable" && prop->name == "from") {
+            // stream.Readable.from(iterable)
+            if (node->arguments.empty()) {
+                lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                return true;
+            }
+
+            visit(node->arguments[0].get());
+            llvm::Value* iterable = boxValue(lastValue, node->arguments[0]->inferredType);
+
+            llvm::FunctionType* fromFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fromFn = getRuntimeFunction("ts_readable_from", fromFt);
+            lastValue = createCall(fromFt, fromFn.getCallee(), { iterable });
+            return true;
+        }
+    }
+
     // Check if this is stream.pipeline() or stream.finished()
     auto id = dynamic_cast<ast::Identifier*>(prop->expression.get());
     if (!id || id->name != "stream") return false;
-
-    ensureStreamFunctionsRegistered(boxingPolicy);
 
     if (prop->name == "pipeline") {
         // stream.pipeline(...streams, callback)
@@ -310,6 +342,14 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
                     { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_flowing", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "readableHighWaterMark") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_high_water_mark", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
         }
