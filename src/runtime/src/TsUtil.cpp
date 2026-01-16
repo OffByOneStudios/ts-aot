@@ -17,16 +17,60 @@
 // ============================================================================
 // util.format implementation - Printf-like string formatting
 // ============================================================================
+
+// Helper to convert a value to string for format placeholders
+static TsString* formatValueToString(void* val) {
+    if (!val) return TsString::Create("undefined");
+
+    // The value from array is stored as int64_t (pointer cast to int)
+    // It's a boxed TsValue* - get its string representation
+    TsValue* tv = (TsValue*)val;
+
+    // Check if valid TsValue type
+    uint8_t typeField = *(uint8_t*)tv;
+    if (typeField <= 10) {
+        // Valid TsValue - convert to string based on type
+        switch (tv->type) {
+            case ValueType::STRING_PTR:
+                return (TsString*)tv->ptr_val;
+            case ValueType::NUMBER_INT:
+                return TsString::FromInt(tv->i_val);
+            case ValueType::NUMBER_DBL:
+                return TsString::FromDouble(tv->d_val);
+            case ValueType::BOOLEAN:
+                return TsString::FromBool(tv->b_val);
+            case ValueType::UNDEFINED:
+                return TsString::Create("undefined");
+            case ValueType::OBJECT_PTR:
+            case ValueType::ARRAY_PTR: {
+                // For objects/arrays, use JSON stringify
+                TsString* json = (TsString*)ts_json_stringify(tv->ptr_val, nullptr, nullptr);
+                return json ? json : TsString::Create("[object Object]");
+            }
+            default:
+                return TsString::Create("[object]");
+        }
+    }
+
+    // Check if raw TsString
+    uint32_t magic = *(uint32_t*)val;
+    if (magic == TsString::MAGIC) {
+        return (TsString*)val;
+    }
+
+    return TsString::Create("[object]");
+}
+
 TsString* ts_util_format_impl(TsString* format, TsArray* args) {
     if (!format) return TsString::Create("");
-    
+
     const char* formatStr = format->ToUtf8();
     if (!formatStr) return TsString::Create("");
-    
+
     std::ostringstream result;
     size_t argIndex = 0;
     size_t len = strlen(formatStr);
-    
+
     size_t i = 0;
     while (i < len) {
         if (formatStr[i] == '%' && i + 1 < len) {
@@ -35,10 +79,8 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
                 case 's': // String
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
-                        if (val) {
-                            TsString* str = (TsString*)ts_value_get_string((TsValue*)val);
-                            if (str) result << str->ToUtf8();
-                        }
+                        TsString* str = formatValueToString(val);
+                        if (str) result << str->ToUtf8();
                     }
                     i += 2;
                     break;
@@ -48,31 +90,60 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            int64_t num = ts_value_get_int((TsValue*)val);
-                            result << num;
+                            TsValue* tv = (TsValue*)val;
+                            uint8_t typeField = *(uint8_t*)tv;
+                            if (typeField <= 10) {
+                                // Valid boxed value
+                                if (tv->type == ValueType::NUMBER_INT) {
+                                    result << tv->i_val;
+                                } else if (tv->type == ValueType::NUMBER_DBL) {
+                                    result << (int64_t)tv->d_val;
+                                } else {
+                                    result << 0;
+                                }
+                            } else {
+                                result << 0;
+                            }
                         }
                     }
                     i += 2;
                     break;
-                    
+
                 case 'f': // Float
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            double num = ts_value_get_double((TsValue*)val);
-                            result << num;
+                            TsValue* tv = (TsValue*)val;
+                            uint8_t typeField = *(uint8_t*)tv;
+                            if (typeField <= 10) {
+                                if (tv->type == ValueType::NUMBER_DBL) {
+                                    result << tv->d_val;
+                                } else if (tv->type == ValueType::NUMBER_INT) {
+                                    result << (double)tv->i_val;
+                                } else {
+                                    result << 0.0;
+                                }
+                            } else {
+                                result << 0.0;
+                            }
                         }
                     }
                     i += 2;
                     break;
-                    
+
                 case 'o': // Object
                 case 'O':
                 case 'j': // JSON
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            TsString* str = (TsString*)ts_json_stringify(val, nullptr, nullptr);
+                            TsValue* tv = (TsValue*)val;
+                            uint8_t typeField = *(uint8_t*)tv;
+                            void* objToStringify = val;
+                            if (typeField <= 10 && (tv->type == ValueType::OBJECT_PTR || tv->type == ValueType::ARRAY_PTR)) {
+                                objToStringify = tv->ptr_val;
+                            }
+                            TsString* str = (TsString*)ts_json_stringify(objToStringify, nullptr, nullptr);
                             if (str) result << str->ToUtf8();
                         }
                     }
@@ -99,10 +170,8 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
     while (args && argIndex < (size_t)args->Length()) {
         result << " ";
         void* val = (void*)args->Get(argIndex++);
-        if (val) {
-            TsString* str = (TsString*)ts_json_stringify(val, nullptr, nullptr);
-            if (str) result << str->ToUtf8();
-        }
+        TsString* str = formatValueToString(val);
+        if (str) result << str->ToUtf8();
     }
     
     return TsString::Create(result.str().c_str());

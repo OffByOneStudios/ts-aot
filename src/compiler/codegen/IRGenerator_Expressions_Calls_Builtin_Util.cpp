@@ -81,16 +81,15 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         // Create array of remaining args
         llvm::Value* argsArray;
         if (node->arguments.size() > 1) {
-            llvm::FunctionType* createFT = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt64Ty() }, false);
-            llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create_sized", createFT);
-            argsArray = createCall(createFT, createFn.getCallee(), { 
-                llvm::ConstantInt::get(builder->getInt64Ty(), node->arguments.size() - 1)
-            });
-            
-            llvm::FunctionType* pushFT = llvm::FunctionType::get(builder->getVoidTy(), 
+            // Create an EMPTY array, not a sized one (sized would pre-fill with nulls)
+            llvm::FunctionType* createFT = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFT);
+            argsArray = createCall(createFT, createFn.getCallee(), {});
+
+            llvm::FunctionType* pushFT = llvm::FunctionType::get(builder->getVoidTy(),
                 { builder->getPtrTy(), builder->getInt64Ty() }, false);
             llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFT);
-            
+
             for (size_t i = 1; i < node->arguments.size(); i++) {
                 visit(node->arguments[i].get());
                 llvm::Value* arg = lastValue;
