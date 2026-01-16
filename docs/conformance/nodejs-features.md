@@ -940,10 +940,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.inspect()` | ⚠️ | Returns pointer value, not object string |
 | `util.inspect.custom` | ❌ | |
 | `util.inspect.defaultOptions` | ❌ | |
-| `util.isDeepStrictEqual()` | ⚠️ | Returns false for equal objects |
+| `util.isDeepStrictEqual()` | ✅ | Deep equality comparison for objects and arrays |
 | `util.parseArgs()` | ❌ | |
 | `util.parseEnv()` | ❌ | |
-| `util.promisify()` | ⚠️ | Stub - returns function unchanged |
+| `util.promisify()` | ✅ | Converts callback-style functions to Promise-returning |
 | `util.stripVTControlCharacters()` | ❌ | |
 | `util.styleText()` | ❌ | |
 | `util.toUSVString()` | ❌ | |
@@ -982,8 +982,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isSharedArrayBuffer()` | ❌ | |
 | `util.types.isStringObject()` | ❌ | |
 | `util.types.isSymbolObject()` | ❌ | |
-| `util.types.isTypedArray()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isUint8Array()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isTypedArray()` | ✅ | Detects TypedArray instances |
+| `util.types.isUint8Array()` | ✅ | Detects Uint8Array instances |
 | `util.types.isUint8ClampedArray()` | ❌ | |
 | `util.types.isUint16Array()` | ❌ | |
 | `util.types.isUint32Array()` | ❌ | |
@@ -992,7 +992,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ❌ | |
 | TextEncoder class | ❌ | |
 
-**Util Coverage: 22/62 (35%)** (4 full, 15 partial)
+**Util Coverage: 26/62 (42%)** (8 full, 11 partial)
 
 ---
 
@@ -1034,9 +1034,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
-| Util | 22 | 62 | 35% |
+| Util | 26 | 62 | 42% |
 | Global | 5 | 7 | 71% |
-| **Total** | **458** | **661** | **69%** |
+| **Total** | **462** | **661** | **70%** |
 
 ### Priority Implementation Targets
 
@@ -1051,7 +1051,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 - ✅ `os.platform()`, `os.cpus()` - System info (implemented)
 - ✅ `crypto.randomBytes()`, `crypto.createHash()` - Basic crypto (implemented via OpenSSL)
 - ✅ `stream.pipeline()`, `stream.finished()` - Stream utilities (implemented)
-- `util.promisify()` - Callback to Promise conversion
+- ✅ `util.promisify()` - Callback to Promise conversion (implemented)
 - ✅ `setImmediate()` - Event loop control (implemented)
 
 #### Medium (Framework support)

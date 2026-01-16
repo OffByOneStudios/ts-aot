@@ -611,7 +611,15 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         SPDLOG_INFO("Recording function usage for {}: argTypes=[{}]", calleeName, argTypesStr);
         functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments});
     }
-    
+
+    // If the callee is Any type, the return type must also be Any
+    // This is critical for dynamic function calls like promisified functions
+    if (calleeType && calleeType->kind == TypeKind::Any) {
+        lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
+        return;
+    }
+
     // If we haven't determined a more specific type, default to Any
     if (!lastType) {
         lastType = std::make_shared<Type>(TypeKind::Any);

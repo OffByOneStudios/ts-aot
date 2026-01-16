@@ -22,13 +22,19 @@ void IRGenerator::visitAwaitExpression(ast::AwaitExpression* node) {
 
     // Don't box Promise types - they are always already boxed!
     // Promises are reference types that are never unboxed.
+    // Also don't box Any types - the value is already a boxed TsValue* that may contain a promise.
     bool isPromiseType = node->expression->inferredType &&
                          node->expression->inferredType->kind == TypeKind::Class &&
                          std::static_pointer_cast<ClassType>(node->expression->inferredType)->name.find("Promise") == 0;
 
-    if (!isPromiseType) {
+    bool isAnyType = node->expression->inferredType &&
+                     node->expression->inferredType->kind == TypeKind::Any;
+
+    if (!isPromiseType && !isAnyType) {
         promiseVal = boxValue(promiseVal, node->expression->inferredType);
         SPDLOG_INFO("visitAwaitExpression: boxed promiseVal={}", (void*)promiseVal);
+    } else if (isAnyType) {
+        SPDLOG_INFO("visitAwaitExpression: Any type, not boxing (already TsValue*)");
     }
 
     lastValue = emitAwait(promiseVal, node->inferredType);

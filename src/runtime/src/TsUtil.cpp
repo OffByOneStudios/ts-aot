@@ -6,10 +6,13 @@
 #include "../include/TsSet.h"
 #include "../include/TsDate.h"
 #include "../include/TsRegExp.h"
+#include "../include/TsArray.h"
+#include "../include/TsPromise.h"
 #include "../include/GC.h"
 #include <sstream>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 // ============================================================================
 // util.format implementation - Printf-like string formatting
@@ -121,22 +124,126 @@ TsString* ts_util_inspect_impl(void* obj, int depth, bool colors) {
 // ============================================================================
 // util.isDeepStrictEqual implementation
 // ============================================================================
+
+// Helper to check if pointer is a known raw object type by checking magic at offset 16
+static bool isRawObject(void* p) {
+    if (!p || (uintptr_t)p < 4096) return false;
+    // Check magic at offset 16 (TsObject-derived classes)
+    uint32_t magic16 = *(uint32_t*)((char*)p + 16);
+    return magic16 == TsMap::MAGIC ||
+           magic16 == TsSet::MAGIC ||
+           magic16 == TsBuffer::MAGIC ||
+           magic16 == TsTypedArray::MAGIC;
+}
+
+// Helper to check if pointer is a TsArray (magic at offset 8)
+static bool isRawArray(void* p) {
+    if (!p || (uintptr_t)p < 4096) return false;
+    uint32_t magic = *(uint32_t*)p;
+    return magic == TsArray::MAGIC;
+}
+
+// Helper to check if pointer is a TsString
+static bool isRawString(void* p) {
+    if (!p || (uintptr_t)p < 4096) return false;
+    uint32_t magic = *(uint32_t*)p;
+    return magic == TsString::MAGIC;
+}
+
 bool ts_util_is_deep_strict_equal_impl(void* val1, void* val2) {
     // Same reference
     if (val1 == val2) return true;
-    
+
     // Both null/undefined
     if (!val1 && !val2) return true;
     if (!val1 || !val2) return false;
-    
-    // Compare as JSON for deep equality (simple implementation)
-    TsString* json1 = (TsString*)ts_json_stringify(val1, nullptr, nullptr);
-    TsString* json2 = (TsString*)ts_json_stringify(val2, nullptr, nullptr);
-    
-    if (!json1 && !json2) return true;
-    if (!json1 || !json2) return false;
-    
-    return json1->Equals(json2);
+
+    // Check if raw strings (compare directly)
+    if (isRawString(val1) && isRawString(val2)) {
+        return ((TsString*)val1)->Equals((TsString*)val2);
+    }
+
+    // Check if raw objects/arrays (compare via JSON)
+    bool isRaw1 = isRawObject(val1) || isRawArray(val1);
+    bool isRaw2 = isRawObject(val2) || isRawArray(val2);
+
+    if (isRaw1 && isRaw2) {
+        TsString* json1 = (TsString*)ts_json_stringify(val1, nullptr, nullptr);
+        TsString* json2 = (TsString*)ts_json_stringify(val2, nullptr, nullptr);
+
+        if (!json1 && !json2) return true;
+        if (!json1 || !json2) return false;
+
+        return json1->Equals(json2);
+    }
+
+    // If one is raw and one is not, they're different types
+    if (isRaw1 || isRaw2) {
+        return false;
+    }
+
+    // Try to interpret as boxed TsValue
+    TsValue* tv1 = (TsValue*)val1;
+    TsValue* tv2 = (TsValue*)val2;
+
+    // Sanity check that type values are in range
+    if ((uint8_t)tv1->type > (uint8_t)ValueType::FUNCTION_PTR ||
+        (uint8_t)tv2->type > (uint8_t)ValueType::FUNCTION_PTR) {
+        // Fall back to JSON comparison
+        TsString* json1 = (TsString*)ts_json_stringify(val1, nullptr, nullptr);
+        TsString* json2 = (TsString*)ts_json_stringify(val2, nullptr, nullptr);
+        if (!json1 && !json2) return true;
+        if (!json1 || !json2) return false;
+        return json1->Equals(json2);
+    }
+
+    // Check if both are undefined type
+    if (tv1->type == ValueType::UNDEFINED && tv2->type == ValueType::UNDEFINED) {
+        return true;
+    }
+
+    // Different types = not equal
+    if (tv1->type != tv2->type) {
+        return false;
+    }
+
+    // Compare based on type
+    switch (tv1->type) {
+        case ValueType::NUMBER_INT:
+            return tv1->i_val == tv2->i_val;
+
+        case ValueType::NUMBER_DBL:
+            // Handle NaN specially (NaN === NaN is true in deepStrictEqual)
+            if (std::isnan(tv1->d_val) && std::isnan(tv2->d_val)) return true;
+            return tv1->d_val == tv2->d_val;
+
+        case ValueType::BOOLEAN:
+            return tv1->b_val == tv2->b_val;
+
+        case ValueType::STRING_PTR: {
+            TsString* s1 = (TsString*)tv1->ptr_val;
+            TsString* s2 = (TsString*)tv2->ptr_val;
+            if (!s1 && !s2) return true;
+            if (!s1 || !s2) return false;
+            return s1->Equals(s2);
+        }
+
+        case ValueType::OBJECT_PTR:
+        case ValueType::ARRAY_PTR: {
+            // For objects and arrays, compare as JSON for deep equality
+            TsString* json1 = (TsString*)ts_json_stringify(tv1->ptr_val, nullptr, nullptr);
+            TsString* json2 = (TsString*)ts_json_stringify(tv2->ptr_val, nullptr, nullptr);
+
+            if (!json1 && !json2) return true;
+            if (!json1 || !json2) return false;
+
+            return json1->Equals(json2);
+        }
+
+        default:
+            // For other types (Promise, BigInt, Symbol, Function), compare by reference
+            return tv1->ptr_val == tv2->ptr_val;
+    }
 }
 
 // ============================================================================
@@ -158,13 +265,13 @@ bool isPromise(void* value) {
 
 bool isTypedArray(void* value) {
     if (!value) return false;
-    
+
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
-    // Check for Buffer (which is our TypedArray equivalent)
+
+    // Check for Buffer and TypedArray types (both inherit from TsObject)
     TsObject* obj = (TsObject*)rawPtr;
-    return obj->magic == TsBuffer::MAGIC;
+    return obj->magic == TsBuffer::MAGIC || obj->magic == TsTypedArray::MAGIC;
 }
 
 bool isArrayBuffer(void* value) {
@@ -304,11 +411,105 @@ bool ts_util_is_deep_strict_equal(void* val1, void* val2) {
     return ts_util_is_deep_strict_equal_impl(val1, val2);
 }
 
+// ============================================================================
+// util.promisify implementation
+// ============================================================================
+
+// Context for the promisify callback (err, value) → resolve/reject
+struct PromisifyCallbackContext {
+    ts::TsPromise* promise;
+};
+
+// Callback function that receives (err, value) and resolves/rejects the promise
+static TsValue* promisify_callback(void* ctx, int argc, TsValue** argv) {
+    PromisifyCallbackContext* context = (PromisifyCallbackContext*)ctx;
+    if (!context || !context->promise) return nullptr;
+
+    // Node.js callback convention: callback(err, value)
+    // If err is truthy (non-null, non-undefined), reject with err
+    // Otherwise, resolve with value
+    TsValue* err = (argc > 0) ? argv[0] : nullptr;
+    TsValue* value = (argc > 1) ? argv[1] : nullptr;
+
+    bool hasError = false;
+    if (err) {
+        if (err->type == ValueType::UNDEFINED) {
+            hasError = false;
+        } else if (err->type == ValueType::OBJECT_PTR ||
+                   err->type == ValueType::STRING_PTR ||
+                   err->type == ValueType::NUMBER_INT ||
+                   err->type == ValueType::NUMBER_DBL ||
+                   err->type == ValueType::BOOLEAN) {
+            // For boolean, check if it's true
+            if (err->type == ValueType::BOOLEAN) {
+                hasError = err->b_val;
+            } else if (err->type == ValueType::NUMBER_INT) {
+                hasError = (err->i_val != 0);
+            } else if (err->type == ValueType::NUMBER_DBL) {
+                hasError = (err->d_val != 0.0);
+            } else {
+                // Object or string - check for null/empty
+                hasError = (err->ptr_val != nullptr);
+            }
+        }
+    }
+
+    if (hasError) {
+        ts::ts_promise_reject_internal(context->promise, err);
+    } else {
+        ts::ts_promise_resolve_internal(context->promise, value);
+    }
+
+    return nullptr;
+}
+
+// Context for the promisified wrapper function
+struct PromisifyWrapperContext {
+    TsValue* originalFunction;
+};
+
+// The wrapper function that gets called when the promisified function is invoked
+static TsValue* promisified_wrapper(void* ctx, int argc, TsValue** argv) {
+    PromisifyWrapperContext* wrapperCtx = (PromisifyWrapperContext*)ctx;
+    if (!wrapperCtx || !wrapperCtx->originalFunction) return nullptr;
+
+    // Create a new promise
+    ts::TsPromise* promise = ts::ts_promise_create();
+
+    // Create the callback context
+    PromisifyCallbackContext* cbCtx = (PromisifyCallbackContext*)ts_alloc(sizeof(PromisifyCallbackContext));
+    cbCtx->promise = promise;
+
+    // Create the callback function
+    TsValue* callback = ts_value_make_native_function((void*)promisify_callback, cbCtx);
+
+    // Build new argument array: original args + callback
+    int newArgc = argc + 1;
+    TsValue** newArgv = (TsValue**)ts_alloc(sizeof(TsValue*) * newArgc);
+    for (int i = 0; i < argc; i++) {
+        newArgv[i] = argv[i];
+    }
+    newArgv[argc] = callback;
+
+    // Call the original function with the new arguments
+    ts_function_call(wrapperCtx->originalFunction, newArgc, newArgv);
+
+    // Return the promise as a boxed value
+    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
+    result->type = ValueType::PROMISE_PTR;
+    result->ptr_val = promise;
+    return result;
+}
+
 void* ts_util_promisify(void* fn) {
-    // For now, just return the function as-is
-    // Full implementation would require wrapping with Promise logic
-    // This is a stub for basic compatibility
-    return fn;
+    if (!fn) return nullptr;
+
+    // Create the wrapper context with the original function
+    PromisifyWrapperContext* ctx = (PromisifyWrapperContext*)ts_alloc(sizeof(PromisifyWrapperContext));
+    ctx->originalFunction = (TsValue*)fn;
+
+    // Create and return the wrapper function
+    return ts_value_make_native_function((void*)promisified_wrapper, ctx);
 }
 
 void ts_util_inherits(void* constructor, void* superConstructor) {
