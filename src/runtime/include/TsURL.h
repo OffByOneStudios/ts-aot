@@ -132,4 +132,7 @@ extern "C" {
     // URL module static functions
     void* ts_url_file_url_to_path(void* url);      // fileURLToPath(url) -> string
     void* ts_url_path_to_file_url(void* path);     // pathToFileURL(path) -> URL
+    void* ts_url_format(void* urlObj, void* options);    // format(urlObj, options?) -> string
+    void* ts_url_resolve(void* from, void* to);          // resolve(from, to) -> string
+    void* ts_url_to_http_options(void* url);             // urlToHttpOptions(url) -> object
 }

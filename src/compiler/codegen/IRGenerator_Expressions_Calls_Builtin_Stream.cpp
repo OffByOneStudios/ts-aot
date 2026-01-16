@@ -61,6 +61,9 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
 
     // Readable.from() static method
     bp.registerRuntimeApi("ts_readable_from", {true}, true);  // iterable -> readable
+
+    // readable.wrap() method
+    bp.registerRuntimeApi("ts_readable_wrap", {true, true}, true);  // readable, oldStream -> readable
 }
 
 bool IRGenerator::tryGenerateStreamModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -380,6 +383,25 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_set_default_encoding", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, encoding });
+        return true;
+    } else if (prop->name == "wrap") {
+        // readable.wrap(oldStream) - wrap an old-style stream in a new Readable
+        visit(prop->expression.get());
+        llvm::Value* readable = lastValue;
+
+        // Get the old stream argument
+        llvm::Value* oldStream = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            oldStream = boxValue(lastValue, node->arguments[0]->inferredType);
+        } else {
+            oldStream = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_wrap", ft);
+        lastValue = createCall(ft, fn.getCallee(), { readable, oldStream });
         return true;
     }
 

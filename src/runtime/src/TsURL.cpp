@@ -1,5 +1,6 @@
 #include "TsURL.h"
 #include "TsArray.h"
+#include "TsMap.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -597,5 +598,336 @@ extern "C" {
 
         // Create and return a URL object
         return TsURL::Create(TsString::Create(urlStr.c_str()));
+    }
+
+    // Helper to get string from TsMap property
+    static TsString* getMapString(TsMap* map, const char* key) {
+        TsValue val = map->Get(TsString::Create(key));
+        if (val.type == ValueType::STRING_PTR) {
+            return (TsString*)val.ptr_val;
+        }
+        return nullptr;
+    }
+
+    // Helper to get int from TsMap property
+    static int64_t getMapInt(TsMap* map, const char* key) {
+        TsValue val = map->Get(TsString::Create(key));
+        if (val.type == ValueType::NUMBER_INT) {
+            return val.i_val;
+        }
+        if (val.type == ValueType::NUMBER_DBL) {
+            return (int64_t)val.d_val;
+        }
+        return 0;
+    }
+
+    // Helper to get bool from TsMap property
+    static bool getMapBool(TsMap* map, const char* key) {
+        TsValue val = map->Get(TsString::Create(key));
+        if (val.type == ValueType::BOOLEAN) {
+            return val.b_val;
+        }
+        return false;
+    }
+
+    // url.format(urlObject, options?) - format URL to string
+    // Supports both legacy URL objects { protocol, hostname, port, pathname, ... }
+    // and WHATWG URL instances
+    void* ts_url_format(void* urlArg, void* optionsArg) {
+        if (!urlArg) return TsString::Create("");
+
+        // Try to get as TsURL first (WHATWG URL instance)
+        void* objPtr = ts_value_get_object((TsValue*)urlArg);
+        if (!objPtr) objPtr = urlArg;
+
+        TsURL* url = dynamic_cast<TsURL*>((TsObject*)objPtr);
+        if (url) {
+            // WHATWG URL - just return its href
+            return url->GetHref();
+        }
+
+        // Try to get as TsMap (legacy URL object with properties)
+        TsMap* map = dynamic_cast<TsMap*>((TsObject*)objPtr);
+        if (!map) {
+            // Check if it's boxed differently
+            if (((TsObject*)objPtr)->magic == TsMap::MAGIC) {
+                map = (TsMap*)objPtr;
+            }
+        }
+
+        if (!map) {
+            // Can't parse, return empty
+            return TsString::Create("");
+        }
+
+        // Build URL from object properties
+        std::string result;
+
+        // Get protocol
+        TsString* protocol = getMapString(map, "protocol");
+
+        if (protocol && strlen(protocol->ToUtf8()) > 0) {
+            result += protocol->ToUtf8();
+            // Add colon if not present
+            if (result.back() != ':') result += ':';
+        }
+
+        // Check for slashes property
+        bool hasSlashes = getMapBool(map, "slashes");
+        // Also add slashes if protocol requires it (http, https, ftp)
+        if (protocol) {
+            std::string p = protocol->ToUtf8();
+            if (p == "http:" || p == "https:" || p == "ftp:" || p == "file:") {
+                hasSlashes = true;
+            }
+        }
+
+        if (hasSlashes) {
+            result += "//";
+        }
+
+        // Get auth (username:password)
+        TsString* auth = getMapString(map, "auth");
+        if (auth && strlen(auth->ToUtf8()) > 0) {
+            result += auth->ToUtf8();
+            result += "@";
+        }
+
+        // Get host (includes port)
+        TsString* host = getMapString(map, "host");
+        TsString* hostname = getMapString(map, "hostname");
+
+        if (host && strlen(host->ToUtf8()) > 0) {
+            result += host->ToUtf8();
+        } else {
+            // Build from hostname and port
+            if (hostname) result += hostname->ToUtf8();
+
+            // Get port - can be string or number
+            TsString* portStr = getMapString(map, "port");
+            int64_t portNum = getMapInt(map, "port");
+
+            if (portStr && strlen(portStr->ToUtf8()) > 0) {
+                result += ":";
+                result += portStr->ToUtf8();
+            } else if (portNum > 0) {
+                result += ":";
+                result += std::to_string(portNum);
+            }
+        }
+
+        // Get pathname
+        TsString* pathname = getMapString(map, "pathname");
+        if (pathname) result += pathname->ToUtf8();
+
+        // Get search/query
+        TsString* search = getMapString(map, "search");
+        TsString* query = getMapString(map, "query");
+
+        if (search && strlen(search->ToUtf8()) > 0) {
+            std::string s = search->ToUtf8();
+            if (s[0] != '?') result += '?';
+            result += s;
+        } else if (query && strlen(query->ToUtf8()) > 0) {
+            result += "?";
+            result += query->ToUtf8();
+        }
+
+        // Get hash
+        TsString* hash = getMapString(map, "hash");
+        if (hash && strlen(hash->ToUtf8()) > 0) {
+            std::string h = hash->ToUtf8();
+            if (h[0] != '#') result += '#';
+            result += h;
+        }
+
+        return TsString::Create(result.c_str());
+    }
+
+    // url.resolve(from, to) - resolves 'to' relative to 'from'
+    // This is the legacy API for resolving relative URLs
+    void* ts_url_resolve(void* fromArg, void* toArg) {
+        if (!fromArg || !toArg) return TsString::Create("");
+
+        // Get 'from' as string
+        TsString* fromStr = nullptr;
+        void* fromPtr = ts_value_get_string((TsValue*)fromArg);
+        if (fromPtr) {
+            fromStr = (TsString*)fromPtr;
+        } else {
+            fromStr = (TsString*)fromArg;
+        }
+
+        // Get 'to' as string
+        TsString* toStr = nullptr;
+        void* toPtr = ts_value_get_string((TsValue*)toArg);
+        if (toPtr) {
+            toStr = (TsString*)toPtr;
+        } else {
+            toStr = (TsString*)toArg;
+        }
+
+        if (!fromStr || !toStr) return TsString::Create("");
+
+        std::string from = fromStr->ToUtf8();
+        std::string to = toStr->ToUtf8();
+
+        // If 'to' is an absolute URL, return it directly
+        if (to.find("://") != std::string::npos) {
+            return TsString::Create(to.c_str());
+        }
+
+        // Parse 'from' to get base
+        std::regex urlRegex(R"(^([^:/?#]+):(?://(?:([^:@/?#]*)(?::([^@/?#]*))?@)?([^/?#:]*)(?::([0-9]*))?)?([^?#]*)(?:\?([^#]*))?(?:#(.*))?)");
+        std::smatch fromMatches;
+
+        if (!std::regex_match(from, fromMatches, urlRegex)) {
+            // Can't parse 'from', just return 'to'
+            return TsString::Create(to.c_str());
+        }
+
+        std::string protocol = fromMatches[1].str();
+        std::string username = fromMatches[2].str();
+        std::string password = fromMatches[3].str();
+        std::string hostname = fromMatches[4].str();
+        std::string port = fromMatches[5].str();
+        std::string pathname = fromMatches[6].str();
+
+        // Handle different 'to' patterns
+
+        // Handle protocol-relative URLs (//host/path)
+        if (to.length() >= 2 && to[0] == '/' && to[1] == '/') {
+            return TsString::Create((protocol + ":" + to).c_str());
+        }
+
+        std::string result = protocol + ":";
+
+        if (!hostname.empty()) {
+            result += "//";
+            if (!username.empty()) {
+                result += username;
+                if (!password.empty()) {
+                    result += ":" + password;
+                }
+                result += "@";
+            }
+            result += hostname;
+            if (!port.empty()) {
+                result += ":" + port;
+            }
+        }
+
+        if (to[0] == '/') {
+            // Absolute path - replace from's path
+            result += to;
+        } else if (to[0] == '?') {
+            // Query string - keep from's path
+            result += pathname + to;
+        } else if (to[0] == '#') {
+            // Hash - keep from's path and search
+            if (fromMatches[7].str().empty()) {
+                result += pathname + to;
+            } else {
+                result += pathname + "?" + fromMatches[7].str() + to;
+            }
+        } else {
+            // Relative path - resolve against from's directory
+            size_t lastSlash = pathname.rfind('/');
+            if (lastSlash != std::string::npos) {
+                std::string dir = pathname.substr(0, lastSlash + 1);
+                result += dir + to;
+            } else {
+                result += "/" + to;
+            }
+        }
+
+        return TsString::Create(result.c_str());
+    }
+
+    // url.urlToHttpOptions(url) - extracts options from URL for http.request()
+    void* ts_url_to_http_options(void* urlArg) {
+        if (!urlArg) return nullptr;
+
+        // Try to get as TsURL first
+        void* objPtr = ts_value_get_object((TsValue*)urlArg);
+        if (!objPtr) objPtr = urlArg;
+
+        TsURL* url = dynamic_cast<TsURL*>((TsObject*)objPtr);
+        if (!url) {
+            // Try to parse string as URL
+            TsString* urlStr = nullptr;
+            void* strPtr = ts_value_get_string((TsValue*)urlArg);
+            if (strPtr) {
+                urlStr = (TsString*)strPtr;
+            } else {
+                urlStr = (TsString*)urlArg;
+            }
+            if (urlStr) {
+                url = TsURL::Create(urlStr);
+            }
+        }
+
+        if (!url) return nullptr;
+
+        // Create options object
+        TsMap* options = TsMap::Create();
+
+        // protocol
+        TsString* protocol = url->GetProtocol();
+        if (protocol && strlen(protocol->ToUtf8()) > 0) {
+            options->Set(TsString::Create("protocol"), ts_value_make_string(protocol));
+        }
+
+        // hostname
+        TsString* hostname = url->GetHostname();
+        if (hostname && strlen(hostname->ToUtf8()) > 0) {
+            options->Set(TsString::Create("hostname"), ts_value_make_string(hostname));
+        }
+
+        // port
+        TsString* port = url->GetPort();
+        if (port && strlen(port->ToUtf8()) > 0) {
+            // Convert to number
+            int portNum = atoi(port->ToUtf8());
+            if (portNum > 0) {
+                options->Set(TsString::Create("port"), ts_value_make_int(portNum));
+            }
+        }
+
+        // path (pathname + search)
+        TsString* pathname = url->GetPathname();
+        TsString* search = url->GetSearch();
+        std::string path;
+        if (pathname) path += pathname->ToUtf8();
+        if (search) path += search->ToUtf8();
+        if (!path.empty()) {
+            options->Set(TsString::Create("path"), ts_value_make_string(TsString::Create(path.c_str())));
+        }
+
+        // hash
+        TsString* hash = url->GetHash();
+        if (hash && strlen(hash->ToUtf8()) > 0) {
+            options->Set(TsString::Create("hash"), ts_value_make_string(hash));
+        }
+
+        // auth (username:password)
+        TsString* username = url->GetUsername();
+        TsString* password = url->GetPassword();
+        if (username && strlen(username->ToUtf8()) > 0) {
+            std::string auth = username->ToUtf8();
+            if (password && strlen(password->ToUtf8()) > 0) {
+                auth += ":";
+                auth += password->ToUtf8();
+            }
+            options->Set(TsString::Create("auth"), ts_value_make_string(TsString::Create(auth.c_str())));
+        }
+
+        // href
+        TsString* href = url->GetHref();
+        if (href) {
+            options->Set(TsString::Create("href"), ts_value_make_string(href));
+        }
+
+        return options;
     }
 }

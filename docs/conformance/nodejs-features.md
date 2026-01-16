@@ -35,7 +35,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
-| `net` | ⚠️ | 83% | TCP sockets |
+| `net` | ✅ | 100% | TCP sockets |
 | `os` | ✅ | 100% | OS utilities |
 | `path` | ✅ | 100% | Path utilities |
 | `perf_hooks` | ❌ | 0% | Performance |
@@ -786,7 +786,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.setEncoding()` | ✅ | |
 | `readable.unpipe()` | ✅ | |
 | `readable.unshift()` | ✅ | Pushes data back to front of buffer |
-| `readable.wrap()` | ❌ | |
+| `readable.wrap()` | ✅ | Wraps old-style streams in Readable interface |
 | `readable[Symbol.asyncIterator]()` | ❌ | |
 
 ### Writable
@@ -827,7 +827,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 40/44 (91%)**
+**Stream Coverage: 41/44 (93%)**
 
 ---
 
@@ -913,15 +913,15 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `url.parse()` | ❌ | Deprecated |
-| `url.format()` | ❌ | |
-| `url.resolve()` | ❌ | |
+| `url.format()` | ✅ | WHATWG URL and legacy object support |
+| `url.resolve()` | ✅ | Resolves relative URLs |
 | `url.domainToASCII()` | ❌ | |
 | `url.domainToUnicode()` | ❌ | |
 | `url.fileURLToPath()` | ✅ | |
 | `url.pathToFileURL()` | ✅ | |
-| `url.urlToHttpOptions()` | ❌ | |
+| `url.urlToHttpOptions()` | ✅ | Extracts HTTP options from URL |
 
-**URL Coverage: 31/38 (82%)**
+**URL Coverage: 34/38 (89%)**
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 40 | 44 | 91% |
+| Stream | 41 | 44 | 93% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
-| URL | 31 | 38 | 82% |
+| URL | 34 | 38 | 89% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **503** | **661** | **76%** |
+| **Total** | **507** | **661** | **77%** |
 
 ### Priority Implementation Targets
 
