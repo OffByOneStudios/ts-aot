@@ -5,7 +5,7 @@ class TsWritable : public virtual TsEventEmitter {
 public:
     TsWritable() : closed(false), bufferedAmount(0), highWaterMark(16384), needDrain(false),
                    destroyed_(false), ended_(false), finished_(false), objectMode_(false),
-                   corked_(false), aborted_(false) {}
+                   corked_(false), aborted_(false), defaultEncoding_(nullptr) {}
     virtual ~TsWritable() {}
 
     // Safe casting helper
@@ -44,6 +44,13 @@ public:
     bool IsWritableAborted() const { return aborted_; }
     void SetWritableAborted(bool aborted) { aborted_ = aborted; }
 
+    // Default encoding
+    const char* GetDefaultEncoding() const { return defaultEncoding_; }
+    TsWritable* SetDefaultEncoding(const char* encoding) {
+        defaultEncoding_ = encoding;
+        return this;  // For chaining
+    }
+
 protected:
     bool closed;
     size_t bufferedAmount;
@@ -55,6 +62,7 @@ protected:
     bool objectMode_;
     bool corked_;
     bool aborted_;
+    const char* defaultEncoding_;
 };
 
 // C API for stream properties
@@ -70,4 +78,7 @@ extern "C" {
     void ts_writable_cork(void* stream);
     void ts_writable_uncork(void* stream);
     bool ts_writable_writable_aborted(void* stream);
+
+    // Set default encoding - returns the stream for chaining
+    void* ts_writable_set_default_encoding(void* stream, void* encoding);
 }

@@ -604,4 +604,17 @@ extern "C" {
 
         return TsString::Create(encoding);
     }
+
+    void ts_readable_unshift(void* stream, void* chunk) {
+        if (!stream || !chunk) return;
+
+        // Unbox stream if needed
+        void* rawStream = ts_value_get_object((TsValue*)stream);
+        if (!rawStream) rawStream = stream;
+
+        TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+        if (!r) return;
+
+        r->Unshift(chunk);
+    }
 }

@@ -141,4 +141,30 @@ extern "C" {
         if (!w) return false;
         return w->IsWritableAborted();
     }
+
+    void* ts_writable_set_default_encoding(void* stream, void* encoding) {
+        if (!stream) return nullptr;
+
+        // Unbox stream if needed
+        void* rawStream = ts_value_get_object((TsValue*)stream);
+        if (!rawStream) rawStream = stream;
+
+        TsWritable* w = dynamic_cast<TsWritable*>((TsEventEmitter*)rawStream);
+        if (!w) return stream;  // Return original for chaining
+
+        // Get encoding string
+        TsString* encStr = nullptr;
+        void* rawEnc = ts_value_get_string((TsValue*)encoding);
+        if (rawEnc) {
+            encStr = (TsString*)rawEnc;
+        } else if (encoding) {
+            encStr = (TsString*)encoding;
+        }
+
+        if (encStr) {
+            w->SetDefaultEncoding(encStr->ToUtf8());
+        }
+
+        return stream;  // Return for chaining
+    }
 }

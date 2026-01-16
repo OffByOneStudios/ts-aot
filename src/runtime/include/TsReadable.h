@@ -1,5 +1,6 @@
 #pragma once
 #include "TsEventEmitter.h"
+#include "TsArray.h"
 
 class TsWritable;  // Forward declaration for pipe targets
 
@@ -8,7 +9,7 @@ public:
     TsReadable() : flowing(false), reading(false), destroyed_(false),
                    ended_(false), paused_(true), pipeDest_(nullptr),
                    highWaterMark_(16384), objectMode_(false), aborted_(false),
-                   didRead_(false), encoding_(nullptr) {}  // Default 16KB highWaterMark
+                   didRead_(false), encoding_(nullptr), unshiftBuffer_(nullptr) {}  // Default 16KB highWaterMark
     virtual ~TsReadable() {}
 
     // Safe casting helper
@@ -57,6 +58,35 @@ public:
     TsWritable* GetPipeDest() const { return pipeDest_; }
     void Unpipe() { pipeDest_ = nullptr; }
 
+    // Unshift - push data back to the front of the internal buffer
+    // This allows reading code to "un-consume" data if it doesn't need it
+    void Unshift(void* chunk) {
+        if (!chunk) return;
+        // Create unshift buffer if it doesn't exist
+        if (!unshiftBuffer_) {
+            unshiftBuffer_ = TsArray::Create();
+        }
+        // Insert at the front (unshift semantics)
+        // Store pointer as int64_t (TsArray stores int64_t values)
+        unshiftBuffer_->Unshift(reinterpret_cast<int64_t>(chunk));
+
+        // Mark that we've read from this stream
+        didRead_ = true;
+    }
+
+    // Get the next chunk from the unshift buffer (returns nullptr if empty)
+    void* GetUnshiftedChunk() {
+        if (!unshiftBuffer_ || unshiftBuffer_->Length() == 0) {
+            return nullptr;
+        }
+        // Remove and return the first element (shift)
+        // Convert int64_t back to pointer
+        return reinterpret_cast<void*>(unshiftBuffer_->Shift());
+    }
+
+    // Check if there are unshifted chunks
+    bool HasUnshiftedData() const { return unshiftBuffer_ && unshiftBuffer_->Length() > 0; }
+
 protected:
     bool flowing;
     bool reading;
@@ -69,6 +99,7 @@ protected:
     bool aborted_;
     bool didRead_;
     const char* encoding_;
+    TsArray* unshiftBuffer_;  // Buffer for unshifted data (used as a deque)
 };
 
 // C API for stream properties
@@ -92,4 +123,7 @@ extern "C" {
     void* ts_readable_set_encoding(void* stream, void* encoding);
     // Get encoding - returns null if not set
     void* ts_readable_readable_encoding(void* stream);
+
+    // Unshift - push data back to the front of the internal buffer
+    void ts_readable_unshift(void* stream, void* chunk);
 }
