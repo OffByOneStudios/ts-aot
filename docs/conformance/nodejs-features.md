@@ -29,8 +29,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 86% | EventEmitter |
-| `fs` | ⚠️ | 29% | File system |
-| `http` | ⚠️ | 56% | HTTP server/client |
+| `fs` | ⚠️ | 76% | File system |
+| `http` | ⚠️ | 70% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
@@ -514,8 +514,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Client Request
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `req.abort()` | ❌ | Deprecated |
-| `req.destroy()` | ❌ | |
+| `req.abort()` | N/A | Deprecated |
+| `req.destroy()` | ✅ | Via Writable base class |
 | `req.end()` | ✅ | |
 | `req.flushHeaders()` | ❌ | |
 | `req.getHeader()` | ✅ | |
@@ -525,7 +525,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.method` | ✅ | |
 | `req.host` | ✅ | |
 | `req.protocol` | ✅ | |
-| `req.removeHeader()` | ❌ | |
+| `req.removeHeader()` | ✅ | Via OutgoingMessage base class |
 | `req.reusedSocket` | ❌ | |
 | `req.setHeader()` | ✅ | |
 | `req.setNoDelay()` | ❌ | |
@@ -534,7 +534,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 45/68 (66%)**
+**HTTP Coverage: 47/67 (70%)**
 
 ---
 
@@ -682,12 +682,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `path.join()` | ✅ | |
 | `path.normalize()` | ✅ | |
 | `path.parse()` | ✅ | |
-| `path.posix` | ✅ | sep, delimiter, join, basename, dirname |
+| `path.posix` | ✅ | All path methods with POSIX semantics |
 | `path.relative()` | ✅ | |
 | `path.resolve()` | ✅ | |
 | `path.sep` | ✅ | |
 | `path.toNamespacedPath()` | ✅ | |
-| `path.win32` | ✅ | sep, delimiter, join, basename, dirname |
+| `path.win32` | ✅ | All path methods with Windows semantics |
 
 **Path Coverage: 15/15 (100%)**
 

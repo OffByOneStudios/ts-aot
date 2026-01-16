@@ -92,11 +92,33 @@ void Analyzer::registerPath() {
     // path.delimiter: string
     pathType->fields["delimiter"] = std::make_shared<Type>(TypeKind::String);
 
-    // path.win32: any
-    pathType->fields["win32"] = std::make_shared<Type>(TypeKind::Any);
+    // Create a helper for platform-specific path types (win32 and posix)
+    auto createPlatformPathType = [&]() {
+        auto platformType = std::make_shared<ObjectType>();
 
-    // path.posix: any
-    pathType->fields["posix"] = std::make_shared<Type>(TypeKind::Any);
+        // All the same methods as the main path object
+        platformType->fields["join"] = joinType;
+        platformType->fields["resolve"] = resolveType;
+        platformType->fields["normalize"] = normalizeType;
+        platformType->fields["isAbsolute"] = isAbsoluteType;
+        platformType->fields["basename"] = basenameType;
+        platformType->fields["dirname"] = dirnameType;
+        platformType->fields["extname"] = extnameType;
+        platformType->fields["relative"] = relativeType;
+        platformType->fields["parse"] = parseType;
+        platformType->fields["format"] = formatType;
+        platformType->fields["toNamespacedPath"] = toNamespacedPathType;
+        platformType->fields["sep"] = std::make_shared<Type>(TypeKind::String);
+        platformType->fields["delimiter"] = std::make_shared<Type>(TypeKind::String);
+
+        return platformType;
+    };
+
+    // path.win32: PlatformPath
+    pathType->fields["win32"] = createPlatformPathType();
+
+    // path.posix: PlatformPath
+    pathType->fields["posix"] = createPlatformPathType();
 
     symbols.define("path", pathType);
 }
