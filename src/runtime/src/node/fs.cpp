@@ -42,10 +42,16 @@ extern "C" void ts_event_emitter_on(void* emitter, void* event, void* callback);
 
 namespace fs = std::filesystem;
 
+// Helper function to return a captured boolean value
+// We use 1 for true, 2 for false (to avoid 0/NULL context confusion in ts_function_call_with_this)
 static TsValue* bool_return_helper(void* context) {
-    bool val = (bool)(uintptr_t)context;
+    // 1 = true, anything else (including 2) = false
+    bool val = ((uintptr_t)context == 1);
     return ts_value_make_bool(val);
 }
+
+// Helper to convert bool to the context encoding (1=true, 2=false)
+#define BOOL_TO_CONTEXT(b) ((void*)(uintptr_t)((b) ? 1 : 2))
 
 class TsDirent : public TsMap {
 public:
@@ -68,13 +74,13 @@ public:
         bool isFIFO = (type == UV_DIRENT_FIFO);
         bool isSocket = (type == UV_DIRENT_SOCKET);
 
-        d->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFile));
-        d->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isDirectory));
-        d->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSymbolicLink));
-        d->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isBlockDevice));
-        d->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isCharacterDevice));
-        d->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFIFO));
-        d->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSocket));
+        d->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile)));
+        d->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory)));
+        d->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink)));
+        d->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice)));
+        d->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice)));
+        d->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO)));
+        d->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket)));
 
         return d;
     }
@@ -84,10 +90,34 @@ static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     bool isFile = (st->st_mode & S_IFMT) == S_IFREG;
     bool isDirectory = (st->st_mode & S_IFMT) == S_IFDIR;
     bool isSymbolicLink = (st->st_mode & S_IFMT) == S_IFLNK;
+#ifdef S_IFBLK
+    bool isBlockDevice = (st->st_mode & S_IFMT) == S_IFBLK;
+#else
+    bool isBlockDevice = false;
+#endif
+#ifdef S_IFCHR
+    bool isCharacterDevice = (st->st_mode & S_IFMT) == S_IFCHR;
+#else
+    bool isCharacterDevice = false;
+#endif
+#ifdef S_IFIFO
+    bool isFIFO = (st->st_mode & S_IFMT) == S_IFIFO;
+#else
+    bool isFIFO = false;
+#endif
+#ifdef S_IFSOCK
+    bool isSocket = (st->st_mode & S_IFMT) == S_IFSOCK;
+#else
+    bool isSocket = false;
+#endif
 
-    stats->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isFile));
-    stats->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isDirectory));
-    stats->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, (void*)(uintptr_t)isSymbolicLink));
+    stats->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile)));
+    stats->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory)));
+    stats->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink)));
+    stats->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice)));
+    stats->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice)));
+    stats->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO)));
+    stats->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket)));
     
     stats->Set(TsString::Create("size"), TsValue((double)st->st_size));
     

@@ -428,17 +428,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `stats.isFile()` | ✅ | |
 | `stats.isDirectory()` | ✅ | |
-| `stats.isBlockDevice()` | ❌ | |
-| `stats.isCharacterDevice()` | ❌ | |
-| `stats.isSymbolicLink()` | ❌ | |
-| `stats.isFIFO()` | ❌ | |
-| `stats.isSocket()` | ❌ | |
+| `stats.isBlockDevice()` | ✅ | |
+| `stats.isCharacterDevice()` | ✅ | |
+| `stats.isSymbolicLink()` | ✅ | |
+| `stats.isFIFO()` | ✅ | |
+| `stats.isSocket()` | ✅ | |
 | `stats.size` | ✅ | |
 | `stats.mtime` | ⚠️ | Returns number |
 | `stats.atime` | ⚠️ | Returns number |
 | `stats.ctime` | ⚠️ | Returns number |
 
-**File System Coverage: 89/123 (72%)**
+**File System Coverage: 94/123 (76%)**
 
 ---
 
@@ -1022,7 +1022,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Console | 19 | 19 | 100% |
 | Crypto | 16 | 34 | 47% |
 | Events | 19 | 21 | 90% |
-| File System | 89 | 123 | 72% |
+| File System | 94 | 123 | 76% |
 | HTTP | 38 | 68 | 56% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 30 | 36 | 83% |
@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 29 | 38 | 76% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **478** | **661** | **72%** |
+| **Total** | **483** | **661** | **73%** |
 
 ### Priority Implementation Targets
 

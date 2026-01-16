@@ -25,6 +25,22 @@ void Analyzer::registerFS() {
     isSymbolicLink->returnType = std::make_shared<Type>(TypeKind::Boolean);
     statsType->fields["isSymbolicLink"] = isSymbolicLink;
 
+    auto isBlockDevice = std::make_shared<FunctionType>();
+    isBlockDevice->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isBlockDevice"] = isBlockDevice;
+
+    auto isCharacterDevice = std::make_shared<FunctionType>();
+    isCharacterDevice->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isCharacterDevice"] = isCharacterDevice;
+
+    auto isFIFO = std::make_shared<FunctionType>();
+    isFIFO->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isFIFO"] = isFIFO;
+
+    auto isSocket = std::make_shared<FunctionType>();
+    isSocket->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    statsType->fields["isSocket"] = isSocket;
+
     // Define Dirent type
     auto direntType = std::make_shared<ObjectType>();
     direntType->fields["name"] = std::make_shared<Type>(TypeKind::String);
