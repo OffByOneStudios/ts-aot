@@ -1040,8 +1040,15 @@ void* ts_http_get_status_codes() {
             {511, "Network Authentication Required"}
         };
         for (const auto& sc : codes) {
-            TsValue* key = ts_value_make_int(sc.code);
-            TsValue* val = ts_value_make_string(TsString::Create(sc.message));
+            // Node.js uses string keys for STATUS_CODES, e.g. "200", "404", etc.
+            char keyBuf[16];
+            snprintf(keyBuf, sizeof(keyBuf), "%d", sc.code);
+            TsValue key;
+            key.type = ValueType::STRING_PTR;
+            key.ptr_val = TsString::Create(keyBuf);
+            TsValue val;
+            val.type = ValueType::STRING_PTR;
+            val.ptr_val = TsString::Create(sc.message);
             statusCodes->Set(key, val);
         }
     }

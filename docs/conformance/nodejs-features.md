@@ -44,7 +44,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `querystring` | ✅ | 100% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
-| `stream` | ⚠️ | 86% | Streams |
+| `stream` | ⚠️ | 91% | Streams |
 | `string_decoder` | ❌ | 0% | String decoding |
 | `timers` | ⚠️ | 93% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
@@ -785,7 +785,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.resume()` | ✅ | |
 | `readable.setEncoding()` | ✅ | |
 | `readable.unpipe()` | ✅ | |
-| `readable.unshift()` | ❌ | |
+| `readable.unshift()` | ✅ | Pushes data back to front of buffer |
 | `readable.wrap()` | ❌ | |
 | `readable[Symbol.asyncIterator]()` | ❌ | |
 
@@ -796,7 +796,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `writable.destroy()` | ✅ | |
 | `writable.destroyed` | ✅ | |
 | `writable.end()` | ✅ | |
-| `writable.setDefaultEncoding()` | ❌ | |
+| `writable.setDefaultEncoding()` | ✅ | Sets default encoding for write() |
 | `writable.uncork()` | ✅ | |
 | `writable.writable` | ✅ | |
 | `writable.writableAborted` | ✅ | |
@@ -827,7 +827,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 38/44 (86%)**
+**Stream Coverage: 40/44 (91%)**
 
 ---
 
@@ -1030,13 +1030,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 38 | 44 | 86% |
+| Stream | 40 | 44 | 91% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 31 | 38 | 82% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **494** | **661** | **75%** |
+| **Total** | **496** | **661** | **75%** |
 
 ### Priority Implementation Targets
 

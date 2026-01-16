@@ -59,6 +59,21 @@ void Analyzer::registerStreams() {
     destroyFn->returnType = readableClass;
     readableClass->methods["destroy"] = destroyFn;
 
+    // readable.unshift(chunk) - push data back to the front of the internal buffer
+    auto unshiftFn = std::make_shared<FunctionType>();
+    unshiftFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // chunk
+    unshiftFn->returnType = std::make_shared<Type>(TypeKind::Void);
+    readableClass->methods["unshift"] = unshiftFn;
+
+    // readable.setEncoding(encoding) - set the character encoding
+    auto setEncodingFn = std::make_shared<FunctionType>();
+    setEncodingFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // encoding
+    setEncodingFn->returnType = readableClass;  // returns this for chaining
+    readableClass->methods["setEncoding"] = setEncodingFn;
+
+    // readable.readableEncoding property
+    readableClass->fields["readableEncoding"] = std::make_shared<Type>(TypeKind::String);
+
     symbols.defineType("Readable", readableClass);
 
     // Create static Readable object with from() method
@@ -110,6 +125,15 @@ void Analyzer::registerStreams() {
     auto uncorkFn = std::make_shared<FunctionType>();
     uncorkFn->returnType = writableClass;
     writableClass->methods["uncork"] = uncorkFn;
+
+    // writable.setDefaultEncoding(encoding) - set the default encoding for write()
+    auto setDefaultEncodingFn = std::make_shared<FunctionType>();
+    setDefaultEncodingFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // encoding
+    setDefaultEncodingFn->returnType = writableClass;  // returns this for chaining
+    writableClass->methods["setDefaultEncoding"] = setDefaultEncodingFn;
+
+    // writable.writableCorked property
+    writableClass->fields["writableCorked"] = std::make_shared<Type>(TypeKind::Int);
 
     symbols.defineType("Writable", writableClass);
 

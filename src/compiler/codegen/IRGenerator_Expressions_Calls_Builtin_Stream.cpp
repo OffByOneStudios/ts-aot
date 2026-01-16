@@ -32,6 +32,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_readable_did_read", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_set_encoding", {true, true}, true);  // stream, encoding -> stream
     bp.registerRuntimeApi("ts_readable_readable_encoding", {true}, true);  // stream -> string|null
+    bp.registerRuntimeApi("ts_readable_unshift", {true, true}, false);  // stream, chunk -> void
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -49,6 +50,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_writable_cork", {true}, false);  // stream -> void
     bp.registerRuntimeApi("ts_writable_uncork", {true}, false);  // stream -> void
     bp.registerRuntimeApi("ts_writable_writable_aborted", {true}, false);  // stream -> bool
+    bp.registerRuntimeApi("ts_writable_set_default_encoding", {true, true}, true);  // stream, encoding -> stream
 
     // Transform stream functions
     bp.registerRuntimeApi("ts_stream_transform_create", {true}, true);  // options -> transform
@@ -338,6 +340,45 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_set_encoding", ft);
+        lastValue = createCall(ft, fn.getCallee(), { obj, encoding });
+        return true;
+    } else if (prop->name == "unshift") {
+        // readable.unshift(chunk) - push data back to the front of the internal buffer
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        // Get the chunk argument
+        llvm::Value* chunk = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            chunk = boxValue(lastValue, node->arguments[0]->inferredType);
+        } else {
+            chunk = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_unshift", ft);
+        createCall(ft, fn.getCallee(), { obj, chunk });
+        lastValue = nullptr;  // void return
+        return true;
+    } else if (prop->name == "setDefaultEncoding") {
+        // writable.setDefaultEncoding(encoding) - set the default encoding for write()
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        // Get the encoding argument
+        llvm::Value* encoding = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            encoding = lastValue;
+        } else {
+            encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_set_default_encoding", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, encoding });
         return true;
     }

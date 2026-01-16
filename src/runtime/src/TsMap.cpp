@@ -12,6 +12,7 @@
 #include <functional>
 #include <iostream>
 #include <cmath>
+#include <utility>
 
 // Allocator
 template <class T>
@@ -486,18 +487,54 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
     TsMap* tsmap = (TsMap*)map;
     TsValue key = __ts_value_from_scalars(key_type, key_val);
 
+    // For JavaScript object property semantics, numeric keys should be coerced to strings.
+    // Try the original key first, then try string-coerced version for numeric keys.
+    TsValue stringKey;
+    bool hasStringKey = false;
+    if (key.type == ValueType::NUMBER_INT) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lld", (long long)key.i_val);
+        stringKey.type = ValueType::STRING_PTR;
+        stringKey.ptr_val = TsString::Create(buf);
+        hasStringKey = true;
+    } else if (key.type == ValueType::NUMBER_DBL) {
+        char buf[64];
+        double d = key.d_val;
+        // Check if it's an integer value stored as double
+        if (d == (int64_t)d && d >= -9007199254740991.0 && d <= 9007199254740991.0) {
+            snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
+        } else {
+            snprintf(buf, sizeof(buf), "%g", d);
+        }
+        stringKey.type = ValueType::STRING_PTR;
+        stringKey.ptr_val = TsString::Create(buf);
+        hasStringKey = true;
+    }
+
     // Walk the prototype chain looking for the key
     TsMap* currentMap = tsmap;
-    int depth = 0;
     while (currentMap != nullptr) {
         MapType* impl = (MapType*)currentMap->impl;
+        bool found = false;
+        int64_t bucketIdx = -1;
+
+        // Try original key first
         auto it = impl->find(key);
         if (it != impl->end()) {
-            // Found it - encode the map pointer in the upper bits and bucket index in lower bits
-            // We use a trick: return (map_offset << 32) | bucket_idx
-            // where map_offset is the distance from original map to found map in prototype chain
-            int64_t bucketIdx = std::distance(impl->begin(), it);
+            found = true;
+            bucketIdx = std::distance(impl->begin(), it);
+        }
 
+        // If not found and we have a string-coerced key, try that
+        if (!found && hasStringKey) {
+            it = impl->find(stringKey);
+            if (it != impl->end()) {
+                found = true;
+                bucketIdx = std::distance(impl->begin(), it);
+            }
+        }
+
+        if (found) {
             // Calculate how far down the prototype chain we found it
             int64_t protoDepth = 0;
             TsMap* check = tsmap;
@@ -507,7 +544,6 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
             }
 
             // Pack protoDepth and bucketIdx: upper 16 bits = protoDepth, lower 48 bits = bucket
-            // This limits prototype chain depth to 65535 and bucket count to ~280 trillion
             int64_t result = (protoDepth << 48) | (bucketIdx & 0xFFFFFFFFFFFFLL);
             return result;
         }
