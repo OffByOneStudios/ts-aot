@@ -212,11 +212,10 @@ Analyzer::Analyzer() {
     auto textEncoderClass = std::make_shared<ClassType>("TextEncoder");
     textEncoderClass->fields["encoding"] = std::make_shared<Type>(TypeKind::String);
     
-    // We register types after registerBuffer(), so we look up Buffer class
-    // For now, return Any to avoid struct lookup issues
+    // encode() returns Buffer (which supports .length)
     auto encodeMethod = std::make_shared<FunctionType>();
     encodeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    encodeMethod->returnType = std::make_shared<Type>(TypeKind::Any); // Returns TsBuffer* at runtime
+    encodeMethod->returnType = std::make_shared<ClassType>("Buffer");
     textEncoderClass->methods["encode"] = encodeMethod;
     
     auto encodeIntoResult = std::make_shared<ObjectType>();

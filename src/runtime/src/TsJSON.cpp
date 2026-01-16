@@ -89,26 +89,28 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     }
 
     // Check magic numbers. Some objects have a vtable (TsObject), some don't.
+    // Layout varies:
+    //   TsString, TsArray, TsDate, TsRegExp: magic at offset 0 (no vtable)
+    //   TsMap, TsSet, TsBuffer, etc: magic at offset 16 (TsObject-derived with vtable)
     uint32_t magic = *(uint32_t*)p;
-    uint32_t magic_offset8 = 0;
+    uint32_t magic_offset16 = 0;
     if ((uintptr_t)p > 0x1000) {
-        magic_offset8 = *(uint32_t*)((char*)p + 8);
+        magic_offset16 = *(uint32_t*)((char*)p + 16);
     }
 
     if (magic == TsString::MAGIC) {
         return ((TsString*)p)->ToUtf8();
     }
 
-    if (magic == TsDate::MAGIC || magic_offset8 == TsDate::MAGIC) {
-        TsDate* d = (magic == TsDate::MAGIC) ? (TsDate*)p : (TsDate*)((char*)p);
-        return d->ToISOString()->ToUtf8();
+    if (magic == TsDate::MAGIC) {
+        return ((TsDate*)p)->ToISOString()->ToUtf8();
     }
 
-    if (magic == TsRegExp::MAGIC || magic_offset8 == TsRegExp::MAGIC) {
+    if (magic == TsRegExp::MAGIC) {
         return nlohmann::json::object();
     }
 
-    if (magic == TsArray::MAGIC || magic_offset8 == TsArray::MAGIC) {
+    if (magic == TsArray::MAGIC) {
         if (visited.find(p) != visited.end()) {
             throw std::runtime_error("Circular reference in JSON.stringify");
         }
@@ -123,7 +125,8 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         return j;
     }
 
-    if (magic == TsMap::MAGIC || magic_offset8 == TsMap::MAGIC) {
+    // TsMap is TsObject-derived, magic at offset 16
+    if (magic_offset16 == TsMap::MAGIC) {
         if (visited.find(p) != visited.end()) {
             throw std::runtime_error("Circular reference in JSON.stringify");
         }

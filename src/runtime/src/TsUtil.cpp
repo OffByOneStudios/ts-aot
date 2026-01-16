@@ -530,10 +530,131 @@ void* ts_util_deprecate(void* fn, void* msg) {
     return fn;
 }
 
+// ============================================================================
+// util.callbackify implementation
+// ============================================================================
+
+// Context for the callbackified wrapper function
+struct CallbackifyWrapperContext {
+    TsValue* originalFunction;
+};
+
+// Callback to handle promise resolution/rejection
+struct CallbackifyPromiseContext {
+    TsValue* callback;
+    bool resolved;
+};
+
+static TsValue* callbackify_then_handler(void* ctx, int argc, TsValue** argv) {
+    CallbackifyPromiseContext* promiseCtx = (CallbackifyPromiseContext*)ctx;
+    if (!promiseCtx || !promiseCtx->callback) return nullptr;
+
+    // Call callback(null, value)
+    TsValue* nullVal = ts_value_make_null();
+    TsValue* value = (argc > 0) ? argv[0] : ts_value_make_undefined();
+
+    TsValue* args[2] = { nullVal, value };
+    ts_function_call(promiseCtx->callback, 2, args);
+
+    return nullptr;
+}
+
+static TsValue* callbackify_catch_handler(void* ctx, int argc, TsValue** argv) {
+    CallbackifyPromiseContext* promiseCtx = (CallbackifyPromiseContext*)ctx;
+    if (!promiseCtx || !promiseCtx->callback) return nullptr;
+
+    // Call callback(err)
+    TsValue* err = (argc > 0) ? argv[0] : ts_value_make_undefined();
+
+    // If error is falsy, create an Error with a default message
+    bool isFalsy = false;
+    if (!err || err->type == ValueType::UNDEFINED) {
+        isFalsy = true;
+    } else if (err->type == ValueType::BOOLEAN && !err->b_val) {
+        isFalsy = true;
+    } else if (err->type == ValueType::NUMBER_INT && err->i_val == 0) {
+        isFalsy = true;
+    }
+
+    if (isFalsy) {
+        TsString* errMsg = TsString::Create("The callback was invoked with a falsy reason");
+        err = (TsValue*)ts_error_create(errMsg);
+    }
+
+    TsValue* args[1] = { err };
+    ts_function_call(promiseCtx->callback, 1, args);
+
+    return nullptr;
+}
+
+// The wrapper function that gets called when the callbackified function is invoked
+static TsValue* callbackified_wrapper(void* ctx, int argc, TsValue** argv) {
+    CallbackifyWrapperContext* wrapperCtx = (CallbackifyWrapperContext*)ctx;
+    if (!wrapperCtx || !wrapperCtx->originalFunction) return nullptr;
+
+    // The last argument should be the callback
+    if (argc < 1) return nullptr;
+
+    TsValue* callback = argv[argc - 1];
+
+    // Call the original function without the callback
+    int origArgc = argc - 1;
+    TsValue** origArgv = (origArgc > 0) ? argv : nullptr;
+
+    // Call the original async function
+    TsValue* promiseVal = ts_function_call(wrapperCtx->originalFunction, origArgc, origArgv);
+
+    // If result is a promise, attach then/catch handlers
+    if (promiseVal && promiseVal->type == ValueType::PROMISE_PTR) {
+        ts::TsPromise* promise = (ts::TsPromise*)promiseVal->ptr_val;
+
+        // Create context for handlers
+        CallbackifyPromiseContext* promiseCtx = (CallbackifyPromiseContext*)ts_alloc(sizeof(CallbackifyPromiseContext));
+        promiseCtx->callback = callback;
+        promiseCtx->resolved = false;
+
+        // Create then handler using placement new to properly set magic
+        TsValue thenHandler;
+        thenHandler.type = ValueType::FUNCTION_PTR;
+        void* thenMem = ts_alloc(sizeof(TsFunction));
+        TsFunction* thenFunc = new (thenMem) TsFunction((void*)callbackify_then_handler, promiseCtx, FunctionType::NATIVE);
+        thenHandler.ptr_val = thenFunc;
+
+        // Create catch handler using placement new to properly set magic
+        TsValue catchHandler;
+        catchHandler.type = ValueType::FUNCTION_PTR;
+        void* catchMem = ts_alloc(sizeof(TsFunction));
+        TsFunction* catchFunc = new (catchMem) TsFunction((void*)callbackify_catch_handler, promiseCtx, FunctionType::NATIVE);
+        catchHandler.ptr_val = catchFunc;
+
+        promise->then(thenHandler, catchHandler);
+    } else {
+        // Not a promise - call callback with the result
+        TsValue* nullVal = ts_value_make_null();
+        TsValue* args[2] = { nullVal, promiseVal };
+        ts_function_call(callback, 2, args);
+    }
+
+    return ts_value_make_undefined();
+}
+
 void* ts_util_callbackify(void* fn) {
-    // For now, just return the function as-is
-    // Full implementation would wrap Promise-returning function
-    return fn;
+    // Unbox if needed
+    TsValue* fnVal = (TsValue*)fn;
+    void* rawFn = ts_value_get_object(fnVal);
+    if (!rawFn) rawFn = fn;
+
+    // Create wrapper context
+    CallbackifyWrapperContext* ctx = (CallbackifyWrapperContext*)ts_alloc(sizeof(CallbackifyWrapperContext));
+    ctx->originalFunction = (TsValue*)rawFn;
+
+    // If rawFn is a TsFunction, store the whole TsValue for proper calling
+    if (fnVal && (fnVal->type == ValueType::FUNCTION_PTR || fnVal->type == ValueType::OBJECT_PTR)) {
+        ctx->originalFunction = fnVal;
+    }
+
+    // Create and return the wrapper function
+    return ts_value_make_native_function((void*)callbackified_wrapper, ctx);
 }
 
 // util.types C API
