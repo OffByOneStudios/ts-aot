@@ -43,6 +43,8 @@ void Analyzer::registerStreams() {
     readableClass->fields["readableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
     readableClass->fields["readableLength"] = std::make_shared<Type>(TypeKind::Int);
     readableClass->fields["readableObjectMode"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readableAborted"] = std::make_shared<Type>(TypeKind::Boolean);
+    readableClass->fields["readableDidRead"] = std::make_shared<Type>(TypeKind::Boolean);
 
     // Readable methods
     auto isPausedFn = std::make_shared<FunctionType>();
@@ -94,6 +96,7 @@ void Analyzer::registerStreams() {
     writableClass->fields["writableHighWaterMark"] = std::make_shared<Type>(TypeKind::Int);
     writableClass->fields["writableLength"] = std::make_shared<Type>(TypeKind::Int);
     writableClass->fields["writableObjectMode"] = std::make_shared<Type>(TypeKind::Boolean);
+    writableClass->fields["writableAborted"] = std::make_shared<Type>(TypeKind::Boolean);
 
     // Writable methods
     auto writableDestroyFn = std::make_shared<FunctionType>();

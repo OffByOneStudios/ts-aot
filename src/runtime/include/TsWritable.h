@@ -5,7 +5,7 @@ class TsWritable : public virtual TsEventEmitter {
 public:
     TsWritable() : closed(false), bufferedAmount(0), highWaterMark(16384), needDrain(false),
                    destroyed_(false), ended_(false), finished_(false), objectMode_(false),
-                   corked_(false) {}
+                   corked_(false), aborted_(false) {}
     virtual ~TsWritable() {}
 
     // Safe casting helper
@@ -40,6 +40,10 @@ public:
     void Uncork() { corked_ = false; }
     bool IsCorked() const { return corked_; }
 
+    // Aborted state
+    bool IsWritableAborted() const { return aborted_; }
+    void SetWritableAborted(bool aborted) { aborted_ = aborted; }
+
 protected:
     bool closed;
     size_t bufferedAmount;
@@ -50,6 +54,7 @@ protected:
     bool finished_;
     bool objectMode_;
     bool corked_;
+    bool aborted_;
 };
 
 // C API for stream properties
@@ -64,4 +69,5 @@ extern "C" {
     bool ts_writable_writable_object_mode(void* stream);
     void ts_writable_cork(void* stream);
     void ts_writable_uncork(void* stream);
+    bool ts_writable_writable_aborted(void* stream);
 }

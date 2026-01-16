@@ -133,4 +133,12 @@ extern "C" {
         TsWritable* w = dynamic_cast<TsWritable*>(emitter);
         if (w) w->Uncork();
     }
+
+    bool ts_writable_writable_aborted(void* stream) {
+        if (!stream) return false;
+        TsEventEmitter* emitter = (TsEventEmitter*)stream;
+        TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+        if (!w) return false;
+        return w->IsWritableAborted();
+    }
 }
