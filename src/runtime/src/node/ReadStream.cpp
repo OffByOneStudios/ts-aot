@@ -562,4 +562,46 @@ extern "C" {
 
         return stream;
     }
+
+    void* ts_readable_set_encoding(void* stream, void* encoding) {
+        if (!stream) return nullptr;
+
+        // Unbox stream if needed
+        void* rawStream = ts_value_get_object((TsValue*)stream);
+        if (!rawStream) rawStream = stream;
+
+        TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+        if (!r) return stream;  // Return original for chaining
+
+        // Get encoding string
+        TsString* encStr = nullptr;
+        void* rawEnc = ts_value_get_string((TsValue*)encoding);
+        if (rawEnc) {
+            encStr = (TsString*)rawEnc;
+        } else if (encoding) {
+            encStr = (TsString*)encoding;
+        }
+
+        if (encStr) {
+            r->SetEncoding(encStr->ToUtf8());
+        }
+
+        return stream;  // Return for chaining
+    }
+
+    void* ts_readable_readable_encoding(void* stream) {
+        if (!stream) return nullptr;
+
+        // Unbox stream if needed
+        void* rawStream = ts_value_get_object((TsValue*)stream);
+        if (!rawStream) rawStream = stream;
+
+        TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+        if (!r) return nullptr;
+
+        const char* encoding = r->GetEncoding();
+        if (!encoding) return nullptr;
+
+        return TsString::Create(encoding);
+    }
 }

@@ -245,6 +245,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateNetCall(node, prop)) return true;
     if (tryGenerateTextEncodingCall(node, prop)) return true;
     if (tryGenerateURLCall(node, prop)) return true;
+    if (tryGenerateURLModuleCall(node, prop)) return true;
     if (tryGenerateUtilCall(node, prop)) return true;
     if (tryGenerateQueryStringCall(node, prop)) return true;
     if (tryGenerateOSCall(node, prop)) return true;

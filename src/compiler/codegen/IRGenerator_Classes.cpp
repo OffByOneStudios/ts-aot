@@ -570,7 +570,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
 
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-        llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create", createFt);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create_explicit", createFt);
         lastValue = createCall(createFt, fn.getCallee(), {});
         nonNullValues.insert(lastValue);
         return;
@@ -884,6 +884,19 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "Transform") {
+            // new stream.Transform(options?)
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                options = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_stream_transform_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { options });
+            nonNullValues.insert(lastValue);
+            return;
         } else if (className == "Agent") {
             // new http.Agent(options?)
             llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
@@ -1039,7 +1052,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Map") {
             llvm::FunctionType* createMapFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context), {}, false);
-            llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create", createMapFt);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create_explicit", createMapFt);
             lastValue = createCall(createMapFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;

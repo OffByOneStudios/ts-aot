@@ -371,13 +371,17 @@ bool isDate(void* value) {
 
 bool isMap(void* value) {
     if (!value) return false;
-    
+
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
+
     // Check magic at offset 16 (TsMap specific layout)
     uint32_t* magicPtr = (uint32_t*)((char*)rawPtr + 16);
-    return *magicPtr == TsMap::MAGIC;
+    if (*magicPtr != TsMap::MAGIC) return false;
+
+    // Must be an explicit Map (new Map()), not a plain object
+    TsMap* map = (TsMap*)rawPtr;
+    return map->IsExplicitMap();
 }
 
 bool isSet(void* value) {

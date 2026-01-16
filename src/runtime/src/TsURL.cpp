@@ -461,4 +461,141 @@ extern "C" {
     void URLSearchParams_forEach(void* params, void* callback, void* thisArg) {
         ((TsURLSearchParams*)params)->ForEach(callback, thisArg);
     }
+
+    // URL module static functions
+
+    // Helper to decode percent-encoded characters
+    static std::string percentDecode(const std::string& str) {
+        std::string result;
+        for (size_t i = 0; i < str.length(); i++) {
+            if (str[i] == '%' && i + 2 < str.length()) {
+                int hex;
+                if (sscanf(str.substr(i + 1, 2).c_str(), "%x", &hex) == 1) {
+                    result += static_cast<char>(hex);
+                    i += 2;
+                } else {
+                    result += str[i];
+                }
+            } else {
+                result += str[i];
+            }
+        }
+        return result;
+    }
+
+    // Helper to percent-encode a path for file URLs
+    static std::string percentEncodePath(const std::string& path) {
+        std::string result;
+        for (unsigned char c : path) {
+            // Don't encode alphanumeric, -, _, ., ~, or /
+            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == '/') {
+                result += c;
+            } else if (c == '\\') {
+                // Convert backslash to forward slash on Windows
+                result += '/';
+            } else {
+                char buf[4];
+                snprintf(buf, sizeof(buf), "%%%02X", c);
+                result += buf;
+            }
+        }
+        return result;
+    }
+
+    void* ts_url_file_url_to_path(void* urlArg) {
+        // fileURLToPath(url) - converts file:// URL to file system path
+        if (!urlArg) return TsString::Create("");
+
+        TsString* urlStr = nullptr;
+        TsURL* urlObj = nullptr;
+
+        // First, try to unbox as object (for URL object)
+        void* objPtr = ts_value_get_object((TsValue*)urlArg);
+        if (objPtr) {
+            urlObj = dynamic_cast<TsURL*>((TsObject*)objPtr);
+            if (urlObj) {
+                urlStr = urlObj->GetHref();
+            }
+        }
+
+        // If not a URL object, try to get as string
+        if (!urlStr) {
+            void* strPtr = ts_value_get_string((TsValue*)urlArg);
+            if (strPtr) {
+                urlStr = (TsString*)strPtr;
+            } else {
+                // Last resort - treat urlArg as raw TsString*
+                urlStr = (TsString*)urlArg;
+            }
+        }
+
+        if (!urlStr) return TsString::Create("");
+
+        std::string url = urlStr->ToUtf8();
+
+        // Must start with file://
+        if (url.substr(0, 7) != "file://") {
+            // In Node.js this throws, but we'll return empty string
+            return TsString::Create("");
+        }
+
+        // Remove file:// prefix
+        std::string path = url.substr(7);
+
+        // Handle file:///C:/... (Windows absolute path)
+        // or file:///path/to/file (Unix absolute path)
+#ifdef _WIN32
+        // On Windows: file:///C:/path -> C:/path
+        if (path.length() >= 3 && path[0] == '/' && isalpha(path[1]) && path[2] == ':') {
+            path = path.substr(1);  // Remove leading /
+        }
+        // Convert forward slashes to backslashes on Windows
+        for (char& c : path) {
+            if (c == '/') c = '\\';
+        }
+#else
+        // On Unix: file:///path -> /path (keep the leading /)
+        // path already has leading /
+#endif
+
+        // Decode percent-encoded characters
+        path = percentDecode(path);
+
+        return TsString::Create(path.c_str());
+    }
+
+    void* ts_url_path_to_file_url(void* pathArg) {
+        // pathToFileURL(path) - converts file system path to file:// URL
+        if (!pathArg) return nullptr;
+
+        // Try to unbox as string
+        void* strPtr = ts_value_get_string((TsValue*)pathArg);
+        TsString* pathStr = nullptr;
+        if (strPtr) {
+            pathStr = (TsString*)strPtr;
+        } else {
+            // Fallback to raw pointer
+            pathStr = (TsString*)pathArg;
+        }
+        std::string path = pathStr->ToUtf8();
+
+        if (path.empty()) {
+            return nullptr;
+        }
+
+        std::string urlStr = "file://";
+
+#ifdef _WIN32
+        // On Windows: C:\path -> file:///C:/path
+        if (path.length() >= 2 && isalpha(path[0]) && path[1] == ':') {
+            urlStr += "/";
+        }
+#endif
+
+        // Percent-encode the path (also converts \ to /)
+        urlStr += percentEncodePath(path);
+
+        // Create and return a URL object
+        return TsURL::Create(TsString::Create(urlStr.c_str()));
+    }
 }

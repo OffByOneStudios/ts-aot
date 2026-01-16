@@ -37,6 +37,10 @@ public:
     bool IsSealed() const { return sealed; }
     bool IsExtensible() const { return extensible; }
 
+    // Flag to distinguish explicit Map (new Map()) from plain objects
+    void SetExplicitMap(bool value) { isExplicitMap = value; }
+    bool IsExplicitMap() const { return isExplicitMap; }
+
 protected:
     TsMap();
 private:
@@ -45,10 +49,12 @@ private:
     bool frozen = false;
     bool sealed = false;
     bool extensible = true;
+    bool isExplicitMap = false;  // true for new Map(), false for plain objects
 };
 
 extern "C" {
     void* ts_map_create();
+    void* ts_map_create_explicit();  // Creates a Map object (new Map())
     
     void ts_map_clear(void* map);
     int64_t ts_map_size(void* map);

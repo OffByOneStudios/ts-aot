@@ -19,7 +19,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     // =========================================================================
     // Map operations - keys and values are ALWAYS boxed for type-aware hashing
     // =========================================================================
-    {"ts_map_create",  {}},                        // () -> TsMap*
+    {"ts_map_create",  {}},                        // () -> TsMap* (plain object)
+    {"ts_map_create_explicit",  {}},               // () -> TsMap* (explicit Map)
     {"ts_map_set",     {false, true, true}},       // (map*, key, value)
     {"ts_map_get",     {false, true}},             // (map*, key) -> TsValue*
     {"ts_map_has",     {false, true}},             // (map*, key) -> bool

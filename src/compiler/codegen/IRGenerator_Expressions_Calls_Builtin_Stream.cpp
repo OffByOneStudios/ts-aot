@@ -30,6 +30,8 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_readable_object_mode", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_readable_aborted", {true}, false);  // stream -> bool
     bp.registerRuntimeApi("ts_readable_readable_did_read", {true}, false);  // stream -> bool
+    bp.registerRuntimeApi("ts_readable_set_encoding", {true, true}, true);  // stream, encoding -> stream
+    bp.registerRuntimeApi("ts_readable_readable_encoding", {true}, true);  // stream -> string|null
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -320,6 +322,24 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         createCall(ft, fn.getCallee(), { obj });
         lastValue = obj;  // Return the stream for chaining
         return true;
+    } else if (prop->name == "setEncoding") {
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        // Get the encoding argument
+        llvm::Value* encoding = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            encoding = lastValue;
+        } else {
+            encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_set_encoding", ft);
+        lastValue = createCall(ft, fn.getCallee(), { obj, encoding });
+        return true;
     }
 
     return false;
@@ -410,6 +430,14 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
                     { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_did_read", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "readableEncoding") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_readable_encoding", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
         }

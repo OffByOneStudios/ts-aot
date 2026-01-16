@@ -64,6 +64,7 @@ public:
     void registerOS();
     void registerCrypto();
     void registerQueryString();
+    void registerURLModule();
 
     void reportError(const std::string& message);
 

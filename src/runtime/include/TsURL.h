@@ -128,4 +128,8 @@ extern "C" {
     void* ts_url_search_params_keys(void* params);
     void* ts_url_search_params_values(void* params);
     void ts_url_search_params_for_each(void* params, void* callback, void* thisArg);
+
+    // URL module static functions
+    void* ts_url_file_url_to_path(void* url);      // fileURLToPath(url) -> string
+    void* ts_url_path_to_file_url(void* path);     // pathToFileURL(path) -> URL
 }
