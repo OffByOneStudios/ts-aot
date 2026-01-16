@@ -932,7 +932,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.callbackify()` | ✅ | Converts Promise-returning functions to callback style |
 | `util.debuglog()` | ❌ | |
 | `util.deprecate()` | ⚠️ | Stub - returns function unchanged |
-| `util.format()` | ⚠️ | Works but has extra spacing in output |
+| `util.format()` | ✅ | Printf-like string formatting (%s, %d, %f, %o, %j) |
 | `util.formatWithOptions()` | ❌ | |
 | `util.getSystemErrorName()` | ❌ | |
 | `util.getSystemErrorMap()` | ❌ | |
@@ -992,7 +992,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 29/62 (47%)** (11 full, 10 partial)
+**Util Coverage: 30/62 (48%)** (12 full, 9 partial)
 
 ---
 
@@ -1034,9 +1034,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 29 | 38 | 76% |
-| Util | 29 | 62 | 47% |
+| Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **465** | **661** | **70%** |
+| **Total** | **466** | **661** | **71%** |
 
 ### Priority Implementation Targets
 
