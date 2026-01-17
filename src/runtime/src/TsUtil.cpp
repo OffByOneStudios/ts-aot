@@ -535,6 +535,16 @@ bool isFloat64Array(void* value) {
     return ta && ta->GetType() == TypedArrayType::Float64;
 }
 
+bool isBigInt64Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    return ta && ta->GetType() == TypedArrayType::BigInt64;
+}
+
+bool isBigUint64Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    return ta && ta->GetType() == TypedArrayType::BigUint64;
+}
+
 bool isDataView(void* value) {
     if (!value) return false;
 
@@ -607,10 +617,20 @@ bool isStringObject(void* value) {
     return obj->magic == TsStringObject::MAGIC;
 }
 
+bool isSymbolObject(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsSymbolObject::MAGIC;
+}
+
 bool isBoxedPrimitive(void* value) {
     // Returns true for any boxed primitive (Boolean, Number, String, Symbol, BigInt objects)
-    // We currently support Boolean, Number, and String objects
-    return isBooleanObject(value) || isNumberObject(value) || isStringObject(value);
+    // We currently support Boolean, Number, String, and Symbol objects
+    return isBooleanObject(value) || isNumberObject(value) || isStringObject(value) || isSymbolObject(value);
 }
 
 } // namespace TsUtilTypes
@@ -1159,6 +1179,14 @@ bool ts_util_types_is_float64_array(void* value) {
     return TsUtilTypes::isFloat64Array(value);
 }
 
+bool ts_util_types_is_big_int64_array(void* value) {
+    return TsUtilTypes::isBigInt64Array(value);
+}
+
+bool ts_util_types_is_big_uint64_array(void* value) {
+    return TsUtilTypes::isBigUint64Array(value);
+}
+
 bool ts_util_types_is_data_view(void* value) {
     return TsUtilTypes::isDataView(value);
 }
@@ -1189,6 +1217,10 @@ bool ts_util_types_is_number_object(void* value) {
 
 bool ts_util_types_is_string_object(void* value) {
     return TsUtilTypes::isStringObject(value);
+}
+
+bool ts_util_types_is_symbol_object(void* value) {
+    return TsUtilTypes::isSymbolObject(value);
 }
 
 bool ts_util_types_is_boxed_primitive(void* value) {

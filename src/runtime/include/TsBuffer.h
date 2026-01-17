@@ -262,8 +262,10 @@ extern "C" {
     // Generic typed array functions with element size parameter
     void* ts_typed_array_create(int64_t length, int32_t elementSize);
     void* ts_typed_array_create_clamped(int64_t length);  // For Uint8ClampedArray
+    void* ts_typed_array_create_typed(int64_t length, int32_t typeVal);  // With explicit TypedArrayType
     void* ts_typed_array_from_array(void* array, int32_t elementSize);
     void* ts_typed_array_from_array_clamped(void* array);  // For Uint8ClampedArray
+    void* ts_typed_array_from_array_typed(void* array, int32_t typeVal);  // With explicit TypedArrayType
     int64_t ts_typed_array_length(void* typedArray);
     double ts_typed_array_get_generic(void* typedArray, int64_t index);
     void* ts_data_view_create(void* buffer);
