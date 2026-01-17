@@ -637,11 +637,31 @@ void IRGenerator::visitArrowFunctionExpression(ast::ArrowFunctionExpression* nod
 }
 
 void IRGenerator::visitNewExpression(ast::NewExpression* node) {
-    fprintf(stderr, "[CODEGEN] visitNewExpression called\n");
+    // Check inferred type first - handles imports like `import { StringDecoder } from 'string_decoder'`
+    if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+        auto classType = std::static_pointer_cast<ClassType>(node->inferredType);
+
+        if (classType->name == "StringDecoder") {
+            // new StringDecoder(encoding?)
+            llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                encoding = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            // Call ts_string_decoder_create(encoding)
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_string_decoder_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { encoding });
+            boxedValues.insert(lastValue);
+            concreteTypes[lastValue] = classType;
+            return;
+        }
+    }
 
     // Special handling for new Promise(executor)
     if (auto id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
-        fprintf(stderr, "[CODEGEN] NewExpression expression IS Identifier, name='%s'\n", id->name.c_str());
         if (id->name == "Promise" && !node->arguments.empty()) {
             fprintf(stderr, "[CODEGEN] Matched 'new Promise(...)' - using special handler\n");
             // new Promise((resolve, reject) => { ... })
@@ -673,6 +693,27 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_proxy_create", ft);
             lastValue = createCall(ft, fn.getCallee(), { target, handler });
+            boxedValues.insert(lastValue);
+
+            if (node->inferredType && node->inferredType->kind == TypeKind::Class) {
+                auto cls = std::static_pointer_cast<ClassType>(node->inferredType);
+                concreteTypes[lastValue] = cls;
+            }
+            return;
+        } else if (id->name == "StringDecoder") {
+            fprintf(stderr, "[CODEGEN] Matched 'new StringDecoder(...)' - using special handler\n");
+            // new StringDecoder(encoding?)
+            llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                encoding = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            // Call ts_string_decoder_create(encoding)
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_string_decoder_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { encoding });
             boxedValues.insert(lastValue);
 
             if (node->inferredType && node->inferredType->kind == TypeKind::Class) {

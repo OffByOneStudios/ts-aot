@@ -33,7 +33,18 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_set", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_typed_array", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_uint8_array", {true}, false);
-    
+
+    // Specific TypedArray type checks
+    bp.registerRuntimeApi("ts_util_types_is_int8_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_int16_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_int32_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_uint8_clamped_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_uint16_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_uint32_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_float32_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_float64_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_data_view", {true}, false);
+
     // Array helpers used in util
     bp.registerRuntimeApi("ts_array_create_sized", {false}, true);
     bp.registerRuntimeApi("ts_array_push", {true, true}, false);
@@ -262,6 +273,16 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isUint8Array") fnName = "ts_util_types_is_uint8_array";
         else if (prop->name == "isGeneratorFunction") fnName = "ts_util_types_is_generator_function";
         else if (prop->name == "isGeneratorObject") fnName = "ts_util_types_is_generator_object";
+        // Specific TypedArray type checks
+        else if (prop->name == "isInt8Array") fnName = "ts_util_types_is_int8_array";
+        else if (prop->name == "isInt16Array") fnName = "ts_util_types_is_int16_array";
+        else if (prop->name == "isInt32Array") fnName = "ts_util_types_is_int32_array";
+        else if (prop->name == "isUint8ClampedArray") fnName = "ts_util_types_is_uint8_clamped_array";
+        else if (prop->name == "isUint16Array") fnName = "ts_util_types_is_uint16_array";
+        else if (prop->name == "isUint32Array") fnName = "ts_util_types_is_uint32_array";
+        else if (prop->name == "isFloat32Array") fnName = "ts_util_types_is_float32_array";
+        else if (prop->name == "isFloat64Array") fnName = "ts_util_types_is_float64_array";
+        else if (prop->name == "isDataView") fnName = "ts_util_types_is_data_view";
         else {
             // Unknown util.types function - return false
             lastValue = llvm::ConstantInt::get(builder->getInt1Ty(), false);

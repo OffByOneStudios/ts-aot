@@ -91,6 +91,8 @@ add_library(tsruntime STATIC
     src/TsTransform.cpp
     src/TsVM.cpp
     src/TsV8.cpp
+    src/TsAssert.cpp
+    src/TsStringDecoder.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

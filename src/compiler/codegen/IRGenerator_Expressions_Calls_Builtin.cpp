@@ -238,6 +238,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGeneratePathCall(node, prop)) return true;
     if (tryGenerateEventsCall(node, prop)) return true;
     if (tryGeneratePromiseCall(node, prop)) return true;
+    // StringDecoder before Stream - it has write/end methods that override generic stream handling
+    if (tryGenerateStringDecoderCall(node, prop)) return true;
     if (tryGenerateStreamCall(node, prop)) return true;
     if (tryGenerateBufferCall(node, prop)) return true;
     if (tryGenerateProcessCall(node, prop)) return true;
@@ -254,6 +256,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateTimersSchedulerCall(node, prop)) return true;
     if (tryGenerateVMCall(node, prop)) return true;
     if (tryGenerateV8Call(node, prop)) return true;
+    if (tryGenerateAssertCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
@@ -3902,7 +3905,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          lastValue = nullptr;
          return true;
     } else if (prop->name == "md5" || prop->name == "createHash" || prop->name == "createHmac" ||
-               prop->name == "getHashes" || prop->name == "randomBytes" || prop->name == "randomFillSync" ||
+               prop->name == "getHashes" || prop->name == "getCiphers" || prop->name == "randomBytes" ||
+               prop->name == "randomFill" || prop->name == "randomFillSync" ||
                prop->name == "randomInt" || prop->name == "randomUUID" || prop->name == "pbkdf2Sync" ||
                prop->name == "scryptSync" || prop->name == "timingSafeEqual") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
@@ -3947,6 +3951,11 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_getHashes", ft);
                     lastValue = createCall(ft, fn.getCallee(), {});
                     return true;
+                } else if (prop->name == "getCiphers") {
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_getCiphers", ft);
+                    lastValue = createCall(ft, fn.getCallee(), {});
+                    return true;
                 } else if (prop->name == "randomBytes") {
                     if (node->arguments.empty()) return true;
                     visit(node->arguments[0].get());
@@ -3984,6 +3993,57 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty() }, false);
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomFillSync", ft);
                     lastValue = createCall(ft, fn.getCallee(), { buffer, offset, size });
+                    return true;
+                } else if (prop->name == "randomFill") {
+                    // crypto.randomFill(buffer, offset?, size?, callback)
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* buffer = lastValue;
+                    if (buffer->getType()->isIntegerTy(64)) {
+                        buffer = builder->CreateIntToPtr(buffer, builder->getPtrTy());
+                    }
+                    llvm::Value* offset = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+                    llvm::Value* size = llvm::ConstantInt::get(builder->getInt64Ty(), -1);
+                    llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                    size_t argIdx = 1;
+                    // Check if we have offset/size arguments (they're numbers, not functions)
+                    if (node->arguments.size() > argIdx) {
+                        auto& arg = node->arguments[argIdx];
+                        if (arg->inferredType && arg->inferredType->kind != TypeKind::Function) {
+                            visit(arg.get());
+                            offset = lastValue;
+                            if (!offset->getType()->isIntegerTy(64)) {
+                                offset = builder->CreatePtrToInt(offset, builder->getInt64Ty());
+                            }
+                            argIdx++;
+                        }
+                    }
+                    if (node->arguments.size() > argIdx) {
+                        auto& arg = node->arguments[argIdx];
+                        if (arg->inferredType && arg->inferredType->kind != TypeKind::Function) {
+                            visit(arg.get());
+                            size = lastValue;
+                            if (!size->getType()->isIntegerTy(64)) {
+                                size = builder->CreatePtrToInt(size, builder->getInt64Ty());
+                            }
+                            argIdx++;
+                        }
+                    }
+                    // The last argument should be the callback
+                    if (node->arguments.size() > argIdx) {
+                        visit(node->arguments[argIdx].get());
+                        callback = lastValue;
+                        if (callback->getType()->isIntegerTy(64)) {
+                            callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+                        }
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                        { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_randomFill", ft);
+                    createCall(ft, fn.getCallee(), { buffer, offset, size, callback });
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
                     return true;
                 } else if (prop->name == "randomInt") {
                     llvm::Value* min = llvm::ConstantInt::get(builder->getInt64Ty(), 0);

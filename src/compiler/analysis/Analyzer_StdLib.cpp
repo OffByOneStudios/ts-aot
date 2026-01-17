@@ -1438,5 +1438,7 @@ Analyzer::Analyzer() {
     registerURLModule();
     registerVM();
     registerV8();
+    registerAssert();
+    registerStringDecoder();
 }
 } // namespace ts

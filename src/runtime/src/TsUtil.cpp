@@ -437,11 +437,6 @@ bool isNativeError(void* value) {
     );
 }
 
-bool isUint8Array(void* value) {
-    // Our Buffer is effectively a Uint8Array
-    return isTypedArray(value);
-}
-
 bool isGeneratorFunction(void* value) {
     // Can't detect in AOT - all functions are compiled
     return false;
@@ -449,6 +444,95 @@ bool isGeneratorFunction(void* value) {
 
 bool isGeneratorObject(void* value) {
     // Can't detect without proper RTTI
+    return false;
+}
+
+// Helper to get TypedArray if value is one
+static TsTypedArray* getTypedArray(void* value) {
+    if (!value) return nullptr;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    if (obj->magic == TsTypedArray::MAGIC) {
+        return (TsTypedArray*)rawPtr;
+    }
+    return nullptr;
+}
+
+bool isInt8Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    return ta && ta->GetElementSize() == 1 && !ta->IsClamped();
+}
+
+bool isInt16Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Int16Array uses 2-byte signed integers
+    return ta && ta->GetElementSize() == 2;
+}
+
+bool isInt32Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Int32Array uses 4-byte signed integers
+    return ta && ta->GetElementSize() == 4;
+}
+
+bool isUint8Array(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    // Buffer is effectively Uint8Array
+    if (obj->magic == TsBuffer::MAGIC) return true;
+
+    // TypedArray with element size 1 and not clamped
+    TsTypedArray* ta = getTypedArray(value);
+    return ta && ta->GetElementSize() == 1 && !ta->IsClamped();
+}
+
+bool isUint8ClampedArray(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    return ta && ta->GetElementSize() == 1 && ta->IsClamped();
+}
+
+bool isUint16Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Uint16Array uses 2-byte unsigned integers
+    return ta && ta->GetElementSize() == 2;
+}
+
+bool isUint32Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Uint32Array uses 4-byte unsigned integers
+    return ta && ta->GetElementSize() == 4;
+}
+
+bool isFloat32Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Float32Array uses 4-byte floats, but we can't distinguish from Int32/Uint32
+    // by element size alone. Need a type flag in TsTypedArray for proper detection.
+    // For now, return false since we don't track float vs int types.
+    return false;
+}
+
+bool isFloat64Array(void* value) {
+    TsTypedArray* ta = getTypedArray(value);
+    // Float64Array uses 8-byte doubles
+    return ta && ta->GetElementSize() == 8;
+}
+
+bool isDataView(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    // TsDataView would need its own magic value
+    // For now, check if it's a TsObject that's not a TypedArray or Buffer
+    // Since we don't have a dedicated DataView magic, return false
     return false;
 }
 
@@ -781,6 +865,43 @@ bool ts_util_types_is_generator_function(void* value) {
 
 bool ts_util_types_is_generator_object(void* value) {
     return TsUtilTypes::isGeneratorObject(value);
+}
+
+// Specific TypedArray type checks
+bool ts_util_types_is_int8_array(void* value) {
+    return TsUtilTypes::isInt8Array(value);
+}
+
+bool ts_util_types_is_int16_array(void* value) {
+    return TsUtilTypes::isInt16Array(value);
+}
+
+bool ts_util_types_is_int32_array(void* value) {
+    return TsUtilTypes::isInt32Array(value);
+}
+
+bool ts_util_types_is_uint8_clamped_array(void* value) {
+    return TsUtilTypes::isUint8ClampedArray(value);
+}
+
+bool ts_util_types_is_uint16_array(void* value) {
+    return TsUtilTypes::isUint16Array(value);
+}
+
+bool ts_util_types_is_uint32_array(void* value) {
+    return TsUtilTypes::isUint32Array(value);
+}
+
+bool ts_util_types_is_float32_array(void* value) {
+    return TsUtilTypes::isFloat32Array(value);
+}
+
+bool ts_util_types_is_float64_array(void* value) {
+    return TsUtilTypes::isFloat64Array(value);
+}
+
+bool ts_util_types_is_data_view(void* value) {
+    return TsUtilTypes::isDataView(value);
 }
 
 } // extern "C"

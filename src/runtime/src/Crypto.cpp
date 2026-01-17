@@ -386,6 +386,47 @@ void* ts_crypto_randomFillSync(void* bufferObj, int64_t offset, int64_t size) {
     return bufferObj;
 }
 
+// crypto.randomFill(buffer, offset?, size?, callback) -> void
+// This is the async version - calls callback(err, buffer) after filling
+void ts_crypto_randomFill(void* bufferObj, int64_t offset, int64_t size, void* callback) {
+    TsBuffer* buf = (TsBuffer*)bufferObj;
+
+    TsValue* err = nullptr;
+    TsValue* result = nullptr;
+
+    if (!buf || buf->magic != TsBuffer::MAGIC) {
+        err = (TsValue*)ts_error_create(TsString::Create("Buffer expected"));
+        result = ts_value_make_undefined();
+    } else {
+        size_t bufLen = buf->GetLength();
+        size_t start = (offset >= 0) ? (size_t)offset : 0;
+        size_t len = (size >= 0) ? (size_t)size : (bufLen - start);
+
+        if (start + len > bufLen) {
+            len = bufLen - start;
+        }
+
+        if (len > 0) {
+            if (RAND_bytes(buf->GetData() + start, (int)len) != 1) {
+                err = (TsValue*)ts_error_create(TsString::Create("Random generation failed"));
+                result = ts_value_make_undefined();
+            } else {
+                err = ts_value_make_undefined();
+                result = ts_value_make_object(buf);
+            }
+        } else {
+            err = ts_value_make_undefined();
+            result = ts_value_make_object(buf);
+        }
+    }
+
+    // Call the callback with (err, buffer)
+    if (callback) {
+        TsValue* args[2] = { err, result };
+        ts_function_call((TsValue*)callback, 2, args);
+    }
+}
+
 // crypto.randomInt(min, max) -> number
 int64_t ts_crypto_randomInt(int64_t min, int64_t max) {
     if (min >= max) return min;
@@ -600,6 +641,33 @@ void* ts_crypto_getHashes() {
     for (const char* hash : hashes) {
         if (EVP_get_digestbyname(hash) != nullptr) {
             arr->Push((int64_t)ts_value_make_string(TsString::Create(hash)));
+        }
+    }
+
+    return arr;
+}
+
+// crypto.getCiphers() -> string[]
+void* ts_crypto_getCiphers() {
+    // Return commonly supported cipher algorithms
+    TsArray* arr = TsArray::Create();
+
+    const char* ciphers[] = {
+        "aes-128-cbc", "aes-128-ecb", "aes-128-cfb", "aes-128-ofb", "aes-128-ctr", "aes-128-gcm",
+        "aes-192-cbc", "aes-192-ecb", "aes-192-cfb", "aes-192-ofb", "aes-192-ctr", "aes-192-gcm",
+        "aes-256-cbc", "aes-256-ecb", "aes-256-cfb", "aes-256-ofb", "aes-256-ctr", "aes-256-gcm",
+        "aes128", "aes192", "aes256",
+        "des-cbc", "des-ecb", "des-cfb", "des-ofb",
+        "des-ede3-cbc", "des-ede3-ecb", "des-ede3-cfb", "des-ede3-ofb",
+        "des3", "des-ede3",
+        "bf-cbc", "bf-ecb", "bf-cfb", "bf-ofb",
+        "rc4", "rc4-40",
+        "chacha20", "chacha20-poly1305"
+    };
+
+    for (const char* cipher : ciphers) {
+        if (EVP_get_cipherbyname(cipher) != nullptr) {
+            arr->Push((int64_t)ts_value_make_string(TsString::Create(cipher)));
         }
     }
 

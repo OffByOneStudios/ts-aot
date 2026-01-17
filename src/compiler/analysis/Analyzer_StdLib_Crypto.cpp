@@ -56,6 +56,10 @@ void Analyzer::registerCrypto() {
     getHashes->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     cryptoModule->fields["getHashes"] = getHashes;
 
+    auto getCiphers = std::make_shared<FunctionType>();
+    getCiphers->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    cryptoModule->fields["getCiphers"] = getCiphers;
+
     // HMAC functions
     auto createHmac = std::make_shared<FunctionType>();
     createHmac->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
@@ -75,6 +79,20 @@ void Analyzer::registerCrypto() {
     randomFillSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // size
     randomFillSync->returnType = bufferType;
     cryptoModule->fields["randomFillSync"] = randomFillSync;
+
+    // randomFill(buffer, offset?, size?, callback) -> void
+    auto randomFillCallbackType = std::make_shared<FunctionType>();
+    randomFillCallbackType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // err
+    randomFillCallbackType->paramTypes.push_back(bufferType); // buffer
+    randomFillCallbackType->returnType = std::make_shared<Type>(TypeKind::Void);
+
+    auto randomFill = std::make_shared<FunctionType>();
+    randomFill->paramTypes.push_back(bufferType); // buffer
+    randomFill->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // offset (optional)
+    randomFill->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // size (optional)
+    randomFill->paramTypes.push_back(randomFillCallbackType); // callback
+    randomFill->returnType = std::make_shared<Type>(TypeKind::Void);
+    cryptoModule->fields["randomFill"] = randomFill;
 
     auto randomInt = std::make_shared<FunctionType>();
     randomInt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // min

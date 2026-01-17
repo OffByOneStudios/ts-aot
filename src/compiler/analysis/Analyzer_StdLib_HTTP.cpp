@@ -521,6 +521,18 @@ void Analyzer::registerURLModule() {
     urlToHttpOptionsFn->returnType = std::make_shared<ObjectType>();  // Returns options object
     urlModule->fields["urlToHttpOptions"] = urlToHttpOptionsFn;
 
+    // url.domainToASCII(domain: string): string
+    auto domainToASCIIFn = std::make_shared<FunctionType>();
+    domainToASCIIFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    domainToASCIIFn->returnType = std::make_shared<Type>(TypeKind::String);
+    urlModule->fields["domainToASCII"] = domainToASCIIFn;
+
+    // url.domainToUnicode(domain: string): string
+    auto domainToUnicodeFn = std::make_shared<FunctionType>();
+    domainToUnicodeFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    domainToUnicodeFn->returnType = std::make_shared<Type>(TypeKind::String);
+    urlModule->fields["domainToUnicode"] = domainToUnicodeFn;
+
     symbols.define("url", urlModule);
 }
 

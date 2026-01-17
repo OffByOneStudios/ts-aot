@@ -36,6 +36,8 @@ static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_url_format", {true, true}, false);      // urlObj, options -> string
     bp.registerRuntimeApi("ts_url_resolve", {true, true}, false);     // from, to -> string
     bp.registerRuntimeApi("ts_url_to_http_options", {true}, true);    // url -> options object
+    bp.registerRuntimeApi("ts_url_domain_to_ascii", {false}, false);  // domain -> ascii string
+    bp.registerRuntimeApi("ts_url_domain_to_unicode", {false}, false); // domain -> unicode string
 }
 
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -312,6 +314,38 @@ bool IRGenerator::tryGenerateURLModuleCall(ast::CallExpression* node, ast::Prope
             { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_url_to_http_options", ft);
         lastValue = createCall(ft, fn.getCallee(), { url });
+        return true;
+    }
+
+    // url.domainToASCII(domain) - convert domain to ASCII (Punycode)
+    if (prop->name == "domainToASCII") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* domain = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_domain_to_ascii", ft);
+        lastValue = createCall(ft, fn.getCallee(), { domain });
+        return true;
+    }
+
+    // url.domainToUnicode(domain) - convert domain from ASCII (Punycode) to Unicode
+    if (prop->name == "domainToUnicode") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* domain = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_domain_to_unicode", ft);
+        lastValue = createCall(ft, fn.getCallee(), { domain });
         return true;
     }
 
