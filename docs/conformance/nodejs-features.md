@@ -554,10 +554,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.setNoDelay()` | ❌ | |
 | `req.setSocketKeepAlive()` | ❌ | |
 | `req.setTimeout()` | ❌ | |
-| `req.socket` | ❌ | |
+| `req.socket` | ✅ | Returns underlying net.Socket |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 48/67 (72%)**
+**HTTP Coverage: 49/67 (73%)**
 
 ---
 

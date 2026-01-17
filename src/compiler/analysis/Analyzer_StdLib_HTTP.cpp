@@ -213,6 +213,15 @@ void Analyzer::registerHTTP() {
     clientRequestClass->fields["host"] = std::make_shared<Type>(TypeKind::String);
     clientRequestClass->fields["protocol"] = std::make_shared<Type>(TypeKind::String);
 
+    // req.socket - the underlying socket (net.Socket)
+    auto socketClassRef = symbols.lookupType("Socket");
+    if (socketClassRef) {
+        clientRequestClass->fields["socket"] = socketClassRef;
+    } else {
+        // Fallback to Any if Socket not yet defined
+        clientRequestClass->fields["socket"] = std::make_shared<Type>(TypeKind::Any);
+    }
+
     // ClientRequest methods
     auto getHeaderMethod = std::make_shared<FunctionType>();
     getHeaderMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
