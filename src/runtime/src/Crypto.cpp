@@ -12,6 +12,8 @@
 #include <openssl/kdf.h>
 #include <openssl/err.h>
 
+#include <uv.h>
+
 #include <string.h>
 #include <new>
 
@@ -582,6 +584,268 @@ void* ts_crypto_scryptSync(void* password, void* salt, int64_t keylen,
     }
 
     return result;
+}
+
+// ============================================================================
+// ASYNC Key Derivation Functions (using libuv thread pool)
+// ============================================================================
+
+struct Pbkdf2WorkData {
+    // Input data (copied for thread safety)
+    unsigned char* passData;
+    size_t passLen;
+    unsigned char* saltData;
+    size_t saltLen;
+    int iterations;
+    int keylen;
+    const EVP_MD* md;
+    void* callback;
+    // Output
+    TsBuffer* result;
+    bool success;
+};
+
+static void pbkdf2_work_cb(uv_work_t* req) {
+    Pbkdf2WorkData* data = (Pbkdf2WorkData*)req->data;
+    data->result = TsBuffer::Create((size_t)data->keylen);
+    data->success = PKCS5_PBKDF2_HMAC(
+        (const char*)data->passData, (int)data->passLen,
+        data->saltData, (int)data->saltLen,
+        data->iterations,
+        data->md,
+        data->keylen,
+        data->result->GetData()) == 1;
+}
+
+static void pbkdf2_after_work_cb(uv_work_t* req, int status) {
+    Pbkdf2WorkData* data = (Pbkdf2WorkData*)req->data;
+
+    TsValue* err = nullptr;
+    TsValue* result = nullptr;
+
+    if (!data->success) {
+        err = (TsValue*)ts_error_create(TsString::Create("PBKDF2 failed"));
+        result = ts_value_make_undefined();
+    } else {
+        err = ts_value_make_undefined();
+        result = ts_value_make_object(data->result);
+    }
+
+    // Call callback(err, derivedKey)
+    if (data->callback) {
+        TsValue* args[2] = { err, result };
+        ts_function_call((TsValue*)data->callback, 2, args);
+    }
+
+    // Cleanup (GC will handle TsBuffer)
+    // Note: passData and saltData are GC-allocated, don't free
+    delete req;
+}
+
+// crypto.pbkdf2(password, salt, iterations, keylen, digest, callback)
+void ts_crypto_pbkdf2(void* password, void* salt, int64_t iterations,
+                      int64_t keylen, void* digest, void* callback) {
+    const unsigned char* passData = nullptr;
+    size_t passLen = 0;
+    const unsigned char* saltData = nullptr;
+    size_t saltLen = 0;
+
+    // Extract password
+    TsValue* passVal = (TsValue*)password;
+    if (passVal->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)passVal->ptr_val;
+        passData = (const unsigned char*)str->ToUtf8();
+        passLen = strlen((const char*)passData);
+    } else if (passVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)passVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            passData = buf->GetData();
+            passLen = buf->GetLength();
+        }
+    }
+
+    // Extract salt
+    TsValue* saltVal = (TsValue*)salt;
+    if (saltVal->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)saltVal->ptr_val;
+        saltData = (const unsigned char*)str->ToUtf8();
+        saltLen = strlen((const char*)saltData);
+    } else if (saltVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)saltVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            saltData = buf->GetData();
+            saltLen = buf->GetLength();
+        }
+    }
+
+    if (!passData || !saltData) {
+        if (callback) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Invalid password or salt"));
+            TsValue* result = ts_value_make_undefined();
+            TsValue* args[2] = { err, result };
+            ts_function_call((TsValue*)callback, 2, args);
+        }
+        return;
+    }
+
+    // Get digest algorithm
+    const EVP_MD* md = EVP_sha256(); // default
+    if (digest) {
+        void* rawDigest = ts_value_get_string((TsValue*)digest);
+        if (rawDigest) {
+            TsString* digestStr = (TsString*)rawDigest;
+            const EVP_MD* customMd = EVP_get_digestbyname(digestStr->ToUtf8());
+            if (customMd) md = customMd;
+        }
+    }
+
+    // Copy data for thread safety
+    Pbkdf2WorkData* data = (Pbkdf2WorkData*)ts_alloc(sizeof(Pbkdf2WorkData));
+    data->passData = (unsigned char*)ts_alloc(passLen);
+    memcpy(data->passData, passData, passLen);
+    data->passLen = passLen;
+    data->saltData = (unsigned char*)ts_alloc(saltLen);
+    memcpy(data->saltData, saltData, saltLen);
+    data->saltLen = saltLen;
+    data->iterations = (int)iterations;
+    data->keylen = (int)keylen;
+    data->md = md;
+    data->callback = callback;
+    data->result = nullptr;
+    data->success = false;
+
+    uv_work_t* req = new uv_work_t();
+    req->data = data;
+
+    uv_queue_work(uv_default_loop(), req, pbkdf2_work_cb, pbkdf2_after_work_cb);
+}
+
+struct ScryptWorkData {
+    // Input data (copied for thread safety)
+    unsigned char* passData;
+    size_t passLen;
+    unsigned char* saltData;
+    size_t saltLen;
+    size_t keylen;
+    uint64_t N;
+    uint64_t r;
+    uint64_t p;
+    void* callback;
+    // Output
+    TsBuffer* result;
+    bool success;
+};
+
+static void scrypt_work_cb(uv_work_t* req) {
+    ScryptWorkData* data = (ScryptWorkData*)req->data;
+    data->result = TsBuffer::Create(data->keylen);
+    data->success = EVP_PBE_scrypt(
+        (const char*)data->passData, data->passLen,
+        data->saltData, data->saltLen,
+        data->N, data->r, data->p,
+        0, // maxmem (0 = default)
+        data->result->GetData(), data->keylen) == 1;
+}
+
+static void scrypt_after_work_cb(uv_work_t* req, int status) {
+    ScryptWorkData* data = (ScryptWorkData*)req->data;
+
+    TsValue* err = nullptr;
+    TsValue* result = nullptr;
+
+    if (!data->success) {
+        err = (TsValue*)ts_error_create(TsString::Create("scrypt failed"));
+        result = ts_value_make_undefined();
+    } else {
+        err = ts_value_make_undefined();
+        result = ts_value_make_object(data->result);
+    }
+
+    // Call callback(err, derivedKey)
+    if (data->callback) {
+        TsValue* args[2] = { err, result };
+        ts_function_call((TsValue*)data->callback, 2, args);
+    }
+
+    // Cleanup
+    delete req;
+}
+
+// crypto.scrypt(password, salt, keylen, options, callback)
+void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
+                      int64_t N, int64_t r, int64_t p, void* callback) {
+    const unsigned char* passData = nullptr;
+    size_t passLen = 0;
+    const unsigned char* saltData = nullptr;
+    size_t saltLen = 0;
+
+    // Extract password
+    TsValue* passVal = (TsValue*)password;
+    if (passVal->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)passVal->ptr_val;
+        passData = (const unsigned char*)str->ToUtf8();
+        passLen = strlen((const char*)passData);
+    } else if (passVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)passVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            passData = buf->GetData();
+            passLen = buf->GetLength();
+        }
+    }
+
+    // Extract salt
+    TsValue* saltVal = (TsValue*)salt;
+    if (saltVal->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)saltVal->ptr_val;
+        saltData = (const unsigned char*)str->ToUtf8();
+        saltLen = strlen((const char*)saltData);
+    } else if (saltVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)saltVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            saltData = buf->GetData();
+            saltLen = buf->GetLength();
+        }
+    }
+
+    if (!passData || !saltData) {
+        if (callback) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Invalid password or salt"));
+            TsValue* result = ts_value_make_undefined();
+            TsValue* args[2] = { err, result };
+            ts_function_call((TsValue*)callback, 2, args);
+        }
+        return;
+    }
+
+    // Default scrypt parameters
+    if (N <= 0) N = 16384;  // 2^14
+    if (r <= 0) r = 8;
+    if (p <= 0) p = 1;
+
+    // Copy data for thread safety
+    ScryptWorkData* data = (ScryptWorkData*)ts_alloc(sizeof(ScryptWorkData));
+    data->passData = (unsigned char*)ts_alloc(passLen);
+    memcpy(data->passData, passData, passLen);
+    data->passLen = passLen;
+    data->saltData = (unsigned char*)ts_alloc(saltLen);
+    memcpy(data->saltData, saltData, saltLen);
+    data->saltLen = saltLen;
+    data->keylen = (size_t)keylen;
+    data->N = (uint64_t)N;
+    data->r = (uint64_t)r;
+    data->p = (uint64_t)p;
+    data->callback = callback;
+    data->result = nullptr;
+    data->success = false;
+
+    uv_work_t* req = new uv_work_t();
+    req->data = data;
+
+    uv_queue_work(uv_default_loop(), req, scrypt_work_cb, scrypt_after_work_cb);
 }
 
 // crypto.timingSafeEqual(a, b) -> boolean

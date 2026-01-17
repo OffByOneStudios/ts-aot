@@ -122,6 +122,26 @@ void Analyzer::registerCrypto() {
     scryptSync->returnType = bufferType;
     cryptoModule->fields["scryptSync"] = scryptSync;
 
+    // Async versions of key derivation functions
+    auto pbkdf2 = std::make_shared<FunctionType>();
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // password
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // salt
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // iterations
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // keylen
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // digest
+    pbkdf2->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback
+    pbkdf2->returnType = std::make_shared<Type>(TypeKind::Void);
+    cryptoModule->fields["pbkdf2"] = pbkdf2;
+
+    auto scrypt = std::make_shared<FunctionType>();
+    scrypt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // password
+    scrypt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // salt
+    scrypt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // keylen
+    scrypt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // options or callback
+    scrypt->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback (if options provided)
+    scrypt->returnType = std::make_shared<Type>(TypeKind::Void);
+    cryptoModule->fields["scrypt"] = scrypt;
+
     // Utility functions
     auto timingSafeEqual = std::make_shared<FunctionType>();
     timingSafeEqual->paramTypes.push_back(bufferType); // a

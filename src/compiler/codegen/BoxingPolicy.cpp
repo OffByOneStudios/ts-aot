@@ -488,7 +488,9 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_crypto_randomInt",       {false, false}}, // (min, max) -> int
     {"ts_crypto_randomUUID",      {}},             // () -> str*
     {"ts_crypto_pbkdf2Sync",      {true, true, false, false, false}}, // (password, salt, iterations, keylen, digest) -> Buffer*
+    {"ts_crypto_pbkdf2",          {true, true, false, false, false, false}}, // (password, salt, iterations, keylen, digest, callback) -> void
     {"ts_crypto_scryptSync",      {true, true, false, false, false, false}}, // (password, salt, keylen, N, r, p) -> Buffer*
+    {"ts_crypto_scrypt",          {true, true, false, false, false, false, false}}, // (password, salt, keylen, N, r, p, callback) -> void
     {"ts_crypto_timingSafeEqual", {false, false}}, // (a*, b*) -> bool
 
     // =========================================================================

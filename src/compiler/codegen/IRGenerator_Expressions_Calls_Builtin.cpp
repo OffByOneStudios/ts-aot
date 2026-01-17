@@ -3909,7 +3909,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                prop->name == "getHashes" || prop->name == "getCiphers" || prop->name == "randomBytes" ||
                prop->name == "randomFill" || prop->name == "randomFillSync" ||
                prop->name == "randomInt" || prop->name == "randomUUID" || prop->name == "pbkdf2Sync" ||
-               prop->name == "scryptSync" || prop->name == "timingSafeEqual") {
+               prop->name == "pbkdf2" || prop->name == "scryptSync" || prop->name == "scrypt" ||
+               prop->name == "timingSafeEqual") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "crypto") {
                 if (prop->name == "md5") {
@@ -4137,6 +4138,81 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_timingSafeEqual", ft);
                     lastValue = createCall(ft, fn.getCallee(), { a, b });
+                    return true;
+                } else if (prop->name == "pbkdf2") {
+                    // crypto.pbkdf2(password, salt, iterations, keylen, digest, callback)
+                    if (node->arguments.size() < 6) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* password = boxValue(lastValue, node->arguments[0]->inferredType);
+                    visit(node->arguments[1].get());
+                    llvm::Value* salt = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* iterations = lastValue;
+                    if (!iterations->getType()->isIntegerTy(64)) {
+                        iterations = builder->CreatePtrToInt(iterations, builder->getInt64Ty());
+                    }
+                    visit(node->arguments[3].get());
+                    llvm::Value* keylen = lastValue;
+                    if (!keylen->getType()->isIntegerTy(64)) {
+                        keylen = builder->CreatePtrToInt(keylen, builder->getInt64Ty());
+                    }
+                    visit(node->arguments[4].get());
+                    llvm::Value* digest = lastValue;
+                    if (digest->getType()->isIntegerTy(64)) {
+                        digest = builder->CreateIntToPtr(digest, builder->getPtrTy());
+                    }
+                    visit(node->arguments[5].get());
+                    llvm::Value* callback = lastValue;
+                    if (callback->getType()->isIntegerTy(64)) {
+                        callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_pbkdf2", ft);
+                    createCall(ft, fn.getCallee(), { password, salt, iterations, keylen, digest, callback });
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                } else if (prop->name == "scrypt") {
+                    // crypto.scrypt(password, salt, keylen, options, callback)
+                    // We simplify: crypto.scrypt(password, salt, keylen, callback) with default options
+                    // Or: crypto.scrypt(password, salt, keylen, options, callback) where options has N, r, p
+                    if (node->arguments.size() < 4) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* password = boxValue(lastValue, node->arguments[0]->inferredType);
+                    visit(node->arguments[1].get());
+                    llvm::Value* salt = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* keylen = lastValue;
+                    if (!keylen->getType()->isIntegerTy(64)) {
+                        keylen = builder->CreatePtrToInt(keylen, builder->getInt64Ty());
+                    }
+                    // Default scrypt parameters
+                    llvm::Value* N = llvm::ConstantInt::get(builder->getInt64Ty(), 16384);
+                    llvm::Value* r = llvm::ConstantInt::get(builder->getInt64Ty(), 8);
+                    llvm::Value* p = llvm::ConstantInt::get(builder->getInt64Ty(), 1);
+                    llvm::Value* callback = nullptr;
+                    // Check if argument 3 is a function (callback) or options object
+                    if (node->arguments.size() == 4) {
+                        // scrypt(password, salt, keylen, callback)
+                        visit(node->arguments[3].get());
+                        callback = lastValue;
+                    } else if (node->arguments.size() >= 5) {
+                        // scrypt(password, salt, keylen, options, callback)
+                        // TODO: Parse options object for N, r, p
+                        visit(node->arguments[4].get());
+                        callback = lastValue;
+                    }
+                    if (callback && callback->getType()->isIntegerTy(64)) {
+                        callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+                    }
+                    if (!callback) {
+                        callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_scrypt", ft);
+                    createCall(ft, fn.getCallee(), { password, salt, keylen, N, r, p, callback });
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
                     return true;
                 }
             }
