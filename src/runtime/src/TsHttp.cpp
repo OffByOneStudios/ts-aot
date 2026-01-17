@@ -1071,6 +1071,14 @@ void ts_client_request_set_header(void* req, void* name, void* value) {
     r->SetHeader(nameStr, val);
 }
 
+void* ts_client_request_get_socket(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return nullptr;
+    return r->socket;  // Returns the underlying TsSocket*
+}
+
 void* ts_http_request(TsValue* options, void* callback) {
     TsClientRequest* req = TsClientRequest::Create(options, callback);
     return static_cast<TsEventEmitter*>(req);

@@ -98,6 +98,7 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_client_request_get_protocol", {true}, false);  // (req) -> string
     bp.registerRuntimeApi("ts_client_request_get_header", {true, false}, true);  // (req, name) -> any
     bp.registerRuntimeApi("ts_client_request_set_header", {true, false, true}, false);  // (req, name, value) -> void
+    bp.registerRuntimeApi("ts_client_request_get_socket", {true}, false);  // (req) -> socket
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -599,6 +600,11 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
             } else if (node->name == "protocol" && classType->name == "ClientRequest") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_protocol", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "socket" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_socket", ft);
                 lastValue = createCall(ft, fn.getCallee(), { res });
                 return true;
             }

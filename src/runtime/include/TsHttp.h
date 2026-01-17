@@ -270,6 +270,7 @@ extern "C" {
     void* ts_client_request_get_protocol(void* req);
     void* ts_client_request_get_header(void* req, void* name);
     void ts_client_request_set_header(void* req, void* name, void* value);
+    void* ts_client_request_get_socket(void* req);
 }
 
 // HTTP CloseEvent class (for WebSocket and other close events)
