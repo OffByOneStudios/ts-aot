@@ -67,6 +67,8 @@ public:
     void registerURLModule();
     void registerVM();
     void registerV8();
+    void registerAssert();
+    void registerStringDecoder();
 
     void reportError(const std::string& message);
 

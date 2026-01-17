@@ -31,9 +31,20 @@ namespace TsUtilTypes {
     bool isSet(void* value);
     bool isRegExp(void* value);
     bool isNativeError(void* value);
-    bool isUint8Array(void* value);
     bool isGeneratorFunction(void* value);
     bool isGeneratorObject(void* value);
+
+    // Specific TypedArray type checks
+    bool isInt8Array(void* value);
+    bool isInt16Array(void* value);
+    bool isInt32Array(void* value);
+    bool isUint8Array(void* value);
+    bool isUint8ClampedArray(void* value);
+    bool isUint16Array(void* value);
+    bool isUint32Array(void* value);
+    bool isFloat32Array(void* value);
+    bool isFloat64Array(void* value);
+    bool isDataView(void* value);
 }
 
 extern "C" {
@@ -67,7 +78,18 @@ extern "C" {
     bool ts_util_types_is_set(void* value);
     bool ts_util_types_is_reg_exp(void* value);
     bool ts_util_types_is_native_error(void* value);
-    bool ts_util_types_is_uint8_array(void* value);
     bool ts_util_types_is_generator_function(void* value);
     bool ts_util_types_is_generator_object(void* value);
+
+    // Specific TypedArray type checks
+    bool ts_util_types_is_int8_array(void* value);
+    bool ts_util_types_is_int16_array(void* value);
+    bool ts_util_types_is_int32_array(void* value);
+    bool ts_util_types_is_uint8_array(void* value);
+    bool ts_util_types_is_uint8_clamped_array(void* value);
+    bool ts_util_types_is_uint16_array(void* value);
+    bool ts_util_types_is_uint32_array(void* value);
+    bool ts_util_types_is_float32_array(void* value);
+    bool ts_util_types_is_float64_array(void* value);
+    bool ts_util_types_is_data_view(void* value);
 }

@@ -8,6 +8,8 @@
 #include <regex>
 #include <algorithm>
 #include <sstream>
+#include <unicode/uidna.h>
+#include <unicode/unistr.h>
 
 // ============ TsURL Implementation ============
 
@@ -929,5 +931,66 @@ extern "C" {
         }
 
         return options;
+    }
+
+    // url.domainToASCII(domain) - convert internationalized domain to ASCII (Punycode)
+    void* ts_url_domain_to_ascii(void* domainArg) {
+        TsString* domain = (TsString*)domainArg;
+        if (!domain) {
+            return TsString::Create("");
+        }
+
+        UErrorCode status = U_ZERO_ERROR;
+        UIDNA* idna = uidna_openUTS46(UIDNA_DEFAULT, &status);
+        if (U_FAILURE(status)) {
+            return TsString::Create("");
+        }
+
+        const char* input = domain->ToUtf8();
+        icu::UnicodeString uInput = icu::UnicodeString::fromUTF8(input);
+
+        UIDNAInfo info = UIDNA_INFO_INITIALIZER;
+        char output[256];
+        int32_t len = uidna_nameToASCII_UTF8(idna, input, -1, output, sizeof(output), &info, &status);
+
+        uidna_close(idna);
+
+        if (U_FAILURE(status) || info.errors != 0) {
+            // Return empty string on error (matches Node.js behavior)
+            return TsString::Create("");
+        }
+
+        output[len] = '\0';
+        return TsString::Create(output);
+    }
+
+    // url.domainToUnicode(domain) - convert ASCII (Punycode) domain to Unicode
+    void* ts_url_domain_to_unicode(void* domainArg) {
+        TsString* domain = (TsString*)domainArg;
+        if (!domain) {
+            return TsString::Create("");
+        }
+
+        UErrorCode status = U_ZERO_ERROR;
+        UIDNA* idna = uidna_openUTS46(UIDNA_DEFAULT, &status);
+        if (U_FAILURE(status)) {
+            return TsString::Create("");
+        }
+
+        const char* input = domain->ToUtf8();
+
+        UIDNAInfo info = UIDNA_INFO_INITIALIZER;
+        char output[256];
+        int32_t len = uidna_nameToUnicodeUTF8(idna, input, -1, output, sizeof(output), &info, &status);
+
+        uidna_close(idna);
+
+        if (U_FAILURE(status)) {
+            // Return the input unchanged on error
+            return domain;
+        }
+
+        output[len] = '\0';
+        return TsString::Create(output);
     }
 }

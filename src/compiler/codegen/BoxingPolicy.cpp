@@ -481,8 +481,10 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_crypto_hmac_update",     {false, true}},  // (hmac*, data: boxed) -> Hmac*
     {"ts_crypto_hmac_digest",     {false, false}}, // (hmac*, encoding*) -> str*/Buffer*
     {"ts_crypto_getHashes",       {}},             // () -> array
+    {"ts_crypto_getCiphers",      {}},             // () -> array
     {"ts_crypto_randomBytes",     {false}},        // (size) -> Buffer*
     {"ts_crypto_randomFillSync",  {false, false, false}}, // (buffer*, offset, size) -> Buffer*
+    {"ts_crypto_randomFill",      {false, false, false, false}}, // (buffer*, offset, size, callback) -> void
     {"ts_crypto_randomInt",       {false, false}}, // (min, max) -> int
     {"ts_crypto_randomUUID",      {}},             // () -> str*
     {"ts_crypto_pbkdf2Sync",      {true, true, false, false, false}}, // (password, salt, iterations, keylen, digest) -> Buffer*

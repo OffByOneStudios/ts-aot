@@ -18,7 +18,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Module | Status | Coverage | Notes |
 |--------|--------|----------|-------|
-| `assert` | ❌ | 0% | Testing utilities |
+| `assert` | ⚠️ | 50% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
@@ -45,7 +45,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
 | `stream` | ⚠️ | 91% | Streams |
-| `string_decoder` | ❌ | 0% | String decoding |
+| `string_decoder` | ✅ | 100% | String decoding |
 | `timers` | ⚠️ | 93% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
@@ -56,6 +56,29 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `wasi` | N/A | - | WebAssembly (not planned) |
 | `worker_threads` | ❌ | 0% | Threading |
 | `zlib` | ❌ | 0% | Compression |
+
+---
+
+## Assert
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `assert(value)` | ✅ | Basic assertion |
+| `assert.ok(value)` | ✅ | Same as assert() |
+| `assert.strictEqual(actual, expected)` | ✅ | Strict equality check |
+| `assert.notStrictEqual(actual, expected)` | ✅ | Strict inequality check |
+| `assert.deepStrictEqual(actual, expected)` | ✅ | Deep equality for objects/arrays |
+| `assert.notDeepStrictEqual(actual, expected)` | ✅ | Deep inequality check |
+| `assert.throws(fn)` | ❌ | |
+| `assert.doesNotThrow(fn)` | ❌ | |
+| `assert.rejects(asyncFn)` | ❌ | |
+| `assert.doesNotReject(asyncFn)` | ❌ | |
+| `assert.match(string, regexp)` | ❌ | |
+| `assert.doesNotMatch(string, regexp)` | ❌ | |
+| `assert.fail(message)` | ❌ | |
+| `assert.ifError(value)` | ❌ | |
+
+**Assert Coverage: 6/14 (43%)**
 
 ---
 
@@ -207,14 +230,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `crypto.createCipheriv()` | ❌ | |
 | `crypto.createDecipheriv()` | ❌ | |
-| `crypto.getCiphers()` | ❌ | |
+| `crypto.getCiphers()` | ✅ | Returns available cipher algorithms |
 
 ### Random
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `crypto.randomBytes(size)` | ✅ | OpenSSL RAND_bytes |
 | `crypto.randomFillSync(buffer)` | ✅ | |
-| `crypto.randomFill(buffer, callback)` | ❌ | |
+| `crypto.randomFill(buffer, callback)` | ✅ | Async with callback |
 | `crypto.randomInt(min, max)` | ✅ | |
 | `crypto.randomUUID()` | ✅ | RFC 4122 v4 UUID |
 
@@ -250,7 +273,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
 
-**Crypto Coverage: 16/34 (47%)**
+**Crypto Coverage: 18/34 (53%)**
 
 ---
 
@@ -831,6 +854,20 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 ---
 
+## StringDecoder
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `new StringDecoder(encoding?)` | ✅ | Constructor with optional encoding |
+| `decoder.write(buffer)` | ✅ | Decodes buffer to string, handles multi-byte |
+| `decoder.end(buffer?)` | ✅ | Finishes decoding, flushes pending bytes |
+| `decoder.encoding` | ✅ | Returns encoding name |
+| Multi-byte UTF-8 handling | ✅ | Preserves incomplete sequences for next write |
+
+**StringDecoder Coverage: 5/5 (100%)**
+
+---
+
 ## Timers
 
 | Feature | Status | Notes |
@@ -915,13 +952,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.parse()` | ❌ | Deprecated |
 | `url.format()` | ✅ | WHATWG URL and legacy object support |
 | `url.resolve()` | ✅ | Resolves relative URLs |
-| `url.domainToASCII()` | ❌ | |
-| `url.domainToUnicode()` | ❌ | |
+| `url.domainToASCII()` | ✅ | ICU IDNA UTS46 conversion |
+| `url.domainToUnicode()` | ✅ | ICU IDNA UTS46 conversion |
 | `url.fileURLToPath()` | ✅ | |
 | `url.pathToFileURL()` | ✅ | |
 | `url.urlToHttpOptions()` | ✅ | Extracts HTTP options from URL |
 
-**URL Coverage: 34/38 (89%)**
+**URL Coverage: 36/38 (95%)**
 
 ---
 
@@ -1020,7 +1057,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |----------|-------------|-------|----------|
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
-| Crypto | 16 | 34 | 47% |
+| Crypto | 18 | 34 | 53% |
 | Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
 | HTTP | 45 | 68 | 66% |
@@ -1033,10 +1070,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Stream | 41 | 44 | 93% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
-| URL | 34 | 38 | 89% |
+| URL | 36 | 38 | 95% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **507** | **661** | **77%** |
+| **Total** | **511** | **661** | **77%** |
 
 ### Priority Implementation Targets
 

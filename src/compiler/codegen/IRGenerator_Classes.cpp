@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "BoxingPolicy.h"
 #include "../analysis/Monomorphizer.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -6,6 +7,17 @@
 
 namespace ts {
 using namespace ast;
+
+// Forward declaration of helper for StringDecoder boxing registration
+static bool stringDecoderBoxingRegistered = false;
+static void ensureStringDecoderBoxingRegistered(BoxingPolicy& bp) {
+    if (stringDecoderBoxingRegistered) return;
+    stringDecoderBoxingRegistered = true;
+    bp.registerRuntimeApi("ts_string_decoder_create", {true}, true);
+    bp.registerRuntimeApi("ts_string_decoder_write", {true, true}, true);
+    bp.registerRuntimeApi("ts_string_decoder_end", {true, true}, true);
+    bp.registerRuntimeApi("ts_string_decoder_get_encoding", {true}, true);
+}
 
 // Helper to get class members from either ClassDeclaration or ClassExpression
 static const std::vector<NodePtr>* getClassMembers(std::shared_ptr<ClassType> classType) {
@@ -41,7 +53,9 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             name == "Float32Array" || name == "Float64Array" || name == "BigInt64Array" || name == "BigUint64Array" ||
             name == "DataView" ||
             // WeakMap/WeakSet - handled by runtime (no VTable needed)
-            name == "WeakMap" || name == "WeakSet" || name == "Set") continue;
+            name == "WeakMap" || name == "WeakSet" || name == "Set" ||
+            // StringDecoder - handled by runtime
+            name == "StringDecoder") continue;
         if (type->kind == TypeKind::Class) {
             auto classType = std::static_pointer_cast<ClassType>(type);
             if (classType->typeParameters.empty()) {
@@ -601,6 +615,26 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionCallee fn = getRuntimeFunction("ts_weakset_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "StringDecoder") {
+            // Register boxing policy for string decoder functions
+            ensureStringDecoderBoxingRegistered(boxingPolicy);
+
+            // new StringDecoder(encoding?)
+            llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                encoding = boxValue(lastValue, node->arguments[0]->inferredType);
+            }
+
+            // Call ts_string_decoder_create(encoding)
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_string_decoder_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { encoding });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            concreteTypes[lastValue] = classType.get();
             return;
         } else if (className == "Date") {
             if (node->arguments.empty()) {

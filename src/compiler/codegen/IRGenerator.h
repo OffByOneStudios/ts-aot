@@ -193,6 +193,9 @@ private:
     bool tryGenerateTimersSchedulerCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateVMCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateV8Call(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateAssertCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateStringDecoderCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateStringDecoderNew(ast::NewExpression* node);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
