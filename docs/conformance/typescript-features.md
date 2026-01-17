@@ -267,7 +267,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `yield` expression | ✅ | |
 | `yield*` delegation | ✅ | Works with generators and arrays |
 | Async generators | ❌ | |
-| `for await...of` | ✅ | Works with arrays of promises |
+| `for await...of` | ⚠️ | Works with async generators; arrays of promises crash |
 
 ## 20. Mixins
 

@@ -350,7 +350,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Async iteration (`for await...of`) | ✅ | Works with arrays of promises |
+| Async iteration (`for await...of`) | ⚠️ | Works with async generators; arrays of promises crash |
 | Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
 | RegExp named capture groups | ✅ | Indexed access and .groups property both work |
