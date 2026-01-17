@@ -47,6 +47,12 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_float64_array", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_data_view", {true}, false);
 
+    // Additional type checks
+    bp.registerRuntimeApi("ts_util_types_is_proxy", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_weak_map", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_weak_set", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_any_array_buffer", {true}, false);
+
     // Array helpers used in util
     bp.registerRuntimeApi("ts_array_create_sized", {false}, true);
     bp.registerRuntimeApi("ts_array_push", {true, true}, false);
@@ -323,6 +329,11 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isFloat32Array") fnName = "ts_util_types_is_float32_array";
         else if (prop->name == "isFloat64Array") fnName = "ts_util_types_is_float64_array";
         else if (prop->name == "isDataView") fnName = "ts_util_types_is_data_view";
+        // Additional type checks
+        else if (prop->name == "isProxy") fnName = "ts_util_types_is_proxy";
+        else if (prop->name == "isWeakMap") fnName = "ts_util_types_is_weak_map";
+        else if (prop->name == "isWeakSet") fnName = "ts_util_types_is_weak_set";
+        else if (prop->name == "isAnyArrayBuffer") fnName = "ts_util_types_is_any_array_buffer";
         else {
             // Unknown util.types function - return false
             lastValue = llvm::ConstantInt::get(builder->getInt1Ty(), false);

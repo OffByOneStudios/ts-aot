@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 82% | URL parsing |
-| `util` | ⚠️ | 42% | Utilities |
+| `util` | ⚠️ | 79% | Utilities |
 | `v8` | N/A | - | V8 specific (AOT incompatible) |
 | `vm` | N/A | - | VM contexts (AOT incompatible) |
 | `wasi` | N/A | - | WebAssembly (not planned) |
@@ -1011,7 +1011,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.toUSVString()` | ✅ | Replaces lone surrogates with U+FFFD |
 | `util.transferableAbortController()` | ❌ | |
 | `util.transferableAbortSignal()` | ❌ | |
-| `util.types.isAnyArrayBuffer()` | ❌ | |
+| `util.types.isAnyArrayBuffer()` | ✅ | Detects Buffer/ArrayBuffer instances |
 | `util.types.isArrayBuffer()` | ✅ | Detects Buffer instances (our ArrayBuffer implementation) |
 | `util.types.isArrayBufferView()` | ✅ | Detects TypedArray and DataView instances |
 | `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
@@ -1037,7 +1037,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isNativeError()` | ✅ | |
 | `util.types.isNumberObject()` | ❌ | |
 | `util.types.isPromise()` | ✅ | Detects Promise instances |
-| `util.types.isProxy()` | ❌ | |
+| `util.types.isProxy()` | ✅ | Detects Proxy objects via dynamic_cast |
 | `util.types.isRegExp()` | ✅ | |
 | `util.types.isSet()` | ✅ | Works correctly |
 | `util.types.isSetIterator()` | ❌ | |
@@ -1049,12 +1049,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isUint8ClampedArray()` | ✅ | Detects clamped 1-byte arrays |
 | `util.types.isUint16Array()` | ✅ | 2-byte element size detection |
 | `util.types.isUint32Array()` | ✅ | 4-byte element size detection |
-| `util.types.isWeakMap()` | ❌ | |
-| `util.types.isWeakSet()` | ❌ | |
+| `util.types.isWeakMap()` | ⚠️ | Returns false - can't distinguish from Map with Boehm GC |
+| `util.types.isWeakSet()` | ⚠️ | Returns false - can't distinguish from Set with Boehm GC |
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 45/62 (73%)** (28 full, 5 partial)
+**Util Coverage: 49/62 (79%)** (30 full, 7 partial)
 
 ---
 
