@@ -1020,14 +1020,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isBooleanObject()` | ❌ | |
 | `util.types.isBoxedPrimitive()` | ❌ | |
 | `util.types.isCryptoKey()` | ❌ | |
-| `util.types.isDataView()` | ❌ | |
+| `util.types.isDataView()` | ✅ | Detects DataView instances |
 | `util.types.isDate()` | ✅ | |
 | `util.types.isExternal()` | ❌ | |
-| `util.types.isFloat32Array()` | ❌ | Can't distinguish float from int (same element size) |
+| `util.types.isFloat32Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isFloat64Array()` | ✅ | 8-byte element size detection |
 | `util.types.isGeneratorFunction()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isGeneratorObject()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isInt8Array()` | ⚠️ | Can't distinguish from Uint8Array (same element size) |
+| `util.types.isInt8Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isInt16Array()` | ✅ | 2-byte element size detection |
 | `util.types.isInt32Array()` | ✅ | 4-byte element size detection |
 | `util.types.isKeyObject()` | ❌ | |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 39/62 (63%)** (22 full, 7 partial)
+**Util Coverage: 42/62 (68%)** (25 full, 6 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 39 | 62 | 63% |
+| Util | 42 | 62 | 68% |
 | Global | 5 | 7 | 71% |
-| **Total** | **527** | **661** | **80%** |
+| **Total** | **530** | **661** | **80%** |
 
 ### Priority Implementation Targets
 
