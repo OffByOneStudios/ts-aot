@@ -1023,13 +1023,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isDataView()` | ❌ | |
 | `util.types.isDate()` | ✅ | |
 | `util.types.isExternal()` | ❌ | |
-| `util.types.isFloat32Array()` | ❌ | |
-| `util.types.isFloat64Array()` | ❌ | |
+| `util.types.isFloat32Array()` | ❌ | Can't distinguish float from int (same element size) |
+| `util.types.isFloat64Array()` | ✅ | 8-byte element size detection |
 | `util.types.isGeneratorFunction()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isGeneratorObject()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isInt8Array()` | ❌ | |
-| `util.types.isInt16Array()` | ❌ | |
-| `util.types.isInt32Array()` | ❌ | |
+| `util.types.isInt8Array()` | ⚠️ | Can't distinguish from Uint8Array (same element size) |
+| `util.types.isInt16Array()` | ✅ | 2-byte element size detection |
+| `util.types.isInt32Array()` | ✅ | 4-byte element size detection |
 | `util.types.isKeyObject()` | ❌ | |
 | `util.types.isMap()` | ✅ | Correctly distinguishes Map from plain objects |
 | `util.types.isMapIterator()` | ❌ | |
@@ -1046,15 +1046,15 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isSymbolObject()` | ❌ | |
 | `util.types.isTypedArray()` | ✅ | Detects TypedArray instances |
 | `util.types.isUint8Array()` | ✅ | Detects Uint8Array instances |
-| `util.types.isUint8ClampedArray()` | ❌ | |
-| `util.types.isUint16Array()` | ❌ | |
-| `util.types.isUint32Array()` | ❌ | |
+| `util.types.isUint8ClampedArray()` | ✅ | Detects clamped 1-byte arrays |
+| `util.types.isUint16Array()` | ✅ | 2-byte element size detection |
+| `util.types.isUint32Array()` | ✅ | 4-byte element size detection |
 | `util.types.isWeakMap()` | ❌ | |
 | `util.types.isWeakSet()` | ❌ | |
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 30/62 (48%)** (13 full, 8 partial)
+**Util Coverage: 36/62 (58%)** (19 full, 8 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 30 | 62 | 48% |
+| Util | 36 | 62 | 58% |
 | Global | 5 | 7 | 71% |
-| **Total** | **518** | **661** | **78%** |
+| **Total** | **524** | **661** | **79%** |
 
 ### Priority Implementation Targets
 
