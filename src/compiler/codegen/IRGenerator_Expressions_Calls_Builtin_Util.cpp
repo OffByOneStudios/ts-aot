@@ -18,6 +18,8 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_callbackify", {true}, true);  // func -> callbackified func
     bp.registerRuntimeApi("ts_util_deprecate", {true, false, false}, true);  // func, msg, code
     bp.registerRuntimeApi("ts_util_inherits", {true, true}, false);  // ctor, superCtor
+    bp.registerRuntimeApi("ts_util_strip_vt_control_characters", {true}, false);  // str -> str
+    bp.registerRuntimeApi("ts_util_to_usv_string", {true}, false);  // str -> str
     
     // util.types.isXxx functions (all take boxed value, return bool)
     bp.registerRuntimeApi("ts_util_types_is_array_buffer", {true}, false);
@@ -234,19 +236,57 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
             lastValue = llvm::ConstantInt::get(builder->getInt1Ty(), false);
             return true;
         }
-        
+
         visit(node->arguments[0].get());
         llvm::Value* val1 = lastValue;
         visit(node->arguments[1].get());
         llvm::Value* val2 = lastValue;
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), 
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
             { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_util_is_deep_strict_equal", ft);
         lastValue = createCall(ft, fn.getCallee(), { val1, val2 });
         return true;
     }
-    
+
+    // =========================================================================
+    // util.stripVTControlCharacters(str)
+    // =========================================================================
+    if (isUtil && prop->name == "stripVTControlCharacters") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* str = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_strip_vt_control_characters", ft);
+        lastValue = createCall(ft, fn.getCallee(), { str });
+        return true;
+    }
+
+    // =========================================================================
+    // util.toUSVString(str)
+    // =========================================================================
+    if (isUtil && prop->name == "toUSVString") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* str = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_to_usv_string", ft);
+        lastValue = createCall(ft, fn.getCallee(), { str });
+        return true;
+    }
+
     // =========================================================================
     // util.types.* - Type checking functions
     // =========================================================================

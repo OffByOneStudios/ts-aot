@@ -80,6 +80,24 @@ void Analyzer::registerUtil() {
     utilType->fields["isDeepStrictEqual"] = isDeepStrictEqualType;
 
     // =========================================================================
+    // util.stripVTControlCharacters(str: string): string
+    // Removes ANSI escape codes from a string
+    // =========================================================================
+    auto stripVTControlCharactersType = std::make_shared<FunctionType>();
+    stripVTControlCharactersType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    stripVTControlCharactersType->returnType = std::make_shared<Type>(TypeKind::String);
+    utilType->fields["stripVTControlCharacters"] = stripVTControlCharactersType;
+
+    // =========================================================================
+    // util.toUSVString(str: string): string
+    // Converts a string to a valid Unicode scalar value string
+    // =========================================================================
+    auto toUSVStringType = std::make_shared<FunctionType>();
+    toUSVStringType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    toUSVStringType->returnType = std::make_shared<Type>(TypeKind::String);
+    utilType->fields["toUSVString"] = toUSVStringType;
+
+    // =========================================================================
     // util.types - Type checking utilities
     // =========================================================================
     auto typesType = std::make_shared<ObjectType>();

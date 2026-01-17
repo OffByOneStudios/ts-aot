@@ -814,6 +814,188 @@ void* ts_util_callbackify(void* fn) {
     return ts_value_make_native_function((void*)callbackified_wrapper, ctx);
 }
 
+// ============================================================================
+// util.stripVTControlCharacters - removes ANSI escape codes from string
+// ANSI escape sequences typically start with ESC (0x1B) followed by [
+// Format: ESC [ <parameters> <letter>
+// Also handles simple ESC sequences like ESC(B
+// ============================================================================
+void* ts_util_strip_vt_control_characters(void* str) {
+    // Unbox if needed
+    void* rawStr = ts_value_get_string((TsValue*)str);
+    if (!rawStr) rawStr = str;
+    TsString* input = (TsString*)rawStr;
+
+    if (!input) return TsString::Create("");
+
+    const char* src = input->ToUtf8();
+    if (!src) return TsString::Create("");
+
+    size_t len = strlen(src);
+    std::string result;
+    result.reserve(len);
+
+    for (size_t i = 0; i < len; i++) {
+        // Check for ESC character (0x1B or 27)
+        if ((unsigned char)src[i] == 0x1B) {
+            // Check for CSI (Control Sequence Introducer) - ESC [
+            if (i + 1 < len && src[i + 1] == '[') {
+                // Skip ESC [
+                i += 2;
+                // Skip parameter bytes (0x30-0x3F) and intermediate bytes (0x20-0x2F)
+                while (i < len) {
+                    char c = src[i];
+                    // Parameter bytes: 0-9 ; : < = > ?
+                    // Intermediate bytes: space ! " # $ % & ' ( ) * + , - . /
+                    if ((c >= 0x20 && c <= 0x3F)) {
+                        i++;
+                    } else {
+                        break;
+                    }
+                }
+                // Skip final byte (0x40-0x7E)
+                if (i < len && src[i] >= 0x40 && src[i] <= 0x7E) {
+                    // i is incremented by the outer loop
+                }
+                continue;
+            }
+            // Check for OSC (Operating System Command) - ESC ]
+            else if (i + 1 < len && src[i + 1] == ']') {
+                // Skip until BEL (0x07) or ST (ESC \)
+                i += 2;
+                while (i < len) {
+                    if (src[i] == 0x07) break;  // BEL
+                    if (src[i] == 0x1B && i + 1 < len && src[i + 1] == '\\') {
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+            // Check for simple two-byte escape sequences (ESC followed by a char)
+            // Examples: ESC(B, ESC)0, etc.
+            else if (i + 1 < len) {
+                char next = src[i + 1];
+                // Skip character set designation and other simple sequences
+                if ((next >= 0x40 && next <= 0x5F) || // C1 control codes
+                    (next >= 0x60 && next <= 0x7E) || // Single character functions
+                    next == '(' || next == ')' || next == '*' || next == '+' ||
+                    next == '-' || next == '.' || next == '/') {
+                    i++; // Skip the next character too
+                    // If it's a character set, skip the designator
+                    if ((next == '(' || next == ')' || next == '*' || next == '+') &&
+                        i + 1 < len) {
+                        i++;
+                    }
+                }
+                continue;
+            }
+            // Single ESC at end - skip it
+            continue;
+        }
+        // Check for other control characters (C0 and C1)
+        // C0: 0x00-0x1F except common ones like \t, \n, \r
+        // C1: 0x80-0x9F (in UTF-8 these are part of multibyte sequences, so skip this check)
+        else if ((unsigned char)src[i] < 0x20 &&
+                 src[i] != '\t' && src[i] != '\n' && src[i] != '\r') {
+            continue;  // Skip control character
+        }
+        // Regular character - keep it
+        result += src[i];
+    }
+
+    return TsString::Create(result.c_str());
+}
+
+// ============================================================================
+// util.toUSVString - converts to valid Unicode Scalar Value string
+// Replaces lone surrogates (U+D800-U+DFFF) with U+FFFD
+// In UTF-8, lone surrogates are technically invalid but may appear in
+// some malformed strings. We detect and replace them.
+// ============================================================================
+void* ts_util_to_usv_string(void* str) {
+    // Unbox if needed
+    void* rawStr = ts_value_get_string((TsValue*)str);
+    if (!rawStr) rawStr = str;
+    TsString* input = (TsString*)rawStr;
+
+    if (!input) return TsString::Create("");
+
+    const char* src = input->ToUtf8();
+    if (!src) return TsString::Create("");
+
+    size_t len = strlen(src);
+    std::string result;
+    result.reserve(len);
+
+    for (size_t i = 0; i < len; ) {
+        unsigned char c = (unsigned char)src[i];
+
+        // ASCII (single byte)
+        if (c < 0x80) {
+            result += src[i];
+            i++;
+        }
+        // 2-byte sequence
+        else if ((c & 0xE0) == 0xC0) {
+            if (i + 1 < len && (src[i + 1] & 0xC0) == 0x80) {
+                result += src[i];
+                result += src[i + 1];
+            } else {
+                // Invalid sequence - replace with U+FFFD (EF BF BD in UTF-8)
+                result += "\xEF\xBF\xBD";
+            }
+            i += 2;
+        }
+        // 3-byte sequence (where surrogates would be)
+        else if ((c & 0xF0) == 0xE0) {
+            if (i + 2 < len && (src[i + 1] & 0xC0) == 0x80 && (src[i + 2] & 0xC0) == 0x80) {
+                // Decode to check for surrogates
+                uint32_t codepoint = ((c & 0x0F) << 12) |
+                                   ((src[i + 1] & 0x3F) << 6) |
+                                   (src[i + 2] & 0x3F);
+                // Check if it's a surrogate (U+D800-U+DFFF)
+                if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+                    // Replace with U+FFFD
+                    result += "\xEF\xBF\xBD";
+                } else {
+                    result += src[i];
+                    result += src[i + 1];
+                    result += src[i + 2];
+                }
+            } else {
+                // Invalid sequence
+                result += "\xEF\xBF\xBD";
+            }
+            i += 3;
+        }
+        // 4-byte sequence
+        else if ((c & 0xF8) == 0xF0) {
+            if (i + 3 < len &&
+                (src[i + 1] & 0xC0) == 0x80 &&
+                (src[i + 2] & 0xC0) == 0x80 &&
+                (src[i + 3] & 0xC0) == 0x80) {
+                result += src[i];
+                result += src[i + 1];
+                result += src[i + 2];
+                result += src[i + 3];
+            } else {
+                // Invalid sequence
+                result += "\xEF\xBF\xBD";
+            }
+            i += 4;
+        }
+        // Invalid leading byte
+        else {
+            result += "\xEF\xBF\xBD";
+            i++;
+        }
+    }
+
+    return TsString::Create(result.c_str());
+}
+
 // util.types C API
 bool ts_util_types_is_promise(void* value) {
     return TsUtilTypes::isPromise(value);
