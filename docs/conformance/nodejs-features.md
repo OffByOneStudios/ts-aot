@@ -263,9 +263,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Key Derivation
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.pbkdf2()` | ❌ | |
+| `crypto.pbkdf2()` | ✅ | Async with libuv thread pool |
 | `crypto.pbkdf2Sync()` | ✅ | OpenSSL PKCS5_PBKDF2_HMAC |
-| `crypto.scrypt()` | ❌ | |
+| `crypto.scrypt()` | ✅ | Async with libuv thread pool |
 | `crypto.scryptSync()` | ✅ | OpenSSL EVP_PBE_scrypt |
 
 ### Utility
@@ -273,7 +273,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
 
-**Crypto Coverage: 18/34 (53%)**
+**Crypto Coverage: 20/34 (59%)**
 
 ---
 
@@ -1082,7 +1082,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |----------|-------------|-------|----------|
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
-| Crypto | 18 | 34 | 53% |
+| Crypto | 20 | 34 | 59% |
 | Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
 | HTTP | 45 | 68 | 66% |
@@ -1098,7 +1098,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 36 | 38 | 95% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **511** | **661** | **77%** |
+| **Total** | **513** | **661** | **78%** |
 
 ### Priority Implementation Targets
 
