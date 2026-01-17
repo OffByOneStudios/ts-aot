@@ -89,6 +89,8 @@ add_library(tsruntime STATIC
     src/TsReflect.cpp
     src/TsOS.cpp
     src/TsTransform.cpp
+    src/TsVM.cpp
+    src/TsV8.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

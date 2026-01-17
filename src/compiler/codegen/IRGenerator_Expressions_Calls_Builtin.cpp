@@ -252,6 +252,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateTimersCall(node, prop)) return true;
     if (tryGenerateTimersPromisesCall(node, prop)) return true;
     if (tryGenerateTimersSchedulerCall(node, prop)) return true;
+    if (tryGenerateVMCall(node, prop)) return true;
+    if (tryGenerateV8Call(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {

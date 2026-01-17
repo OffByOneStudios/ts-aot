@@ -191,6 +191,8 @@ private:
     bool tryGenerateTimersCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateTimersPromisesCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateTimersSchedulerCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateVMCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateV8Call(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);

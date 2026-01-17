@@ -1436,5 +1436,7 @@ Analyzer::Analyzer() {
     registerCrypto();
     registerQueryString();
     registerURLModule();
+    registerVM();
+    registerV8();
 }
 } // namespace ts
