@@ -322,14 +322,14 @@ namespace TsUtilTypes {
 
 bool isPromise(void* value) {
     if (!value) return false;
-    
+
     // Unbox if it's a TsValue*
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
-    
-    // Check for TsPromise by looking for magic or state pattern
-    // This is simplified - full implementation would need proper RTTI
-    return false; // Can't easily detect without RTTI
+
+    // TsPromise inherits from TsObject, check magic at standard offset
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == ts::TsPromise::MAGIC;
 }
 
 bool isTypedArray(void* value) {

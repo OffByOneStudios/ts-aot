@@ -1036,7 +1036,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isModuleNamespaceObject()` | ❌ | |
 | `util.types.isNativeError()` | ✅ | |
 | `util.types.isNumberObject()` | ❌ | |
-| `util.types.isPromise()` | ⚠️ | Not tested |
+| `util.types.isPromise()` | ✅ | Detects Promise instances |
 | `util.types.isProxy()` | ❌ | |
 | `util.types.isRegExp()` | ✅ | |
 | `util.types.isSet()` | ✅ | Works correctly |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 38/62 (61%)** (21 full, 8 partial)
+**Util Coverage: 39/62 (63%)** (22 full, 7 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 38 | 62 | 61% |
+| Util | 39 | 62 | 63% |
 | Global | 5 | 7 | 71% |
-| **Total** | **526** | **661** | **80%** |
+| **Total** | **527** | **661** | **80%** |
 
 ### Priority Implementation Targets
 
