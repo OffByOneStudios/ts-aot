@@ -18,7 +18,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Module | Status | Coverage | Notes |
 |--------|--------|----------|-------|
-| `assert` | ⚠️ | 50% | Testing utilities |
+| `assert` | ⚠️ | 71% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
@@ -69,16 +69,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert.notStrictEqual(actual, expected)` | ✅ | Strict inequality check |
 | `assert.deepStrictEqual(actual, expected)` | ✅ | Deep equality for objects/arrays |
 | `assert.notDeepStrictEqual(actual, expected)` | ✅ | Deep inequality check |
-| `assert.throws(fn)` | ❌ | |
-| `assert.doesNotThrow(fn)` | ❌ | |
-| `assert.rejects(asyncFn)` | ❌ | |
-| `assert.doesNotReject(asyncFn)` | ❌ | |
-| `assert.match(string, regexp)` | ❌ | |
-| `assert.doesNotMatch(string, regexp)` | ❌ | |
-| `assert.fail(message)` | ❌ | |
-| `assert.ifError(value)` | ❌ | |
+| `assert.throws(fn)` | ⚠️ | Stub - warns no try/catch support |
+| `assert.doesNotThrow(fn)` | ✅ | Calls function, exits on throw |
+| `assert.rejects(asyncFn)` | ⚠️ | Stub - warns limited support |
+| `assert.doesNotReject(asyncFn)` | ⚠️ | Stub - warns limited support |
+| `assert.match(string, regexp)` | ✅ | Regex string matching |
+| `assert.doesNotMatch(string, regexp)` | ✅ | Regex string non-matching |
+| `assert.fail(message)` | ✅ | Always fails with message |
+| `assert.ifError(value)` | ✅ | Fails if value is truthy |
 
-**Assert Coverage: 6/14 (43%)**
+**Assert Coverage: 10/14 (71%)**
 
 ---
 
@@ -1098,7 +1098,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | URL | 37 | 38 | 97% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **514** | **661** | **78%** |
+| **Total** | **518** | **661** | **78%** |
 
 ### Priority Implementation Targets
 
