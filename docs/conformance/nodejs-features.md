@@ -364,10 +364,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.existsSync()` | ✅ | |
 | `fs.fchmodSync()` | ❌ | |
 | `fs.fchownSync()` | ❌ | |
-| `fs.fdatasyncSync()` | ❌ | |
-| `fs.fstatSync()` | ❌ | |
-| `fs.fsyncSync()` | ❌ | |
-| `fs.ftruncateSync()` | ❌ | |
+| `fs.fdatasyncSync()` | ✅ | |
+| `fs.fstatSync()` | ✅ | |
+| `fs.fsyncSync()` | ✅ | |
+| `fs.ftruncateSync()` | ✅ | |
 | `fs.futimesSync()` | ❌ | |
 | `fs.lchmodSync()` | ❌ | |
 | `fs.lchownSync()` | ❌ | |
