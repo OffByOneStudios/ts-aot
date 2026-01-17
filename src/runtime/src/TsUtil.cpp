@@ -9,6 +9,7 @@
 #include "../include/TsArray.h"
 #include "../include/TsPromise.h"
 #include "../include/TsProxy.h"
+#include "../include/TsBoxedPrimitives.h"
 #include "../include/GC.h"
 #include <sstream>
 #include <cstdio>
@@ -576,6 +577,42 @@ bool isAnyArrayBuffer(void* value) {
     return isArrayBuffer(value);
 }
 
+bool isBooleanObject(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsBooleanObject::MAGIC;
+}
+
+bool isNumberObject(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsNumberObject::MAGIC;
+}
+
+bool isStringObject(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsStringObject::MAGIC;
+}
+
+bool isBoxedPrimitive(void* value) {
+    // Returns true for any boxed primitive (Boolean, Number, String, Symbol, BigInt objects)
+    // We currently support Boolean, Number, and String objects
+    return isBooleanObject(value) || isNumberObject(value) || isStringObject(value);
+}
+
 } // namespace TsUtilTypes
 
 // ============================================================================
@@ -1140,6 +1177,22 @@ bool ts_util_types_is_weak_set(void* value) {
 
 bool ts_util_types_is_any_array_buffer(void* value) {
     return TsUtilTypes::isAnyArrayBuffer(value);
+}
+
+bool ts_util_types_is_boolean_object(void* value) {
+    return TsUtilTypes::isBooleanObject(value);
+}
+
+bool ts_util_types_is_number_object(void* value) {
+    return TsUtilTypes::isNumberObject(value);
+}
+
+bool ts_util_types_is_string_object(void* value) {
+    return TsUtilTypes::isStringObject(value);
+}
+
+bool ts_util_types_is_boxed_primitive(void* value) {
+    return TsUtilTypes::isBoxedPrimitive(value);
 }
 
 } // extern "C"

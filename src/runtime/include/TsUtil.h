@@ -51,6 +51,12 @@ namespace TsUtilTypes {
     bool isWeakMap(void* value);
     bool isWeakSet(void* value);
     bool isAnyArrayBuffer(void* value);
+
+    // Boxed primitive checks
+    bool isBooleanObject(void* value);
+    bool isNumberObject(void* value);
+    bool isStringObject(void* value);
+    bool isBoxedPrimitive(void* value);
 }
 
 extern "C" {
@@ -110,4 +116,10 @@ extern "C" {
     bool ts_util_types_is_weak_map(void* value);
     bool ts_util_types_is_weak_set(void* value);
     bool ts_util_types_is_any_array_buffer(void* value);
+
+    // Boxed primitive checks
+    bool ts_util_types_is_boolean_object(void* value);
+    bool ts_util_types_is_number_object(void* value);
+    bool ts_util_types_is_string_object(void* value);
+    bool ts_util_types_is_boxed_primitive(void* value);
 }

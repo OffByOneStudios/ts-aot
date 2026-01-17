@@ -1017,8 +1017,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isBigInt64Array()` | ❌ | |
 | `util.types.isBigUint64Array()` | ❌ | |
-| `util.types.isBooleanObject()` | ❌ | |
-| `util.types.isBoxedPrimitive()` | ❌ | |
+| `util.types.isBooleanObject()` | ✅ | Detects new Boolean() wrapper objects |
+| `util.types.isBoxedPrimitive()` | ✅ | Detects Boolean/Number/String wrapper objects |
 | `util.types.isCryptoKey()` | ❌ | |
 | `util.types.isDataView()` | ✅ | Detects DataView instances |
 | `util.types.isDate()` | ✅ | |
@@ -1035,14 +1035,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isMapIterator()` | ❌ | |
 | `util.types.isModuleNamespaceObject()` | ❌ | |
 | `util.types.isNativeError()` | ✅ | |
-| `util.types.isNumberObject()` | ❌ | |
+| `util.types.isNumberObject()` | ✅ | Detects new Number() wrapper objects |
 | `util.types.isPromise()` | ✅ | Detects Promise instances |
 | `util.types.isProxy()` | ✅ | Detects Proxy objects via dynamic_cast |
 | `util.types.isRegExp()` | ✅ | |
 | `util.types.isSet()` | ✅ | Works correctly |
 | `util.types.isSetIterator()` | ❌ | |
 | `util.types.isSharedArrayBuffer()` | ❌ | |
-| `util.types.isStringObject()` | ❌ | |
+| `util.types.isStringObject()` | ✅ | Detects new String() wrapper objects |
 | `util.types.isSymbolObject()` | ❌ | |
 | `util.types.isTypedArray()` | ✅ | Detects TypedArray instances |
 | `util.types.isUint8Array()` | ✅ | Detects Uint8Array instances |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 49/62 (79%)** (30 full, 7 partial)
+**Util Coverage: 42/62 (68%)** (35 full, 7 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 45 | 62 | 73% |
+| Util | 42 | 62 | 68% |
 | Global | 5 | 7 | 71% |
-| **Total** | **533** | **661** | **81%** |
+| **Total** | **530** | **661** | **80%** |
 
 ### Priority Implementation Targets
 
@@ -1140,6 +1140,6 @@ Current test coverage:
 - QueryString: 1 test file (basic - 11 tests covering parse, stringify, escape, unescape, encode, decode)
 - Timers: 1 test file
 - URL: 5 test files (basic, extended, search params, parse, format)
-- Util: 2 test files (basic, extended)
+- Util: 16 test files (basic, extended, text_encoding, callbackify, promisify, strip_vt, deep_strict_equal, types_*)
 
 Most Node.js API tests passing.

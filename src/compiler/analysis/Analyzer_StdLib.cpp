@@ -1395,6 +1395,12 @@ Analyzer::Analyzer() {
 
     symbols.define("Number", numberType);
 
+    // Register Boolean global - can be called as constructor: new Boolean(value)
+    auto booleanType = std::make_shared<ObjectType>();
+    // Note: Boolean(value) as a function just converts to primitive boolean
+    // But new Boolean(value) creates a BooleanObject wrapper
+    symbols.define("Boolean", booleanType);
+
     // Register String global object with static methods
     auto stringGlobalType = std::make_shared<ObjectType>();
 
