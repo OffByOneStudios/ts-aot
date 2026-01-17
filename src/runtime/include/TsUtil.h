@@ -44,6 +44,8 @@ namespace TsUtilTypes {
     bool isUint32Array(void* value);
     bool isFloat32Array(void* value);
     bool isFloat64Array(void* value);
+    bool isBigInt64Array(void* value);
+    bool isBigUint64Array(void* value);
     bool isDataView(void* value);
 
     // Additional type checks
@@ -56,6 +58,7 @@ namespace TsUtilTypes {
     bool isBooleanObject(void* value);
     bool isNumberObject(void* value);
     bool isStringObject(void* value);
+    bool isSymbolObject(void* value);
     bool isBoxedPrimitive(void* value);
 }
 
@@ -109,6 +112,8 @@ extern "C" {
     bool ts_util_types_is_uint32_array(void* value);
     bool ts_util_types_is_float32_array(void* value);
     bool ts_util_types_is_float64_array(void* value);
+    bool ts_util_types_is_big_int64_array(void* value);
+    bool ts_util_types_is_big_uint64_array(void* value);
     bool ts_util_types_is_data_view(void* value);
 
     // Additional type checks
@@ -121,5 +126,6 @@ extern "C" {
     bool ts_util_types_is_boolean_object(void* value);
     bool ts_util_types_is_number_object(void* value);
     bool ts_util_types_is_string_object(void* value);
+    bool ts_util_types_is_symbol_object(void* value);
     bool ts_util_types_is_boxed_primitive(void* value);
 }

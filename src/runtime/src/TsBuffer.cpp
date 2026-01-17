@@ -1533,6 +1533,83 @@ extern "C" {
         return TsTypedArray::Create((size_t)length, 1, true, TypedArrayType::Uint8Clamped);
     }
 
+    // Create typed array with explicit type (for BigInt64Array, BigUint64Array, etc.)
+    void* ts_typed_array_create_typed(int64_t length, int32_t typeVal) {
+        TypedArrayType type = static_cast<TypedArrayType>(typeVal);
+        size_t elementSize = 1;
+        switch (type) {
+            case TypedArrayType::Int8:
+            case TypedArrayType::Uint8:
+            case TypedArrayType::Uint8Clamped:
+                elementSize = 1;
+                break;
+            case TypedArrayType::Int16:
+            case TypedArrayType::Uint16:
+                elementSize = 2;
+                break;
+            case TypedArrayType::Int32:
+            case TypedArrayType::Uint32:
+            case TypedArrayType::Float32:
+                elementSize = 4;
+                break;
+            case TypedArrayType::Float64:
+            case TypedArrayType::BigInt64:
+            case TypedArrayType::BigUint64:
+                elementSize = 8;
+                break;
+        }
+        bool clamped = (type == TypedArrayType::Uint8Clamped);
+        return TsTypedArray::Create((size_t)length, elementSize, clamped, type);
+    }
+
+    // Create typed array from array with explicit type
+    void* ts_typed_array_from_array_typed(void* array, int32_t typeVal) {
+        if (!array) return nullptr;
+        TsArray* arr = (TsArray*)array;
+        size_t len = (size_t)arr->Length();
+        TypedArrayType type = static_cast<TypedArrayType>(typeVal);
+        size_t elementSize = 1;
+        switch (type) {
+            case TypedArrayType::Int8:
+            case TypedArrayType::Uint8:
+            case TypedArrayType::Uint8Clamped:
+                elementSize = 1;
+                break;
+            case TypedArrayType::Int16:
+            case TypedArrayType::Uint16:
+                elementSize = 2;
+                break;
+            case TypedArrayType::Int32:
+            case TypedArrayType::Uint32:
+            case TypedArrayType::Float32:
+                elementSize = 4;
+                break;
+            case TypedArrayType::Float64:
+            case TypedArrayType::BigInt64:
+            case TypedArrayType::BigUint64:
+                elementSize = 8;
+                break;
+        }
+        bool clamped = (type == TypedArrayType::Uint8Clamped);
+        TsTypedArray* result = TsTypedArray::Create(len, elementSize, clamped, type);
+        // Copy data from array
+        for (size_t i = 0; i < len; i++) {
+            int64_t val = arr->Get(i);
+            if (type == TypedArrayType::BigInt64 || type == TypedArrayType::BigUint64) {
+                // For BigInt arrays, store as 64-bit integers
+                *(int64_t*)(result->GetData() + i * elementSize) = val;
+            } else if (type == TypedArrayType::Float64) {
+                *(double*)(result->GetData() + i * elementSize) = (double)val;
+            } else if (type == TypedArrayType::Float32) {
+                *(float*)(result->GetData() + i * elementSize) = (float)val;
+            } else {
+                // For integer types, just set the value
+                result->Set((int32_t)i, val);
+            }
+        }
+        return result;
+    }
+
     // Generic typed array from array with element size parameter
     void* ts_typed_array_from_array(void* array, int32_t elementSize) {
         if (!array) return nullptr;

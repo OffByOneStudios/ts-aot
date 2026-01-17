@@ -45,6 +45,8 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_uint32_array", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_float32_array", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_float64_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_big_int64_array", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_big_uint64_array", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_data_view", {true}, false);
 
     // Additional type checks
@@ -57,6 +59,7 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_boolean_object", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_number_object", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_string_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_symbol_object", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_boxed_primitive", {true}, false);
 
     // Array helpers used in util
@@ -334,6 +337,8 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isUint32Array") fnName = "ts_util_types_is_uint32_array";
         else if (prop->name == "isFloat32Array") fnName = "ts_util_types_is_float32_array";
         else if (prop->name == "isFloat64Array") fnName = "ts_util_types_is_float64_array";
+        else if (prop->name == "isBigInt64Array") fnName = "ts_util_types_is_big_int64_array";
+        else if (prop->name == "isBigUint64Array") fnName = "ts_util_types_is_big_uint64_array";
         else if (prop->name == "isDataView") fnName = "ts_util_types_is_data_view";
         // Additional type checks
         else if (prop->name == "isProxy") fnName = "ts_util_types_is_proxy";
@@ -344,6 +349,7 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isBooleanObject") fnName = "ts_util_types_is_boolean_object";
         else if (prop->name == "isNumberObject") fnName = "ts_util_types_is_number_object";
         else if (prop->name == "isStringObject") fnName = "ts_util_types_is_string_object";
+        else if (prop->name == "isSymbolObject") fnName = "ts_util_types_is_symbol_object";
         else if (prop->name == "isBoxedPrimitive") fnName = "ts_util_types_is_boxed_primitive";
         else {
             // Unknown util.types function - return false

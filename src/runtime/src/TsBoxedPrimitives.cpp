@@ -1,4 +1,5 @@
 #include "../include/TsBoxedPrimitives.h"
+#include "../include/TsSymbol.h"
 #include "../include/GC.h"
 
 // TsBooleanObject implementation
@@ -19,6 +20,12 @@ TsStringObject* TsStringObject::Create(TsString* value) {
     return new (mem) TsStringObject(value);
 }
 
+// TsSymbolObject implementation
+TsSymbolObject* TsSymbolObject::Create(TsSymbol* value) {
+    void* mem = ts_alloc(sizeof(TsSymbolObject));
+    return new (mem) TsSymbolObject(value);
+}
+
 extern "C" {
 
 void* ts_boolean_object_create(bool value) {
@@ -31,6 +38,10 @@ void* ts_number_object_create(double value) {
 
 void* ts_string_object_create(void* strValue) {
     return TsStringObject::Create((TsString*)strValue);
+}
+
+void* ts_symbol_object_create(void* symValue) {
+    return TsSymbolObject::Create((TsSymbol*)symValue);
 }
 
 bool ts_boolean_object_value(void* obj) {
@@ -53,6 +64,14 @@ void* ts_string_object_value(void* obj) {
     TsStringObject* strObj = dynamic_cast<TsStringObject*>((TsObject*)obj);
     if (strObj) {
         return strObj->GetValue();
+    }
+    return nullptr;
+}
+
+void* ts_symbol_object_value(void* obj) {
+    TsSymbolObject* symObj = dynamic_cast<TsSymbolObject*>((TsObject*)obj);
+    if (symObj) {
+        return symObj->GetValue();
     }
     return nullptr;
 }

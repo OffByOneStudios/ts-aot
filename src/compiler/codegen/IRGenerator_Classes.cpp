@@ -861,13 +861,29 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                    className == "Int32Array" || className == "Uint32Array" ||
                    className == "Float32Array" || className == "Float64Array" ||
                    className == "BigInt64Array" || className == "BigUint64Array") {
-            // Determine element size for this TypedArray type
+            // Determine TypedArrayType enum value for this type
+            // Enum: Int8=0, Uint8=1, Uint8Clamped=2, Int16=3, Uint16=4, Int32=5, Uint32=6, Float32=7, Float64=8, BigInt64=9, BigUint64=10
+            int typeVal = 0;  // default Int8
+            if (className == "Int8Array") typeVal = 0;
+            else if (className == "Uint8Array") typeVal = 1;
+            else if (className == "Uint8ClampedArray") typeVal = 2;
+            else if (className == "Int16Array") typeVal = 3;
+            else if (className == "Uint16Array") typeVal = 4;
+            else if (className == "Int32Array") typeVal = 5;
+            else if (className == "Uint32Array") typeVal = 6;
+            else if (className == "Float32Array") typeVal = 7;
+            else if (className == "Float64Array") typeVal = 8;
+            else if (className == "BigInt64Array") typeVal = 9;
+            else if (className == "BigUint64Array") typeVal = 10;
+
+            // Also compute element size for backwards compatibility
             int elementSize = 1;  // default for i8/u8
             if (className == "Int16Array" || className == "Uint16Array") elementSize = 2;
             else if (className == "Int32Array" || className == "Uint32Array" || className == "Float32Array") elementSize = 4;
             else if (className == "Float64Array" || className == "BigInt64Array" || className == "BigUint64Array") elementSize = 8;
 
             bool isClamped = (className == "Uint8ClampedArray");
+            bool isBigInt = (className == "BigInt64Array" || className == "BigUint64Array");
 
             llvm::Value* arg = nullptr;
             bool isArrayLiteral = false;
@@ -889,6 +905,15 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                             { llvm::PointerType::getUnqual(*context) }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array_clamped", createFt);
                     lastValue = createCall(createFt, fn.getCallee(), { arg });
+                } else if (isBigInt) {
+                    // Handle new BigInt64Array([1n, 2n, 3n]) - use typed from_array function
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::PointerType::getUnqual(*context), llvm::Type::getInt32Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_from_array_typed", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), {
+                        arg,
+                        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), typeVal)
+                    });
                 } else {
                     // Handle new Int8Array([1, 2, 3]) - use generic from_array function
                     llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
@@ -911,6 +936,15 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                             { llvm::Type::getInt64Ty(*context) }, false);
                     llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create_clamped", createFt);
                     lastValue = createCall(createFt, fn.getCallee(), { arg });
+                } else if (isBigInt) {
+                    // new BigInt64Array(length) - use typed create function
+                    llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
+                            { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);
+                    llvm::FunctionCallee fn = module->getOrInsertFunction("ts_typed_array_create_typed", createFt);
+                    lastValue = createCall(createFt, fn.getCallee(), {
+                        arg,
+                        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), typeVal)
+                    });
                 } else {
                     llvm::FunctionType* createFt = llvm::FunctionType::get(llvm::PointerType::getUnqual(*context),
                             { llvm::Type::getInt64Ty(*context), llvm::Type::getInt32Ty(*context) }, false);

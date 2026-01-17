@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 82% | URL parsing |
-| `util` | ⚠️ | 79% | Utilities |
+| `util` | ⚠️ | 71% | Utilities |
 | `v8` | N/A | - | V8 specific (AOT incompatible) |
 | `vm` | N/A | - | VM contexts (AOT incompatible) |
 | `wasi` | N/A | - | WebAssembly (not planned) |
@@ -1015,8 +1015,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isArrayBuffer()` | ✅ | Detects Buffer instances (our ArrayBuffer implementation) |
 | `util.types.isArrayBufferView()` | ✅ | Detects TypedArray and DataView instances |
 | `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isBigInt64Array()` | ❌ | |
-| `util.types.isBigUint64Array()` | ❌ | |
+| `util.types.isBigInt64Array()` | ✅ | Detects BigInt64Array instances |
+| `util.types.isBigUint64Array()` | ✅ | Detects BigUint64Array instances |
 | `util.types.isBooleanObject()` | ✅ | Detects new Boolean() wrapper objects |
 | `util.types.isBoxedPrimitive()` | ✅ | Detects Boolean/Number/String wrapper objects |
 | `util.types.isCryptoKey()` | ❌ | |
@@ -1043,7 +1043,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isSetIterator()` | ❌ | |
 | `util.types.isSharedArrayBuffer()` | ❌ | |
 | `util.types.isStringObject()` | ✅ | Detects new String() wrapper objects |
-| `util.types.isSymbolObject()` | ❌ | |
+| `util.types.isSymbolObject()` | ⚠️ | Runtime implemented, needs Object(symbol) wrapper support |
 | `util.types.isTypedArray()` | ✅ | Detects TypedArray instances |
 | `util.types.isUint8Array()` | ✅ | Detects Uint8Array instances |
 | `util.types.isUint8ClampedArray()` | ✅ | Detects clamped 1-byte arrays |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 42/62 (68%)** (35 full, 7 partial)
+**Util Coverage: 44/62 (71%)** (36 full, 8 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 42 | 62 | 68% |
+| Util | 44 | 62 | 71% |
 | Global | 5 | 7 | 71% |
-| **Total** | **530** | **661** | **80%** |
+| **Total** | **532** | **661** | **81%** |
 
 ### Priority Implementation Targets
 
