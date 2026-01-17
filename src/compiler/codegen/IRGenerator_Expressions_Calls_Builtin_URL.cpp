@@ -38,6 +38,7 @@ static void ensureURLFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_url_to_http_options", {true}, true);    // url -> options object
     bp.registerRuntimeApi("ts_url_domain_to_ascii", {false}, false);  // domain -> ascii string
     bp.registerRuntimeApi("ts_url_domain_to_unicode", {false}, false); // domain -> unicode string
+    bp.registerRuntimeApi("ts_url_parse", {false, false, false}, true);  // urlString, parseQuery?, slashes? -> legacy URL object
 }
 
 bool IRGenerator::tryGenerateURLCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -346,6 +347,55 @@ bool IRGenerator::tryGenerateURLModuleCall(ast::CallExpression* node, ast::Prope
             { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_url_domain_to_unicode", ft);
         lastValue = createCall(ft, fn.getCallee(), { domain });
+        return true;
+    }
+
+    // url.parse(urlString, parseQueryString?, slashesDenoteHost?) - legacy URL parsing
+    if (prop->name == "parse") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+        visit(node->arguments[0].get());
+        llvm::Value* urlString = lastValue;
+        if (urlString->getType()->isIntegerTy(64)) {
+            urlString = builder->CreateIntToPtr(urlString, builder->getPtrTy());
+        }
+
+        // parseQueryString (default false)
+        llvm::Value* parseQueryString = llvm::ConstantInt::get(builder->getInt1Ty(), 0);
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            parseQueryString = lastValue;
+            if (parseQueryString->getType()->isIntegerTy(64)) {
+                parseQueryString = builder->CreateICmpNE(parseQueryString,
+                    llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+            } else if (!parseQueryString->getType()->isIntegerTy(1)) {
+                parseQueryString = builder->CreateICmpNE(
+                    builder->CreatePtrToInt(parseQueryString, builder->getInt64Ty()),
+                    llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+            }
+        }
+
+        // slashesDenoteHost (default false)
+        llvm::Value* slashesDenoteHost = llvm::ConstantInt::get(builder->getInt1Ty(), 0);
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            slashesDenoteHost = lastValue;
+            if (slashesDenoteHost->getType()->isIntegerTy(64)) {
+                slashesDenoteHost = builder->CreateICmpNE(slashesDenoteHost,
+                    llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+            } else if (!slashesDenoteHost->getType()->isIntegerTy(1)) {
+                slashesDenoteHost = builder->CreateICmpNE(
+                    builder->CreatePtrToInt(slashesDenoteHost, builder->getInt64Ty()),
+                    llvm::ConstantInt::get(builder->getInt64Ty(), 0));
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getInt1Ty(), builder->getInt1Ty() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_url_parse", ft);
+        lastValue = createCall(ft, fn.getCallee(), { urlString, parseQueryString, slashesDenoteHost });
         return true;
     }
 

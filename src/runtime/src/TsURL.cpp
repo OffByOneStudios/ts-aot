@@ -993,4 +993,171 @@ extern "C" {
         output[len] = '\0';
         return TsString::Create(output);
     }
+
+    // url.parse(urlString, parseQueryString?, slashesDenoteHost?) - legacy URL parsing
+    // Returns an object with: protocol, slashes, auth, host, port, hostname, hash, search, query, pathname, path, href
+    void* ts_url_parse(void* urlArg, bool parseQueryString, bool slashesDenoteHost) {
+        if (!urlArg) return nullptr;
+
+        // Get URL string
+        TsString* urlStr = (TsString*)urlArg;
+        if (!urlStr) return nullptr;
+
+        std::string url = urlStr->ToUtf8();
+        if (url.empty()) return nullptr;
+
+        // Create result object (TsMap for property access)
+        TsMap* result = TsMap::Create();
+
+        // Parse the URL using regex
+        // Format: [protocol:]//[user[:password]@]host[:port]/path[?search][#hash]
+        std::regex urlRegex(R"(^([^:/?#]+):(?://(?:([^:@/?#]*)(?::([^@/?#]*))?@)?([^/?#:]*)(?::([0-9]*))?)?([^?#]*)(?:\?([^#]*))?(?:#(.*))?)");
+        std::smatch matches;
+
+        bool hasProtocol = false;
+        bool hasSlashes = false;
+        std::string protocol, auth, host, hostname, port, pathname, search, query, hash;
+
+        if (std::regex_match(url, matches, urlRegex)) {
+            hasProtocol = true;
+            protocol = matches[1].str() + ":";
+            std::string username = matches[2].str();
+            std::string password = matches[3].str();
+            hostname = matches[4].str();
+            port = matches[5].str();
+            pathname = matches[6].str();
+            query = matches[7].str();
+            hash = matches[8].str();
+
+            // Build auth from username:password
+            if (!username.empty()) {
+                auth = username;
+                if (!password.empty()) {
+                    auth += ":" + password;
+                }
+            }
+
+            // Build host from hostname:port
+            host = hostname;
+            if (!port.empty()) {
+                host += ":" + port;
+            }
+
+            // Build search from query
+            if (!query.empty()) {
+                search = "?" + query;
+            }
+
+            // Prefix hash with #
+            if (!hash.empty()) {
+                hash = "#" + hash;
+            }
+
+            // Default pathname to "/" when there's a host but no explicit path
+            if (pathname.empty() && !hostname.empty()) {
+                pathname = "/";
+            }
+
+            // Check if URL has slashes (// after protocol)
+            size_t colonPos = url.find(':');
+            if (colonPos != std::string::npos && colonPos + 2 < url.length()) {
+                hasSlashes = (url[colonPos + 1] == '/' && url[colonPos + 2] == '/');
+            }
+        } else if (slashesDenoteHost && url.length() >= 2 && url[0] == '/' && url[1] == '/') {
+            // Handle //host/path case when slashesDenoteHost is true
+            hasSlashes = true;
+            std::string rest = url.substr(2);
+            size_t pathStart = rest.find('/');
+            if (pathStart != std::string::npos) {
+                host = rest.substr(0, pathStart);
+                hostname = host;
+                // Check for port
+                size_t portPos = host.find(':');
+                if (portPos != std::string::npos) {
+                    hostname = host.substr(0, portPos);
+                    port = host.substr(portPos + 1);
+                }
+                pathname = rest.substr(pathStart);
+            } else {
+                host = rest;
+                hostname = rest;
+                pathname = "/";
+            }
+        } else {
+            // Simple path, possibly with query and hash
+            size_t hashPos = url.find('#');
+            size_t queryPos = url.find('?');
+
+            if (hashPos != std::string::npos) {
+                hash = url.substr(hashPos);
+                url = url.substr(0, hashPos);
+            }
+            if (queryPos != std::string::npos) {
+                search = url.substr(queryPos);
+                query = url.substr(queryPos + 1);
+                pathname = url.substr(0, queryPos);
+            } else {
+                pathname = url;
+            }
+        }
+
+        // Set all properties on the result object
+        // Note: TsMap::Set takes TsValue by value, so we dereference the TsValue* returned by ts_value_make_*
+        result->Set(TsString::Create("protocol"), *ts_value_make_string(TsString::Create(protocol.c_str())));
+        result->Set(TsString::Create("slashes"), *ts_value_make_bool(hasSlashes));
+        result->Set(TsString::Create("auth"), auth.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(auth.c_str())));
+        result->Set(TsString::Create("host"), host.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(host.c_str())));
+        result->Set(TsString::Create("port"), port.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(port.c_str())));
+        result->Set(TsString::Create("hostname"), hostname.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(hostname.c_str())));
+        result->Set(TsString::Create("hash"), hash.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(hash.c_str())));
+        result->Set(TsString::Create("search"), search.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(search.c_str())));
+        result->Set(TsString::Create("pathname"), pathname.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(pathname.c_str())));
+
+        // path = pathname + search
+        std::string path = pathname + search;
+        result->Set(TsString::Create("path"), path.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(path.c_str())));
+
+        // query - either parsed object or string depending on parseQueryString
+        if (parseQueryString && !query.empty()) {
+            // Parse query string into object
+            TsMap* queryObj = TsMap::Create();
+            std::istringstream queryStream(query);
+            std::string pair;
+            while (std::getline(queryStream, pair, '&')) {
+                size_t eqPos = pair.find('=');
+                if (eqPos != std::string::npos) {
+                    std::string key = percentDecode(pair.substr(0, eqPos));
+                    std::string value = percentDecode(pair.substr(eqPos + 1));
+                    queryObj->Set(TsString::Create(key.c_str()), *ts_value_make_string(TsString::Create(value.c_str())));
+                } else {
+                    std::string key = percentDecode(pair);
+                    queryObj->Set(TsString::Create(key.c_str()), *ts_value_make_string(TsString::Create("")));
+                }
+            }
+            result->Set(TsString::Create("query"), *ts_value_make_object(queryObj));
+        } else {
+            result->Set(TsString::Create("query"), query.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(query.c_str())));
+        }
+
+        // Rebuild href
+        std::string href;
+        if (!protocol.empty()) {
+            href += protocol;
+            if (hasSlashes) {
+                href += "//";
+            }
+        } else if (hasSlashes) {
+            href += "//";
+        }
+        if (!auth.empty()) {
+            href += auth + "@";
+        }
+        href += host;
+        href += pathname;
+        href += search;
+        href += hash;
+        result->Set(TsString::Create("href"), *ts_value_make_string(TsString::Create(href.c_str())));
+
+        return result;
+    }
 }
