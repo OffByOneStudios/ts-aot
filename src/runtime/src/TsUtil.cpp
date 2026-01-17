@@ -8,6 +8,7 @@
 #include "../include/TsRegExp.h"
 #include "../include/TsArray.h"
 #include "../include/TsPromise.h"
+#include "../include/TsProxy.h"
 #include "../include/GC.h"
 #include <sstream>
 #include <cstdio>
@@ -542,6 +543,37 @@ bool isDataView(void* value) {
     // TsDataView inherits from TsObject, check magic
     TsObject* obj = (TsObject*)rawPtr;
     return obj->magic == TsDataView::MAGIC;
+}
+
+bool isProxy(void* value) {
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    // TsProxy has its own proxyMagic member
+    TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
+    return proxy != nullptr;
+}
+
+bool isWeakMap(void* value) {
+    // WeakMap is implemented as regular Map with no distinct type marker
+    // We cannot reliably distinguish WeakMap from Map at runtime
+    // This returns false as we don't have a way to detect WeakMap
+    return false;
+}
+
+bool isWeakSet(void* value) {
+    // WeakSet is implemented as regular Set with no distinct type marker
+    // We cannot reliably distinguish WeakSet from Set at runtime
+    // This returns false as we don't have a way to detect WeakSet
+    return false;
+}
+
+bool isAnyArrayBuffer(void* value) {
+    // isAnyArrayBuffer returns true for both ArrayBuffer and SharedArrayBuffer
+    // We only have ArrayBuffer (implemented as Buffer), no SharedArrayBuffer
+    return isArrayBuffer(value);
 }
 
 } // namespace TsUtilTypes
@@ -1092,6 +1124,22 @@ bool ts_util_types_is_float64_array(void* value) {
 
 bool ts_util_types_is_data_view(void* value) {
     return TsUtilTypes::isDataView(value);
+}
+
+bool ts_util_types_is_proxy(void* value) {
+    return TsUtilTypes::isProxy(value);
+}
+
+bool ts_util_types_is_weak_map(void* value) {
+    return TsUtilTypes::isWeakMap(value);
+}
+
+bool ts_util_types_is_weak_set(void* value) {
+    return TsUtilTypes::isWeakSet(value);
+}
+
+bool ts_util_types_is_any_array_buffer(void* value) {
+    return TsUtilTypes::isAnyArrayBuffer(value);
 }
 
 } // extern "C"

@@ -45,6 +45,12 @@ namespace TsUtilTypes {
     bool isFloat32Array(void* value);
     bool isFloat64Array(void* value);
     bool isDataView(void* value);
+
+    // Additional type checks
+    bool isProxy(void* value);
+    bool isWeakMap(void* value);
+    bool isWeakSet(void* value);
+    bool isAnyArrayBuffer(void* value);
 }
 
 extern "C" {
@@ -98,4 +104,10 @@ extern "C" {
     bool ts_util_types_is_float32_array(void* value);
     bool ts_util_types_is_float64_array(void* value);
     bool ts_util_types_is_data_view(void* value);
+
+    // Additional type checks
+    bool ts_util_types_is_proxy(void* value);
+    bool ts_util_types_is_weak_map(void* value);
+    bool ts_util_types_is_weak_set(void* value);
+    bool ts_util_types_is_any_array_buffer(void* value);
 }
