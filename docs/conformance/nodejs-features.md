@@ -974,7 +974,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Legacy URL API
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `url.parse()` | ❌ | Deprecated |
+| `url.parse()` | ✅ | Legacy URL parsing, returns object with protocol, host, etc. |
 | `url.format()` | ✅ | WHATWG URL and legacy object support |
 | `url.resolve()` | ✅ | Resolves relative URLs |
 | `url.domainToASCII()` | ✅ | ICU IDNA UTS46 conversion |
@@ -983,7 +983,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.pathToFileURL()` | ✅ | |
 | `url.urlToHttpOptions()` | ✅ | Extracts HTTP options from URL |
 
-**URL Coverage: 36/38 (95%)**
+**URL Coverage: 37/38 (97%)**
 
 ---
 
@@ -1095,10 +1095,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Stream | 41 | 44 | 93% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
-| URL | 36 | 38 | 95% |
+| URL | 37 | 38 | 97% |
 | Util | 30 | 62 | 48% |
 | Global | 5 | 7 | 71% |
-| **Total** | **513** | **661** | **78%** |
+| **Total** | **514** | **661** | **78%** |
 
 ### Priority Implementation Targets
 
@@ -1139,7 +1139,7 @@ Current test coverage:
 - Process: 2 test files (basic, extended)
 - QueryString: 1 test file (basic - 11 tests covering parse, stringify, escape, unescape, encode, decode)
 - Timers: 1 test file
-- URL: 3 test files (basic, extended, search params)
+- URL: 5 test files (basic, extended, search params, parse, format)
 - Util: 2 test files (basic, extended)
 
 Most Node.js API tests passing.

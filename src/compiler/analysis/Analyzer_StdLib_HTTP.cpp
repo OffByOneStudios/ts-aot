@@ -533,6 +533,15 @@ void Analyzer::registerURLModule() {
     domainToUnicodeFn->returnType = std::make_shared<Type>(TypeKind::String);
     urlModule->fields["domainToUnicode"] = domainToUnicodeFn;
 
+    // url.parse(urlString: string, parseQueryString?: boolean, slashesDenoteHost?: boolean): UrlWithParsedQuery
+    // Returns an object with: protocol, slashes, auth, host, port, hostname, hash, search, query, pathname, path, href
+    auto parseFn = std::make_shared<FunctionType>();
+    parseFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // urlString
+    parseFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // parseQueryString (optional)
+    parseFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // slashesDenoteHost (optional)
+    parseFn->returnType = std::make_shared<ObjectType>();  // Legacy URL object
+    urlModule->fields["parse"] = parseFn;
+
     symbols.define("url", urlModule);
 }
 
