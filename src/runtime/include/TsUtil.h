@@ -66,7 +66,13 @@ extern "C" {
     
     // util.callbackify - convert async function to callback style
     void* ts_util_callbackify(void* fn);
-    
+
+    // util.stripVTControlCharacters - removes ANSI escape codes
+    void* ts_util_strip_vt_control_characters(void* str);
+
+    // util.toUSVString - converts to valid Unicode scalar value string
+    void* ts_util_to_usv_string(void* str);
+
     // util.types functions
     bool ts_util_types_is_promise(void* value);
     bool ts_util_types_is_typed_array(void* value);

@@ -1006,9 +1006,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.parseArgs()` | ❌ | |
 | `util.parseEnv()` | ❌ | |
 | `util.promisify()` | ✅ | Converts callback-style functions to Promise-returning |
-| `util.stripVTControlCharacters()` | ❌ | |
+| `util.stripVTControlCharacters()` | ✅ | Removes ANSI escape codes |
 | `util.styleText()` | ❌ | |
-| `util.toUSVString()` | ❌ | |
+| `util.toUSVString()` | ✅ | Replaces lone surrogates with U+FFFD |
 | `util.transferableAbortController()` | ❌ | |
 | `util.transferableAbortSignal()` | ❌ | |
 | `util.types.isAnyArrayBuffer()` | ❌ | |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 36/62 (58%)** (19 full, 8 partial)
+**Util Coverage: 38/62 (61%)** (21 full, 8 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 36 | 62 | 58% |
+| Util | 38 | 62 | 61% |
 | Global | 5 | 7 | 71% |
-| **Total** | **524** | **661** | **79%** |
+| **Total** | **526** | **661** | **80%** |
 
 ### Priority Implementation Targets
 
