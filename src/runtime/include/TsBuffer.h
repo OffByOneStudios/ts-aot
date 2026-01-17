@@ -107,16 +107,32 @@ private:
     size_t length;
 };
 
+// TypedArray element type enum
+enum class TypedArrayType : uint8_t {
+    Int8,
+    Uint8,
+    Uint8Clamped,
+    Int16,
+    Uint16,
+    Int32,
+    Uint32,
+    Float32,
+    Float64,
+    BigInt64,
+    BigUint64
+};
+
 class TsTypedArray : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54415252; // "TARR"
-    static TsTypedArray* Create(size_t length, size_t elementSize, bool clamped = false);
+    static TsTypedArray* Create(size_t length, size_t elementSize, bool clamped = false, TypedArrayType type = TypedArrayType::Uint8);
     uint8_t* GetData() { return buffer->GetData(); }
     size_t GetLength() { return length; }
     size_t GetByteLength() { return length * elementSize; }
     size_t GetByteOffset() { return 0; }  // TypedArrays start at offset 0
     size_t GetElementSize() { return elementSize; }
     bool IsClamped() { return clamped; }
+    TypedArrayType GetType() { return arrayType; }
     TsBuffer* GetBuffer() { return buffer; }
 
     // Element access
@@ -124,16 +140,18 @@ public:
     void Set(size_t index, double value);
 
 private:
-    TsTypedArray(size_t length, size_t elementSize, bool clamped);
+    TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type);
     // Note: magic is inherited from TsObject and set in constructor
     TsBuffer* buffer;
     size_t length;
     size_t elementSize;
     bool clamped;
+    TypedArrayType arrayType;
 };
 
 class TsDataView : public TsObject {
 public:
+    static constexpr uint32_t MAGIC = 0x44564945; // "DVIE" (DataVIEw)
     static TsDataView* Create(TsBuffer* buffer);
     TsBuffer* GetBuffer() { return buffer; }
 

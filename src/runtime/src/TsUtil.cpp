@@ -463,19 +463,17 @@ static TsTypedArray* getTypedArray(void* value) {
 
 bool isInt8Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    return ta && ta->GetElementSize() == 1 && !ta->IsClamped();
+    return ta && ta->GetType() == TypedArrayType::Int8;
 }
 
 bool isInt16Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Int16Array uses 2-byte signed integers
-    return ta && ta->GetElementSize() == 2;
+    return ta && ta->GetType() == TypedArrayType::Int16;
 }
 
 bool isInt32Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Int32Array uses 4-byte signed integers
-    return ta && ta->GetElementSize() == 4;
+    return ta && ta->GetType() == TypedArrayType::Int32;
 }
 
 bool isUint8Array(void* value) {
@@ -488,40 +486,34 @@ bool isUint8Array(void* value) {
     // Buffer is effectively Uint8Array
     if (obj->magic == TsBuffer::MAGIC) return true;
 
-    // TypedArray with element size 1 and not clamped
+    // TypedArray with Uint8 type
     TsTypedArray* ta = getTypedArray(value);
-    return ta && ta->GetElementSize() == 1 && !ta->IsClamped();
+    return ta && ta->GetType() == TypedArrayType::Uint8;
 }
 
 bool isUint8ClampedArray(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    return ta && ta->GetElementSize() == 1 && ta->IsClamped();
+    return ta && ta->GetType() == TypedArrayType::Uint8Clamped;
 }
 
 bool isUint16Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Uint16Array uses 2-byte unsigned integers
-    return ta && ta->GetElementSize() == 2;
+    return ta && ta->GetType() == TypedArrayType::Uint16;
 }
 
 bool isUint32Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Uint32Array uses 4-byte unsigned integers
-    return ta && ta->GetElementSize() == 4;
+    return ta && ta->GetType() == TypedArrayType::Uint32;
 }
 
 bool isFloat32Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Float32Array uses 4-byte floats, but we can't distinguish from Int32/Uint32
-    // by element size alone. Need a type flag in TsTypedArray for proper detection.
-    // For now, return false since we don't track float vs int types.
-    return false;
+    return ta && ta->GetType() == TypedArrayType::Float32;
 }
 
 bool isFloat64Array(void* value) {
     TsTypedArray* ta = getTypedArray(value);
-    // Float64Array uses 8-byte doubles
-    return ta && ta->GetElementSize() == 8;
+    return ta && ta->GetType() == TypedArrayType::Float64;
 }
 
 bool isDataView(void* value) {
@@ -530,10 +522,9 @@ bool isDataView(void* value) {
     void* rawPtr = ts_value_get_object((TsValue*)value);
     if (!rawPtr) rawPtr = value;
 
-    // TsDataView would need its own magic value
-    // For now, check if it's a TsObject that's not a TypedArray or Buffer
-    // Since we don't have a dedicated DataView magic, return false
-    return false;
+    // TsDataView inherits from TsObject, check magic
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsDataView::MAGIC;
 }
 
 } // namespace TsUtilTypes

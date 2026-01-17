@@ -1435,22 +1435,22 @@ extern "C" {
     }
 
     void* ts_typed_array_create_u8(int64_t length) {
-        return TsTypedArray::Create((size_t)length, 1);
+        return TsTypedArray::Create((size_t)length, 1, false, TypedArrayType::Uint8);
     }
 
     void* ts_typed_array_create_u32(int64_t length) {
-        return TsTypedArray::Create((size_t)length, 4);
+        return TsTypedArray::Create((size_t)length, 4, false, TypedArrayType::Uint32);
     }
 
     void* ts_typed_array_create_f64(int64_t length) {
-        return TsTypedArray::Create((size_t)length, 8);
+        return TsTypedArray::Create((size_t)length, 8, false, TypedArrayType::Float64);
     }
 
     void* ts_typed_array_from_array_u8(void* array) {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, 1);
+        TsTypedArray* ta = TsTypedArray::Create(len, 1, false, TypedArrayType::Uint8);
         uint8_t* data = ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -1473,7 +1473,7 @@ extern "C" {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, 4);
+        TsTypedArray* ta = TsTypedArray::Create(len, 4, false, TypedArrayType::Uint32);
         uint32_t* data = (uint32_t*)ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -1496,7 +1496,7 @@ extern "C" {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, 8);
+        TsTypedArray* ta = TsTypedArray::Create(len, 8, false, TypedArrayType::Float64);
         double* data = (double*)ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -1517,12 +1517,20 @@ extern "C" {
 
     // Generic typed array create with element size parameter
     void* ts_typed_array_create(int64_t length, int32_t elementSize) {
-        return TsTypedArray::Create((size_t)length, (size_t)elementSize, false);
+        // Infer type from element size (defaults to signed/int for ambiguous sizes)
+        TypedArrayType type = TypedArrayType::Uint8;
+        switch (elementSize) {
+            case 1: type = TypedArrayType::Int8; break;
+            case 2: type = TypedArrayType::Int16; break;
+            case 4: type = TypedArrayType::Int32; break;
+            case 8: type = TypedArrayType::Float64; break;
+        }
+        return TsTypedArray::Create((size_t)length, (size_t)elementSize, false, type);
     }
 
     // Uint8ClampedArray create
     void* ts_typed_array_create_clamped(int64_t length) {
-        return TsTypedArray::Create((size_t)length, 1, true);
+        return TsTypedArray::Create((size_t)length, 1, true, TypedArrayType::Uint8Clamped);
     }
 
     // Generic typed array from array with element size parameter
@@ -1530,7 +1538,15 @@ extern "C" {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, (size_t)elementSize, false);
+        // Infer type from element size (defaults to signed/int for ambiguous sizes)
+        TypedArrayType type = TypedArrayType::Uint8;
+        switch (elementSize) {
+            case 1: type = TypedArrayType::Int8; break;
+            case 2: type = TypedArrayType::Int16; break;
+            case 4: type = TypedArrayType::Int32; break;
+            case 8: type = TypedArrayType::Float64; break;
+        }
+        TsTypedArray* ta = TsTypedArray::Create(len, (size_t)elementSize, false, type);
         uint8_t* data = ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -1572,7 +1588,7 @@ extern "C" {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
         size_t len = (size_t)arr->Length();
-        TsTypedArray* ta = TsTypedArray::Create(len, 1, true);  // clamped=true
+        TsTypedArray* ta = TsTypedArray::Create(len, 1, true, TypedArrayType::Uint8Clamped);
         uint8_t* data = ta->GetData();
         bool specialized = arr->IsSpecialized();
         bool isDouble = arr->IsDouble();
@@ -1921,16 +1937,17 @@ extern "C" {
     }
 }
 
-TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize, bool clamped) {
+TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize, bool clamped, TypedArrayType type) {
     void* mem = ts_alloc(sizeof(TsTypedArray));
-    return new(mem) TsTypedArray(length, elementSize, clamped);
+    return new(mem) TsTypedArray(length, elementSize, clamped, type);
 }
 
-TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped) {
+TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type) {
     this->magic = MAGIC;  // Set inherited magic from TsObject
     this->length = length;
     this->elementSize = elementSize;
     this->clamped = clamped;
+    this->arrayType = type;
     this->buffer = TsBuffer::Create(length * elementSize);
 }
 
@@ -1974,5 +1991,6 @@ TsDataView* TsDataView::Create(TsBuffer* buffer) {
 }
 
 TsDataView::TsDataView(TsBuffer* buffer) {
+    this->magic = MAGIC;  // Set inherited magic from TsObject
     this->buffer = buffer;
 }
