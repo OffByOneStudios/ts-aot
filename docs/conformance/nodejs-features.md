@@ -38,7 +38,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `net` | ✅ | 100% | TCP sockets |
 | `os` | ✅ | 100% | OS utilities |
 | `path` | ✅ | 100% | Path utilities |
-| `perf_hooks` | ❌ | 0% | Performance |
+| `perf_hooks` | ⚠️ | 81% | Performance |
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ✅ | 100% | Query parsing |
@@ -888,6 +888,31 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers/promises.scheduler.yield()` | ✅ | Alias for setImmediate |
 
 **Timers Coverage: 13/14 (93%)**
+
+---
+
+## Perf Hooks
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `performance.now()` | ✅ | High-resolution time in ms |
+| `performance.timeOrigin` | ✅ | Unix timestamp in ms |
+| `performance.mark(name)` | ✅ | Create a performance mark |
+| `performance.measure(name, start, end)` | ✅ | Measure between marks |
+| `performance.getEntries()` | ✅ | Get all performance entries |
+| `performance.getEntriesByName(name)` | ✅ | Filter entries by name |
+| `performance.getEntriesByType(type)` | ✅ | Filter entries by type |
+| `performance.clearMarks(name?)` | ✅ | Clear marks |
+| `performance.clearMeasures(name?)` | ✅ | Clear measures |
+| `PerformanceEntry.name` | ✅ | Entry name property |
+| `PerformanceEntry.entryType` | ✅ | Entry type (mark/measure) |
+| `PerformanceEntry.startTime` | ✅ | Entry start time |
+| `PerformanceEntry.duration` | ✅ | Entry duration |
+| `PerformanceObserver` | ❌ | Not implemented |
+| `performance.timerify()` | ❌ | Not implemented |
+| `performance.eventLoopUtilization()` | ❌ | Not implemented |
+
+**Perf Hooks Coverage: 13/16 (81%)**
 
 ---
 

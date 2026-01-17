@@ -69,6 +69,7 @@ public:
     void registerV8();
     void registerAssert();
     void registerStringDecoder();
+    void registerPerfHooks();
 
     void reportError(const std::string& message);
 

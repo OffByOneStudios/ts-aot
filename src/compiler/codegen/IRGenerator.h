@@ -196,6 +196,9 @@ private:
     bool tryGenerateAssertCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStringDecoderCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateStringDecoderNew(ast::NewExpression* node);
+    bool tryGeneratePerfHooksCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGeneratePerfHooksPropertyAccess(ast::PropertyAccessExpression* prop);
+    bool tryGeneratePerformanceEntryPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);

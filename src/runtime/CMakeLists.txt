@@ -93,6 +93,7 @@ add_library(tsruntime STATIC
     src/TsV8.cpp
     src/TsAssert.cpp
     src/TsStringDecoder.cpp
+    src/TsPerfHooks.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)
