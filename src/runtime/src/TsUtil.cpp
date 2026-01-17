@@ -345,11 +345,24 @@ bool isTypedArray(void* value) {
 
 bool isArrayBuffer(void* value) {
     // In our implementation, Buffer serves as ArrayBuffer
-    return isTypedArray(value);
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsBuffer::MAGIC;
 }
 
 bool isArrayBufferView(void* value) {
-    return isTypedArray(value);
+    // ArrayBufferView includes TypedArrays and DataView
+    if (!value) return false;
+
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsTypedArray::MAGIC || obj->magic == TsDataView::MAGIC;
 }
 
 bool isAsyncFunction(void* value) {
@@ -443,8 +456,12 @@ bool isGeneratorFunction(void* value) {
 }
 
 bool isGeneratorObject(void* value) {
-    // Can't detect without proper RTTI
-    return false;
+    if (!value) return false;
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+    TsObject* obj = (TsObject*)rawPtr;
+    // Check for TsGenerator (sync generator objects) and TsAsyncGenerator
+    return obj->magic == ts::TsGenerator::MAGIC || obj->magic == ts::TsAsyncGenerator::MAGIC;
 }
 
 // Helper to get TypedArray if value is one

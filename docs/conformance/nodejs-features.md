@@ -1012,8 +1012,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.transferableAbortController()` | ❌ | |
 | `util.transferableAbortSignal()` | ❌ | |
 | `util.types.isAnyArrayBuffer()` | ❌ | |
-| `util.types.isArrayBuffer()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isArrayBufferView()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isArrayBuffer()` | ✅ | Detects Buffer instances (our ArrayBuffer implementation) |
+| `util.types.isArrayBufferView()` | ✅ | Detects TypedArray and DataView instances |
 | `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
 | `util.types.isBigInt64Array()` | ❌ | |
 | `util.types.isBigUint64Array()` | ❌ | |
@@ -1026,7 +1026,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isFloat32Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isFloat64Array()` | ✅ | 8-byte element size detection |
 | `util.types.isGeneratorFunction()` | ⚠️ | Returns false (not wired up correctly) |
-| `util.types.isGeneratorObject()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isGeneratorObject()` | ✅ | Detects Generator and AsyncGenerator objects |
 | `util.types.isInt8Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isInt16Array()` | ✅ | 2-byte element size detection |
 | `util.types.isInt32Array()` | ✅ | 4-byte element size detection |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 42/62 (68%)** (25 full, 6 partial)
+**Util Coverage: 45/62 (73%)** (28 full, 5 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 42 | 62 | 68% |
+| Util | 45 | 62 | 73% |
 | Global | 5 | 7 | 71% |
-| **Total** | **530** | **661** | **80%** |
+| **Total** | **533** | **661** | **81%** |
 
 ### Priority Implementation Targets
 
