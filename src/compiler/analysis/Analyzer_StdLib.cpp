@@ -1440,5 +1440,6 @@ Analyzer::Analyzer() {
     registerV8();
     registerAssert();
     registerStringDecoder();
+    registerPerfHooks();
 }
 } // namespace ts

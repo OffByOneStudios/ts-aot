@@ -257,6 +257,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateVMCall(node, prop)) return true;
     if (tryGenerateV8Call(node, prop)) return true;
     if (tryGenerateAssertCall(node, prop)) return true;
+    if (tryGeneratePerfHooksCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
