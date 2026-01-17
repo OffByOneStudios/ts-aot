@@ -19,6 +19,18 @@ static void ensureStringDecoderBoxingRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_decoder_get_encoding", {true}, true);
 }
 
+// Forward declaration of helper for boxed primitives boxing registration
+static bool boxedPrimitivesBoxingRegistered = false;
+static void ensureBoxedPrimitivesBoxingRegistered(BoxingPolicy& bp) {
+    if (boxedPrimitivesBoxingRegistered) return;
+    boxedPrimitivesBoxingRegistered = true;
+    // new Boolean(value), new Number(value), new String(value)
+    // These take raw values (bool/i8, double, ptr), not boxed TsValue*
+    bp.registerRuntimeApi("ts_boolean_object_create", {false}, true);  // i8 -> ptr
+    bp.registerRuntimeApi("ts_number_object_create", {false}, true);   // double -> ptr
+    bp.registerRuntimeApi("ts_string_object_create", {false}, true);   // ptr -> ptr
+}
+
 // Helper to get class members from either ClassDeclaration or ClassExpression
 static const std::vector<NodePtr>* getClassMembers(std::shared_ptr<ClassType> classType) {
     if (classType->node) {
@@ -562,8 +574,11 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
     emitLocation(node);
     SPDLOG_DEBUG("visitNewExpression: inferredType={}", (node->inferredType ? (int)node->inferredType->kind : -1));
 
-    // Check for new Proxy(target, handler) by looking at the expression directly
-    // This is done early because Proxy returns 'any' type for dynamic property access
+    // Ensure boxing policies are registered for built-in constructors
+    ensureBoxedPrimitivesBoxingRegistered(boxingPolicy);
+
+    // Check for built-in constructors by looking at the expression directly
+    // This is done early because these types may not have proper ClassType inference
     if (auto* id = dynamic_cast<ast::Identifier*>(node->expression.get())) {
         if (id->name == "Proxy" && node->arguments.size() >= 2) {
             // new Proxy(target, handler)
@@ -576,6 +591,74 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
                 { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee createProxyFn = getRuntimeFunction("ts_proxy_create", createProxyFt);
             lastValue = createCall(createProxyFt, createProxyFn.getCallee(), { target, handler });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (id->name == "Boolean" && node->arguments.size() >= 1) {
+            // new Boolean(value) - creates boxed Boolean object
+            visit(node->arguments[0].get());
+            llvm::Value* boolValue = lastValue;
+
+            // Convert to boolean if not already
+            if (boolValue->getType()->isIntegerTy(64) || boolValue->getType()->isIntegerTy(32)) {
+                boolValue = builder->CreateICmpNE(boolValue,
+                    llvm::ConstantInt::get(boolValue->getType(), 0));
+            } else if (boolValue->getType()->isDoubleTy()) {
+                boolValue = builder->CreateFCmpONE(boolValue,
+                    llvm::ConstantFP::get(builder->getDoubleTy(), 0.0));
+            } else if (boolValue->getType()->isPointerTy()) {
+                boolValue = builder->CreateICmpNE(boolValue,
+                    llvm::ConstantPointerNull::get(builder->getPtrTy()));
+            }
+
+            // Extend to i8 for C ABI
+            if (boolValue->getType()->isIntegerTy(1)) {
+                boolValue = builder->CreateZExt(boolValue, builder->getInt8Ty());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getInt8Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_boolean_object_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { boolValue });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (id->name == "Number" && node->arguments.size() >= 1) {
+            // new Number(value) - creates boxed Number object
+            visit(node->arguments[0].get());
+            llvm::Value* numValue = lastValue;
+
+            // Convert to double if not already
+            if (numValue->getType()->isIntegerTy()) {
+                numValue = builder->CreateSIToFP(numValue, builder->getDoubleTy());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getDoubleTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_number_object_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { numValue });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (id->name == "String" && node->arguments.size() >= 1) {
+            // new String(value) - creates boxed String object
+            visit(node->arguments[0].get());
+            llvm::Value* strValue = lastValue;
+
+            // If not already a string, convert via ts_to_string
+            auto argType = node->arguments[0]->inferredType;
+            if (!argType || argType->kind != TypeKind::String) {
+                llvm::Value* boxed = boxValue(strValue, argType);
+                llvm::FunctionType* toStrFt = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+                llvm::FunctionCallee toStrFn = getRuntimeFunction("ts_to_string", toStrFt);
+                strValue = createCall(toStrFt, toStrFn.getCallee(), { boxed });
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_string_object_create", ft);
+            lastValue = createCall(ft, fn.getCallee(), { strValue });
             boxedValues.insert(lastValue);
             nonNullValues.insert(lastValue);
             return;

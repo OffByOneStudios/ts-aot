@@ -80,6 +80,7 @@ add_library(tsruntime STATIC
     src/TsTextEncoding.cpp
     src/TsURL.cpp
     src/TsUtil.cpp
+    src/TsBoxedPrimitives.cpp
     src/TsQueryString.cpp
     src/TsFetch.cpp
     src/TsHttp.cpp

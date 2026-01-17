@@ -53,6 +53,12 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_weak_set", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_any_array_buffer", {true}, false);
 
+    // Boxed primitive checks
+    bp.registerRuntimeApi("ts_util_types_is_boolean_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_number_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_string_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_boxed_primitive", {true}, false);
+
     // Array helpers used in util
     bp.registerRuntimeApi("ts_array_create_sized", {false}, true);
     bp.registerRuntimeApi("ts_array_push", {true, true}, false);
@@ -334,6 +340,11 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isWeakMap") fnName = "ts_util_types_is_weak_map";
         else if (prop->name == "isWeakSet") fnName = "ts_util_types_is_weak_set";
         else if (prop->name == "isAnyArrayBuffer") fnName = "ts_util_types_is_any_array_buffer";
+        // Boxed primitive checks
+        else if (prop->name == "isBooleanObject") fnName = "ts_util_types_is_boolean_object";
+        else if (prop->name == "isNumberObject") fnName = "ts_util_types_is_number_object";
+        else if (prop->name == "isStringObject") fnName = "ts_util_types_is_string_object";
+        else if (prop->name == "isBoxedPrimitive") fnName = "ts_util_types_is_boxed_primitive";
         else {
             // Unknown util.types function - return false
             lastValue = llvm::ConstantInt::get(builder->getInt1Ty(), false);
