@@ -225,6 +225,11 @@ void Analyzer::registerHTTP() {
     setHeaderMethod->returnType = std::make_shared<Type>(TypeKind::Void);
     clientRequestClass->methods["setHeader"] = setHeaderMethod;
 
+    // flushHeaders() - send headers immediately
+    auto flushHeadersMethodCR = std::make_shared<FunctionType>();
+    flushHeadersMethodCR->returnType = std::make_shared<Type>(TypeKind::Void);
+    clientRequestClass->methods["flushHeaders"] = flushHeadersMethodCR;
+
     symbols.defineType("ClientRequest", clientRequestClass);
 
     auto responseCallback = std::make_shared<FunctionType>();

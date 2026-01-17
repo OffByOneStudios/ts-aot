@@ -540,7 +540,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.abort()` | N/A | Deprecated |
 | `req.destroy()` | ✅ | Via Writable base class |
 | `req.end()` | ✅ | |
-| `req.flushHeaders()` | ❌ | |
+| `req.flushHeaders()` | ✅ | |
 | `req.getHeader()` | ✅ | |
 | `req.getRawHeaderNames()` | ❌ | |
 | `req.maxHeadersCount` | ❌ | |
@@ -557,7 +557,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ❌ | |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 47/67 (70%)**
+**HTTP Coverage: 48/67 (72%)**
 
 ---
 
