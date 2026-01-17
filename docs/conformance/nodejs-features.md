@@ -89,7 +89,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `Buffer.alloc(size)` | ✅ | |
 | `Buffer.allocUnsafe(size)` | ✅ | |
-| `Buffer.allocUnsafeSlow(size)` | ❌ | |
+| `Buffer.allocUnsafeSlow(size)` | ✅ | Same as allocUnsafe (no pooling) |
 | `Buffer.byteLength(string)` | ✅ | |
 | `Buffer.compare(buf1, buf2)` | ✅ | |
 | `Buffer.concat(list)` | ✅ | |
