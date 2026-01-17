@@ -921,58 +921,37 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         
         lastValue = createCall(ft, fn.getCallee(), { path });
         return true;
-    } else if (prop->name == "openSync") {
-        if (node->arguments.size() < 2) return true;
-        visit(node->arguments[0].get());
-        llvm::Value* path = lastValue;
-        visit(node->arguments[1].get());
-        llvm::Value* flags = lastValue;
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
-                { builder->getPtrTy(), builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_openSync", ft);
-        
-        llvm::Value* fd = createCall(ft, fn.getCallee(), { path, flags });
-        
-        llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
-        lastValue = createCall(makeIntFt, makeIntFn.getCallee(), { fd });
-        return true;
     } else if (prop->name == "closeSync") {
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
-        llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
-                { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { llvm::Type::getDoubleTy(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_closeSync", ft);
-        
+
         createCall(ft, fn.getCallee(), { fd });
         lastValue = nullptr;
         return true;
     } else if (prop->name == "readSync" || prop->name == "writeSync") {
         if (node->arguments.size() < 5) return true;
         visit(node->arguments[0].get());
-        llvm::Value* fd = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
         visit(node->arguments[1].get());
         llvm::Value* buffer = lastValue;
         visit(node->arguments[2].get());
-        llvm::Value* offset = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        llvm::Value* offset = castValue(lastValue, llvm::Type::getDoubleTy(*context));
         visit(node->arguments[3].get());
-        llvm::Value* length = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+        llvm::Value* length = castValue(lastValue, llvm::Type::getDoubleTy(*context));
         visit(node->arguments[4].get());
-        llvm::Value* position = castValue(lastValue, llvm::Type::getInt64Ty(*context));
-        
+        llvm::Value* position = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+
         std::string runtimeName = "ts_fs_" + prop->name;
-        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), 
-                { llvm::Type::getInt64Ty(*context), builder->getPtrTy(), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getDoubleTy(*context),
+                { llvm::Type::getDoubleTy(*context), builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
-        
-        llvm::Value* result = createCall(ft, fn.getCallee(), { fd, buffer, offset, length, position });
-        
-        llvm::FunctionType* makeIntFt = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
-        llvm::FunctionCallee makeIntFn = getRuntimeFunction("ts_value_make_int", makeIntFt);
-        lastValue = createCall(makeIntFt, makeIntFn.getCallee(), { result });
+
+        lastValue = createCall(ft, fn.getCallee(), { fd, buffer, offset, length, position });
         return true;
     } else if (prop->name == "createReadStream") {
         if (node->arguments.empty()) return true;
