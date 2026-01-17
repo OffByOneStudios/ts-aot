@@ -51,9 +51,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 82% | URL parsing |
 | `util` | ⚠️ | 42% | Utilities |
-| `v8` | ❌ | 0% | V8 specific |
-| `vm` | ❌ | 0% | VM contexts |
-| `wasi` | ❌ | 0% | WebAssembly |
+| `v8` | N/A | - | V8 specific (AOT incompatible) |
+| `vm` | N/A | - | VM contexts (AOT incompatible) |
+| `wasi` | N/A | - | WebAssembly (not planned) |
 | `worker_threads` | ❌ | 0% | Threading |
 | `zlib` | ❌ | 0% | Compression |
 
