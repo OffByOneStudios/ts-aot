@@ -96,6 +96,7 @@ public:
 
     // Static methods
     static TsBuffer* AllocUnsafe(size_t length);
+    static TsBuffer* AllocUnsafeSlow(size_t length);  // Same as AllocUnsafe (no pooling)
     static TsBuffer* Concat(void* list, int64_t totalLength = -1);
     static int Compare(TsBuffer* buf1, TsBuffer* buf2);
     static bool IsEncoding(const char* encoding);
@@ -144,6 +145,7 @@ private:
 extern "C" {
     void* ts_buffer_alloc(int64_t length);
     void* ts_buffer_alloc_unsafe(int64_t length);
+    void* ts_buffer_alloc_unsafe_slow(int64_t length);
     void* ts_buffer_from(void* data);
     void* ts_buffer_from_string(void* str, void* encoding);
     void* ts_buffer_from_buffer(void* buf);

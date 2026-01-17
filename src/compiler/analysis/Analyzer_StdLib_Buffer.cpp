@@ -368,7 +368,12 @@ void Analyzer::registerBuffer() {
     bufferAllocUnsafe->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
     bufferAllocUnsafe->returnType = bufferClass;
     bufferStatic->fields["allocUnsafe"] = bufferAllocUnsafe;
-    
+
+    auto bufferAllocUnsafeSlow = std::make_shared<FunctionType>();
+    bufferAllocUnsafeSlow->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    bufferAllocUnsafeSlow->returnType = bufferClass;
+    bufferStatic->fields["allocUnsafeSlow"] = bufferAllocUnsafeSlow;
+
     auto bufferFrom = std::make_shared<FunctionType>();
     bufferFrom->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     bufferFrom->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // encoding

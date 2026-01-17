@@ -11,6 +11,7 @@ static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
 
     bp.registerRuntimeApi("ts_buffer_alloc", {false}, true);  // size -> Buffer
     bp.registerRuntimeApi("ts_buffer_alloc_unsafe", {false}, true);
+    bp.registerRuntimeApi("ts_buffer_alloc_unsafe_slow", {false}, true);  // size -> Buffer (no pooling)
     bp.registerRuntimeApi("ts_buffer_from_string", {false, false}, true);  // string, encoding
     bp.registerRuntimeApi("ts_buffer_concat", {true, false}, true);  // array, totalLength
     bp.registerRuntimeApi("ts_buffer_is_buffer", {true}, false);  // obj -> bool
@@ -95,13 +96,25 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* size = castValue(lastValue, llvm::Type::getInt64Ty(*context));
-        
+
         llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_alloc_unsafe", ft);
         lastValue = createCall(ft, fn.getCallee(), { size });
         return true;
     }
-    
+
+    // Handle Buffer.allocUnsafeSlow(size)
+    if (prop->name == "allocUnsafeSlow") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* size = castValue(lastValue, llvm::Type::getInt64Ty(*context));
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { llvm::Type::getInt64Ty(*context) }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_alloc_unsafe_slow", ft);
+        lastValue = createCall(ft, fn.getCallee(), { size });
+        return true;
+    }
+
     // Handle Buffer.from(data, encoding?)
     // Must check it's actually Buffer.from, not Array.from or other X.from
     auto* bufferId = dynamic_cast<ast::Identifier*>(prop->expression.get());

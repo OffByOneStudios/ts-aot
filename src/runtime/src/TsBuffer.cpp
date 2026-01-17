@@ -249,6 +249,12 @@ TsBuffer* TsBuffer::AllocUnsafe(size_t length) {
     return buf;
 }
 
+TsBuffer* TsBuffer::AllocUnsafeSlow(size_t length) {
+    // In Node.js, this bypasses the internal buffer pool.
+    // Since we use GC allocation directly, this is identical to AllocUnsafe.
+    return AllocUnsafe(length);
+}
+
 TsBuffer* TsBuffer::Slice(int64_t start, int64_t end) {
     // Normalize negative indices
     int64_t len = (int64_t)length;
@@ -790,6 +796,10 @@ extern "C" {
 
     void* ts_buffer_alloc_unsafe(int64_t length) {
         return TsBuffer::AllocUnsafe((size_t)length);
+    }
+
+    void* ts_buffer_alloc_unsafe_slow(int64_t length) {
+        return TsBuffer::AllocUnsafeSlow((size_t)length);
     }
 
     void* ts_buffer_from(void* data) {
