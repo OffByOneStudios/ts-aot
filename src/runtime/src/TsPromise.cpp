@@ -58,7 +58,8 @@ TsValue* create_generator_result(TsValue value, bool done) {
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
-    
+    static_cast<TsObject*>(this)->magic = MAGIC; // Set magic for type detection
+
     TsValue nextFunc = *ts_value_make_function((void*)Generator_next_internal, this);
     this->Set(TsString::Create("next"), nextFunc);
     
@@ -88,7 +89,8 @@ TsValue* TsGenerator::next(TsValue* value) {
 TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
     vtable = nullptr;
     done = false;
-    
+    static_cast<TsObject*>(this)->magic = MAGIC; // Set magic for type detection
+
     TsValue nextFunc = *ts_value_make_function((void*)AsyncGenerator_next_internal, this);
     this->Set(TsString::Create("next"), nextFunc);
     

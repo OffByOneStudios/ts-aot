@@ -31,18 +31,20 @@ struct AsyncContext : public TsObject {
 };
 
 struct TsGenerator : public TsMap {
+    static constexpr uint32_t MAGIC = 0x47454E52; // "GENR"
     AsyncContext* ctx;
     bool done = false;
-    
+
     TsGenerator(AsyncContext* ctx);
     TsValue* next(TsValue* value = nullptr);
 };
 
 struct TsAsyncGenerator : public TsMap {
+    static constexpr uint32_t MAGIC = 0x4147454E; // "AGEN"
     AsyncContext* ctx;
     bool done = false;
     std::vector<TsPromise*> nextQueue;
-    
+
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);
 };
