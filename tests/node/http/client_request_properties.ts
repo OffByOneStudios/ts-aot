@@ -68,5 +68,7 @@ function user_main(): number {
     console.log("");
     console.log("Results: " + (4 - failed) + " passed, " + failed + " failed");
 
+    // Force exit to prevent event loop from hanging
+    process.exit(failed > 0 ? 1 : 0);
     return failed > 0 ? 1 : 0;
 }

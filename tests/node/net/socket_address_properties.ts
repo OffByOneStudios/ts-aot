@@ -49,5 +49,7 @@ function user_main(): number {
     console.log(failures + ' test(s) failed');
   }
 
+  // Force exit to prevent event loop from hanging on server.listen()
+  process.exit(failures);
   return failures;
 }
