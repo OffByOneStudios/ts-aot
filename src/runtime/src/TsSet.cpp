@@ -1,4 +1,5 @@
 #include "TsSet.h"
+#include "TsWeakSet.h"
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsRuntime.h"
@@ -238,4 +239,26 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
     return ts_value_make_undefined();
 }
 
+}
+
+// ============================================================================
+// TsWeakSet Implementation
+// ============================================================================
+
+TsWeakSet* TsWeakSet::Create() {
+    void* mem = ts_alloc(sizeof(TsWeakSet));
+    TsWeakSet* set = new(mem) TsWeakSet();
+
+    // Use same vtable as TsSet
+    if (!TsSet_VTable[1]) {
+        TsSet_VTable[1] = (void*)ts_set_get_property;
+    }
+    set->vtable = TsSet_VTable;
+
+    return set;
+}
+
+TsWeakSet::TsWeakSet() : TsSet() {
+    // Override magic to distinguish from regular Set
+    TsObject::magic = MAGIC;
 }

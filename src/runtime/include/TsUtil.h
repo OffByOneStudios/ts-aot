@@ -103,6 +103,9 @@ extern "C" {
     // util.formatWithOptions - like util.format() but with inspect options
     void* ts_util_format_with_options(void* options, void* format, void* args);
 
+    // util.parseEnv - parse dotenv file content to object
+    void* ts_util_parse_env(void* content);
+
     // util.types functions
     bool ts_util_types_is_promise(void* value);
     bool ts_util_types_is_typed_array(void* value);

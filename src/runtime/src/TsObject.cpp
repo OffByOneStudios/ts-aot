@@ -4,7 +4,9 @@
 #include "TsArray.h"
 #include "TsBigInt.h"
 #include "TsMap.h"
+#include "TsWeakMap.h"
 #include "TsSet.h"
+#include "TsWeakSet.h"
 #include "TsJSON.h"
 #include "TsString.h"
 #include "TsBuffer.h"
@@ -3542,11 +3544,11 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // ============================================================================
-    // WeakMap - implemented as regular Map (no true weak semantics with Boehm GC)
+    // WeakMap - implemented as TsWeakMap wrapper (no true weak semantics with Boehm GC)
     // ============================================================================
 
     void* ts_weakmap_create() {
-        return TsMap::Create();
+        return TsWeakMap::Create();
     }
 
     void* ts_weakmap_set(void* weakmap, void* key, TsValue* value) {
@@ -3617,11 +3619,11 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // ============================================================================
-    // WeakSet - implemented as regular Set (no true weak semantics with Boehm GC)
+    // WeakSet - implemented as TsWeakSet wrapper (no true weak semantics with Boehm GC)
     // ============================================================================
 
     void* ts_weakset_create() {
-        return TsSet::Create();
+        return TsWeakSet::Create();
     }
 
     void* ts_weakset_add(void* weakset, void* value) {

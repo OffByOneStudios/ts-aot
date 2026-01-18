@@ -53,13 +53,19 @@ void Analyzer::registerUtil() {
     utilType->fields["inherits"] = inheritsType;
 
     // =========================================================================
-    // util.deprecate(fn: Function, msg: string): Function
+    // util.deprecate(fn: Function, msg: string): (...args: any[]) => any
     // Mark a function as deprecated
+    // Returns a wrapped function that emits deprecation warning on first call
     // =========================================================================
     auto deprecateType = std::make_shared<FunctionType>();
     deprecateType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
     deprecateType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    deprecateType->returnType = std::make_shared<Type>(TypeKind::Function);
+    // Return type is a variadic function that returns any
+    auto deprecateReturnType = std::make_shared<FunctionType>();
+    deprecateReturnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    deprecateReturnType->hasRest = true;
+    deprecateReturnType->returnType = std::make_shared<Type>(TypeKind::Any);
+    deprecateType->returnType = deprecateReturnType;
     utilType->fields["deprecate"] = deprecateType;
 
     // =========================================================================
@@ -140,12 +146,17 @@ void Analyzer::registerUtil() {
     utilType->fields["formatWithOptions"] = formatWithOptionsType;
 
     // =========================================================================
-    // util.debuglog(section: string): Function
+    // util.debuglog(section: string): (...args: any[]) => void
     // Returns a logging function for the given section
     // =========================================================================
     auto debuglogType = std::make_shared<FunctionType>();
     debuglogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
-    debuglogType->returnType = std::make_shared<Type>(TypeKind::Function);
+    // Return type is a function that takes variadic args and returns void
+    auto debuglogReturnType = std::make_shared<FunctionType>();
+    debuglogReturnType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // ...args
+    debuglogReturnType->hasRest = true;
+    debuglogReturnType->returnType = std::make_shared<Type>(TypeKind::Void);
+    debuglogType->returnType = debuglogReturnType;
     utilType->fields["debuglog"] = debuglogType;
 
     // =========================================================================
@@ -157,6 +168,15 @@ void Analyzer::registerUtil() {
     parseArgsType->isOptional = { true };
     parseArgsType->returnType = std::make_shared<Type>(TypeKind::Any);  // Returns { values, positionals }
     utilType->fields["parseArgs"] = parseArgsType;
+
+    // =========================================================================
+    // util.parseEnv(content: string): object
+    // Parses dotenv file content to an object
+    // =========================================================================
+    auto parseEnvType = std::make_shared<FunctionType>();
+    parseEnvType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // content
+    parseEnvType->returnType = std::make_shared<Type>(TypeKind::Any);  // Returns key-value object
+    utilType->fields["parseEnv"] = parseEnvType;
 
     // =========================================================================
     // util.types - Type checking utilities
