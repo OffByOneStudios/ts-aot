@@ -135,16 +135,16 @@ void TsEventEmitter::RemoveListener(const char* event, void* callback) {
 
         if (existing == target) {
             match = true;
-        } else if (existing && existing->type == ValueType::OBJECT_PTR) {
+        } else if (existing && (existing->type == ValueType::OBJECT_PTR || existing->type == ValueType::FUNCTION_PTR)) {
             TsFunction* f = (TsFunction*)existing->ptr_val;
-            
+
             // Check if it's a once wrapper
             if (f->funcPtr == (void*)once_wrapper_func) {
                 OnceContext* ctx = (OnceContext*)f->context;
                 if (ctx->originalCallback == target) {
                     match = true;
                     actualCallback = ctx->originalCallback;
-                } else if (targetPtr && ctx->originalCallback->type == ValueType::OBJECT_PTR) {
+                } else if (targetPtr && (ctx->originalCallback->type == ValueType::OBJECT_PTR || ctx->originalCallback->type == ValueType::FUNCTION_PTR)) {
                     TsFunction* origF = (TsFunction*)ctx->originalCallback->ptr_val;
                     if (origF->funcPtr == targetPtr && origF->context == targetCtx) {
                         match = true;
