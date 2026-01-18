@@ -37,6 +37,53 @@ void Analyzer::registerCrypto() {
 
     symbols.defineType("Hmac", hmacClass);
 
+    // Cipher class - returned by crypto.createCipheriv()
+    auto cipherClass = std::make_shared<ClassType>("Cipher");
+
+    auto cipherUpdate = std::make_shared<FunctionType>();
+    cipherUpdate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // data (string or Buffer)
+    cipherUpdate->returnType = std::make_shared<ClassType>("Buffer"); // returns encrypted chunk
+    cipherClass->methods["update"] = cipherUpdate;
+
+    auto cipherFinal = std::make_shared<FunctionType>();
+    cipherFinal->returnType = std::make_shared<ClassType>("Buffer"); // returns final chunk
+    cipherClass->methods["final"] = cipherFinal;
+
+    auto cipherGetAuthTag = std::make_shared<FunctionType>();
+    cipherGetAuthTag->returnType = std::make_shared<ClassType>("Buffer"); // for GCM mode
+    cipherClass->methods["getAuthTag"] = cipherGetAuthTag;
+
+    auto cipherSetAAD = std::make_shared<FunctionType>();
+    cipherSetAAD->paramTypes.push_back(std::make_shared<ClassType>("Buffer")); // additional auth data
+    cipherSetAAD->returnType = cipherClass; // returns this for chaining
+    cipherClass->methods["setAAD"] = cipherSetAAD;
+
+    symbols.defineType("Cipher", cipherClass);
+
+    // Decipher class - returned by crypto.createDecipheriv()
+    auto decipherClass = std::make_shared<ClassType>("Decipher");
+
+    auto decipherUpdate = std::make_shared<FunctionType>();
+    decipherUpdate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // data (string or Buffer)
+    decipherUpdate->returnType = std::make_shared<ClassType>("Buffer"); // returns decrypted chunk
+    decipherClass->methods["update"] = decipherUpdate;
+
+    auto decipherFinal = std::make_shared<FunctionType>();
+    decipherFinal->returnType = std::make_shared<ClassType>("Buffer"); // returns final chunk
+    decipherClass->methods["final"] = decipherFinal;
+
+    auto decipherSetAuthTag = std::make_shared<FunctionType>();
+    decipherSetAuthTag->paramTypes.push_back(std::make_shared<ClassType>("Buffer")); // auth tag
+    decipherSetAuthTag->returnType = decipherClass; // returns this for chaining
+    decipherClass->methods["setAuthTag"] = decipherSetAuthTag;
+
+    auto decipherSetAAD = std::make_shared<FunctionType>();
+    decipherSetAAD->paramTypes.push_back(std::make_shared<ClassType>("Buffer")); // additional auth data
+    decipherSetAAD->returnType = decipherClass; // returns this for chaining
+    decipherClass->methods["setAAD"] = decipherSetAAD;
+
+    symbols.defineType("Decipher", decipherClass);
+
     // Buffer class reference for return types
     auto bufferType = symbols.lookupType("Buffer");
     if (!bufferType) {
@@ -59,6 +106,21 @@ void Analyzer::registerCrypto() {
     auto getCiphers = std::make_shared<FunctionType>();
     getCiphers->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     cryptoModule->fields["getCiphers"] = getCiphers;
+
+    // Cipher/Decipher functions
+    auto createCipheriv = std::make_shared<FunctionType>();
+    createCipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    createCipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // key
+    createCipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // iv
+    createCipheriv->returnType = cipherClass;
+    cryptoModule->fields["createCipheriv"] = createCipheriv;
+
+    auto createDecipheriv = std::make_shared<FunctionType>();
+    createDecipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    createDecipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // key
+    createDecipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // iv
+    createDecipheriv->returnType = decipherClass;
+    cryptoModule->fields["createDecipheriv"] = createDecipheriv;
 
     // HMAC functions
     auto createHmac = std::make_shared<FunctionType>();

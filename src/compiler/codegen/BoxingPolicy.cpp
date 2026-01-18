@@ -492,6 +492,16 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_crypto_scryptSync",      {true, true, false, false, false, false}}, // (password, salt, keylen, N, r, p) -> Buffer*
     {"ts_crypto_scrypt",          {true, true, false, false, false, false, false}}, // (password, salt, keylen, N, r, p, callback) -> void
     {"ts_crypto_timingSafeEqual", {false, false}}, // (a*, b*) -> bool
+    {"ts_crypto_createCipheriv",      {false, true, true}},    // (algorithm*, key: boxed, iv: boxed) -> Cipher*
+    {"ts_crypto_cipher_update",       {false, true}},          // (cipher*, data: boxed) -> Buffer*
+    {"ts_crypto_cipher_final",        {false}},                // (cipher*) -> Buffer*
+    {"ts_crypto_cipher_getAuthTag",   {false}},                // (cipher*) -> Buffer*
+    {"ts_crypto_cipher_setAAD",       {false, true}},          // (cipher*, aad: boxed) -> Cipher*
+    {"ts_crypto_createDecipheriv",    {false, true, true}},    // (algorithm*, key: boxed, iv: boxed) -> Decipher*
+    {"ts_crypto_decipher_update",     {false, true}},          // (decipher*, data: boxed) -> Buffer*
+    {"ts_crypto_decipher_final",      {false}},                // (decipher*) -> Buffer*
+    {"ts_crypto_decipher_setAuthTag", {false, true}},          // (decipher*, tag: boxed) -> Decipher*
+    {"ts_crypto_decipher_setAAD",     {false, true}},          // (decipher*, aad: boxed) -> Decipher*
 
     // =========================================================================
     // Timers/Promises operations
