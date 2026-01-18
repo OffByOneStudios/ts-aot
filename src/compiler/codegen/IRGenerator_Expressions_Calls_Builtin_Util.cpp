@@ -25,6 +25,7 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_style_text", {true, true}, false);  // format, text -> str
     bp.registerRuntimeApi("ts_util_debuglog", {true}, false);  // section -> fn
     bp.registerRuntimeApi("ts_util_format_with_options", {true, true, true}, false);  // opts, fmt, args -> str
+    bp.registerRuntimeApi("ts_util_parse_args", {true}, true);  // config -> { values, positionals }
 
     // util.types.isXxx functions (all take boxed value, return bool)
     bp.registerRuntimeApi("ts_util_types_is_array_buffer", {true}, false);
@@ -436,6 +437,29 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
             { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_util_format_with_options", ft);
         lastValue = createCall(ft, fn.getCallee(), { options, format, argsArray });
+        return true;
+    }
+
+    // =========================================================================
+    // util.parseArgs(config?)
+    // Parses command-line arguments
+    // =========================================================================
+    if (isUtil && prop->name == "parseArgs") {
+        llvm::Value* config = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            config = lastValue;
+            // Box the config object
+            auto configType = node->arguments[0]->inferredType;
+            if (configType) {
+                config = boxValue(config, configType);
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_parse_args", ft);
+        lastValue = createCall(ft, fn.getCallee(), { config });
         return true;
     }
 

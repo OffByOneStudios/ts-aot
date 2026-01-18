@@ -146,6 +146,16 @@ void Analyzer::registerUtil() {
     utilType->fields["debuglog"] = debuglogType;
 
     // =========================================================================
+    // util.parseArgs(config?: object): { values: object, positionals: string[] }
+    // Parses command-line arguments
+    // =========================================================================
+    auto parseArgsType = std::make_shared<FunctionType>();
+    parseArgsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // config object
+    parseArgsType->isOptional = { true };
+    parseArgsType->returnType = std::make_shared<Type>(TypeKind::Any);  // Returns { values, positionals }
+    utilType->fields["parseArgs"] = parseArgsType;
+
+    // =========================================================================
     // util.types - Type checking utilities
     // =========================================================================
     auto typesType = std::make_shared<ObjectType>();

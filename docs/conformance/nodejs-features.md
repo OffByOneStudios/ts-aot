@@ -1003,7 +1003,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.inspect.custom` | ❌ | |
 | `util.inspect.defaultOptions` | ❌ | |
 | `util.isDeepStrictEqual()` | ✅ | Deep equality comparison for objects and arrays |
-| `util.parseArgs()` | ❌ | |
+| `util.parseArgs()` | ✅ | Boolean/string options, short aliases, args array |
 | `util.parseEnv()` | ❌ | |
 | `util.promisify()` | ✅ | Converts callback-style functions to Promise-returning |
 | `util.stripVTControlCharacters()` | ✅ | Removes ANSI escape codes |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 49/62 (79%)** (41 full, 7 partial)
+**Util Coverage: 50/62 (81%)** (42 full, 7 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 48 | 62 | 77% |
+| Util | 49 | 62 | 79% |
 | Global | 5 | 7 | 71% |
-| **Total** | **536** | **661** | **81%** |
+| **Total** | **537** | **661** | **81%** |
 
 ### Priority Implementation Targets
 
