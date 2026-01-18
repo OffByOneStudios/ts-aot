@@ -885,6 +885,8 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGeneratePerfHooksPropertyAccess(node)) return;
     if (tryGeneratePerformanceEntryPropertyAccess(node)) return;
     if (tryGenerateStreamPropertyAccess(node)) return;
+    if (tryGenerateUtilPropertyAccess(node)) return;
+    if (tryGenerateUtilInspectPropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {

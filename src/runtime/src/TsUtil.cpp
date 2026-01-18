@@ -10,6 +10,7 @@
 #include "../include/TsPromise.h"
 #include "../include/TsProxy.h"
 #include "../include/TsBoxedPrimitives.h"
+#include "../include/TsSymbol.h"
 #include "../include/GC.h"
 #include <sstream>
 #include <cstdio>
@@ -2003,6 +2004,133 @@ void* ts_util_parse_args(void* configPtr) {
     result->Set(posKey, posVal);
 
     return ts_value_make_object(result);
+}
+
+// ============================================================================
+// util.inspect object and properties
+// ============================================================================
+
+// Global symbol for util.inspect.custom (created lazily)
+static TsSymbol* inspectCustomSymbol = nullptr;
+
+// Global default options object (created lazily)
+static TsMap* inspectDefaultOptions = nullptr;
+
+// Get the util.inspect.custom Symbol
+// This is used by objects to define custom inspect behavior
+void* ts_util_inspect_custom_symbol() {
+    if (!inspectCustomSymbol) {
+        // Create a well-known symbol with description "nodejs.util.inspect.custom"
+        inspectCustomSymbol = TsSymbol::For(TsString::Create("nodejs.util.inspect.custom"));
+    }
+    // Return as a boxed symbol value so typeof works correctly
+    return ts_value_make_symbol(inspectCustomSymbol);
+}
+
+// Get util.inspect.defaultOptions object
+// Returns a mutable object with default inspect settings
+void* ts_util_inspect_default_options() {
+    if (!inspectDefaultOptions) {
+        inspectDefaultOptions = TsMap::Create();
+
+        // Set default values matching Node.js defaults
+        TsValue key, val;
+
+        // showHidden: false
+        key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::Create("showHidden");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = false;
+        inspectDefaultOptions->Set(key, val);
+
+        // depth: 2
+        key.ptr_val = TsString::Create("depth");
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = 2;
+        inspectDefaultOptions->Set(key, val);
+
+        // colors: false
+        key.ptr_val = TsString::Create("colors");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = false;
+        inspectDefaultOptions->Set(key, val);
+
+        // customInspect: true
+        key.ptr_val = TsString::Create("customInspect");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = true;
+        inspectDefaultOptions->Set(key, val);
+
+        // showProxy: false
+        key.ptr_val = TsString::Create("showProxy");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = false;
+        inspectDefaultOptions->Set(key, val);
+
+        // maxArrayLength: 100
+        key.ptr_val = TsString::Create("maxArrayLength");
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = 100;
+        inspectDefaultOptions->Set(key, val);
+
+        // maxStringLength: 10000
+        key.ptr_val = TsString::Create("maxStringLength");
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = 10000;
+        inspectDefaultOptions->Set(key, val);
+
+        // breakLength: 80
+        key.ptr_val = TsString::Create("breakLength");
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = 80;
+        inspectDefaultOptions->Set(key, val);
+
+        // compact: 3
+        key.ptr_val = TsString::Create("compact");
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = 3;
+        inspectDefaultOptions->Set(key, val);
+
+        // sorted: false
+        key.ptr_val = TsString::Create("sorted");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = false;
+        inspectDefaultOptions->Set(key, val);
+
+        // getters: false
+        key.ptr_val = TsString::Create("getters");
+        val.type = ValueType::BOOLEAN;
+        val.b_val = false;
+        inspectDefaultOptions->Set(key, val);
+    }
+
+    return ts_value_make_object(inspectDefaultOptions);
+}
+
+// Get the util.inspect object (callable with properties)
+// This is returned when accessing util.inspect as a property
+void* ts_util_get_inspect() {
+    // Create a callable object that has both the inspect function
+    // and the custom/defaultOptions properties
+    // For now, we return a map with properties; calling it would need special handling
+    TsMap* inspectObj = TsMap::Create();
+
+    TsValue key, val;
+
+    // custom: Symbol
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::Create("custom");
+    val.type = ValueType::SYMBOL_PTR;
+    val.ptr_val = ts_util_inspect_custom_symbol();
+    inspectObj->Set(key, val);
+
+    // defaultOptions: object
+    key.ptr_val = TsString::Create("defaultOptions");
+    val.type = ValueType::OBJECT_PTR;
+    val.ptr_val = inspectDefaultOptions ? inspectDefaultOptions : (TsMap*)ts_util_inspect_default_options();
+    inspectObj->Set(key, val);
+
+    return ts_value_make_object(inspectObj);
 }
 
 } // extern "C"

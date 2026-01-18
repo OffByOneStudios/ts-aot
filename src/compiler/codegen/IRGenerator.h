@@ -200,6 +200,8 @@ private:
     bool tryGeneratePerfHooksPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGeneratePerformanceEntryPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateUtilPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateUtilInspectPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
