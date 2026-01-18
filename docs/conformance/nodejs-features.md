@@ -1000,8 +1000,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.getSystemErrorMap()` | ✅ | Returns Map of all system error codes |
 | `util.inherits()` | ⚠️ | Stub - does nothing |
 | `util.inspect()` | ✅ | Properly inspects objects, arrays, Date, RegExp, Map, Set, etc. |
-| `util.inspect.custom` | ❌ | |
-| `util.inspect.defaultOptions` | ❌ | |
+| `util.inspect.custom` | ✅ | Symbol for custom inspect functions |
+| `util.inspect.defaultOptions` | ✅ | Default options object with showHidden, depth, colors, etc. |
 | `util.isDeepStrictEqual()` | ✅ | Deep equality comparison for objects and arrays |
 | `util.parseArgs()` | ✅ | Boolean/string options, short aliases, args array |
 | `util.parseEnv()` | ❌ | |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 50/62 (81%)** (42 full, 7 partial)
+**Util Coverage: 52/62 (84%)** (44 full, 7 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 49 | 62 | 79% |
+| Util | 52 | 62 | 84% |
 | Global | 5 | 7 | 71% |
-| **Total** | **537** | **661** | **81%** |
+| **Total** | **540** | **661** | **82%** |
 
 ### Priority Implementation Targets
 

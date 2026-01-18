@@ -20,6 +20,9 @@ void Analyzer::registerUtil() {
     // =========================================================================
     // util.inspect(obj: any, options?: object): string
     // Returns a string representation of an object
+    // Also has properties: inspect.custom (Symbol), inspect.defaultOptions (object)
+    // Note: In JS, functions can have properties. We model this as a function type
+    // and handle property access (inspect.custom, inspect.defaultOptions) in codegen.
     // =========================================================================
     auto inspectType = std::make_shared<FunctionType>();
     inspectType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));

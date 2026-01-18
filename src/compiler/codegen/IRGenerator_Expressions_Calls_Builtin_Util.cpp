@@ -528,4 +528,58 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
     return false;
 }
 
+// =========================================================================
+// Property access handlers for util module
+// =========================================================================
+
+bool IRGenerator::tryGenerateUtilPropertyAccess(ast::PropertyAccessExpression* node) {
+    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (!id || id->name != "util") return false;
+
+    const std::string& propName = node->name;
+
+    // util.inspect - returns a callable object with custom and defaultOptions properties
+    if (propName == "inspect") {
+        // Return the inspect object (which has both call signature and properties)
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_get_inspect", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGenerateUtilInspectPropertyAccess(ast::PropertyAccessExpression* node) {
+    // Handle util.inspect.custom and util.inspect.defaultOptions
+    auto parentProp = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get());
+    if (!parentProp) return false;
+
+    auto id = dynamic_cast<ast::Identifier*>(parentProp->expression.get());
+    if (!id || id->name != "util") return false;
+    if (parentProp->name != "inspect") return false;
+
+    const std::string& propName = node->name;
+
+    // util.inspect.custom - returns the Symbol used for custom inspect functions
+    if (propName == "custom") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_inspect_custom_symbol", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    // util.inspect.defaultOptions - returns the default options object
+    if (propName == "defaultOptions") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module->getOrInsertFunction("ts_util_inspect_default_options", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace ts
