@@ -98,6 +98,54 @@ void Analyzer::registerUtil() {
     utilType->fields["toUSVString"] = toUSVStringType;
 
     // =========================================================================
+    // util.getSystemErrorName(errno: number): string
+    // Returns the string name for a numeric error code
+    // =========================================================================
+    auto getSystemErrorNameType = std::make_shared<FunctionType>();
+    getSystemErrorNameType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    getSystemErrorNameType->returnType = std::make_shared<Type>(TypeKind::String);
+    utilType->fields["getSystemErrorName"] = getSystemErrorNameType;
+
+    // =========================================================================
+    // util.getSystemErrorMap(): Map<number, [string, string]>
+    // Returns a Map of all system error codes
+    // =========================================================================
+    auto getSystemErrorMapType = std::make_shared<FunctionType>();
+    getSystemErrorMapType->returnType = std::make_shared<ClassType>("Map");
+    utilType->fields["getSystemErrorMap"] = getSystemErrorMapType;
+
+    // =========================================================================
+    // util.styleText(format: string, text: string): string
+    // Apply ANSI styles to text
+    // =========================================================================
+    auto styleTextType = std::make_shared<FunctionType>();
+    styleTextType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    styleTextType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    styleTextType->returnType = std::make_shared<Type>(TypeKind::String);
+    utilType->fields["styleText"] = styleTextType;
+
+    // =========================================================================
+    // util.formatWithOptions(inspectOptions: object, format: string, ...args): string
+    // Like util.format() but with inspect options
+    // =========================================================================
+    auto formatWithOptionsType = std::make_shared<FunctionType>();
+    formatWithOptionsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // options
+    formatWithOptionsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // format
+    formatWithOptionsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // ...args
+    formatWithOptionsType->hasRest = true;
+    formatWithOptionsType->returnType = std::make_shared<Type>(TypeKind::String);
+    utilType->fields["formatWithOptions"] = formatWithOptionsType;
+
+    // =========================================================================
+    // util.debuglog(section: string): Function
+    // Returns a logging function for the given section
+    // =========================================================================
+    auto debuglogType = std::make_shared<FunctionType>();
+    debuglogType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    debuglogType->returnType = std::make_shared<Type>(TypeKind::Function);
+    utilType->fields["debuglog"] = debuglogType;
+
+    // =========================================================================
     // util.types - Type checking utilities
     // =========================================================================
     auto typesType = std::make_shared<ObjectType>();
@@ -145,7 +193,8 @@ void Analyzer::registerUtil() {
     typesType->fields["isUint32Array"] = makePredicate();
     typesType->fields["isWeakMap"] = makePredicate();
     typesType->fields["isWeakSet"] = makePredicate();
-    
+    typesType->fields["isAnyArrayBuffer"] = makePredicate();
+
     utilType->fields["types"] = typesType;
 
     // Register the util module
