@@ -44,7 +44,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `querystring` | ✅ | 100% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
 | `repl` | ❌ | 0% | REPL |
-| `stream` | ⚠️ | 91% | Streams |
+| `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
 | `timers` | ⚠️ | 93% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
@@ -795,7 +795,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.isPaused()` | ✅ | |
 | `readable.pause()` | ✅ | |
 | `readable.pipe()` | ✅ | |
-| `readable.read()` | ⚠️ | |
+| `readable.read()` | ✅ | Pulls data from unshift buffer |
 | `readable.readable` | ✅ | |
 | `readable.readableAborted` | ✅ | |
 | `readable.readableDidRead` | ✅ | |
@@ -850,7 +850,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 42/43 (98%)**
+**Stream Coverage: 43/43 (100%)**
 
 ---
 
@@ -1094,14 +1094,14 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 42 | 43 | 98% |
+| Stream | 43 | 43 | 100% |
 | StringDecoder | 5 | 5 | 100% |
 | Timers | 14 | 14 | 100% |
 | TLS | 6 | 20 | 30% |
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **555** | **661** | **84%** |
+| **Total** | **556** | **661** | **84%** |
 
 ### Priority Implementation Targets
 

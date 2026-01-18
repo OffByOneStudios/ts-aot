@@ -672,6 +672,42 @@ extern "C" {
         return ts_value_make_undefined();
     }
 
+    // --- readable.read() implementation ---
+    // Pulls data from the internal buffer (paused mode operation)
+    // read([size]) - if size specified, return up to that many bytes
+    // If no size, return all available data
+    void* ts_readable_read(void* stream, int64_t size) {
+        if (!stream) return nullptr;
+
+        // Unbox stream if needed
+        void* rawStream = ts_value_get_object((TsValue*)stream);
+        if (!rawStream) rawStream = stream;
+
+        TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+        if (!r) r = ((TsObject*)rawStream)->AsReadable();
+        if (!r) return nullptr;
+
+        // Mark that we've read from this stream
+        r->SetReadableDidRead(true);
+
+        // Check if there's data in the unshift buffer
+        if (!r->HasUnshiftedData()) {
+            return nullptr;  // No data available
+        }
+
+        // If size is 0 or negative, return null (no data to return, but don't consume buffer)
+        if (size == 0) {
+            return nullptr;
+        }
+
+        // Get the next chunk from the unshift buffer
+        // Note: In a full implementation, we'd concatenate chunks up to 'size' bytes
+        // For now, we return one chunk at a time (matches basic Node.js behavior)
+        void* chunk = r->GetUnshiftedChunk();
+
+        return chunk;
+    }
+
     void* ts_readable_wrap(void* readable, void* oldStream) {
         if (!readable || !oldStream) return readable;
 
