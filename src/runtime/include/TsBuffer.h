@@ -12,6 +12,7 @@ public:
     static TsBuffer* FromString(TsString* str, TsString* encoding = nullptr);
     static TsBuffer* FromBuffer(TsBuffer* source);  // Copy buffer
     static TsBuffer* FromArray(void* arr);  // From array of numbers
+    static TsBuffer* FromArrayBuffer(void* arrayBuffer, int64_t byteOffset = 0, int64_t length = -1);  // From ArrayBuffer/Buffer
     static TsBuffer* FromHex(TsString* hexStr);
     static TsBuffer* FromBase64(TsString* b64Str);
 
@@ -168,6 +169,7 @@ extern "C" {
     void* ts_buffer_from_string(void* str, void* encoding);
     void* ts_buffer_from_buffer(void* buf);
     void* ts_buffer_from_array(void* arr);
+    void* ts_buffer_from_arraybuffer(void* arrayBuffer, int64_t byteOffset, int64_t length);
     void* ts_buffer_concat(void* list, int64_t totalLength);
     int64_t ts_buffer_length(void* buf);
     int64_t ts_buffer_byte_length(void* buf);

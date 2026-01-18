@@ -55,6 +55,53 @@ TsBuffer* TsBuffer::FromArray(void* arrPtr) {
     return buf;
 }
 
+TsBuffer* TsBuffer::FromArrayBuffer(void* arrayBuffer, int64_t byteOffset, int64_t len) {
+    if (!arrayBuffer) return Create(0);
+
+    // Unbox if needed
+    void* rawPtr = ts_value_get_object((TsValue*)arrayBuffer);
+    if (!rawPtr) rawPtr = arrayBuffer;
+
+    // Check if it's a TsBuffer (our ArrayBuffer implementation)
+    TsBuffer* srcBuf = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
+    if (!srcBuf) {
+        // Try checking magic number directly
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic == MAGIC) {
+            srcBuf = (TsBuffer*)rawPtr;
+        } else {
+            return Create(0);
+        }
+    }
+
+    size_t srcLen = srcBuf->GetLength();
+    size_t offset = (byteOffset >= 0) ? (size_t)byteOffset : 0;
+
+    // Clamp offset to source length
+    if (offset > srcLen) offset = srcLen;
+
+    // Calculate actual length
+    size_t actualLen;
+    if (len < 0) {
+        // No length specified - use remainder
+        actualLen = srcLen - offset;
+    } else {
+        actualLen = (size_t)len;
+        // Clamp to available data
+        if (offset + actualLen > srcLen) {
+            actualLen = srcLen - offset;
+        }
+    }
+
+    // Create new buffer and copy data
+    // Note: In Node.js, Buffer.from(arrayBuffer) shares memory, but we copy for safety
+    TsBuffer* buf = Create(actualLen);
+    if (actualLen > 0) {
+        std::memcpy(buf->data, srcBuf->data + offset, actualLen);
+    }
+    return buf;
+}
+
 TsBuffer::TsBuffer(size_t length) {
     this->magic = MAGIC;
     this->length = length;
@@ -830,6 +877,10 @@ extern "C" {
     void* ts_buffer_from_array(void* arr) {
         if (!arr) return TsBuffer::Create(0);
         return TsBuffer::FromArray(arr);
+    }
+
+    void* ts_buffer_from_arraybuffer(void* arrayBuffer, int64_t byteOffset, int64_t length) {
+        return TsBuffer::FromArrayBuffer(arrayBuffer, byteOffset, length);
     }
 
     void* ts_buffer_concat(void* list, int64_t totalLength) {

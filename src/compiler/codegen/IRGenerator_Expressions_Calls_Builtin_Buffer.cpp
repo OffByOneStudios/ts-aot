@@ -16,6 +16,7 @@ static void ensureBufferFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_buffer_concat", {true, false}, true);  // array, totalLength
     bp.registerRuntimeApi("ts_buffer_is_buffer", {true}, false);  // obj -> bool
     bp.registerRuntimeApi("ts_buffer_is_encoding", {false}, false);  // encoding -> bool
+    bp.registerRuntimeApi("ts_buffer_from_arraybuffer", {true, false, false}, true);  // arrayBuffer, byteOffset, length -> Buffer
     bp.registerRuntimeApi("ts_buffer_to_string", {true, false, false, false}, false);  // buf, encoding, start, end
     bp.registerRuntimeApi("ts_buffer_slice", {true, false, false}, true);  // buf, start, end
     bp.registerRuntimeApi("ts_buffer_subarray", {true, false, false}, true);
@@ -124,11 +125,13 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
         // Check the argument type to determine which runtime function to call
         auto* arg0 = node->arguments[0].get();
         bool isBuffer = false;
+        bool isArrayBuffer = false;
         bool isArray = false;
         if (arg0->inferredType) {
             if (arg0->inferredType->kind == TypeKind::Class) {
                 auto classType = std::static_pointer_cast<ClassType>(arg0->inferredType);
                 if (classType->name == "Buffer") isBuffer = true;
+                else if (classType->name == "ArrayBuffer") isArrayBuffer = true;
             } else if (arg0->inferredType->kind == TypeKind::Array) {
                 isArray = true;
             }
@@ -143,6 +146,27 @@ bool IRGenerator::tryGenerateBufferCall(ast::CallExpression* node, ast::Property
                 { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_buffer", ft);
             lastValue = createCall(ft, fn.getCallee(), { data });
+            return true;
+        }
+
+        if (isArrayBuffer) {
+            // Buffer.from(arrayBuffer, byteOffset?, length?)
+            llvm::Value* byteOffset = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            llvm::Value* length = llvm::ConstantInt::get(builder->getInt64Ty(), -1);
+
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                byteOffset = castValue(lastValue, builder->getInt64Ty());
+            }
+            if (node->arguments.size() > 2) {
+                visit(node->arguments[2].get());
+                length = castValue(lastValue, builder->getInt64Ty());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getInt64Ty(), builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_buffer_from_arraybuffer", ft);
+            lastValue = createCall(ft, fn.getCallee(), { data, byteOffset, length });
             return true;
         }
 
