@@ -150,17 +150,23 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
             lastValue = getUndefinedValue();
             return true;
         }
-        
+
         visit(node->arguments[0].get());
         llvm::Value* obj = lastValue;
-        
+
+        // Box the object so it has type information
+        auto objType = node->arguments[0]->inferredType;
+        if (objType) {
+            obj = boxValue(obj, objType);
+        }
+
         llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
         if (node->arguments.size() > 1) {
             visit(node->arguments[1].get());
             options = lastValue;
         }
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
             { builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_util_inspect", ft);
         lastValue = createCall(ft, fn.getCallee(), { obj, options });
