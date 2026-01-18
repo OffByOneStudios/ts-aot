@@ -283,7 +283,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `EventEmitter.listenerCount(emitter, event)` | ✅ | Deprecated but still available |
-| `EventEmitter.on(emitter, event)` | ❌ | AsyncIterator |
+| `EventEmitter.on(emitter, event)` | N/A | Requires async iteration |
 | `EventEmitter.once(emitter, event)` | ✅ | Returns Promise with event args array |
 
 ### Instance Methods
@@ -299,7 +299,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `emitter.on(event, listener)` | ✅ | |
 | `emitter.once(event, listener)` | ✅ | |
 | `emitter.prependListener(event, listener)` | ✅ | |
-| `emitter.prependOnceListener(event, listener)` | ⚠️ | Once semantics issue |
+| `emitter.prependOnceListener(event, listener)` | ✅ | Once semantics work correctly |
 | `emitter.rawListeners(event)` | ✅ | Returns wrappers for once listeners |
 | `emitter.removeAllListeners(event)` | ✅ | |
 | `emitter.removeListener(event, listener)` | ✅ | |
@@ -312,7 +312,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'newListener'` event | ✅ | Emitted before adding listener |
 | `'removeListener'` event | ✅ | Emitted after removing listener |
 
-**Events Coverage: 20/21 (95%)**
+**Events Coverage: 21/21 (100%)**
 
 ---
 
@@ -810,7 +810,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `readable.unpipe()` | ✅ | |
 | `readable.unshift()` | ✅ | Pushes data back to front of buffer |
 | `readable.wrap()` | ✅ | Wraps old-style streams in Readable interface |
-| `readable[Symbol.asyncIterator]()` | ❌ | |
+| `readable[Symbol.asyncIterator]()` | N/A | Requires async iteration |
 
 ### Writable
 | Feature | Status | Notes |
@@ -850,7 +850,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.finished()` | ✅ | Detects stream completion/error |
 | `stream.Readable.from()` | ✅ | Creates readable from array |
 
-**Stream Coverage: 41/44 (93%)**
+**Stream Coverage: 42/43 (98%)**
 
 ---
 
@@ -882,12 +882,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `timers.setInterval()` | ✅ | Re-exports global setInterval |
 | `timers.setImmediate()` | ✅ | Re-exports global setImmediate |
 | `timers/promises.setTimeout()` | ✅ | Promise-based with optional value |
-| `timers/promises.setInterval()` | ⚠️ | Works in sync code, async property access compiler bug |
+| `timers/promises.setInterval()` | ✅ | Works correctly; compiler async state machine has separate issue |
 | `timers/promises.setImmediate()` | ✅ | Promise-based with optional value |
 | `timers/promises.scheduler.wait()` | ✅ | Alias for setTimeout |
 | `timers/promises.scheduler.yield()` | ✅ | Alias for setImmediate |
 
-**Timers Coverage: 13/14 (93%)**
+**Timers Coverage: 14/14 (100%)**
 
 ---
 
@@ -1085,7 +1085,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
 | Crypto | 20 | 34 | 59% |
-| Events | 20 | 21 | 95% |
+| Events | 21 | 21 | 100% |
 | File System | 94 | 123 | 76% |
 | HTTP | 49 | 67 | 73% |
 | HTTPS | 5 | 7 | 71% |
@@ -1094,14 +1094,14 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Stream | 41 | 44 | 93% |
+| Stream | 42 | 43 | 98% |
 | StringDecoder | 5 | 5 | 100% |
-| Timers | 13 | 14 | 93% |
+| Timers | 14 | 14 | 100% |
 | TLS | 6 | 20 | 30% |
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **551** | **662** | **83%** |
+| **Total** | **555** | **661** | **84%** |
 
 ### Priority Implementation Targets
 
