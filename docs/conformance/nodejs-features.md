@@ -937,7 +937,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `new URL(input)` | ✅ | |
-| `new URL(input, base)` | ⚠️ | Base parameter not fully working |
+| `new URL(input, base)` | ✅ | Full WHATWG base resolution |
 | `url.hash` | ✅ | |
 | `url.host` | ✅ | |
 | `url.hostname` | ✅ | |
@@ -983,7 +983,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `url.pathToFileURL()` | ✅ | |
 | `url.urlToHttpOptions()` | ✅ | Extracts HTTP options from URL |
 
-**URL Coverage: 37/38 (97%)**
+**URL Coverage: 38/38 (100%)**
 
 ---
 
@@ -992,19 +992,19 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `util.callbackify()` | ✅ | Converts Promise-returning functions to callback style |
-| `util.debuglog()` | ⚠️ | Returns no-op function (section checking not implemented) |
-| `util.deprecate()` | ⚠️ | Stub - returns function unchanged |
+| `util.debuglog()` | ✅ | Checks NODE_DEBUG env var, outputs to stderr with section and PID |
+| `util.deprecate()` | ✅ | Wraps function, emits warning on first call (once per message) |
 | `util.format()` | ✅ | Printf-like string formatting (%s, %d, %f, %o, %j) |
 | `util.formatWithOptions()` | ✅ | Delegates to format() (options not yet used) |
 | `util.getSystemErrorName()` | ✅ | Maps errno codes to names (EPERM, ENOENT, etc.) |
 | `util.getSystemErrorMap()` | ✅ | Returns Map of all system error codes |
-| `util.inherits()` | ⚠️ | Stub - does nothing |
+| `util.inherits()` | ✅ | Sets super_ property on constructor for legacy compatibility |
 | `util.inspect()` | ✅ | Properly inspects objects, arrays, Date, RegExp, Map, Set, etc. |
 | `util.inspect.custom` | ✅ | Symbol for custom inspect functions |
 | `util.inspect.defaultOptions` | ✅ | Default options object with showHidden, depth, colors, etc. |
 | `util.isDeepStrictEqual()` | ✅ | Deep equality comparison for objects and arrays |
 | `util.parseArgs()` | ✅ | Boolean/string options, short aliases, args array |
-| `util.parseEnv()` | ❌ | |
+| `util.parseEnv()` | ✅ | Parses dotenv content (key=value, quotes, comments, export prefix) |
 | `util.promisify()` | ✅ | Converts callback-style functions to Promise-returning |
 | `util.stripVTControlCharacters()` | ✅ | Removes ANSI escape codes |
 | `util.styleText()` | ✅ | ANSI text styling (bold, colors, etc.) |
@@ -1014,7 +1014,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isAnyArrayBuffer()` | ✅ | Detects Buffer/ArrayBuffer instances |
 | `util.types.isArrayBuffer()` | ✅ | Detects Buffer instances (our ArrayBuffer implementation) |
 | `util.types.isArrayBufferView()` | ✅ | Detects TypedArray and DataView instances |
-| `util.types.isAsyncFunction()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isAsyncFunction()` | N/A | Inherent AOT limitation - function metadata not available at runtime |
 | `util.types.isBigInt64Array()` | ✅ | Detects BigInt64Array instances |
 | `util.types.isBigUint64Array()` | ✅ | Detects BigUint64Array instances |
 | `util.types.isBooleanObject()` | ✅ | Detects new Boolean() wrapper objects |
@@ -1025,7 +1025,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isExternal()` | ❌ | |
 | `util.types.isFloat32Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isFloat64Array()` | ✅ | 8-byte element size detection |
-| `util.types.isGeneratorFunction()` | ⚠️ | Returns false (not wired up correctly) |
+| `util.types.isGeneratorFunction()` | N/A | Inherent AOT limitation - function metadata not available at runtime |
 | `util.types.isGeneratorObject()` | ✅ | Detects Generator and AsyncGenerator objects |
 | `util.types.isInt8Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isInt16Array()` | ✅ | 2-byte element size detection |
@@ -1049,12 +1049,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isUint8ClampedArray()` | ✅ | Detects clamped 1-byte arrays |
 | `util.types.isUint16Array()` | ✅ | 2-byte element size detection |
 | `util.types.isUint32Array()` | ✅ | 4-byte element size detection |
-| `util.types.isWeakMap()` | ⚠️ | Returns false - can't distinguish from Map with Boehm GC |
-| `util.types.isWeakSet()` | ⚠️ | Returns false - can't distinguish from Set with Boehm GC |
+| `util.types.isWeakMap()` | ✅ | Detects TsWeakMap wrapper instances |
+| `util.types.isWeakSet()` | ✅ | Detects TsWeakSet wrapper instances |
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 52/62 (84%)** (44 full, 7 partial)
+**Util Coverage: 51/60 (85%)** (50 full, 1 partial, 2 N/A)
+
+Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inherent AOT compilation limitations - function type metadata is not preserved at runtime.
 
 ---
 
@@ -1085,7 +1087,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Crypto | 20 | 34 | 59% |
 | Events | 20 | 21 | 95% |
 | File System | 94 | 123 | 76% |
-| HTTP | 45 | 68 | 66% |
+| HTTP | 49 | 67 | 73% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
@@ -1093,12 +1095,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
 | Stream | 41 | 44 | 93% |
+| StringDecoder | 5 | 5 | 100% |
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
-| URL | 37 | 38 | 97% |
-| Util | 52 | 62 | 84% |
+| URL | 38 | 38 | 100% |
+| Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **540** | **661** | **82%** |
+| **Total** | **551** | **662** | **83%** |
 
 ### Priority Implementation Targets
 

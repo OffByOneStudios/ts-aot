@@ -3,7 +3,9 @@
 #include "../include/TsJSON.h"
 #include "../include/TsBuffer.h"
 #include "../include/TsMap.h"
+#include "../include/TsWeakMap.h"
 #include "../include/TsSet.h"
+#include "../include/TsWeakSet.h"
 #include "../include/TsDate.h"
 #include "../include/TsRegExp.h"
 #include "../include/TsArray.h"
@@ -16,6 +18,14 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <unordered_set>
+#include <cctype>
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
+#include <unistd.h>
+#endif
 
 // ============================================================================
 // util.format implementation - Printf-like string formatting
@@ -818,17 +828,19 @@ bool isProxy(void* value) {
 }
 
 bool isWeakMap(void* value) {
-    // WeakMap is implemented as regular Map with no distinct type marker
-    // We cannot reliably distinguish WeakMap from Map at runtime
-    // This returns false as we don't have a way to detect WeakMap
-    return false;
+    if (!value) return false;
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsWeakMap::MAGIC;
 }
 
 bool isWeakSet(void* value) {
-    // WeakSet is implemented as regular Set with no distinct type marker
-    // We cannot reliably distinguish WeakSet from Set at runtime
-    // This returns false as we don't have a way to detect WeakSet
-    return false;
+    if (!value) return false;
+    void* rawPtr = ts_value_get_object((TsValue*)value);
+    if (!rawPtr) rawPtr = value;
+    TsObject* obj = (TsObject*)rawPtr;
+    return obj->magic == TsWeakSet::MAGIC;
 }
 
 bool isAnyArrayBuffer(void* value) {
@@ -1017,21 +1029,110 @@ void* ts_util_promisify(void* fn) {
 }
 
 void ts_util_inherits(void* constructor, void* superConstructor) {
-    // In AOT compiled code, inheritance is handled at compile time
-    // This is a no-op for compatibility with legacy code
+    // In Node.js, util.inherits sets up prototype chain:
+    // constructor.prototype = Object.create(superConstructor.prototype)
+    // constructor.prototype.constructor = constructor
+    // constructor.super_ = superConstructor
+    //
+    // In our AOT environment, we can set the super_ property for compatibility
+    // and try to set up prototype if the constructor is a function object
+
+    if (!constructor || !superConstructor) return;
+
+    // Unbox if needed
+    TsValue* ctorVal = (TsValue*)constructor;
+    TsValue* superVal = (TsValue*)superConstructor;
+
+    // If constructor is a function, set the super_ property
+    if (ctorVal->type == ValueType::FUNCTION_PTR) {
+        TsFunction* ctorFunc = (TsFunction*)ctorVal->ptr_val;
+        if (!ctorFunc) return;
+
+        // Ensure properties map exists
+        if (!ctorFunc->properties) {
+            ctorFunc->properties = TsMap::Create();
+        }
+
+        // Set super_ = superConstructor
+        TsString* superKey = TsString::Create("super_");
+        TsValue keyVal;
+        keyVal.type = ValueType::STRING_PTR;
+        keyVal.ptr_val = superKey;
+        ctorFunc->properties->Set(keyVal, *superVal);
+    }
+
+    // Note: Full prototype chain linking would require Object.create and
+    // prototype manipulation which we don't fully support for AOT-compiled code.
+    // The key purpose is to make ctor.super_ accessible for compatibility.
+}
+
+// Context for deprecated function wrapper
+struct DeprecateContext {
+    TsValue* originalFunction;
+    TsString* message;
+    bool warned;
+};
+
+// Set to track which warnings have been shown (by message)
+static std::unordered_set<std::string>* deprecateWarningsShown = nullptr;
+
+// The wrapper function that emits warning on first call
+static TsValue* deprecated_wrapper(void* ctx, int argc, TsValue** argv) {
+    DeprecateContext* depCtx = (DeprecateContext*)ctx;
+    if (!depCtx) return nullptr;
+
+    // Emit warning only once (per message)
+    if (!depCtx->warned && depCtx->message) {
+        const char* msgCStr = depCtx->message->ToUtf8();
+
+        // Initialize warnings set if needed
+        if (!deprecateWarningsShown) {
+            deprecateWarningsShown = new std::unordered_set<std::string>();
+        }
+
+        // Only show each unique message once
+        if (deprecateWarningsShown->count(msgCStr) == 0) {
+            deprecateWarningsShown->insert(msgCStr);
+            fprintf(stderr, "(node) DeprecationWarning: %s\n", msgCStr);
+        }
+        depCtx->warned = true;
+    }
+
+    // Call the original function
+    if (!depCtx->originalFunction) return nullptr;
+
+    // The original is a TsValue containing a TsFunction
+    TsValue* origVal = depCtx->originalFunction;
+    if (!origVal || origVal->type != ValueType::FUNCTION_PTR) return nullptr;
+
+    TsFunction* origFunc = (TsFunction*)origVal->ptr_val;
+    if (!origFunc || !origFunc->funcPtr) return nullptr;
+
+    // Call the original function with its original context
+    TsFunctionPtr fnPtr = (TsFunctionPtr)origFunc->funcPtr;
+    return fnPtr(origFunc->context, argc, argv);
 }
 
 void* ts_util_deprecate(void* fn, void* msg) {
-    // For now, just return the function as-is
-    // Full implementation would wrap and print deprecation warning on first call
+    // Keep the original function as TsValue*
+    TsValue* originalFunc = (TsValue*)fn;
+
+    // Unbox the message
+    TsString* msgStr = nullptr;
     if (msg) {
-        TsString* msgStr = (TsString*)ts_value_get_string((TsValue*)msg);
-        if (!msgStr) msgStr = (TsString*)msg;
-        if (msgStr) {
-            fprintf(stderr, "[DEP] Warning: %s\n", msgStr->ToUtf8());
-        }
+        void* rawMsg = ts_value_get_string((TsValue*)msg);
+        if (!rawMsg) rawMsg = msg;
+        msgStr = (TsString*)rawMsg;
     }
-    return fn;
+
+    // Create context
+    DeprecateContext* ctx = (DeprecateContext*)ts_alloc(sizeof(DeprecateContext));
+    ctx->originalFunction = originalFunc;
+    ctx->message = msgStr;
+    ctx->warned = false;
+
+    // Create and return the wrapper function
+    return ts_value_make_native_function((void*)deprecated_wrapper, ctx);
 }
 
 // ============================================================================
@@ -1686,13 +1787,148 @@ void* ts_util_style_text(void* formatArg, void* textArg) {
 
 // ============================================================================
 // util.debuglog(section) - Returns a logging function for the given section
-// Note: For AOT compilation, we return a simple console.log wrapper
+// Checks NODE_DEBUG environment variable to see if this section is enabled
+// NODE_DEBUG can be a comma-separated list of section names (case-insensitive)
 // ============================================================================
+
+// Global cache of enabled sections (parsed once from NODE_DEBUG)
+static std::unordered_set<std::string>* debuglogEnabledSections = nullptr;
+static bool debuglogInitialized = false;
+
+static void initDebuglogSections() {
+    if (debuglogInitialized) return;
+    debuglogInitialized = true;
+
+    debuglogEnabledSections = new std::unordered_set<std::string>();
+
+    const char* nodeDebug = getenv("NODE_DEBUG");
+    if (!nodeDebug) return;
+
+    // Parse comma-separated list of section names
+    std::string sections(nodeDebug);
+    size_t pos = 0;
+    while (pos < sections.length()) {
+        // Skip leading whitespace and commas
+        while (pos < sections.length() && (sections[pos] == ',' || sections[pos] == ' ')) {
+            pos++;
+        }
+
+        // Find end of section name
+        size_t start = pos;
+        while (pos < sections.length() && sections[pos] != ',' && sections[pos] != ' ') {
+            pos++;
+        }
+
+        if (pos > start) {
+            std::string section = sections.substr(start, pos - start);
+            // Convert to uppercase for case-insensitive comparison
+            for (char& c : section) {
+                c = toupper((unsigned char)c);
+            }
+            debuglogEnabledSections->insert(section);
+        }
+    }
+}
+
+static bool isDebuglogSectionEnabled(const char* section) {
+    initDebuglogSections();
+    if (!debuglogEnabledSections || debuglogEnabledSections->empty()) return false;
+
+    std::string sectionUpper(section);
+    for (char& c : sectionUpper) {
+        c = toupper((unsigned char)c);
+    }
+
+    // Check for wildcard
+    if (debuglogEnabledSections->count("*") > 0) return true;
+
+    return debuglogEnabledSections->count(sectionUpper) > 0;
+}
+
+// Context for debuglog wrapper function
+struct DebuglogContext {
+    TsString* section;
+    bool enabled;
+};
+
+// The actual debuglog function that gets called
+static TsValue* debuglog_function(void* ctx, int argc, TsValue** argv) {
+    DebuglogContext* dlCtx = (DebuglogContext*)ctx;
+    if (!dlCtx || !dlCtx->enabled) return nullptr;
+
+    // Build the message: "SECTION PID: <formatted message>"
+    std::ostringstream prefix;
+    prefix << dlCtx->section->ToUtf8() << " " << getpid() << ": ";
+
+    // Format the arguments (similar to console.log)
+    std::ostringstream msg;
+    msg << prefix.str();
+
+    for (int i = 0; i < argc; i++) {
+        if (i > 0) msg << " ";
+        TsValue* arg = argv[i];
+        if (!arg) {
+            msg << "undefined";
+            continue;
+        }
+
+        switch (arg->type) {
+            case ValueType::STRING_PTR:
+                if (arg->ptr_val) {
+                    msg << ((TsString*)arg->ptr_val)->ToUtf8();
+                }
+                break;
+            case ValueType::NUMBER_INT:
+                msg << arg->i_val;
+                break;
+            case ValueType::NUMBER_DBL:
+                msg << arg->d_val;
+                break;
+            case ValueType::BOOLEAN:
+                msg << (arg->b_val ? "true" : "false");
+                break;
+            case ValueType::UNDEFINED:
+                msg << "undefined";
+                break;
+            default:
+                msg << "[object]";
+                break;
+        }
+    }
+
+    // Output to stderr (like Node.js debuglog)
+    fprintf(stderr, "%s\n", msg.str().c_str());
+
+    return nullptr;
+}
+
 void* ts_util_debuglog(void* section) {
-    // In Node.js, debuglog returns a function that only logs if NODE_DEBUG includes the section
-    // For our AOT implementation, we just return a no-op function for now
-    // TODO: Check an environment variable for enabled sections
-    return nullptr;  // Returning null acts as no-op
+    // Unbox the section string
+    void* rawSection = ts_value_get_string((TsValue*)section);
+    if (!rawSection) rawSection = section;
+    TsString* sectionStr = (TsString*)rawSection;
+
+    if (!sectionStr) {
+        // Return a no-op function
+        return ts_value_make_native_function(nullptr, nullptr);
+    }
+
+    const char* sectionCStr = sectionStr->ToUtf8();
+    bool enabled = isDebuglogSectionEnabled(sectionCStr);
+
+    // Create the context
+    DebuglogContext* ctx = (DebuglogContext*)ts_alloc(sizeof(DebuglogContext));
+    ctx->section = TsString::Create(sectionCStr);
+    // Convert section to uppercase for display
+    std::string upper(sectionCStr);
+    for (char& c : upper) {
+        c = toupper((unsigned char)c);
+    }
+    ctx->section = TsString::Create(upper.c_str());
+    ctx->enabled = enabled;
+
+    // Create and return the debuglog function
+    return ts_value_make_native_function((void*)debuglog_function, ctx);
 }
 
 // ============================================================================
@@ -2131,6 +2367,147 @@ void* ts_util_get_inspect() {
     inspectObj->Set(key, val);
 
     return ts_value_make_object(inspectObj);
+}
+
+// ============================================================================
+// util.parseEnv(content) - Parse dotenv file content to object
+// Parses key=value pairs, handles comments (#), quoted values, multi-line
+// ============================================================================
+void* ts_util_parse_env(void* contentArg) {
+    // Unbox if needed
+    void* rawContent = ts_value_get_string((TsValue*)contentArg);
+    if (!rawContent) rawContent = contentArg;
+    TsString* content = (TsString*)rawContent;
+
+    TsMap* result = TsMap::Create();
+
+    if (!content) {
+        return ts_value_make_object(result);
+    }
+
+    const char* src = content->ToUtf8();
+    if (!src) {
+        return ts_value_make_object(result);
+    }
+
+    size_t len = strlen(src);
+    size_t i = 0;
+
+    while (i < len) {
+        // Skip leading whitespace
+        while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+
+        // Skip empty lines
+        if (i < len && (src[i] == '\n' || src[i] == '\r')) {
+            i++;
+            continue;
+        }
+
+        // Skip comment lines (starting with #)
+        if (i < len && src[i] == '#') {
+            while (i < len && src[i] != '\n') i++;
+            if (i < len) i++; // Skip the newline
+            continue;
+        }
+
+        // Check for 'export ' prefix (optional)
+        if (i + 7 <= len && strncmp(src + i, "export ", 7) == 0) {
+            i += 7;
+            // Skip whitespace after export
+            while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+        }
+
+        // Parse the key (identifier: letters, digits, underscores)
+        size_t keyStart = i;
+        while (i < len && (isalnum((unsigned char)src[i]) || src[i] == '_')) i++;
+
+        if (i == keyStart) {
+            // No key found, skip to next line
+            while (i < len && src[i] != '\n') i++;
+            if (i < len) i++;
+            continue;
+        }
+
+        std::string key(src + keyStart, i - keyStart);
+
+        // Skip whitespace before =
+        while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+
+        // Expect =
+        if (i >= len || src[i] != '=') {
+            // No =, skip to next line
+            while (i < len && src[i] != '\n') i++;
+            if (i < len) i++;
+            continue;
+        }
+        i++; // Skip =
+
+        // Skip whitespace after =
+        while (i < len && (src[i] == ' ' || src[i] == '\t')) i++;
+
+        // Parse the value
+        std::string value;
+
+        if (i < len && (src[i] == '"' || src[i] == '\'')) {
+            // Quoted value
+            char quote = src[i];
+            i++; // Skip opening quote
+
+            while (i < len && src[i] != quote) {
+                if (src[i] == '\\' && i + 1 < len) {
+                    // Handle escape sequences
+                    i++;
+                    switch (src[i]) {
+                        case 'n': value += '\n'; break;
+                        case 'r': value += '\r'; break;
+                        case 't': value += '\t'; break;
+                        case '\\': value += '\\'; break;
+                        case '"': value += '"'; break;
+                        case '\'': value += '\''; break;
+                        default: value += src[i]; break;
+                    }
+                } else if (src[i] == '\n' && quote == '"') {
+                    // Multi-line in double quotes
+                    value += '\n';
+                } else {
+                    value += src[i];
+                }
+                i++;
+            }
+
+            if (i < len && src[i] == quote) {
+                i++; // Skip closing quote
+            }
+        } else {
+            // Unquoted value - read until end of line or comment
+            while (i < len && src[i] != '\n' && src[i] != '\r' && src[i] != '#') {
+                value += src[i];
+                i++;
+            }
+
+            // Trim trailing whitespace from unquoted values
+            while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
+                value.pop_back();
+            }
+        }
+
+        // Skip to end of line (past any inline comments)
+        while (i < len && src[i] != '\n') i++;
+        if (i < len) i++; // Skip newline
+
+        // Add to result map
+        TsValue keyVal;
+        keyVal.type = ValueType::STRING_PTR;
+        keyVal.ptr_val = TsString::Create(key.c_str());
+
+        TsValue valueVal;
+        valueVal.type = ValueType::STRING_PTR;
+        valueVal.ptr_val = TsString::Create(value.c_str());
+
+        result->Set(keyVal, valueVal);
+    }
+
+    return ts_value_make_object(result);
 }
 
 } // extern "C"

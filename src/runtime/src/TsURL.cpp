@@ -8,6 +8,7 @@
 #include <regex>
 #include <algorithm>
 #include <sstream>
+#include <vector>
 #include <unicode/uidna.h>
 #include <unicode/unistr.h>
 
@@ -19,10 +20,125 @@ TsURL* TsURL::Create(TsString* url, TsString* base) {
 }
 
 TsURL::TsURL(TsString* url, TsString* base) {
-    this->href = url;
     this->username = TsString::Create("");
     this->password = TsString::Create("");
     this->searchParams = nullptr;
+
+    // If base is provided and url is relative, resolve against base
+    if (base && url) {
+        std::string urlStr = url->ToUtf8();
+        std::string baseStr = base->ToUtf8();
+
+        // Check if url is relative (doesn't have a protocol)
+        bool isRelative = urlStr.find("://") == std::string::npos &&
+                          (urlStr.empty() || urlStr[0] == '/' || urlStr[0] == '.' ||
+                           urlStr[0] == '?' || urlStr[0] == '#' ||
+                           (urlStr.find(':') == std::string::npos));
+
+        if (isRelative && !baseStr.empty()) {
+            // Parse the base URL first
+            std::regex baseRegex(R"(^([^:/?#]+):(?://(?:([^:@/?#]*)(?::([^@/?#]*))?@)?([^/?#:]*)(?::([0-9]*))?)?([^?#]*)(?:\?([^#]*))?(?:#(.*))?)");
+            std::smatch baseMatches;
+
+            if (std::regex_match(baseStr, baseMatches, baseRegex)) {
+                std::string baseProtocol = baseMatches[1].str();
+                std::string baseHost = baseMatches[4].str();
+                std::string basePort = baseMatches[5].str();
+                std::string basePath = baseMatches[6].str();
+                std::string baseUsername = baseMatches[2].str();
+                std::string basePassword = baseMatches[3].str();
+
+                std::string resolved;
+
+                if (urlStr.empty()) {
+                    // Empty string resolves to base
+                    resolved = baseStr;
+                } else if (urlStr[0] == '#') {
+                    // Hash-only: use base with new hash
+                    size_t hashPos = baseStr.find('#');
+                    if (hashPos != std::string::npos) {
+                        resolved = baseStr.substr(0, hashPos) + urlStr;
+                    } else {
+                        resolved = baseStr + urlStr;
+                    }
+                } else if (urlStr[0] == '?') {
+                    // Query-only: use base protocol/host/path with new query
+                    resolved = baseProtocol + "://";
+                    if (!baseUsername.empty()) {
+                        resolved += baseUsername;
+                        if (!basePassword.empty()) resolved += ":" + basePassword;
+                        resolved += "@";
+                    }
+                    resolved += baseHost;
+                    if (!basePort.empty()) resolved += ":" + basePort;
+                    resolved += basePath + urlStr;
+                } else if (urlStr.substr(0, 2) == "//") {
+                    // Protocol-relative: use base protocol
+                    resolved = baseProtocol + ":" + urlStr;
+                } else if (urlStr[0] == '/') {
+                    // Absolute path: use base protocol/host
+                    resolved = baseProtocol + "://";
+                    if (!baseUsername.empty()) {
+                        resolved += baseUsername;
+                        if (!basePassword.empty()) resolved += ":" + basePassword;
+                        resolved += "@";
+                    }
+                    resolved += baseHost;
+                    if (!basePort.empty()) resolved += ":" + basePort;
+                    resolved += urlStr;
+                } else {
+                    // Relative path: resolve against base path
+                    resolved = baseProtocol + "://";
+                    if (!baseUsername.empty()) {
+                        resolved += baseUsername;
+                        if (!basePassword.empty()) resolved += ":" + basePassword;
+                        resolved += "@";
+                    }
+                    resolved += baseHost;
+                    if (!basePort.empty()) resolved += ":" + basePort;
+
+                    // Get directory part of base path
+                    size_t lastSlash = basePath.rfind('/');
+                    std::string baseDir = (lastSlash != std::string::npos) ?
+                                          basePath.substr(0, lastSlash + 1) : "/";
+
+                    // Combine and normalize
+                    std::string combinedPath = baseDir + urlStr;
+
+                    // Normalize path (remove . and ..)
+                    std::vector<std::string> segments;
+                    std::stringstream ss(combinedPath);
+                    std::string segment;
+                    while (std::getline(ss, segment, '/')) {
+                        if (segment == "..") {
+                            if (!segments.empty()) {
+                                segments.pop_back();
+                            }
+                        } else if (segment != "." && !segment.empty()) {
+                            // Skip empty segments (from leading/trailing/double slashes)
+                            segments.push_back(segment);
+                        }
+                    }
+
+                    // Rebuild path - always start with / for absolute paths
+                    std::string normalizedPath = "/";
+                    for (size_t i = 0; i < segments.size(); i++) {
+                        if (i > 0) normalizedPath += "/";
+                        normalizedPath += segments[i];
+                    }
+
+                    resolved += normalizedPath;
+                }
+
+                this->href = TsString::Create(resolved.c_str());
+                Parse();
+                return;
+            }
+        }
+    }
+
+    // No base or not relative - parse url directly
+    this->href = url;
     Parse();
 }
 

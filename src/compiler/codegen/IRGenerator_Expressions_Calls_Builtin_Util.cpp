@@ -26,6 +26,7 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_debuglog", {true}, false);  // section -> fn
     bp.registerRuntimeApi("ts_util_format_with_options", {true, true, true}, false);  // opts, fmt, args -> str
     bp.registerRuntimeApi("ts_util_parse_args", {true}, true);  // config -> { values, positionals }
+    bp.registerRuntimeApi("ts_util_parse_env", {true}, true);  // content -> object
 
     // util.types.isXxx functions (all take boxed value, return bool)
     bp.registerRuntimeApi("ts_util_types_is_array_buffer", {true}, false);
@@ -437,6 +438,29 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
             { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_util_format_with_options", ft);
         lastValue = createCall(ft, fn.getCallee(), { options, format, argsArray });
+        return true;
+    }
+
+    // =========================================================================
+    // util.parseEnv(content)
+    // Parses dotenv file content to an object
+    // =========================================================================
+    if (isUtil && prop->name == "parseEnv") {
+        if (node->arguments.empty()) {
+            // Return empty object
+            llvm::FunctionType* createFT = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee createFn = getRuntimeFunction("ts_map_create", createFT);
+            lastValue = createCall(createFT, createFn.getCallee(), {});
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* content = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_parse_env", ft);
+        lastValue = createCall(ft, fn.getCallee(), { content });
         return true;
     }
 

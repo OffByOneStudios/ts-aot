@@ -1,4 +1,5 @@
 #include "TsMap.h"
+#include "TsWeakMap.h"
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsRuntime.h"
@@ -667,5 +668,27 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
     tsmap->Set(key, val);
 }
 
+}
+
+// ============================================================================
+// TsWeakMap Implementation
+// ============================================================================
+
+TsWeakMap* TsWeakMap::Create() {
+    void* mem = ts_alloc(sizeof(TsWeakMap));
+    TsWeakMap* map = new(mem) TsWeakMap();
+
+    // Use same vtable as TsMap
+    if (!TsMap_VTable[1]) {
+        TsMap_VTable[1] = (void*)ts_map_get_property;
+    }
+    map->vtable = TsMap_VTable;
+
+    return map;
+}
+
+TsWeakMap::TsWeakMap() : TsMap() {
+    // Override magic to distinguish from regular Map
+    TsObject::magic = MAGIC;
 }
 
