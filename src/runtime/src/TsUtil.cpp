@@ -182,14 +182,263 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
 // ============================================================================
 // util.inspect implementation - Returns string representation of an object
 // ============================================================================
+
+// Forward declaration for recursive calls
+static TsString* inspectValue(void* val, int depth, int currentDepth, bool colors);
+
+static TsString* inspectArray(TsArray* arr, int depth, int currentDepth, bool colors) {
+    if (!arr) return TsString::Create("[]");
+
+    size_t len = (size_t)arr->Length();
+    if (len == 0) return TsString::Create("[]");
+
+    if (currentDepth >= depth) {
+        return TsString::Create("[Array]");
+    }
+
+    std::ostringstream result;
+    result << "[ ";
+
+    for (size_t i = 0; i < len; i++) {
+        if (i > 0) result << ", ";
+        // Use GetElementBoxed to get a properly typed TsValue*
+        TsValue* elem = arr->GetElementBoxed(i);
+        TsString* elemStr = inspectValue(elem, depth, currentDepth + 1, colors);
+        result << (elemStr ? elemStr->ToUtf8() : "undefined");
+    }
+
+    result << " ]";
+    return TsString::Create(result.str().c_str());
+}
+
+static TsString* inspectMap(TsMap* map, int depth, int currentDepth, bool colors) {
+    if (!map) return TsString::Create("{}");
+
+    if (currentDepth >= depth) {
+        return TsString::Create("[Object]");
+    }
+
+    // Check if it's an explicit Map (new Map()) vs plain object
+    if (map->IsExplicitMap()) {
+        std::ostringstream result;
+        result << "Map(";
+
+        // Get keys array using GetKeys()
+        TsArray* keys = (TsArray*)map->GetKeys();
+        if (keys) {
+            size_t len = (size_t)keys->Length();
+            result << len << ") { ";
+            for (size_t i = 0; i < len; i++) {
+                if (i > 0) result << ", ";
+                // Use GetElementBoxed for properly typed access
+                TsValue* keyElem = keys->GetElementBoxed(i);
+                TsString* keyStr = inspectValue(keyElem, depth, currentDepth + 1, colors);
+                // Get the value from the map
+                TsValue keyVal;
+                keyVal.type = keyElem ? keyElem->type : ValueType::UNDEFINED;
+                keyVal.ptr_val = keyElem ? keyElem->ptr_val : nullptr;
+                TsValue val = map->Get(keyVal);
+                // Box the value for inspection
+                TsValue* valBoxed = (TsValue*)ts_alloc(sizeof(TsValue));
+                *valBoxed = val;
+                TsString* valStr = inspectValue(valBoxed, depth, currentDepth + 1, colors);
+                result << (keyStr ? keyStr->ToUtf8() : "undefined") << " => " << (valStr ? valStr->ToUtf8() : "undefined");
+            }
+            result << " }";
+        } else {
+            result << "0) {}";
+        }
+        return TsString::Create(result.str().c_str());
+    }
+
+    // Plain object - use JSON-like representation
+    TsString* json = (TsString*)ts_json_stringify(map, nullptr, nullptr);
+    if (json) return json;
+
+    return TsString::Create("[Object]");
+}
+
+static TsString* inspectValue(void* val, int depth, int currentDepth, bool colors) {
+    if (!val) return TsString::Create("undefined");
+
+    // Check if it's a boxed TsValue
+    TsValue* tv = (TsValue*)val;
+    uint8_t typeField = *(uint8_t*)tv;
+
+    if (typeField <= (uint8_t)ValueType::FUNCTION_PTR) {
+        switch (tv->type) {
+            case ValueType::UNDEFINED:
+                return TsString::Create("undefined");
+            case ValueType::BOOLEAN:
+                return TsString::Create(tv->b_val ? "true" : "false");
+            case ValueType::NUMBER_INT: {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%lld", (long long)tv->i_val);
+                return TsString::Create(buf);
+            }
+            case ValueType::NUMBER_DBL: {
+                char buf[32];
+                if (std::isnan(tv->d_val)) return TsString::Create("NaN");
+                if (std::isinf(tv->d_val)) return TsString::Create(tv->d_val > 0 ? "Infinity" : "-Infinity");
+                snprintf(buf, sizeof(buf), "%.17g", tv->d_val);
+                return TsString::Create(buf);
+            }
+            case ValueType::STRING_PTR: {
+                TsString* s = (TsString*)tv->ptr_val;
+                if (!s) return TsString::Create("''");
+                std::string result = "'";
+                result += s->ToUtf8();
+                result += "'";
+                return TsString::Create(result.c_str());
+            }
+            case ValueType::ARRAY_PTR: {
+                TsArray* arr = (TsArray*)tv->ptr_val;
+                return inspectArray(arr, depth, currentDepth, colors);
+            }
+            case ValueType::OBJECT_PTR: {
+                void* ptr = tv->ptr_val;
+                // Check various object types by magic
+                if (ptr) {
+                    // First check if this is actually a pointer to another TsValue (double-boxed)
+                    uint8_t innerType = *(uint8_t*)ptr;
+                    if (innerType <= (uint8_t)ValueType::FUNCTION_PTR) {
+                        // This looks like a TsValue, recurse into it
+                        return inspectValue(ptr, depth, currentDepth, colors);
+                    }
+
+                    // Check magic at offset 0 for non-TsObject classes (TsDate, TsRegExp, TsArray, TsString, TsBuffer)
+                    uint32_t magic0 = *(uint32_t*)ptr;
+                    if (magic0 == TsDate::MAGIC) {
+                        TsDate* d = (TsDate*)ptr;
+                        return TsString::Create(d->ToISOString()->ToUtf8());
+                    }
+                    if (magic0 == TsRegExp::MAGIC) {
+                        TsRegExp* re = (TsRegExp*)ptr;
+                        TsString* source = re->GetSource();
+                        TsString* flags = re->GetFlags();
+                        std::string result = "/";
+                        result += (source ? source->ToUtf8() : "");
+                        result += "/";
+                        result += (flags ? flags->ToUtf8() : "");
+                        return TsString::Create(result.c_str());
+                    }
+                    if (magic0 == TsArray::MAGIC) {
+                        return inspectArray((TsArray*)ptr, depth, currentDepth, colors);
+                    }
+                    if (magic0 == TsString::MAGIC) {
+                        TsString* s = (TsString*)ptr;
+                        std::string result = "'";
+                        result += s->ToUtf8();
+                        result += "'";
+                        return TsString::Create(result.c_str());
+                    }
+                    if (magic0 == TsBuffer::MAGIC) {
+                        TsBuffer* buf = (TsBuffer*)ptr;
+                        std::ostringstream result;
+                        result << "<Buffer";
+                        size_t len = buf->GetLength();
+                        if (len > 0) {
+                            for (size_t i = 0; i < std::min(len, (size_t)50); i++) {
+                                char hex[4];
+                                snprintf(hex, sizeof(hex), " %02x", buf->GetData()[i]);
+                                result << hex;
+                            }
+                            if (len > 50) result << " ... " << (len - 50) << " more bytes";
+                        }
+                        result << ">";
+                        return TsString::Create(result.str().c_str());
+                    }
+                    // Check for TsObject-derived types: magic is at offset 16
+                    // (offset 0-7 = vtable, offset 8-15 = explicit vtable ptr, offset 16 = magic)
+                    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+                    if (magic16 == TsSet::MAGIC) {
+                        TsSet* s = (TsSet*)ptr;
+                        std::ostringstream result;
+                        result << "Set(" << s->Size() << ") { ";
+                        TsArray* values = (TsArray*)s->GetValues();
+                        if (values) {
+                            size_t len = (size_t)values->Length();
+                            for (size_t i = 0; i < len; i++) {
+                                if (i > 0) result << ", ";
+                                // Use GetElementBoxed for properly typed access
+                                TsValue* v = values->GetElementBoxed(i);
+                                TsString* vs = inspectValue(v, depth, currentDepth + 1, colors);
+                                result << (vs ? vs->ToUtf8() : "undefined");
+                            }
+                        }
+                        result << " }";
+                        return TsString::Create(result.str().c_str());
+                    }
+                    if (magic16 == TsMap::MAGIC) {
+                        return inspectMap((TsMap*)ptr, depth, currentDepth, colors);
+                    }
+                }
+                return TsString::Create("[Object]");
+            }
+            case ValueType::FUNCTION_PTR:
+                return TsString::Create("[Function]");
+            case ValueType::PROMISE_PTR:
+                return TsString::Create("Promise { <pending> }");
+            case ValueType::BIGINT_PTR:
+                return TsString::Create("[BigInt]");
+            case ValueType::SYMBOL_PTR:
+                return TsString::Create("Symbol()");
+            default:
+                break;
+        }
+    }
+
+    // Raw pointer - check object types
+    uint32_t magic = *(uint32_t*)val;
+
+    // TsString
+    if (magic == TsString::MAGIC) {
+        TsString* s = (TsString*)val;
+        std::string result = "'";
+        result += s->ToUtf8();
+        result += "'";
+        return TsString::Create(result.c_str());
+    }
+
+    // TsArray
+    if (magic == TsArray::MAGIC) {
+        return inspectArray((TsArray*)val, depth, currentDepth, colors);
+    }
+
+    // TsDate (magic at offset 0)
+    if (magic == TsDate::MAGIC) {
+        TsDate* d = (TsDate*)val;
+        return TsString::Create(d->ToISOString()->ToUtf8());
+    }
+
+    // TsRegExp (magic at offset 0)
+    if (magic == TsRegExp::MAGIC) {
+        TsRegExp* re = (TsRegExp*)val;
+        TsString* source = re->GetSource();
+        TsString* flags = re->GetFlags();
+        std::string result = "/";
+        result += (source ? source->ToUtf8() : "");
+        result += "/";
+        result += (flags ? flags->ToUtf8() : "");
+        return TsString::Create(result.c_str());
+    }
+
+    // Check magic at offset 16 for TsObject-derived classes
+    uint32_t* magic16 = (uint32_t*)((char*)val + 16);
+    if (*magic16 == TsMap::MAGIC) {
+        return inspectMap((TsMap*)val, depth, currentDepth, colors);
+    }
+
+    // Use JSON stringify as fallback
+    TsString* json = (TsString*)ts_json_stringify(val, nullptr, nullptr);
+    if (json) return json;
+
+    return TsString::Create("[object Object]");
+}
+
 TsString* ts_util_inspect_impl(void* obj, int depth, bool colors) {
     if (!obj) return TsString::Create("undefined");
-    
-    // Use JSON stringify for basic representation
-    TsString* str = (TsString*)ts_json_stringify(obj, nullptr, nullptr);
-    if (str) return str;
-    
-    return TsString::Create("[object Object]");
+    return inspectValue(obj, depth, 0, colors);
 }
 
 // ============================================================================
