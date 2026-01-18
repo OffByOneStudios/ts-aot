@@ -1704,4 +1704,305 @@ void* ts_util_format_with_options(void* options, void* format, void* args) {
     return ts_util_format(format, args);
 }
 
+// ============================================================================
+// util.parseArgs(config?)
+// Parses command-line arguments
+// Returns: { values: object, positionals: string[] }
+// ============================================================================
+void* ts_util_parse_args(void* configPtr) {
+    // Unbox the config if provided
+    TsMap* config = nullptr;
+    if (configPtr) {
+        void* rawPtr = ts_value_get_object((TsValue*)configPtr);
+        if (!rawPtr) rawPtr = configPtr;
+        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic16 == TsMap::MAGIC) {
+            config = (TsMap*)rawPtr;
+        }
+    }
+
+    // Create the result object: { values: {}, positionals: [] }
+    TsMap* result = TsMap::Create();
+    TsMap* values = TsMap::Create();
+    TsArray* positionals = TsArray::Create();
+
+    // Get options definition from config
+    TsMap* optionsConfig = nullptr;
+    bool strict = true;
+    bool allowPositionals = false;
+    TsArray* argsArray = nullptr;
+
+    if (config) {
+        // config.options
+        TsValue optionsKey;
+        optionsKey.type = ValueType::STRING_PTR;
+        optionsKey.ptr_val = TsString::Create("options");
+        TsValue optionsVal = config->Get(optionsKey);
+        if (optionsVal.type == ValueType::OBJECT_PTR && optionsVal.ptr_val) {
+            uint32_t magic = *(uint32_t*)((char*)optionsVal.ptr_val + 16);
+            if (magic == TsMap::MAGIC) {
+                optionsConfig = (TsMap*)optionsVal.ptr_val;
+            }
+        }
+
+        // config.strict
+        TsValue strictKey;
+        strictKey.type = ValueType::STRING_PTR;
+        strictKey.ptr_val = TsString::Create("strict");
+        TsValue strictVal = config->Get(strictKey);
+        if (strictVal.type == ValueType::BOOLEAN) {
+            strict = strictVal.b_val;
+        }
+
+        // config.allowPositionals
+        TsValue allowPosKey;
+        allowPosKey.type = ValueType::STRING_PTR;
+        allowPosKey.ptr_val = TsString::Create("allowPositionals");
+        TsValue allowPosVal = config->Get(allowPosKey);
+        if (allowPosVal.type == ValueType::BOOLEAN) {
+            allowPositionals = allowPosVal.b_val;
+        }
+
+        // config.args (if provided, use instead of process.argv)
+        TsValue argsKey;
+        argsKey.type = ValueType::STRING_PTR;
+        argsKey.ptr_val = TsString::Create("args");
+        TsValue argsVal = config->Get(argsKey);
+        if (argsVal.type == ValueType::ARRAY_PTR && argsVal.ptr_val) {
+            argsArray = (TsArray*)argsVal.ptr_val;
+        } else if (argsVal.type == ValueType::OBJECT_PTR && argsVal.ptr_val) {
+            // Maybe it's boxed as an object? Check if it's actually an array
+            uint32_t magic0 = *(uint32_t*)argsVal.ptr_val;
+            if (magic0 == TsArray::MAGIC) {
+                argsArray = (TsArray*)argsVal.ptr_val;
+            }
+        }
+    }
+
+    // Build a map of short aliases to long names
+    std::unordered_map<std::string, std::string> shortAliases;
+    std::unordered_map<std::string, std::string> optionTypes;
+    std::unordered_map<std::string, bool> optionMultiple;
+
+    // Helper to extract string from possibly double-boxed value
+    auto extractString = [](TsValue* val) -> TsString* {
+        if (!val || !val->ptr_val) return nullptr;
+        if (val->type == ValueType::STRING_PTR) {
+            return (TsString*)val->ptr_val;
+        } else if (val->type == ValueType::OBJECT_PTR) {
+            uint32_t magic = *(uint32_t*)val->ptr_val;
+            if (magic == TsString::MAGIC) {
+                return (TsString*)val->ptr_val;
+            }
+            // Check for double-boxed
+            TsValue* inner = (TsValue*)val->ptr_val;
+            if ((uint8_t)inner->type <= (uint8_t)ValueType::FUNCTION_PTR) {
+                if (inner->type == ValueType::STRING_PTR && inner->ptr_val) {
+                    return (TsString*)inner->ptr_val;
+                }
+            }
+        }
+        return nullptr;
+    };
+
+    if (optionsConfig) {
+        TsArray* keys = (TsArray*)optionsConfig->GetKeys();
+        if (keys) {
+            for (int64_t i = 0; i < keys->Length(); i++) {
+                TsValue* keyVal = keys->GetElementBoxed(i);
+                TsString* keyStr = extractString(keyVal);
+                if (!keyStr) continue;
+                const char* longName = keyStr->ToUtf8();
+
+                // Create a proper key for lookup
+                TsValue lookupKey;
+                lookupKey.type = ValueType::STRING_PTR;
+                lookupKey.ptr_val = keyStr;
+                TsValue optValue = optionsConfig->Get(lookupKey);
+                if (optValue.type == ValueType::OBJECT_PTR && optValue.ptr_val) {
+                    TsMap* optObj = nullptr;
+                    uint32_t magic16 = *(uint32_t*)((char*)optValue.ptr_val + 16);
+                    uint32_t magic0 = *(uint32_t*)optValue.ptr_val;
+                    if (magic16 == TsMap::MAGIC) {
+                        optObj = (TsMap*)optValue.ptr_val;
+                    } else if (magic0 == TsMap::MAGIC) {
+                        optObj = (TsMap*)optValue.ptr_val;
+                    }
+                    if (optObj) {
+                        // Get type
+                        TsValue typeKey;
+                        typeKey.type = ValueType::STRING_PTR;
+                        typeKey.ptr_val = TsString::Create("type");
+                        TsValue typeVal = optObj->Get(typeKey);
+                        TsString* typeStr = extractString(&typeVal);
+                        if (typeStr) {
+                            optionTypes[longName] = typeStr->ToUtf8();
+                        }
+
+                        // Get short alias
+                        TsValue shortKey;
+                        shortKey.type = ValueType::STRING_PTR;
+                        shortKey.ptr_val = TsString::Create("short");
+                        TsValue shortVal = optObj->Get(shortKey);
+                        TsString* shortStr = extractString(&shortVal);
+                        if (shortStr) {
+                            shortAliases[shortStr->ToUtf8()] = longName;
+                        }
+
+                        // Get multiple flag
+                        TsValue multiKey;
+                        multiKey.type = ValueType::STRING_PTR;
+                        multiKey.ptr_val = TsString::Create("multiple");
+                        TsValue multiVal = optObj->Get(multiKey);
+                        if (multiVal.type == ValueType::BOOLEAN) {
+                            optionMultiple[longName] = multiVal.b_val;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse arguments
+    auto args = std::vector<std::string>();
+
+    // Get args from argsArray or process.argv
+    if (argsArray) {
+        for (int64_t i = 0; i < argsArray->Length(); i++) {
+            TsValue* argVal = argsArray->GetElementBoxed(i);
+            if (!argVal) continue;
+
+            // Handle double-boxed values: argVal might be OBJECT_PTR pointing to another TsValue
+            TsString* str = nullptr;
+            if (argVal->type == ValueType::STRING_PTR && argVal->ptr_val) {
+                str = (TsString*)argVal->ptr_val;
+            } else if (argVal->type == ValueType::OBJECT_PTR && argVal->ptr_val) {
+                // Check if ptr_val is a TsString
+                uint32_t magic = *(uint32_t*)argVal->ptr_val;
+                if (magic == TsString::MAGIC) {
+                    str = (TsString*)argVal->ptr_val;
+                } else {
+                    // It might be another TsValue (double-boxed)
+                    TsValue* inner = (TsValue*)argVal->ptr_val;
+                    if ((uint8_t)inner->type <= (uint8_t)ValueType::FUNCTION_PTR) {
+                        // It's a TsValue, use its value
+                        if (inner->type == ValueType::STRING_PTR && inner->ptr_val) {
+                            str = (TsString*)inner->ptr_val;
+                        }
+                    }
+                }
+            }
+            if (str) {
+                args.push_back(str->ToUtf8());
+            }
+        }
+    } else {
+        // Use process.argv, skip first 2 (executable, script)
+        TsArray* processArgv = (TsArray*)ts_get_process_argv();
+        if (processArgv) {
+            int64_t len = processArgv->Length();
+            for (int64_t i = 2; i < len; i++) {
+                TsValue* argVal = processArgv->GetElementBoxed(i);
+                if (argVal && argVal->type == ValueType::STRING_PTR && argVal->ptr_val) {
+                    args.push_back(((TsString*)argVal->ptr_val)->ToUtf8());
+                }
+            }
+        }
+    }
+
+    // Parse the arguments
+    for (size_t i = 0; i < args.size(); i++) {
+        const std::string& arg = args[i];
+
+        if (arg.length() >= 2 && arg[0] == '-') {
+            std::string optName;
+            std::string optValue;
+            bool hasValue = false;
+
+            if (arg[1] == '-') {
+                // Long option: --foo or --foo=bar
+                size_t eqPos = arg.find('=', 2);
+                if (eqPos != std::string::npos) {
+                    optName = arg.substr(2, eqPos - 2);
+                    optValue = arg.substr(eqPos + 1);
+                    hasValue = true;
+                } else {
+                    optName = arg.substr(2);
+                }
+            } else {
+                // Short option: -f or -f bar
+                std::string shortOpt = arg.substr(1, 1);
+                auto it = shortAliases.find(shortOpt);
+                if (it != shortAliases.end()) {
+                    optName = it->second;
+                } else {
+                    optName = shortOpt;
+                }
+
+                // Check for value in same arg: -fvalue
+                if (arg.length() > 2) {
+                    optValue = arg.substr(2);
+                    hasValue = true;
+                }
+            }
+
+            // Determine if this option takes a value
+            bool isString = false;
+            auto typeIt = optionTypes.find(optName);
+            if (typeIt != optionTypes.end()) {
+                isString = (typeIt->second == "string");
+            }
+
+            // If string type and no value yet, get from next arg
+            if (isString && !hasValue && i + 1 < args.size()) {
+                optValue = args[++i];
+                hasValue = true;
+            }
+
+            // Set the value
+            TsValue nameKey;
+            nameKey.type = ValueType::STRING_PTR;
+            nameKey.ptr_val = TsString::Create(optName.c_str());
+
+            TsValue val;
+            if (isString) {
+                val.type = ValueType::STRING_PTR;
+                val.ptr_val = TsString::Create(hasValue ? optValue.c_str() : "");
+            } else {
+                val.type = ValueType::BOOLEAN;
+                val.b_val = true;
+            }
+
+            values->Set(nameKey, val);
+        } else {
+            // Positional argument
+            if (allowPositionals || !strict) {
+                TsValue* posVal = (TsValue*)ts_alloc(sizeof(TsValue));
+                posVal->type = ValueType::STRING_PTR;
+                posVal->ptr_val = TsString::Create(arg.c_str());
+                positionals->Push((int64_t)posVal);
+            }
+        }
+    }
+
+    // Set result.values and result.positionals
+    TsValue valuesKey;
+    valuesKey.type = ValueType::STRING_PTR;
+    valuesKey.ptr_val = TsString::Create("values");
+    TsValue valuesVal;
+    valuesVal.type = ValueType::OBJECT_PTR;
+    valuesVal.ptr_val = values;
+    result->Set(valuesKey, valuesVal);
+
+    TsValue posKey;
+    posKey.type = ValueType::STRING_PTR;
+    posKey.ptr_val = TsString::Create("positionals");
+    TsValue posVal;
+    posVal.type = ValueType::ARRAY_PTR;
+    posVal.ptr_val = positionals;
+    result->Set(posKey, posVal);
+
+    return ts_value_make_object(result);
+}
+
 } // extern "C"
