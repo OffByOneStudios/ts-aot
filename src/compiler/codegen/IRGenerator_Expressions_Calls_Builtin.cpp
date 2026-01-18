@@ -951,11 +951,78 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 lastValue = createCall(ft, fn.getCallee(), { hmacObj, encoding });
                 return true;
             }
+        } else if (classType->name == "Cipher") {
+            // crypto.createCipheriv() returns Cipher object
+            visit(prop->expression.get());
+            llvm::Value* cipherObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_cipher_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { cipherObj, data });
+                return true;
+            } else if (prop->name == "final") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_cipher_final", ft);
+                lastValue = createCall(ft, fn.getCallee(), { cipherObj });
+                return true;
+            } else if (prop->name == "getAuthTag") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_cipher_getAuthTag", ft);
+                lastValue = createCall(ft, fn.getCallee(), { cipherObj });
+                return true;
+            } else if (prop->name == "setAAD") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_cipher_setAAD", ft);
+                lastValue = createCall(ft, fn.getCallee(), { cipherObj, data });
+                return true;
+            }
+        } else if (classType->name == "Decipher") {
+            // crypto.createDecipheriv() returns Decipher object
+            visit(prop->expression.get());
+            llvm::Value* decipherObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_decipher_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decipherObj, data });
+                return true;
+            } else if (prop->name == "final") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_decipher_final", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decipherObj });
+                return true;
+            } else if (prop->name == "setAuthTag") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* tag = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_decipher_setAuthTag", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decipherObj, tag });
+                return true;
+            } else if (prop->name == "setAAD") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_decipher_setAAD", ft);
+                lastValue = createCall(ft, fn.getCallee(), { decipherObj, data });
+                return true;
+            }
         } else if (classType->name == "Server") {
             if (prop->name == "listen") {
                 visit(prop->expression.get());
                 llvm::Value* server = lastValue;
-                
+
                 visit(node->arguments[0].get());
                 llvm::Value* port = lastValue;
                 if (port->getType()->isPointerTy()) {
@@ -3910,7 +3977,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                prop->name == "randomFill" || prop->name == "randomFillSync" ||
                prop->name == "randomInt" || prop->name == "randomUUID" || prop->name == "pbkdf2Sync" ||
                prop->name == "pbkdf2" || prop->name == "scryptSync" || prop->name == "scrypt" ||
-               prop->name == "timingSafeEqual") {
+               prop->name == "timingSafeEqual" || prop->name == "createCipheriv" || prop->name == "createDecipheriv") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "crypto") {
                 if (prop->name == "md5") {
@@ -4213,6 +4280,40 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_scrypt", ft);
                     createCall(ft, fn.getCallee(), { password, salt, keylen, N, r, p, callback });
                     lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                } else if (prop->name == "createCipheriv") {
+                    // crypto.createCipheriv(algorithm, key, iv) -> Cipher
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* iv = boxValue(lastValue, node->arguments[2]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createCipheriv", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm, key, iv });
+                    return true;
+                } else if (prop->name == "createDecipheriv") {
+                    // crypto.createDecipheriv(algorithm, key, iv) -> Decipher
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* iv = boxValue(lastValue, node->arguments[2]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createDecipheriv", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm, key, iv });
                     return true;
                 }
             }

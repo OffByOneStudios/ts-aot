@@ -946,6 +946,571 @@ void* ts_crypto_md5(void* str) {
 }
 
 // ============================================================================
+// Cipher class - wraps OpenSSL EVP_CIPHER_CTX for symmetric encryption
+// ============================================================================
+
+class TsCryptoCipher : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x43495048; // "CIPH"
+
+    EVP_CIPHER_CTX* ctx;
+    const EVP_CIPHER* cipher;
+    bool finalized;
+    bool isGCM;  // Track if using GCM mode for auth tag handling
+    unsigned char authTag[16];  // For GCM mode
+    int authTagLen;
+
+    static TsCryptoCipher* Create(const char* algorithm, const void* key, size_t keyLen,
+                                   const void* iv, size_t ivLen) {
+        const EVP_CIPHER* cipher = EVP_get_cipherbyname(algorithm);
+        if (!cipher) return nullptr;
+
+        void* mem = ts_alloc(sizeof(TsCryptoCipher));
+        TsCryptoCipher* c = new(mem) TsCryptoCipher();
+        c->magic = MAGIC;
+        c->cipher = cipher;
+        c->finalized = false;
+        c->isGCM = (strstr(algorithm, "gcm") != nullptr || strstr(algorithm, "GCM") != nullptr);
+        c->authTagLen = 0;
+        c->ctx = EVP_CIPHER_CTX_new();
+
+        if (!c->ctx) return nullptr;
+
+        // Initialize cipher context for encryption
+        if (EVP_EncryptInit_ex(c->ctx, cipher, nullptr,
+                               (const unsigned char*)key,
+                               (const unsigned char*)iv) != 1) {
+            EVP_CIPHER_CTX_free(c->ctx);
+            return nullptr;
+        }
+
+        return c;
+    }
+
+    ~TsCryptoCipher() {
+        if (ctx) {
+            EVP_CIPHER_CTX_free(ctx);
+            ctx = nullptr;
+        }
+    }
+
+    TsBuffer* Update(const void* data, size_t len) {
+        if (finalized || !ctx) return nullptr;
+
+        int outLen = (int)len + EVP_CIPHER_CTX_block_size(ctx);
+        TsBuffer* buf = TsBuffer::Create(outLen);
+
+        if (EVP_EncryptUpdate(ctx, buf->GetData(), &outLen,
+                              (const unsigned char*)data, (int)len) != 1) {
+            return nullptr;
+        }
+
+        // Resize buffer to actual output length
+        if ((size_t)outLen < buf->GetLength()) {
+            TsBuffer* resized = TsBuffer::Create(outLen);
+            memcpy(resized->GetData(), buf->GetData(), outLen);
+            return resized;
+        }
+        return buf;
+    }
+
+    TsBuffer* Final() {
+        if (finalized || !ctx) return nullptr;
+        finalized = true;
+
+        int outLen = EVP_CIPHER_CTX_block_size(ctx);
+        TsBuffer* buf = TsBuffer::Create(outLen);
+
+        if (EVP_EncryptFinal_ex(ctx, buf->GetData(), &outLen) != 1) {
+            return nullptr;
+        }
+
+        // For GCM mode, get the authentication tag
+        if (isGCM) {
+            authTagLen = 16;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, authTag);
+        }
+
+        // Resize buffer to actual output length
+        if ((size_t)outLen < buf->GetLength()) {
+            TsBuffer* resized = TsBuffer::Create(outLen);
+            memcpy(resized->GetData(), buf->GetData(), outLen);
+            return resized;
+        }
+        return buf;
+    }
+
+    TsBuffer* GetAuthTag() {
+        if (!isGCM || authTagLen == 0) return nullptr;
+        TsBuffer* buf = TsBuffer::Create(authTagLen);
+        memcpy(buf->GetData(), authTag, authTagLen);
+        return buf;
+    }
+
+    bool SetAAD(const void* data, size_t len) {
+        if (finalized || !ctx || !isGCM) return false;
+        int outLen;
+        return EVP_EncryptUpdate(ctx, nullptr, &outLen,
+                                 (const unsigned char*)data, (int)len) == 1;
+    }
+};
+
+// ============================================================================
+// Decipher class - wraps OpenSSL EVP_CIPHER_CTX for symmetric decryption
+// ============================================================================
+
+class TsCryptoDecipher : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x44454349; // "DECI"
+
+    EVP_CIPHER_CTX* ctx;
+    const EVP_CIPHER* cipher;
+    bool finalized;
+    bool isGCM;
+    bool authTagSet;
+
+    static TsCryptoDecipher* Create(const char* algorithm, const void* key, size_t keyLen,
+                                     const void* iv, size_t ivLen) {
+        const EVP_CIPHER* cipher = EVP_get_cipherbyname(algorithm);
+        if (!cipher) return nullptr;
+
+        void* mem = ts_alloc(sizeof(TsCryptoDecipher));
+        TsCryptoDecipher* d = new(mem) TsCryptoDecipher();
+        d->magic = MAGIC;
+        d->cipher = cipher;
+        d->finalized = false;
+        d->isGCM = (strstr(algorithm, "gcm") != nullptr || strstr(algorithm, "GCM") != nullptr);
+        d->authTagSet = false;
+        d->ctx = EVP_CIPHER_CTX_new();
+
+        if (!d->ctx) return nullptr;
+
+        // Initialize cipher context for decryption
+        if (EVP_DecryptInit_ex(d->ctx, cipher, nullptr,
+                               (const unsigned char*)key,
+                               (const unsigned char*)iv) != 1) {
+            EVP_CIPHER_CTX_free(d->ctx);
+            return nullptr;
+        }
+
+        return d;
+    }
+
+    ~TsCryptoDecipher() {
+        if (ctx) {
+            EVP_CIPHER_CTX_free(ctx);
+            ctx = nullptr;
+        }
+    }
+
+    TsBuffer* Update(const void* data, size_t len) {
+        if (finalized || !ctx) return nullptr;
+
+        int outLen = (int)len + EVP_CIPHER_CTX_block_size(ctx);
+        TsBuffer* buf = TsBuffer::Create(outLen);
+
+        if (EVP_DecryptUpdate(ctx, buf->GetData(), &outLen,
+                              (const unsigned char*)data, (int)len) != 1) {
+            return nullptr;
+        }
+
+        // Resize buffer to actual output length
+        if ((size_t)outLen < buf->GetLength()) {
+            TsBuffer* resized = TsBuffer::Create(outLen);
+            memcpy(resized->GetData(), buf->GetData(), outLen);
+            return resized;
+        }
+        return buf;
+    }
+
+    TsBuffer* Final() {
+        if (finalized || !ctx) return nullptr;
+        finalized = true;
+
+        int outLen = EVP_CIPHER_CTX_block_size(ctx);
+        TsBuffer* buf = TsBuffer::Create(outLen);
+
+        if (EVP_DecryptFinal_ex(ctx, buf->GetData(), &outLen) != 1) {
+            // Decryption failed - possibly bad padding or auth tag
+            return nullptr;
+        }
+
+        // Resize buffer to actual output length
+        if ((size_t)outLen < buf->GetLength()) {
+            TsBuffer* resized = TsBuffer::Create(outLen);
+            memcpy(resized->GetData(), buf->GetData(), outLen);
+            return resized;
+        }
+        return buf;
+    }
+
+    bool SetAuthTag(const void* tag, size_t len) {
+        if (finalized || !ctx || !isGCM) return false;
+        authTagSet = true;
+        return EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, (int)len, (void*)tag) == 1;
+    }
+
+    bool SetAAD(const void* data, size_t len) {
+        if (finalized || !ctx || !isGCM) return false;
+        int outLen;
+        return EVP_DecryptUpdate(ctx, nullptr, &outLen,
+                                 (const unsigned char*)data, (int)len) == 1;
+    }
+};
+
+// ============================================================================
+// C API - Cipher functions
+// ============================================================================
+
+// crypto.createCipheriv(algorithm, key, iv) -> Cipher
+void* ts_crypto_createCipheriv(void* algorithm, void* key, void* iv) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) return nullptr;
+
+    const char* algStr = alg->ToUtf8();
+
+    // Extract key data
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+
+    TsValue* keyVal = (TsValue*)key;
+    if (keyVal->type == ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)keyVal->ptr_val;
+        keyData = keyStr->ToUtf8();
+        keyLen = strlen((const char*)keyData);
+    } else if (keyVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)keyVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            keyData = buf->GetData();
+            keyLen = buf->GetLength();
+        }
+    } else {
+        void* raw = ts_value_get_object(keyVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                keyData = buf->GetData();
+                keyLen = buf->GetLength();
+            } else {
+                TsString* keyStr = (TsString*)raw;
+                keyData = keyStr->ToUtf8();
+                keyLen = strlen((const char*)keyData);
+            }
+        }
+    }
+
+    // Extract IV data
+    const void* ivData = nullptr;
+    size_t ivLen = 0;
+
+    TsValue* ivVal = (TsValue*)iv;
+    if (ivVal->type == ValueType::STRING_PTR) {
+        TsString* ivStr = (TsString*)ivVal->ptr_val;
+        ivData = ivStr->ToUtf8();
+        ivLen = strlen((const char*)ivData);
+    } else if (ivVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)ivVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            ivData = buf->GetData();
+            ivLen = buf->GetLength();
+        }
+    } else {
+        void* raw = ts_value_get_object(ivVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                ivData = buf->GetData();
+                ivLen = buf->GetLength();
+            } else {
+                TsString* ivStr = (TsString*)raw;
+                ivData = ivStr->ToUtf8();
+                ivLen = strlen((const char*)ivData);
+            }
+        }
+    }
+
+    if (!keyData) return nullptr;
+
+    return TsCryptoCipher::Create(algStr, keyData, keyLen, ivData, ivLen);
+}
+
+// cipher.update(data) -> Buffer
+void* ts_crypto_cipher_update(void* cipherObj, void* data) {
+    TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
+    if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return nullptr;
+
+    // Handle string or buffer
+    TsValue* val = (TsValue*)data;
+    if (!val) return nullptr;
+
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        return cipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            return cipher->Update(buf->GetData(), buf->GetLength());
+        }
+    } else {
+        void* raw = ts_value_get_object(val);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                return cipher->Update(buf->GetData(), buf->GetLength());
+            } else {
+                TsString* str = (TsString*)raw;
+                return cipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+// cipher.final() -> Buffer
+void* ts_crypto_cipher_final(void* cipherObj) {
+    TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
+    if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return nullptr;
+    return cipher->Final();
+}
+
+// cipher.getAuthTag() -> Buffer (for GCM mode)
+void* ts_crypto_cipher_getAuthTag(void* cipherObj) {
+    TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
+    if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return nullptr;
+    return cipher->GetAuthTag();
+}
+
+// cipher.setAAD(buffer) -> Cipher (for GCM mode)
+void* ts_crypto_cipher_setAAD(void* cipherObj, void* data) {
+    TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
+    if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return cipherObj;
+
+    TsValue* val = (TsValue*)data;
+    if (!val) return cipherObj;
+
+    if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            cipher->SetAAD(buf->GetData(), buf->GetLength());
+        }
+    }
+
+    return cipherObj;
+}
+
+// crypto.createDecipheriv(algorithm, key, iv) -> Decipher
+void* ts_crypto_createDecipheriv(void* algorithm, void* key, void* iv) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) return nullptr;
+
+    const char* algStr = alg->ToUtf8();
+
+    // Extract key data (same logic as cipher)
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+
+    TsValue* keyVal = (TsValue*)key;
+    if (keyVal->type == ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)keyVal->ptr_val;
+        keyData = keyStr->ToUtf8();
+        keyLen = strlen((const char*)keyData);
+    } else if (keyVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)keyVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            keyData = buf->GetData();
+            keyLen = buf->GetLength();
+        }
+    } else {
+        void* raw = ts_value_get_object(keyVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                keyData = buf->GetData();
+                keyLen = buf->GetLength();
+            } else {
+                TsString* keyStr = (TsString*)raw;
+                keyData = keyStr->ToUtf8();
+                keyLen = strlen((const char*)keyData);
+            }
+        }
+    }
+
+    // Extract IV data
+    const void* ivData = nullptr;
+    size_t ivLen = 0;
+
+    TsValue* ivVal = (TsValue*)iv;
+    if (ivVal->type == ValueType::STRING_PTR) {
+        TsString* ivStr = (TsString*)ivVal->ptr_val;
+        ivData = ivStr->ToUtf8();
+        ivLen = strlen((const char*)ivData);
+    } else if (ivVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)ivVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            ivData = buf->GetData();
+            ivLen = buf->GetLength();
+        }
+    } else {
+        void* raw = ts_value_get_object(ivVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                ivData = buf->GetData();
+                ivLen = buf->GetLength();
+            } else {
+                TsString* ivStr = (TsString*)raw;
+                ivData = ivStr->ToUtf8();
+                ivLen = strlen((const char*)ivData);
+            }
+        }
+    }
+
+    if (!keyData) return nullptr;
+
+    return TsCryptoDecipher::Create(algStr, keyData, keyLen, ivData, ivLen);
+}
+
+// decipher.update(data) -> Buffer
+void* ts_crypto_decipher_update(void* decipherObj, void* data) {
+    TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
+    if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return nullptr;
+
+    TsValue* val = (TsValue*)data;
+    if (!val) return nullptr;
+
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        return decipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            return decipher->Update(buf->GetData(), buf->GetLength());
+        }
+    } else {
+        void* raw = ts_value_get_object(val);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                return decipher->Update(buf->GetData(), buf->GetLength());
+            } else {
+                TsString* str = (TsString*)raw;
+                return decipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+// decipher.final() -> Buffer
+void* ts_crypto_decipher_final(void* decipherObj) {
+    TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
+    if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return nullptr;
+    return decipher->Final();
+}
+
+// decipher.setAuthTag(tag) -> Decipher (for GCM mode)
+void* ts_crypto_decipher_setAuthTag(void* decipherObj, void* tag) {
+    TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
+    if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return decipherObj;
+
+    TsValue* val = (TsValue*)tag;
+    if (!val) return decipherObj;
+
+    if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            decipher->SetAuthTag(buf->GetData(), buf->GetLength());
+        }
+    } else {
+        void* raw = ts_value_get_object(val);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                decipher->SetAuthTag(buf->GetData(), buf->GetLength());
+            }
+        }
+    }
+
+    return decipherObj;
+}
+
+// decipher.setAAD(buffer) -> Decipher (for GCM mode)
+void* ts_crypto_decipher_setAAD(void* decipherObj, void* data) {
+    TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
+    if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return decipherObj;
+
+    TsValue* val = (TsValue*)data;
+    if (!val) return decipherObj;
+
+    if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            decipher->SetAAD(buf->GetData(), buf->GetLength());
+        }
+    }
+
+    return decipherObj;
+}
+
+// ============================================================================
+// VTable entry points for Cipher class
+// ============================================================================
+
+void* Cipher_update(void* cipherObj, void* data) {
+    return ts_crypto_cipher_update(cipherObj, data);
+}
+
+void* Cipher_final(void* cipherObj) {
+    return ts_crypto_cipher_final(cipherObj);
+}
+
+void* Cipher_getAuthTag(void* cipherObj) {
+    return ts_crypto_cipher_getAuthTag(cipherObj);
+}
+
+void* Cipher_setAAD(void* cipherObj, void* data) {
+    return ts_crypto_cipher_setAAD(cipherObj, data);
+}
+
+// ============================================================================
+// VTable entry points for Decipher class
+// ============================================================================
+
+void* Decipher_update(void* decipherObj, void* data) {
+    return ts_crypto_decipher_update(decipherObj, data);
+}
+
+void* Decipher_final(void* decipherObj) {
+    return ts_crypto_decipher_final(decipherObj);
+}
+
+void* Decipher_setAuthTag(void* decipherObj, void* tag) {
+    return ts_crypto_decipher_setAuthTag(decipherObj, tag);
+}
+
+void* Decipher_setAAD(void* decipherObj, void* data) {
+    return ts_crypto_decipher_setAAD(decipherObj, data);
+}
+
+// ============================================================================
 // VTable entry points for Hash class
 // These are called by the generated code when using class method syntax
 // ============================================================================

@@ -24,7 +24,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
-| `crypto` | ⚠️ | 47% | Cryptographic functions |
+| `crypto` | ⚠️ | 67% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
@@ -228,9 +228,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Cipher/Decipher
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.createCipheriv()` | ❌ | |
-| `crypto.createDecipheriv()` | ❌ | |
+| `crypto.createCipheriv()` | ✅ | AES-CBC, AES-GCM modes |
+| `crypto.createDecipheriv()` | ✅ | AES-CBC, AES-GCM modes |
 | `crypto.getCiphers()` | ✅ | Returns available cipher algorithms |
+| `Cipher.update(data)` | ✅ | Returns encrypted Buffer |
+| `Cipher.final()` | ✅ | Returns final encrypted Buffer |
+| `Cipher.getAuthTag()` | ✅ | For GCM mode |
+| `Cipher.setAAD(data)` | ✅ | For GCM mode |
+| `Decipher.update(data)` | ✅ | Returns decrypted Buffer |
+| `Decipher.final()` | ✅ | Returns final decrypted Buffer |
+| `Decipher.setAuthTag(tag)` | ✅ | For GCM mode |
+| `Decipher.setAAD(data)` | ✅ | For GCM mode |
 
 ### Random
 | Feature | Status | Notes |
@@ -273,7 +281,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
 
-**Crypto Coverage: 20/34 (59%)**
+**Crypto Coverage: 28/42 (67%)**
 
 ---
 
