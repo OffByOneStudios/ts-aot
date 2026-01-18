@@ -407,6 +407,14 @@ void Analyzer::registerBuffer() {
     auto bufferModule = std::make_shared<ObjectType>();
     bufferModule->fields["Buffer"] = bufferStatic;
     symbols.define("buffer", bufferModule);
+
+    // ArrayBuffer - JavaScript's ArrayBuffer type (our Buffer serves as the implementation)
+    // Note: ArrayBuffer is primarily used as input to Buffer.from(arrayBuffer)
+    // Our TsBuffer class serves as the ArrayBuffer implementation
+    auto arrayBufferClass = std::make_shared<ClassType>("ArrayBuffer");
+    arrayBufferClass->fields["byteLength"] = std::make_shared<Type>(TypeKind::Int);
+
+    symbols.defineType("ArrayBuffer", arrayBufferClass);
 }
 
 } // namespace ts

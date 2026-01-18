@@ -94,7 +94,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `Buffer.compare(buf1, buf2)` | ✅ | |
 | `Buffer.concat(list)` | ✅ | |
 | `Buffer.from(array)` | ✅ | |
-| `Buffer.from(arrayBuffer)` | ❌ | |
+| `Buffer.from(arrayBuffer)` | ✅ | With byteOffset and length support |
 | `Buffer.from(buffer)` | ✅ | Creates a copy of the buffer |
 | `Buffer.from(string, encoding)` | ✅ | |
 | `Buffer.isBuffer(obj)` | ✅ | |
