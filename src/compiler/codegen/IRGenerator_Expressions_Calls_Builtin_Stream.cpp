@@ -33,6 +33,7 @@ static void ensureStreamFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readable_set_encoding", {true, true}, true);  // stream, encoding -> stream
     bp.registerRuntimeApi("ts_readable_readable_encoding", {true}, true);  // stream -> string|null
     bp.registerRuntimeApi("ts_readable_unshift", {true, true}, false);  // stream, chunk -> void
+    bp.registerRuntimeApi("ts_readable_read", {true, false}, true);  // stream, size -> any (data or null)
 
     // Stream module functions
     bp.registerRuntimeApi("ts_stream_pipeline", {true, true}, true);  // streams array, callback -> last stream
@@ -364,6 +365,33 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_unshift", ft);
         createCall(ft, fn.getCallee(), { obj, chunk });
         lastValue = nullptr;  // void return
+        return true;
+    } else if (prop->name == "read") {
+        // readable.read([size]) - pull data from the internal buffer
+        visit(prop->expression.get());
+        llvm::Value* obj = lastValue;
+
+        // Get the optional size argument (defaults to 0 which means no size limit)
+        llvm::Value* size = nullptr;
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            size = lastValue;
+            // Ensure it's an i64
+            if (size->getType() != builder->getInt64Ty()) {
+                if (size->getType()->isDoubleTy()) {
+                    size = builder->CreateFPToSI(size, builder->getInt64Ty());
+                } else if (size->getType()->isIntegerTy()) {
+                    size = builder->CreateSExtOrTrunc(size, builder->getInt64Ty());
+                }
+            }
+        } else {
+            size = llvm::ConstantInt::get(builder->getInt64Ty(), -1);  // -1 means read all available
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readable_read", ft);
+        lastValue = createCall(ft, fn.getCallee(), { obj, size });
         return true;
     } else if (prop->name == "setDefaultEncoding") {
         // writable.setDefaultEncoding(encoding) - set the default encoding for write()
