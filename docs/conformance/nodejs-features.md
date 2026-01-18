@@ -999,7 +999,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.getSystemErrorName()` | ✅ | Maps errno codes to names (EPERM, ENOENT, etc.) |
 | `util.getSystemErrorMap()` | ✅ | Returns Map of all system error codes |
 | `util.inherits()` | ⚠️ | Stub - does nothing |
-| `util.inspect()` | ⚠️ | Returns pointer value, not object string |
+| `util.inspect()` | ✅ | Properly inspects objects, arrays, Date, RegExp, Map, Set, etc. |
 | `util.inspect.custom` | ❌ | |
 | `util.inspect.defaultOptions` | ❌ | |
 | `util.isDeepStrictEqual()` | ✅ | Deep equality comparison for objects and arrays |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 48/62 (77%)** (40 full, 8 partial)
+**Util Coverage: 49/62 (79%)** (41 full, 7 partial)
 
 ---
 
