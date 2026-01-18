@@ -88,6 +88,21 @@ extern "C" {
     // util.toUSVString - converts to valid Unicode scalar value string
     void* ts_util_to_usv_string(void* str);
 
+    // util.getSystemErrorName - returns the string name for a numeric error code
+    void* ts_util_get_system_error_name(int64_t errnum);
+
+    // util.getSystemErrorMap - returns a Map of all system error codes
+    void* ts_util_get_system_error_map();
+
+    // util.styleText - apply ANSI styles to text
+    void* ts_util_style_text(void* format, void* text);
+
+    // util.debuglog - returns a logging function for the given section
+    void* ts_util_debuglog(void* section);
+
+    // util.formatWithOptions - like util.format() but with inspect options
+    void* ts_util_format_with_options(void* options, void* format, void* args);
+
     // util.types functions
     bool ts_util_types_is_promise(void* value);
     bool ts_util_types_is_typed_array(void* value);

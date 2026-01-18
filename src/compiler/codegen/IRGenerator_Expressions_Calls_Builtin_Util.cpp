@@ -20,7 +20,12 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_inherits", {true, true}, false);  // ctor, superCtor
     bp.registerRuntimeApi("ts_util_strip_vt_control_characters", {true}, false);  // str -> str
     bp.registerRuntimeApi("ts_util_to_usv_string", {true}, false);  // str -> str
-    
+    bp.registerRuntimeApi("ts_util_get_system_error_name", {false}, false);  // errnum -> str
+    bp.registerRuntimeApi("ts_util_get_system_error_map", {}, false);  // -> Map
+    bp.registerRuntimeApi("ts_util_style_text", {true, true}, false);  // format, text -> str
+    bp.registerRuntimeApi("ts_util_debuglog", {true}, false);  // section -> fn
+    bp.registerRuntimeApi("ts_util_format_with_options", {true, true, true}, false);  // opts, fmt, args -> str
+
     // util.types.isXxx functions (all take boxed value, return bool)
     bp.registerRuntimeApi("ts_util_types_is_array_buffer", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_array_buffer_view", {true}, false);
@@ -299,6 +304,132 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
             { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_util_to_usv_string", ft);
         lastValue = createCall(ft, fn.getCallee(), { str });
+        return true;
+    }
+
+    // =========================================================================
+    // util.getSystemErrorName(errnum)
+    // =========================================================================
+    if (isUtil && prop->name == "getSystemErrorName") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* errnum = lastValue;
+
+        // Ensure errnum is i64
+        if (errnum->getType() != builder->getInt64Ty()) {
+            if (errnum->getType()->isPointerTy()) {
+                errnum = builder->CreatePtrToInt(errnum, builder->getInt64Ty());
+            } else if (errnum->getType()->isDoubleTy()) {
+                errnum = builder->CreateFPToSI(errnum, builder->getInt64Ty());
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_get_system_error_name", ft);
+        lastValue = createCall(ft, fn.getCallee(), { errnum });
+        return true;
+    }
+
+    // =========================================================================
+    // util.getSystemErrorMap()
+    // =========================================================================
+    if (isUtil && prop->name == "getSystemErrorMap") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_get_system_error_map", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    // =========================================================================
+    // util.styleText(format, text)
+    // =========================================================================
+    if (isUtil && prop->name == "styleText") {
+        if (node->arguments.size() < 2) {
+            if (node->arguments.size() == 1) {
+                visit(node->arguments[0].get());
+                lastValue = lastValue;  // Just return the text if no format
+            } else {
+                lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            }
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* format = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* text = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_style_text", ft);
+        lastValue = createCall(ft, fn.getCallee(), { format, text });
+        return true;
+    }
+
+    // =========================================================================
+    // util.debuglog(section)
+    // =========================================================================
+    if (isUtil && prop->name == "debuglog") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* section = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_debuglog", ft);
+        lastValue = createCall(ft, fn.getCallee(), { section });
+        return true;
+    }
+
+    // =========================================================================
+    // util.formatWithOptions(inspectOptions, format, ...args)
+    // =========================================================================
+    if (isUtil && prop->name == "formatWithOptions") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* options = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* format = lastValue;
+
+        // Create array of remaining args
+        llvm::Value* argsArray;
+        if (node->arguments.size() > 2) {
+            llvm::FunctionType* createFT = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFT);
+            argsArray = createCall(createFT, createFn.getCallee(), {});
+
+            llvm::FunctionType* pushFT = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getInt64Ty() }, false);
+            llvm::FunctionCallee pushFn = getRuntimeFunction("ts_array_push", pushFT);
+
+            for (size_t i = 2; i < node->arguments.size(); i++) {
+                visit(node->arguments[i].get());
+                llvm::Value* arg = lastValue;
+                llvm::Value* boxed = boxValue(arg, node->arguments[i]->inferredType);
+                llvm::Value* asInt = builder->CreatePtrToInt(boxed, builder->getInt64Ty());
+                createCall(pushFT, pushFn.getCallee(), { argsArray, asInt });
+            }
+        } else {
+            argsArray = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_format_with_options", ft);
+        lastValue = createCall(ft, fn.getCallee(), { options, format, argsArray });
         return true;
     }
 

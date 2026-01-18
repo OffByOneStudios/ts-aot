@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ⚠️ | 82% | URL parsing |
-| `util` | ⚠️ | 71% | Utilities |
+| `util` | ⚠️ | 77% | Utilities |
 | `v8` | N/A | - | V8 specific (AOT incompatible) |
 | `vm` | N/A | - | VM contexts (AOT incompatible) |
 | `wasi` | N/A | - | WebAssembly (not planned) |
@@ -992,12 +992,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `util.callbackify()` | ✅ | Converts Promise-returning functions to callback style |
-| `util.debuglog()` | ❌ | |
+| `util.debuglog()` | ⚠️ | Returns no-op function (section checking not implemented) |
 | `util.deprecate()` | ⚠️ | Stub - returns function unchanged |
 | `util.format()` | ✅ | Printf-like string formatting (%s, %d, %f, %o, %j) |
-| `util.formatWithOptions()` | ❌ | |
-| `util.getSystemErrorName()` | ❌ | |
-| `util.getSystemErrorMap()` | ❌ | |
+| `util.formatWithOptions()` | ✅ | Delegates to format() (options not yet used) |
+| `util.getSystemErrorName()` | ✅ | Maps errno codes to names (EPERM, ENOENT, etc.) |
+| `util.getSystemErrorMap()` | ✅ | Returns Map of all system error codes |
 | `util.inherits()` | ⚠️ | Stub - does nothing |
 | `util.inspect()` | ⚠️ | Returns pointer value, not object string |
 | `util.inspect.custom` | ❌ | |
@@ -1007,7 +1007,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.parseEnv()` | ❌ | |
 | `util.promisify()` | ✅ | Converts callback-style functions to Promise-returning |
 | `util.stripVTControlCharacters()` | ✅ | Removes ANSI escape codes |
-| `util.styleText()` | ❌ | |
+| `util.styleText()` | ✅ | ANSI text styling (bold, colors, etc.) |
 | `util.toUSVString()` | ✅ | Replaces lone surrogates with U+FFFD |
 | `util.transferableAbortController()` | ❌ | |
 | `util.transferableAbortSignal()` | ❌ | |
@@ -1054,7 +1054,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 44/62 (71%)** (36 full, 8 partial)
+**Util Coverage: 48/62 (77%)** (40 full, 8 partial)
 
 ---
 
@@ -1096,9 +1096,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Timers | 13 | 14 | 93% |
 | TLS | 6 | 20 | 30% |
 | URL | 37 | 38 | 97% |
-| Util | 44 | 62 | 71% |
+| Util | 48 | 62 | 77% |
 | Global | 5 | 7 | 71% |
-| **Total** | **532** | **661** | **81%** |
+| **Total** | **536** | **661** | **81%** |
 
 ### Priority Implementation Targets
 
