@@ -1227,4 +1227,232 @@ bool ts_util_types_is_boxed_primitive(void* value) {
     return TsUtilTypes::isBoxedPrimitive(value);
 }
 
+// ============================================================================
+// util.getSystemErrorName(errno) - Returns the string name for a numeric error code
+// ============================================================================
+void* ts_util_get_system_error_name(int64_t errnum) {
+    // Map common errno values to their names
+    const char* name = nullptr;
+    switch (errnum) {
+        case 1: name = "EPERM"; break;
+        case 2: name = "ENOENT"; break;
+        case 3: name = "ESRCH"; break;
+        case 4: name = "EINTR"; break;
+        case 5: name = "EIO"; break;
+        case 6: name = "ENXIO"; break;
+        case 7: name = "E2BIG"; break;
+        case 8: name = "ENOEXEC"; break;
+        case 9: name = "EBADF"; break;
+        case 10: name = "ECHILD"; break;
+        case 11: name = "EAGAIN"; break;  // Also EWOULDBLOCK
+        case 12: name = "ENOMEM"; break;
+        case 13: name = "EACCES"; break;
+        case 14: name = "EFAULT"; break;
+        case 16: name = "EBUSY"; break;
+        case 17: name = "EEXIST"; break;
+        case 18: name = "EXDEV"; break;
+        case 19: name = "ENODEV"; break;
+        case 20: name = "ENOTDIR"; break;
+        case 21: name = "EISDIR"; break;
+        case 22: name = "EINVAL"; break;
+        case 23: name = "ENFILE"; break;
+        case 24: name = "EMFILE"; break;
+        case 25: name = "ENOTTY"; break;
+        case 27: name = "EFBIG"; break;
+        case 28: name = "ENOSPC"; break;
+        case 29: name = "ESPIPE"; break;
+        case 30: name = "EROFS"; break;
+        case 31: name = "EMLINK"; break;
+        case 32: name = "EPIPE"; break;
+        case 33: name = "EDOM"; break;
+        case 34: name = "ERANGE"; break;
+        case 36: name = "EDEADLK"; break;
+        case 38: name = "ENAMETOOLONG"; break;
+        case 39: name = "ENOLCK"; break;
+        case 40: name = "ENOSYS"; break;
+        case 41: name = "ENOTEMPTY"; break;
+        // Network errors (platform-specific, common values)
+        case 100: name = "EPROTO"; break;
+        case 101: name = "ENETDOWN"; break;
+        case 102: name = "ENETUNREACH"; break;
+        case 104: name = "ECONNRESET"; break;
+        case 105: name = "ENOBUFS"; break;
+        case 106: name = "EISCONN"; break;
+        case 107: name = "ENOTCONN"; break;
+        case 110: name = "ETIMEDOUT"; break;
+        case 111: name = "ECONNREFUSED"; break;
+        case 113: name = "EHOSTUNREACH"; break;
+        case 114: name = "EALREADY"; break;
+        case 115: name = "EINPROGRESS"; break;
+        default: name = nullptr; break;
+    }
+
+    if (name) {
+        return TsString::Create(name);
+    }
+
+    // Return empty string for unknown errors
+    return TsString::Create("");
+}
+
+// ============================================================================
+// util.getSystemErrorMap() - Returns a Map of all system error codes
+// ============================================================================
+void* ts_util_get_system_error_map() {
+    TsMap* map = TsMap::Create();
+
+    // Add common errno mappings
+    auto addError = [&](int code, const char* name, const char* message) {
+        TsArray* arr = TsArray::Create(2);
+        arr->Set(0, (int64_t)TsString::Create(name));
+        arr->Set(1, (int64_t)TsString::Create(message));
+        map->Set((int64_t)code, (int64_t)arr);
+    };
+
+    addError(1, "EPERM", "operation not permitted");
+    addError(2, "ENOENT", "no such file or directory");
+    addError(3, "ESRCH", "no such process");
+    addError(4, "EINTR", "interrupted system call");
+    addError(5, "EIO", "i/o error");
+    addError(6, "ENXIO", "no such device or address");
+    addError(7, "E2BIG", "argument list too long");
+    addError(8, "ENOEXEC", "exec format error");
+    addError(9, "EBADF", "bad file descriptor");
+    addError(10, "ECHILD", "no child processes");
+    addError(11, "EAGAIN", "resource temporarily unavailable");
+    addError(12, "ENOMEM", "cannot allocate memory");
+    addError(13, "EACCES", "permission denied");
+    addError(14, "EFAULT", "bad address");
+    addError(16, "EBUSY", "resource busy or locked");
+    addError(17, "EEXIST", "file already exists");
+    addError(18, "EXDEV", "cross-device link not permitted");
+    addError(19, "ENODEV", "no such device");
+    addError(20, "ENOTDIR", "not a directory");
+    addError(21, "EISDIR", "is a directory");
+    addError(22, "EINVAL", "invalid argument");
+    addError(23, "ENFILE", "file table overflow");
+    addError(24, "EMFILE", "too many open files");
+    addError(25, "ENOTTY", "inappropriate ioctl for device");
+    addError(27, "EFBIG", "file too large");
+    addError(28, "ENOSPC", "no space left on device");
+    addError(29, "ESPIPE", "illegal seek");
+    addError(30, "EROFS", "read-only file system");
+    addError(31, "EMLINK", "too many links");
+    addError(32, "EPIPE", "broken pipe");
+    addError(33, "EDOM", "numerical argument out of domain");
+    addError(34, "ERANGE", "result too large");
+    addError(36, "EDEADLK", "resource deadlock would occur");
+    addError(38, "ENAMETOOLONG", "file name too long");
+    addError(39, "ENOLCK", "no locks available");
+    addError(40, "ENOSYS", "function not implemented");
+    addError(41, "ENOTEMPTY", "directory not empty");
+    addError(100, "EPROTO", "protocol error");
+    addError(101, "ENETDOWN", "network is down");
+    addError(102, "ENETUNREACH", "network is unreachable");
+    addError(104, "ECONNRESET", "connection reset by peer");
+    addError(105, "ENOBUFS", "no buffer space available");
+    addError(106, "EISCONN", "socket is already connected");
+    addError(107, "ENOTCONN", "socket is not connected");
+    addError(110, "ETIMEDOUT", "connection timed out");
+    addError(111, "ECONNREFUSED", "connection refused");
+    addError(113, "EHOSTUNREACH", "host is unreachable");
+    addError(114, "EALREADY", "operation already in progress");
+    addError(115, "EINPROGRESS", "operation now in progress");
+
+    return map;
+}
+
+// ============================================================================
+// util.styleText(format, text) - Apply ANSI styles to text
+// ============================================================================
+void* ts_util_style_text(void* formatArg, void* textArg) {
+    // Unbox if needed
+    void* rawFormat = ts_value_get_string((TsValue*)formatArg);
+    if (!rawFormat) rawFormat = formatArg;
+    TsString* format = (TsString*)rawFormat;
+
+    void* rawText = ts_value_get_string((TsValue*)textArg);
+    if (!rawText) rawText = textArg;
+    TsString* text = (TsString*)rawText;
+
+    if (!format || !text) return TsString::Create("");
+
+    const char* formatStr = format->ToUtf8();
+    const char* textStr = text->ToUtf8();
+
+    if (!formatStr || !textStr) return TsString::Create("");
+
+    // ANSI escape codes
+    const char* startCode = "";
+    const char* endCode = "\x1b[0m";  // Reset
+
+    // Text styles
+    if (strcmp(formatStr, "bold") == 0) startCode = "\x1b[1m";
+    else if (strcmp(formatStr, "italic") == 0) startCode = "\x1b[3m";
+    else if (strcmp(formatStr, "underline") == 0) startCode = "\x1b[4m";
+    else if (strcmp(formatStr, "strikethrough") == 0) startCode = "\x1b[9m";
+    else if (strcmp(formatStr, "dim") == 0) startCode = "\x1b[2m";
+    else if (strcmp(formatStr, "inverse") == 0) startCode = "\x1b[7m";
+    else if (strcmp(formatStr, "hidden") == 0) startCode = "\x1b[8m";
+    // Foreground colors
+    else if (strcmp(formatStr, "black") == 0) startCode = "\x1b[30m";
+    else if (strcmp(formatStr, "red") == 0) startCode = "\x1b[31m";
+    else if (strcmp(formatStr, "green") == 0) startCode = "\x1b[32m";
+    else if (strcmp(formatStr, "yellow") == 0) startCode = "\x1b[33m";
+    else if (strcmp(formatStr, "blue") == 0) startCode = "\x1b[34m";
+    else if (strcmp(formatStr, "magenta") == 0) startCode = "\x1b[35m";
+    else if (strcmp(formatStr, "cyan") == 0) startCode = "\x1b[36m";
+    else if (strcmp(formatStr, "white") == 0) startCode = "\x1b[37m";
+    else if (strcmp(formatStr, "gray") == 0 || strcmp(formatStr, "grey") == 0) startCode = "\x1b[90m";
+    // Bright foreground colors
+    else if (strcmp(formatStr, "redBright") == 0) startCode = "\x1b[91m";
+    else if (strcmp(formatStr, "greenBright") == 0) startCode = "\x1b[92m";
+    else if (strcmp(formatStr, "yellowBright") == 0) startCode = "\x1b[93m";
+    else if (strcmp(formatStr, "blueBright") == 0) startCode = "\x1b[94m";
+    else if (strcmp(formatStr, "magentaBright") == 0) startCode = "\x1b[95m";
+    else if (strcmp(formatStr, "cyanBright") == 0) startCode = "\x1b[96m";
+    else if (strcmp(formatStr, "whiteBright") == 0) startCode = "\x1b[97m";
+    // Background colors
+    else if (strcmp(formatStr, "bgBlack") == 0) startCode = "\x1b[40m";
+    else if (strcmp(formatStr, "bgRed") == 0) startCode = "\x1b[41m";
+    else if (strcmp(formatStr, "bgGreen") == 0) startCode = "\x1b[42m";
+    else if (strcmp(formatStr, "bgYellow") == 0) startCode = "\x1b[43m";
+    else if (strcmp(formatStr, "bgBlue") == 0) startCode = "\x1b[44m";
+    else if (strcmp(formatStr, "bgMagenta") == 0) startCode = "\x1b[45m";
+    else if (strcmp(formatStr, "bgCyan") == 0) startCode = "\x1b[46m";
+    else if (strcmp(formatStr, "bgWhite") == 0) startCode = "\x1b[47m";
+    // If unknown format, just return the text unchanged
+    else {
+        return text;
+    }
+
+    // Construct styled string
+    std::string result = startCode;
+    result += textStr;
+    result += endCode;
+
+    return TsString::Create(result.c_str());
+}
+
+// ============================================================================
+// util.debuglog(section) - Returns a logging function for the given section
+// Note: For AOT compilation, we return a simple console.log wrapper
+// ============================================================================
+void* ts_util_debuglog(void* section) {
+    // In Node.js, debuglog returns a function that only logs if NODE_DEBUG includes the section
+    // For our AOT implementation, we just return a no-op function for now
+    // TODO: Check an environment variable for enabled sections
+    return nullptr;  // Returning null acts as no-op
+}
+
+// ============================================================================
+// util.formatWithOptions(inspectOptions, format, ...args)
+// Like util.format() but with inspect options
+// ============================================================================
+void* ts_util_format_with_options(void* options, void* format, void* args) {
+    // For now, just delegate to regular format (ignoring options)
+    // A full implementation would use the options for object inspection
+    return ts_util_format(format, args);
+}
+
 } // extern "C"
