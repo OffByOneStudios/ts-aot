@@ -135,6 +135,14 @@ static bool strictEqual(void* a, void* b) {
 // Forward declaration for deep comparison
 static bool deepStrictEqual(void* a, void* b);
 
+// Helper to check if a value looks like a pointer (high address)
+static bool looksLikePointer(int64_t val) {
+    // Pointers on 64-bit systems typically have high bits set
+    // Small integers (like array values 1, 2, 3) have small absolute values
+    // We consider anything > 0x10000 as potentially a pointer
+    return val < 0 || val > 0x10000;
+}
+
 // Helper for deep array comparison
 static bool deepEqualArrays(TsArray* a, TsArray* b) {
     if (a->Length() != b->Length()) return false;
@@ -148,17 +156,22 @@ static bool deepEqualArrays(TsArray* a, TsArray* b) {
         // First try direct integer comparison (for number arrays)
         if (va == vb) continue;
 
+        // If neither looks like a pointer, treat as raw integers that differ
+        if (!looksLikePointer(va) && !looksLikePointer(vb)) {
+            return false;  // Different integer values
+        }
+
         // Check if they might be boxed values (pointers)
         TsValue* valA = (TsValue*)va;
         TsValue* valB = (TsValue*)vb;
 
-        // If both are non-zero, compare as boxed values
-        if (va != 0 && vb != 0) {
+        // If both are non-zero and look like pointers, compare as boxed values
+        if (va != 0 && vb != 0 && looksLikePointer(va) && looksLikePointer(vb)) {
             if (!deepStrictEqual(valA, valB)) {
                 return false;
             }
         } else {
-            return false;  // One is null/zero, the other isn't
+            return false;  // Type mismatch (one raw, one pointer)
         }
     }
     return true;
