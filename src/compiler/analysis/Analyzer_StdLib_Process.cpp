@@ -318,23 +318,44 @@ void Analyzer::registerProcess() {
     // ========================================================================
     // Milestone 102.14: Diagnostics & Reporting
     // ========================================================================
-    
+
     // process.report: object
     auto reportType = std::make_shared<ObjectType>();
-    
+
     auto getReportType = std::make_shared<FunctionType>();
     getReportType->returnType = std::make_shared<Type>(TypeKind::Any);
     reportType->fields["getReport"] = getReportType;
-    
+
     auto writeReportType = std::make_shared<FunctionType>();
     writeReportType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     writeReportType->returnType = std::make_shared<Type>(TypeKind::Void);
     reportType->fields["writeReport"] = writeReportType;
-    
+
     reportType->fields["directory"] = std::make_shared<Type>(TypeKind::String);
     reportType->fields["filename"] = std::make_shared<Type>(TypeKind::String);
-    
+
     processType->fields["report"] = reportType;
+
+    // ========================================================================
+    // IPC Support for fork()
+    // ========================================================================
+
+    // process.send(message: any, sendHandle?: any, options?: any, callback?: Function): boolean
+    auto sendType = std::make_shared<FunctionType>();
+    sendType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // message
+    sendType->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    processType->fields["send"] = sendType;
+
+    // process.disconnect(): void
+    auto disconnectType = std::make_shared<FunctionType>();
+    disconnectType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["disconnect"] = disconnectType;
+
+    // process.connected: boolean
+    processType->fields["connected"] = std::make_shared<Type>(TypeKind::Boolean);
+
+    // process.channel: any (the IPC channel object, or undefined)
+    processType->fields["channel"] = std::make_shared<Type>(TypeKind::Any);
 
     symbols.define("process", processType);
 }

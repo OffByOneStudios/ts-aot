@@ -52,10 +52,16 @@ static void ensureProcessFunctionsRegistered(BoxingPolicy& bp) {
     
     // Signals/Kill
     bp.registerRuntimeApi("ts_process_kill", {false, false}, false);  // pid, signal
-    
+
     // Exception handling
     bp.registerRuntimeApi("ts_process_set_uncaught_exception_capture_callback", {true}, false);
     bp.registerRuntimeApi("ts_process_has_uncaught_exception_capture_callback", {}, false);  // -> bool
+
+    // IPC support for fork()
+    bp.registerRuntimeApi("ts_process_send", {true}, false);  // message -> bool
+    bp.registerRuntimeApi("ts_process_disconnect", {}, false);
+    bp.registerRuntimeApi("ts_process_get_connected", {}, false);  // -> bool
+    bp.registerRuntimeApi("ts_process_get_channel", {}, true);  // -> boxed object or null
 }
 
 bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -428,8 +434,44 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
     if (prop->name == "_tickCallback") {
         llvm::FunctionType* tickFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
         llvm::FunctionCallee tickFn = getRuntimeFunction("ts_process_tick_callback", tickFt);
-        
+
         createCall(tickFt, tickFn.getCallee(), {});
+        lastValue = nullptr;
+        return true;
+    }
+
+    // ========================================================================
+    // IPC Support for fork()
+    // ========================================================================
+
+    if (prop->name == "send") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantInt::getFalse(*context);
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* message = lastValue;
+        if (!boxedValues.count(message)) {
+            message = boxValue(message, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* sendFt = llvm::FunctionType::get(
+            llvm::Type::getInt1Ty(*context),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee sendFn = getRuntimeFunction("ts_process_send", sendFt);
+
+        lastValue = createCall(sendFt, sendFn.getCallee(), { message });
+        return true;
+    }
+
+    if (prop->name == "disconnect") {
+        llvm::FunctionType* disconnectFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), {}, false);
+        llvm::FunctionCallee disconnectFn = getRuntimeFunction("ts_process_disconnect", disconnectFt);
+
+        createCall(disconnectFt, disconnectFn.getCallee(), {});
         lastValue = nullptr;
         return true;
     }

@@ -1225,6 +1225,22 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             lastValue = createCall(ft, fn.getCallee(), {});
             return;
         }
+        // ====================================================================
+        // IPC Support for fork()
+        // ====================================================================
+        if (id->name == "process" && node->name == "connected") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_connected", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "process" && node->name == "channel") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_process_get_channel", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(lastValue);
+            return;
+        }
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
