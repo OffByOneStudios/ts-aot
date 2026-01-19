@@ -26,7 +26,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
-| `dns` | ❌ | 0% | DNS resolution |
+| `dns` | ⚠️ | 80% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 86% | EventEmitter |
 | `fs` | ⚠️ | 98% | File system |
@@ -426,6 +426,75 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
 
 **Crypto Coverage: 46/46 (100%)**
+
+---
+
+## DNS
+
+### Callback API
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `dns.lookup(hostname, callback)` | ✅ | Uses libuv getaddrinfo |
+| `dns.lookup(hostname, options, callback)` | ✅ | Family option supported |
+| `dns.resolve(hostname, callback)` | ❌ | |
+| `dns.resolve4(hostname, callback)` | ✅ | IPv4 address resolution |
+| `dns.resolve6(hostname, callback)` | ✅ | IPv6 address resolution |
+| `dns.resolveCname(hostname, callback)` | ❌ | |
+| `dns.resolveMx(hostname, callback)` | ❌ | |
+| `dns.resolveNs(hostname, callback)` | ❌ | |
+| `dns.resolveTxt(hostname, callback)` | ❌ | |
+| `dns.resolveSrv(hostname, callback)` | ❌ | |
+| `dns.resolvePtr(hostname, callback)` | ❌ | |
+| `dns.resolveNaptr(hostname, callback)` | ❌ | |
+| `dns.resolveSoa(hostname, callback)` | ❌ | |
+| `dns.reverse(ip, callback)` | ✅ | Uses libuv getnameinfo |
+
+### Utility Functions
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `dns.getServers()` | ✅ | Returns empty array (system default) |
+| `dns.setServers(servers)` | ✅ | Stub (no-op) |
+
+### Promises API
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `dns.promises.lookup(hostname)` | ✅ | Returns Promise<{address, family}> |
+| `dns.promises.resolve(hostname)` | ❌ | |
+| `dns.promises.resolve4(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.resolve6(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.reverse(ip)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.getServers()` | ❌ | |
+| `dns.promises.setServers()` | ❌ | |
+
+### Error Codes
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `dns.NODATA` | ✅ | |
+| `dns.FORMERR` | ✅ | |
+| `dns.SERVFAIL` | ✅ | |
+| `dns.NOTFOUND` | ✅ | |
+| `dns.NOTIMP` | ✅ | |
+| `dns.REFUSED` | ✅ | |
+| `dns.BADQUERY` | ✅ | |
+| `dns.BADNAME` | ✅ | |
+| `dns.BADFAMILY` | ✅ | |
+| `dns.BADRESP` | ✅ | |
+| `dns.CONNREFUSED` | ✅ | |
+| `dns.TIMEOUT` | ✅ | |
+| `dns.EOF` | ✅ | |
+| `dns.FILE` | ✅ | |
+| `dns.NOMEM` | ✅ | |
+| `dns.DESTRUCTION` | ✅ | |
+| `dns.BADSTR` | ✅ | |
+| `dns.BADFLAGS` | ✅ | |
+| `dns.NONAME` | ✅ | |
+| `dns.BADHINTS` | ✅ | |
+| `dns.NOTINITIALIZED` | ✅ | |
+| `dns.LOADIPHLPAPI` | ✅ | |
+| `dns.ADDRGETNETWORKPARAMS` | ✅ | |
+| `dns.CANCELLED` | ✅ | |
+
+**DNS Coverage: 40/50 (80%)**
 
 ---
 

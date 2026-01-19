@@ -98,6 +98,7 @@ add_library(tsruntime STATIC
     src/TsAsyncHooks.cpp
     src/TsChildProcess.cpp
     src/TsCluster.cpp
+    src/TsDNS.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

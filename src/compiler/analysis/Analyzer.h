@@ -73,6 +73,7 @@ public:
     void registerAsyncHooks();
     void registerChildProcess();
     void registerCluster();
+    void registerDNS();
 
     void reportError(const std::string& message);
 

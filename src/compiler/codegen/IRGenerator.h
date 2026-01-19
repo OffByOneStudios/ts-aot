@@ -213,6 +213,9 @@ private:
     bool tryGenerateChildProcessPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGenerateClusterCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateWorkerCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateDNSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateDNSPromisesCall(ast::CallExpression* node, const std::string& methodName);
+    bool tryGenerateDNSPropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

@@ -72,6 +72,8 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_AsyncHooks.cpp
     analysis/Analyzer_StdLib_ChildProcess.cpp
     analysis/Analyzer_StdLib_Cluster.cpp
+    analysis/Analyzer_StdLib_DNS.cpp
+    analysis/Analyzer_StdLib_DNS.cpp
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
@@ -121,6 +123,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_AsyncHooks.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_ChildProcess.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Cluster.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_DNS.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp
