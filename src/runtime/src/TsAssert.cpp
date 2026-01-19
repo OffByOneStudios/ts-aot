@@ -12,6 +12,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csetjmp>
+
+// Exception context for assert.throws/doesNotThrow
+struct AssertExceptionContext {
+    jmp_buf env;
+    bool caught;
+    TsValue* exception;
+};
 
 // Helper to get string value from TsValue
 static const char* getMessageStr(void* message) {
@@ -327,18 +335,68 @@ void ts_assert_not_deep_strict_equal(void* actual, void* expected, void* message
 }
 
 void ts_assert_throws(void* fn, void* error, void* message) {
-    // Note: Since we don't have try/catch, we can't properly test for throws
-    // This is a stub that warns about the limitation
-    fprintf(stderr, "Warning: assert.throws() cannot verify exceptions in AOT-compiled code (no try/catch support)\n");
+    if (!fn) {
+        assertionFailed("throws", nullptr, error, message);
+        return;
+    }
+
+    TsValue* fnVal = (TsValue*)fn;
+    if (fnVal->type != ValueType::FUNCTION_PTR || !fnVal->ptr_val) {
+        assertionFailed("throws", fn, error, message);
+        return;
+    }
+
+    // Push exception handler and call the function
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+
+    if (setjmp(*env) == 0) {
+        // Try to call the function
+        ts_function_call(fnVal, 0, nullptr);
+        // If we get here, no exception was thrown
+        ts_pop_exception_handler();
+        assertionFailed("throws", fn, error, message);
+    } else {
+        // Exception was caught - this is expected for throws()
+        TsValue* caughtException = ts_get_exception();
+        ts_set_exception(nullptr);  // Clear the exception
+
+        // TODO: If error parameter is provided, verify exception matches
+        // For now, just verify that something was thrown
+        (void)caughtException;
+        (void)error;
+    }
 }
 
 void ts_assert_does_not_throw(void* fn, void* error, void* message) {
-    // Call the function - if it throws, the program will crash
-    if (fn) {
-        TsValue* fnVal = (TsValue*)fn;
-        if (fnVal->type == ValueType::FUNCTION_PTR && fnVal->ptr_val) {
-            ts_function_call(fnVal, 0, nullptr);
+    if (!fn) return;
+
+    TsValue* fnVal = (TsValue*)fn;
+    if (fnVal->type != ValueType::FUNCTION_PTR || !fnVal->ptr_val) {
+        return;
+    }
+
+    // Push exception handler and call the function
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+
+    if (setjmp(*env) == 0) {
+        // Try to call the function
+        ts_function_call(fnVal, 0, nullptr);
+        // If we get here, no exception was thrown - good!
+        ts_pop_exception_handler();
+    } else {
+        // Exception was caught - this is a failure for doesNotThrow()
+        TsValue* caughtException = ts_get_exception();
+        ts_set_exception(nullptr);  // Clear the exception
+
+        const char* msg = getMessageStr(message);
+        fprintf(stderr, "AssertionError [ERR_ASSERTION]: Got unwanted exception");
+        if (msg && strlen(msg) > 0) {
+            fprintf(stderr, ": %s", msg);
         }
+        fprintf(stderr, "\n");
+        exit(1);
     }
 }
 

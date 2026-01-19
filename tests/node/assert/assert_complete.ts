@@ -190,16 +190,20 @@ function user_main(): number {
         });
     });
 
-    // ===== assert.throws() - stub with warning =====
-    console.log("\n--- throws (stub - no try/catch in AOT) ---");
-    console.log("Note: assert.throws() cannot verify exceptions in AOT-compiled code");
-    // We call it to show the warning, but it doesn't actually test anything
-    assert.throws(() => {
-        // This would throw in Node.js, but we can't catch it in AOT
+    // ===== assert.throws() - now works with setjmp/longjmp =====
+    console.log("\n--- throws (with exception handling) ---");
+
+    test("assert.throws with throwing function", () => {
+        assert.throws(() => {
+            throw new Error("Expected error");
+        });
     });
-    console.log("PASS: assert.throws stub executed (warning displayed)");
-    passed++;
-    total++;
+
+    test("assert.throws with string throw", () => {
+        assert.throws(() => {
+            throw "string error";
+        });
+    });
 
     // ===== Summary =====
     console.log("\n=== Test Summary ===");
