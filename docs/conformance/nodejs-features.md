@@ -26,7 +26,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
-| `dns` | ⚠️ | 80% | DNS resolution |
+| `dns` | ✅ | 97% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 86% | EventEmitter |
 | `fs` | ⚠️ | 98% | File system |
@@ -436,17 +436,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `dns.lookup(hostname, callback)` | ✅ | Uses libuv getaddrinfo |
 | `dns.lookup(hostname, options, callback)` | ✅ | Family option supported |
-| `dns.resolve(hostname, callback)` | ❌ | |
+| `dns.resolve(hostname, callback)` | ✅ | Same as resolve4 |
 | `dns.resolve4(hostname, callback)` | ✅ | IPv4 address resolution |
 | `dns.resolve6(hostname, callback)` | ✅ | IPv6 address resolution |
-| `dns.resolveCname(hostname, callback)` | ❌ | |
-| `dns.resolveMx(hostname, callback)` | ❌ | |
-| `dns.resolveNs(hostname, callback)` | ❌ | |
-| `dns.resolveTxt(hostname, callback)` | ❌ | |
-| `dns.resolveSrv(hostname, callback)` | ❌ | |
-| `dns.resolvePtr(hostname, callback)` | ❌ | |
-| `dns.resolveNaptr(hostname, callback)` | ❌ | |
-| `dns.resolveSoa(hostname, callback)` | ❌ | |
+| `dns.resolveCname(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveMx(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveNs(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveTxt(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveSrv(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolvePtr(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveNaptr(hostname, callback)` | ✅ | Uses c-ares |
+| `dns.resolveSoa(hostname, callback)` | ✅ | Uses c-ares |
 | `dns.reverse(ip, callback)` | ✅ | Uses libuv getnameinfo |
 
 ### Utility Functions
@@ -459,9 +459,17 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `dns.promises.lookup(hostname)` | ✅ | Returns Promise<{address, family}> |
-| `dns.promises.resolve(hostname)` | ❌ | |
+| `dns.promises.resolve(hostname)` | ✅ | Same as resolve4 |
 | `dns.promises.resolve4(hostname)` | ✅ | Returns Promise<string[]> |
 | `dns.promises.resolve6(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.resolveCname(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.resolveMx(hostname)` | ✅ | Returns Promise<MxRecord[]> |
+| `dns.promises.resolveNs(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.resolveTxt(hostname)` | ✅ | Returns Promise<string[][]> |
+| `dns.promises.resolveSrv(hostname)` | ✅ | Returns Promise<SrvRecord[]> |
+| `dns.promises.resolvePtr(hostname)` | ✅ | Returns Promise<string[]> |
+| `dns.promises.resolveNaptr(hostname)` | ✅ | Returns Promise<NaptrRecord[]> |
+| `dns.promises.resolveSoa(hostname)` | ✅ | Returns Promise<SoaRecord> |
 | `dns.promises.reverse(ip)` | ✅ | Returns Promise<string[]> |
 | `dns.promises.getServers()` | ❌ | |
 | `dns.promises.setServers()` | ❌ | |
@@ -494,7 +502,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns.ADDRGETNETWORKPARAMS` | ✅ | |
 | `dns.CANCELLED` | ✅ | |
 
-**DNS Coverage: 40/50 (80%)**
+**DNS Coverage: 56/58 (97%)**
 
 ---
 
@@ -1308,6 +1316,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Cluster | 26 | 32 | 81% |
 | Console | 19 | 19 | 100% |
 | Crypto | 46 | 46 | 100% |
+| DNS | 56 | 58 | 97% |
 | Events | 21 | 21 | 100% |
 | File System | 123 | 123 | 100% |
 | HTTP | 49 | 67 | 73% |
@@ -1324,7 +1333,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **666** | **736** | **90%** |
+| **Total** | **722** | **794** | **91%** |
 
 ### Priority Implementation Targets
 

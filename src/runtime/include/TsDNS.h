@@ -4,13 +4,15 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include <uv.h>
+#include <ares.h>
 #include <string>
 #include <vector>
 
 /*
  * TsDNS - Node.js dns module implementation
  *
- * Provides DNS resolution using libuv's uv_getaddrinfo and uv_getnameinfo.
+ * Provides DNS resolution using libuv's uv_getaddrinfo/uv_getnameinfo for
+ * basic lookups and c-ares for advanced DNS record queries (MX, TXT, NS, etc.).
  *
  * APIs implemented:
  *   - dns.lookup(hostname, callback) - Resolve hostname to IP address
@@ -18,12 +20,16 @@
  *   - dns.resolve(hostname, callback) - DNS A record lookup
  *   - dns.resolve4(hostname, callback) - DNS A record lookup (IPv4)
  *   - dns.resolve6(hostname, callback) - DNS AAAA record lookup (IPv6)
+ *   - dns.resolveCname(hostname, callback) - DNS CNAME record lookup
+ *   - dns.resolveMx(hostname, callback) - DNS MX record lookup
+ *   - dns.resolveNs(hostname, callback) - DNS NS record lookup
+ *   - dns.resolveTxt(hostname, callback) - DNS TXT record lookup
+ *   - dns.resolveSrv(hostname, callback) - DNS SRV record lookup
+ *   - dns.resolvePtr(hostname, callback) - DNS PTR record lookup
+ *   - dns.resolveNaptr(hostname, callback) - DNS NAPTR record lookup
+ *   - dns.resolveSoa(hostname, callback) - DNS SOA record lookup
  *   - dns.reverse(ip, callback) - Reverse DNS lookup
- *   - dns.promises.lookup() - Promise-based lookup
- *   - dns.promises.resolve() - Promise-based resolve
- *   - dns.promises.resolve4() - Promise-based resolve4
- *   - dns.promises.resolve6() - Promise-based resolve6
- *   - dns.promises.reverse() - Promise-based reverse
+ *   - dns.promises.* - Promise-based versions of all above
  */
 
 // DNS lookup options
@@ -54,8 +60,20 @@ struct DnsReverseContext {
     uv_getnameinfo_t req;
 };
 
+// Context for c-ares queries
+struct DnsAresContext {
+    void* callback = nullptr;
+    void* promise = nullptr;
+    ares_channel channel;
+    std::string hostname;
+    int query_type;
+};
+
 // C API for dns module
 extern "C" {
+    // Initialize c-ares (called once at startup)
+    void ts_dns_init();
+
     // dns.lookup(hostname, callback)
     // dns.lookup(hostname, options, callback)
     void ts_dns_lookup(void* hostname, void* optionsOrCallback, void* callbackOrNull);
@@ -68,6 +86,30 @@ extern "C" {
 
     // dns.resolve6(hostname, callback)
     void ts_dns_resolve6(void* hostname, void* callback);
+
+    // dns.resolveCname(hostname, callback)
+    void ts_dns_resolve_cname(void* hostname, void* callback);
+
+    // dns.resolveMx(hostname, callback)
+    void ts_dns_resolve_mx(void* hostname, void* callback);
+
+    // dns.resolveNs(hostname, callback)
+    void ts_dns_resolve_ns(void* hostname, void* callback);
+
+    // dns.resolveTxt(hostname, callback)
+    void ts_dns_resolve_txt(void* hostname, void* callback);
+
+    // dns.resolveSrv(hostname, callback)
+    void ts_dns_resolve_srv(void* hostname, void* callback);
+
+    // dns.resolvePtr(hostname, callback)
+    void ts_dns_resolve_ptr(void* hostname, void* callback);
+
+    // dns.resolveNaptr(hostname, callback)
+    void ts_dns_resolve_naptr(void* hostname, void* callback);
+
+    // dns.resolveSoa(hostname, callback)
+    void ts_dns_resolve_soa(void* hostname, void* callback);
 
     // dns.reverse(ip, callback)
     void ts_dns_reverse(void* ip, void* callback);
@@ -83,6 +125,14 @@ extern "C" {
     void* ts_dns_promises_resolve(void* hostname);
     void* ts_dns_promises_resolve4(void* hostname);
     void* ts_dns_promises_resolve6(void* hostname);
+    void* ts_dns_promises_resolve_cname(void* hostname);
+    void* ts_dns_promises_resolve_mx(void* hostname);
+    void* ts_dns_promises_resolve_ns(void* hostname);
+    void* ts_dns_promises_resolve_txt(void* hostname);
+    void* ts_dns_promises_resolve_srv(void* hostname);
+    void* ts_dns_promises_resolve_ptr(void* hostname);
+    void* ts_dns_promises_resolve_naptr(void* hostname);
+    void* ts_dns_promises_resolve_soa(void* hostname);
     void* ts_dns_promises_reverse(void* ip);
 
     // Error code constants
