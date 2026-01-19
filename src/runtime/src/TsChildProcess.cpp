@@ -427,6 +427,11 @@ void TsChildProcess::OnExit(int64_t exitStatus, int termSignal) {
         execCallback_ = nullptr;  // Clear callback after calling
     }
 
+    // Call exit callback if set (used by cluster)
+    if (exitCallback_) {
+        exitCallback_(exitCallbackContext_, exitCode_, signalCode_.empty() ? nullptr : signalCode_.c_str());
+    }
+
     // Emit exit event with (code, signal)
     TsValue* codeArg = (exitCode_ >= 0) ? ts_value_make_int(exitCode_) : ts_value_make_null();
     TsValue* signalArg = signalCode_.empty() ? ts_value_make_null() :
@@ -569,6 +574,11 @@ void TsChildProcess::ProcessIPCMessage(const char* data, size_t length) {
 }
 
 void TsChildProcess::OnIPCMessage(void* message) {
+    // Call message callback if set (used by cluster)
+    if (messageCallback_) {
+        messageCallback_(messageCallbackContext_, message);
+    }
+
     // Emit 'message' event with the parsed message
     void* args[] = { message };
     Emit("message", 1, args);

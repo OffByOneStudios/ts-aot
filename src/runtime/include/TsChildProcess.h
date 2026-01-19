@@ -79,6 +79,20 @@ public:
                      const char* cwd, char** env, bool detached, bool windowsHide);
     bool HasIPC() const { return ipcPipe_ != nullptr; }
 
+    // Cluster integration - callback for message interception
+    using MessageCallback = void (*)(void* context, void* message);
+    void SetMessageCallback(MessageCallback callback, void* context) {
+        messageCallback_ = callback;
+        messageCallbackContext_ = context;
+    }
+
+    // Exit callback for cluster
+    using ExitCallback = void (*)(void* context, int code, const char* signal);
+    void SetExitCallback(ExitCallback callback, void* context) {
+        exitCallback_ = callback;
+        exitCallbackContext_ = context;
+    }
+
 protected:
     uv_process_t* processHandle_;
     uv_pipe_t* stdinPipe_;
@@ -107,6 +121,12 @@ protected:
     void* execCallback_;
     std::string accumulatedStdout_;
     std::string accumulatedStderr_;
+
+    // Cluster integration callbacks
+    MessageCallback messageCallback_ = nullptr;
+    void* messageCallbackContext_ = nullptr;
+    ExitCallback exitCallback_ = nullptr;
+    void* exitCallbackContext_ = nullptr;
 
     // Internal methods
     void OnExit(int64_t exitStatus, int termSignal);

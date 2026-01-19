@@ -24,9 +24,19 @@
 
 class TsWorker;
 
+// Scheduling policies
+enum class ClusterSchedulingPolicy {
+    SCHED_NONE = 0,  // Let the operating system handle scheduling
+    SCHED_RR = 1     // Round-robin scheduling (default on non-Windows)
+};
+
 class TsCluster : public TsEventEmitter {
 public:
     static constexpr uint32_t MAGIC = 0x434C5354; // "CLST"
+
+    // Scheduling policy constants
+    static constexpr int SCHED_NONE = 0;
+    static constexpr int SCHED_RR = 1;
 
     // Get the singleton instance
     static TsCluster* GetInstance();
@@ -44,6 +54,8 @@ public:
     TsWorker* GetWorker() const { return worker_; }  // Only valid in worker context
     TsMap* GetWorkers() const { return workers_; }   // Map of id -> Worker (master only)
     void* GetSettings() const { return settings_; }
+    int GetSchedulingPolicy() const { return schedulingPolicy_; }
+    void SetSchedulingPolicy(int policy) { schedulingPolicy_ = policy; }
 
     // Methods
     TsWorker* Fork(void* env = nullptr);
@@ -54,6 +66,7 @@ public:
     // Internal: called when a worker sends a message
     void OnWorkerMessage(TsWorker* worker, void* message);
     void OnWorkerOnline(TsWorker* worker);
+    void OnWorkerListening(TsWorker* worker, void* address);
     void OnWorkerDisconnect(TsWorker* worker);
     void OnWorkerExit(TsWorker* worker, int code, const char* signal);
 
@@ -69,6 +82,7 @@ private:
     uint32_t nextWorkerId_;
     TsWorker* worker_;         // Current worker (worker context only)
     void* settings_;           // Cluster settings
+    int schedulingPolicy_;     // SCHED_NONE or SCHED_RR
     std::string execPath_;     // Path to current executable
     std::string execArgv_;     // Execution arguments
 };
@@ -133,6 +147,12 @@ extern "C" {
     void* ts_cluster_get_worker();
     void* ts_cluster_get_workers();
     void* ts_cluster_get_settings();
+    int64_t ts_cluster_get_scheduling_policy();
+    void ts_cluster_set_scheduling_policy(int64_t policy);
+
+    // Scheduling policy constants
+    int64_t ts_cluster_SCHED_NONE();
+    int64_t ts_cluster_SCHED_RR();
 
     // Methods
     void* ts_cluster_fork(void* env);

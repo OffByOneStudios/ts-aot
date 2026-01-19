@@ -24,6 +24,41 @@ extern "C" {
 // Environment variable used to detect worker processes
 static const char* CLUSTER_WORKER_ID_ENV = "CLUSTER_WORKER_ID";
 
+// Context struct for worker callbacks
+struct WorkerContext {
+    TsCluster* cluster;
+    TsWorker* worker;
+};
+
+// Static callback for child process messages
+static void OnWorkerMessageCallback(void* context, void* message) {
+    WorkerContext* ctx = (WorkerContext*)context;
+    if (ctx && ctx->cluster && ctx->worker) {
+        // Let cluster process the message - it will emit events as needed
+        ctx->cluster->OnWorkerMessage(ctx->worker, message);
+    }
+}
+
+// Static callback for child process exit
+static void OnWorkerExitCallback(void* context, int code, const char* signal) {
+    WorkerContext* ctx = (WorkerContext*)context;
+    if (ctx && ctx->cluster && ctx->worker) {
+        ctx->worker->SetDead(true);
+        if (!ctx->worker->IsConnected()) {
+            ctx->worker->SetExitedAfterDisconnect(true);
+        }
+
+        // Emit exit event on worker
+        TsValue* codeVal = ts_value_make_int(code);
+        TsValue* signalVal = signal ? ts_value_make_string(TsString::Create(signal)) : ts_value_make_null();
+        void* exitArgs[] = { codeVal, signalVal };
+        ctx->worker->Emit("exit", 2, exitArgs);
+
+        // Emit exit event on cluster
+        ctx->cluster->OnWorkerExit(ctx->worker, code, signal);
+    }
+}
+
 // ============================================================================
 // TsCluster Implementation
 // ============================================================================
@@ -37,6 +72,7 @@ TsCluster::TsCluster()
     , nextWorkerId_(1)
     , worker_(nullptr)
     , settings_(nullptr)
+    , schedulingPolicy_(SCHED_RR)  // Default to round-robin on most platforms
     , execPath_("")
     , execArgv_("")
 {
@@ -49,6 +85,11 @@ TsCluster::TsCluster()
         isWorker_ = true;
         // Worker ID is set in env var, but worker object is created by parent
     }
+
+    // On Windows, default to SCHED_NONE (OS handles scheduling)
+#ifdef _WIN32
+    schedulingPolicy_ = SCHED_NONE;
+#endif
 
     // Create workers map (only used in master)
     if (isMaster_) {
@@ -161,41 +202,16 @@ TsWorker* TsCluster::Fork(void* env) {
     TsString* idKey = TsString::Create(std::to_string(workerId).c_str());
     workers_->Set(idKey, worker);
 
-    // Set up event forwarding from child process to worker and cluster
-    // The child process emits events that we need to forward
+    // Create context for callbacks
+    WorkerContext* ctx = (WorkerContext*)ts_alloc(sizeof(WorkerContext));
+    ctx->cluster = this;
+    ctx->worker = worker;
 
-    // Listen for 'message' events from child process
-    auto onMessage = [this, worker](void* message) {
-        // Forward message to worker
-        void* msgArgs[] = { message };
-        worker->Emit("message", 1, msgArgs);
+    // Set up message and exit callbacks on the child process
+    process->SetMessageCallback(OnWorkerMessageCallback, ctx);
+    process->SetExitCallback(OnWorkerExitCallback, ctx);
 
-        // Check for internal cluster messages
-        // Internal messages have type: 'online', 'disconnect', etc.
-        OnWorkerMessage(worker, message);
-    };
-
-    // Listen for 'exit' event from child process
-    auto onExit = [this, worker](int code, const char* signal) {
-        worker->SetDead(true);
-        if (!worker->IsConnected()) {
-            worker->SetExitedAfterDisconnect(true);
-        }
-
-        // Emit exit event on worker
-        TsValue* codeVal = ts_value_make_int(code);
-        TsValue* signalVal = signal ? ts_value_make_string(TsString::Create(signal)) : ts_value_make_null();
-        void* exitArgs[] = { codeVal, signalVal };
-        worker->Emit("exit", 2, exitArgs);
-
-        // Emit exit event on cluster
-        OnWorkerExit(worker, code, signal);
-    };
-
-    // Store callbacks on process using event emitter
-    // We'll handle this through the TsChildProcess message/exit events
-
-    // For now, emit 'fork' event
+    // Emit 'fork' event
     void* forkArgs[] = { worker };
     Emit("fork", 1, forkArgs);
 
@@ -241,11 +257,48 @@ void TsCluster::Disconnect(void* callback) {
 
 void TsCluster::OnWorkerMessage(TsWorker* worker, void* message) {
     // Check if this is an internal cluster message
-    // Internal messages have a 'type' field with values like 'online'
+    // Internal messages have a 'cmd' field with values like 'online'
 
-    // Forward to cluster 'message' event
-    void* msgArgs[] = { worker, message };
-    Emit("message", 2, msgArgs);
+    TsValue* msgVal = (TsValue*)message;
+    if (msgVal && msgVal->type == ValueType::OBJECT_PTR) {
+        TsObject* msgObj = (TsObject*)msgVal->ptr_val;
+        TsMap* msgMap = dynamic_cast<TsMap*>(msgObj);
+        if (msgMap) {
+            // Check for 'cmd' field (internal cluster protocol)
+            TsValue cmdKey;
+            cmdKey.type = ValueType::STRING_PTR;
+            cmdKey.ptr_val = TsString::Create("cmd");
+            TsValue cmdVal = msgMap->Get(cmdKey);
+
+            if (cmdVal.type == ValueType::STRING_PTR) {
+                TsString* cmdStr = (TsString*)cmdVal.ptr_val;
+                const char* cmd = cmdStr->ToUtf8();
+
+                if (strcmp(cmd, "online") == 0) {
+                    // Worker is online - emit 'online' events
+                    OnWorkerOnline(worker);
+                    return;  // Don't forward internal messages to user code
+                }
+                if (strcmp(cmd, "listening") == 0) {
+                    // Worker is listening on a server - emit 'listening' events
+                    // TODO: Extract address info from message
+                    OnWorkerListening(worker, nullptr);
+                    return;  // Don't forward internal messages to user code
+                }
+                // Other internal commands are filtered out
+                if (strncmp(cmd, "NODE_", 5) == 0) {
+                    return;  // Internal Node.js cluster protocol message
+                }
+            }
+        }
+    }
+
+    // Forward non-internal messages to worker and cluster 'message' events
+    void* workerMsgArgs[] = { message };
+    worker->Emit("message", 1, workerMsgArgs);
+
+    void* clusterMsgArgs[] = { worker, message };
+    Emit("message", 2, clusterMsgArgs);
 }
 
 void TsCluster::OnWorkerOnline(TsWorker* worker) {
@@ -255,6 +308,25 @@ void TsCluster::OnWorkerOnline(TsWorker* worker) {
     // Emit 'online' event on cluster
     void* args[] = { worker };
     Emit("online", 1, args);
+}
+
+void TsCluster::OnWorkerListening(TsWorker* worker, void* address) {
+    // Emit 'listening' event on worker with address info
+    if (address) {
+        void* workerArgs[] = { address };
+        worker->Emit("listening", 1, workerArgs);
+    } else {
+        worker->Emit("listening", 0, nullptr);
+    }
+
+    // Emit 'listening' event on cluster
+    if (address) {
+        void* args[] = { worker, address };
+        Emit("listening", 2, args);
+    } else {
+        void* args[] = { worker };
+        Emit("listening", 1, args);
+    }
 }
 
 void TsCluster::OnWorkerDisconnect(TsWorker* worker) {
@@ -325,6 +397,24 @@ extern "C" {
 
 void ts_cluster_init() {
     TsCluster::Initialize();
+
+    // If we're a worker, send 'online' message to master
+    TsCluster* cluster = TsCluster::GetInstance();
+    if (cluster->IsWorker() && ts_process_get_connected()) {
+        // Create internal message: { cmd: 'online' }
+        TsMap* msg = TsMap::Create();
+        TsValue cmdKey;
+        cmdKey.type = ValueType::STRING_PTR;
+        cmdKey.ptr_val = TsString::Create("cmd");
+        TsValue cmdVal;
+        cmdVal.type = ValueType::STRING_PTR;
+        cmdVal.ptr_val = TsString::Create("online");
+        msg->Set(cmdKey, cmdVal);
+
+        // Send to master
+        TsValue* msgVal = ts_value_make_object(msg);
+        ts_process_send(msgVal);
+    }
 }
 
 void* ts_cluster_get_instance() {
@@ -399,6 +489,22 @@ void ts_cluster_setup_master(void* settings) {
 
 void ts_cluster_disconnect(void* callback) {
     TsCluster::GetInstance()->Disconnect(callback);
+}
+
+int64_t ts_cluster_get_scheduling_policy() {
+    return TsCluster::GetInstance()->GetSchedulingPolicy();
+}
+
+void ts_cluster_set_scheduling_policy(int64_t policy) {
+    TsCluster::GetInstance()->SetSchedulingPolicy(static_cast<int>(policy));
+}
+
+int64_t ts_cluster_SCHED_NONE() {
+    return TsCluster::SCHED_NONE;
+}
+
+int64_t ts_cluster_SCHED_RR() {
+    return TsCluster::SCHED_RR;
 }
 
 // Worker C API

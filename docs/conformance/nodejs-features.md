@@ -22,7 +22,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ✅ | 100% | Process spawning with IPC |
-| `cluster` | ⚠️ | 50% | Multi-process forking |
+| `cluster` | ✅ | 100% | Multi-process forking |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
@@ -268,7 +268,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `cluster.worker` | ✅ | Reference to current worker object (only in worker) |
 | `cluster.workers` | ✅ | Map of all active workers (only in primary) |
 | `cluster.settings` | ✅ | Cluster settings object |
-| `cluster.schedulingPolicy` | ❌ | Load balancing policy |
+| `cluster.schedulingPolicy` | ✅ | SCHED_NONE (0) or SCHED_RR (1) |
+| `cluster.SCHED_NONE` | ✅ | OS handles scheduling |
+| `cluster.SCHED_RR` | ✅ | Round-robin scheduling |
 
 ### Module Methods
 | Feature | Status | Notes |
@@ -294,8 +296,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `'fork'` event | ✅ | Worker forked |
-| `'online'` event | ❌ | Worker is online |
-| `'listening'` event | ❌ | Worker is listening |
+| `'online'` event | ✅ | Worker is online |
+| `'listening'` event | ✅ | Worker is listening |
 | `'disconnect'` event | ✅ | Worker disconnected |
 | `'exit'` event | ✅ | Worker exited |
 | `'message'` event | ✅ | IPC message from worker |
@@ -304,14 +306,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Worker Events
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `'online'` event | ❌ | Worker is online |
-| `'listening'` event | ❌ | Worker is listening |
+| `'online'` event | ✅ | Worker is online |
+| `'listening'` event | ✅ | Worker is listening |
 | `'disconnect'` event | ✅ | Worker disconnected |
 | `'exit'` event | ✅ | Worker exited |
 | `'message'` event | ✅ | IPC message |
 | `'error'` event | ✅ | Error occurred |
 
-**Cluster Coverage: 26/32 (81%)**
+**Cluster Coverage: 34/34 (100%)**
 
 ---
 

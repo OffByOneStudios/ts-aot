@@ -70,6 +70,35 @@ function user_main(): number {
     cluster.setupMaster();
     console.log("PASS: setupMaster called successfully");
 
+    // Test 8: Check schedulingPolicy
+    console.log("Test 8: Check schedulingPolicy");
+    const policy = cluster.schedulingPolicy;
+    // On Windows, default is SCHED_NONE (0), on other platforms SCHED_RR (1)
+    if (policy === cluster.SCHED_NONE || policy === cluster.SCHED_RR) {
+        console.log("PASS: schedulingPolicy is valid:", policy);
+    } else {
+        console.log("FAIL: schedulingPolicy should be 0 or 1, got:", policy);
+        return 1;
+    }
+
+    // Test 9: Check SCHED_NONE constant
+    console.log("Test 9: Check SCHED_NONE constant");
+    if (cluster.SCHED_NONE === 0) {
+        console.log("PASS: SCHED_NONE is 0");
+    } else {
+        console.log("FAIL: SCHED_NONE should be 0, got:", cluster.SCHED_NONE);
+        return 1;
+    }
+
+    // Test 10: Check SCHED_RR constant
+    console.log("Test 10: Check SCHED_RR constant");
+    if (cluster.SCHED_RR === 1) {
+        console.log("PASS: SCHED_RR is 1");
+    } else {
+        console.log("FAIL: SCHED_RR should be 1, got:", cluster.SCHED_RR);
+        return 1;
+    }
+
     console.log("\n=== All cluster basic tests passed! ===");
     return 0;
 }

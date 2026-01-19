@@ -23,6 +23,10 @@ static void ensureClusterFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_cluster_get_worker", {}, true);
     bp.registerRuntimeApi("ts_cluster_get_workers", {}, true);
     bp.registerRuntimeApi("ts_cluster_get_settings", {}, true);
+    bp.registerRuntimeApi("ts_cluster_get_scheduling_policy", {}, false);
+    bp.registerRuntimeApi("ts_cluster_set_scheduling_policy", {false}, false);
+    bp.registerRuntimeApi("ts_cluster_SCHED_NONE", {}, false);
+    bp.registerRuntimeApi("ts_cluster_SCHED_RR", {}, false);
 
     // Worker instance methods
     bp.registerRuntimeApi("ts_worker_get_id", {true}, false);

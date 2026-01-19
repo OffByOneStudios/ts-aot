@@ -136,6 +136,11 @@ void ts_process_remove_all_listeners(void* event);
 void ts_process_set_uncaught_exception_capture_callback(void* callback);
 bool ts_process_has_uncaught_exception_capture_callback();
 
+// --- Process IPC (for cluster workers) ---
+bool ts_process_send(void* message);
+void ts_process_disconnect();
+bool ts_process_get_connected();
+
 // --- Event Loop Handles (Milestone 102.9) ---
 void ts_process_ref();
 void ts_process_unref();
