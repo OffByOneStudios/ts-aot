@@ -534,6 +534,35 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
         }
     }
 
+    // ReadStream-specific properties
+    if (classType->name == "ReadStream") {
+        if (prop->name == "bytesRead") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_read_stream_bytes_read", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "path") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_read_stream_path", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "pending") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_read_stream_pending", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        }
+    }
+
     // Writable properties
     if (isWritable) {
         if (prop->name == "destroyed") {
@@ -606,6 +635,35 @@ bool IRGenerator::tryGenerateStreamPropertyAccess(ast::PropertyAccessExpression*
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
                     { builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_writable_writable_aborted", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        }
+    }
+
+    // WriteStream-specific properties
+    if (classType->name == "WriteStream") {
+        if (prop->name == "bytesWritten") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_write_stream_bytes_written", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "path") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_write_stream_path", ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj });
+            return true;
+        } else if (prop->name == "pending") {
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                    { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_write_stream_pending", ft);
             lastValue = createCall(ft, fn.getCallee(), { obj });
             return true;
         }

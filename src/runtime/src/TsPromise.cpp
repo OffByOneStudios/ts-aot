@@ -195,7 +195,8 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
             uint8_t method_type;
             int64_t method_val;
             __ts_map_get_value_at(iterable->ptr_val, bucket, &method_type, &method_val);
-            if (method_type == (uint8_t)ValueType::OBJECT_PTR) {
+            // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
+            if (method_type == (uint8_t)ValueType::OBJECT_PTR || method_type == (uint8_t)ValueType::FUNCTION_PTR) {
                 TsFunction* func = (TsFunction*)method_val;
                 typedef TsValue* (*AsyncIterFunc)(void*);
                 return ((AsyncIterFunc)func->funcPtr)(func->context);
@@ -318,7 +319,8 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
             uint8_t method_type;
             int64_t method_val;
             __ts_map_get_value_at(iterator->ptr_val, bucket, &method_type, &method_val);
-            if (method_type == (uint8_t)ValueType::OBJECT_PTR) {
+            // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
+            if (method_type == (uint8_t)ValueType::OBJECT_PTR || method_type == (uint8_t)ValueType::FUNCTION_PTR) {
                 TsFunction* func = (TsFunction*)method_val;
                 typedef TsValue* (*NextFunc)(void*, TsValue*);
                 return ((NextFunc)func->funcPtr)(func->context, value);

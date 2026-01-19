@@ -52,11 +52,14 @@ static void ensureFSFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_fs_readFileSync", {false}, false);  // returns TsString*
     bp.registerRuntimeApi("ts_fs_writeFileSync", {false, true}, false);  // path, data (boxed)
     bp.registerRuntimeApi("ts_fs_existsSync", {false}, false);  // returns bool
+    bp.registerRuntimeApi("ts_fs_exists", {false, true}, false);  // path, callback (boxed) - deprecated
     bp.registerRuntimeApi("ts_fs_unlinkSync", {false}, false);
     bp.registerRuntimeApi("ts_fs_opendirSync", {false}, true);  // returns boxed Dir
     bp.registerRuntimeApi("ts_fs_readdirSync", {false}, true);  // returns boxed array
     bp.registerRuntimeApi("ts_fs_renameSync", {false, false}, false);
     bp.registerRuntimeApi("ts_fs_copyFileSync", {false, false, false}, false);
+    bp.registerRuntimeApi("ts_fs_cpSync", {false, false, true}, false);  // src, dest, options (boxed)
+    bp.registerRuntimeApi("ts_fs_cp_async", {false, false, true}, true);  // src, dest, options -> promise
     bp.registerRuntimeApi("ts_fs_truncateSync", {false, false}, false);
     bp.registerRuntimeApi("ts_fs_appendFileSync", {false, true}, false);
     bp.registerRuntimeApi("ts_fs_mkdtempSync", {false}, false);  // returns string
@@ -81,19 +84,53 @@ static void ensureFSFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_fs_fstatSync", {false}, true);
     bp.registerRuntimeApi("ts_fs_ftruncate", {false, false}, false);  // fd, len
     bp.registerRuntimeApi("ts_fs_ftruncateSync", {false, false}, false);
-    
+    bp.registerRuntimeApi("ts_fs_fsyncSync", {false}, false);  // fd
+    bp.registerRuntimeApi("ts_fs_fdatasyncSync", {false}, false);  // fd
+
+    // ========== Symlink-specific sync operations ==========
+    bp.registerRuntimeApi("ts_fs_lchmodSync", {false, false}, false);  // path, mode
+    bp.registerRuntimeApi("ts_fs_lchownSync", {false, false, false}, false);  // path, uid, gid
+    bp.registerRuntimeApi("ts_fs_lutimesSync", {false, false, false}, false);  // path, atime, mtime
+
+    // ========== FD-based async operations ==========
+    bp.registerRuntimeApi("ts_fs_fchmod_async", {false, false}, true);  // fd, mode -> promise
+    bp.registerRuntimeApi("ts_fs_fchown_async", {false, false, false}, true);  // fd, uid, gid -> promise
+    bp.registerRuntimeApi("ts_fs_futimes_async", {false, false, false}, true);  // fd, atime, mtime -> promise
+    bp.registerRuntimeApi("ts_fs_fstat_async", {false}, true);  // fd -> promise
+    bp.registerRuntimeApi("ts_fs_fsync_async", {false}, true);  // fd -> promise
+    bp.registerRuntimeApi("ts_fs_fdatasync_async", {false}, true);  // fd -> promise
+    bp.registerRuntimeApi("ts_fs_ftruncate_async", {false, false}, true);  // fd, len -> promise
+
+    // ========== Symlink-specific async operations ==========
+    bp.registerRuntimeApi("ts_fs_lchmod_async", {false, false}, true);  // path, mode -> promise
+    bp.registerRuntimeApi("ts_fs_lchown_async", {false, false, false}, true);  // path, uid, gid -> promise
+    bp.registerRuntimeApi("ts_fs_lutimes_async", {false, false, false}, true);  // path, atime, mtime -> promise
+
     // ========== Callback-style async (legacy) ==========
     bp.registerRuntimeApi("ts_fs_open", {false, false, false, true}, false);  // path, flags, mode, callback
     bp.registerRuntimeApi("ts_fs_close", {false, true}, false);  // fd, callback
     
     // ========== Stream creation ==========
-    bp.registerRuntimeApi("ts_fs_createReadStream", {false, true}, true);  // path, options -> boxed stream
-    bp.registerRuntimeApi("ts_fs_createWriteStream", {false, true}, true);
-    
+    bp.registerRuntimeApi("ts_fs_createReadStream", {false}, false);  // path -> raw stream
+    bp.registerRuntimeApi("ts_fs_createReadStream_opts", {false, true}, false);  // path, options -> raw stream
+    bp.registerRuntimeApi("ts_fs_createWriteStream", {false}, false);  // path -> raw stream
+    bp.registerRuntimeApi("ts_fs_createWriteStream_opts", {false, true}, false);  // path, options -> raw stream
+
+    // ReadStream property accessors
+    bp.registerRuntimeApi("ts_read_stream_bytes_read", {false}, false);  // stream -> int64
+    bp.registerRuntimeApi("ts_read_stream_path", {false}, false);  // stream -> string
+    bp.registerRuntimeApi("ts_read_stream_pending", {false}, false);  // stream -> bool
+
+    // WriteStream property accessors
+    bp.registerRuntimeApi("ts_write_stream_bytes_written", {false}, false);  // stream -> int64
+    bp.registerRuntimeApi("ts_write_stream_path", {false}, false);  // stream -> string
+    bp.registerRuntimeApi("ts_write_stream_pending", {false}, false);  // stream -> bool
+
     // ========== Watch functions ==========
     bp.registerRuntimeApi("ts_fs_watch", {false, true, true}, true);  // path, options, callback -> boxed watcher
     bp.registerRuntimeApi("ts_fs_watchFile", {false, true, true}, true);
     bp.registerRuntimeApi("ts_fs_unwatchFile", {false, true}, false);  // path, listener
+    bp.registerRuntimeApi("ts_fs_promises_watch", {true, true}, true);  // filename, options -> boxed async iterator
     
     // ========== Module-level getters ==========
     bp.registerRuntimeApi("ts_fs_get_constants", {}, true);  // returns boxed object
@@ -446,6 +483,40 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_utimes_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { path, atime, mtime });
             return true;
+        } else if (prop->name == "lchmod") {
+            if (node->arguments.size() < 2) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* mode = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lchmod_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, mode });
+            return true;
+        } else if (prop->name == "lchown") {
+            if (node->arguments.size() < 3) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* uid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            visit(node->arguments[2].get());
+            llvm::Value* gid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lchown_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, uid, gid });
+            return true;
+        } else if (prop->name == "lutimes") {
+            if (node->arguments.size() < 3) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* path = boxValue(lastValue, node->arguments[0]->inferredType);
+            visit(node->arguments[1].get());
+            llvm::Value* atime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            visit(node->arguments[2].get());
+            llvm::Value* mtime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lutimes_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, atime, mtime });
+            return true;
         } else if (prop->name == "open") {
             if (node->arguments.empty()) return true;
             visit(node->arguments[0].get());
@@ -541,6 +612,21 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_copyFile_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { src, dest, flags });
+            return true;
+        } else if (prop->name == "cp") {
+            if (node->arguments.size() < 2) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* src = lastValue;
+            visit(node->arguments[1].get());
+            llvm::Value* dest = lastValue;
+            llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 2) {
+                visit(node->arguments[2].get());
+                options = boxValue(lastValue, node->arguments[2]->inferredType);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_cp_async", ft);
+            lastValue = createCall(ft, fn.getCallee(), { src, dest, options });
             return true;
         } else if (prop->name == "truncate") {
             if (node->arguments.empty()) return true;
@@ -659,6 +745,22 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
             llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_readdir_async", ft);
             lastValue = createCall(ft, fn.getCallee(), { path });
             return true;
+        } else if (prop->name == "watch") {
+            // fs.promises.watch(filename: string, options?: object): AsyncIterable<{eventType, filename}>
+            if (node->arguments.empty()) return true;
+            visit(node->arguments[0].get());
+            llvm::Value* filename = boxValue(lastValue, node->arguments[0]->inferredType);
+            llvm::Value* options = nullptr;
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                options = boxValue(lastValue, node->arguments[1]->inferredType);
+            } else {
+                options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_promises_watch", ft);
+            lastValue = createCall(ft, fn.getCallee(), { filename, options });
+            return true;
         }
         return false;
     }
@@ -695,12 +797,28 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* path = lastValue;
-        
-        llvm::FunctionType* existsFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), 
+
+        llvm::FunctionType* existsFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                 { builder->getPtrTy() }, false);
         llvm::FunctionCallee existsFn = getRuntimeFunction("ts_fs_existsSync", existsFt);
-        
+
         lastValue = createCall(existsFt, existsFn.getCallee(), { path });
+        return true;
+    } else if (prop->name == "exists") {
+        // fs.exists(path, callback) - deprecated but still used
+        // callback signature: (exists: boolean) => void
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* callback = boxValue(lastValue, node->arguments[1]->inferredType);
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_exists", ft);
+
+        createCall(ft, fn.getCallee(), { path, callback });
+        lastValue = nullptr;
         return true;
     } else if (prop->name == "unlinkSync") {
         if (node->arguments.empty()) return true;
@@ -861,8 +979,27 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), 
                 { builder->getPtrTy(), builder->getPtrTy(), llvm::Type::getInt32Ty(*context) }, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_copyFileSync", ft);
-        
+
         createCall(ft, fn.getCallee(), { src, dest, flags });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "cpSync") {
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* src = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* dest = lastValue;
+        llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            options = boxValue(lastValue, node->arguments[2]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_cpSync", ft);
+
+        createCall(ft, fn.getCallee(), { src, dest, options });
         lastValue = nullptr;
         return true;
     } else if (prop->name == "truncateSync") {
@@ -957,19 +1094,41 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* path = lastValue;
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createReadStream", ft);
-        lastValue = createCall(ft, fn.getCallee(), { path });
+
+        if (node->arguments.size() > 1) {
+            // Has options parameter
+            visit(node->arguments[1].get());
+            llvm::Value* options = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createReadStream_opts", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, options });
+        } else {
+            // No options
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createReadStream", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path });
+        }
         return true;
     } else if (prop->name == "createWriteStream") {
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* path = lastValue;
-        
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createWriteStream", ft);
-        lastValue = createCall(ft, fn.getCallee(), { path });
+
+        if (node->arguments.size() > 1) {
+            // Has options parameter
+            visit(node->arguments[1].get());
+            llvm::Value* options = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createWriteStream_opts", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path, options });
+        } else {
+            // No options
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_createWriteStream", ft);
+            lastValue = createCall(ft, fn.getCallee(), { path });
+        }
         return true;
     } else if (prop->name == "accessSync") {
         if (node->arguments.empty()) return true;
@@ -1464,12 +1623,302 @@ bool IRGenerator::tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAcce
         if (node->arguments.empty()) return true;
         visit(node->arguments[0].get());
         llvm::Value* path = lastValue;
-        
+
         std::string runtimeName = "ts_fs_" + prop->name;
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), 
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
                 { builder->getPtrTy() }, false);
         llvm::FunctionCallee fn = module->getOrInsertFunction(runtimeName, ft);
         lastValue = createCall(ft, fn.getCallee(), { path });
+        return true;
+    } else if (prop->name == "lchmodSync") {
+        // fs.lchmodSync(path, mode)
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* mode = castValue(lastValue, builder->getInt32Ty());
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getInt32Ty() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lchmodSync", ft);
+        createCall(ft, fn.getCallee(), { path, mode });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "lchownSync") {
+        // fs.lchownSync(path, uid, gid)
+        if (node->arguments.size() < 3) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* uid = castValue(lastValue, builder->getInt32Ty());
+        visit(node->arguments[2].get());
+        llvm::Value* gid = castValue(lastValue, builder->getInt32Ty());
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), builder->getInt32Ty(), builder->getInt32Ty() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lchownSync", ft);
+        createCall(ft, fn.getCallee(), { path, uid, gid });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "lutimesSync") {
+        // fs.lutimesSync(path, atime, mtime)
+        if (node->arguments.size() < 3) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* atime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* mtime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_fs_lutimesSync", ft);
+        createCall(ft, fn.getCallee(), { path, atime, mtime });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "fchmod") {
+        // fs.fchmod(fd, mode, callback) - callback-based async
+        if (node->arguments.size() < 3) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* mode = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* callback = lastValue;
+
+        // Call async version that returns a promise
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_fchmod_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd, mode });
+
+        // Chain with .then to call the callback
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "fchown") {
+        // fs.fchown(fd, uid, gid, callback)
+        if (node->arguments.size() < 4) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* uid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* gid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[3].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_fchown_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd, uid, gid });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "fstat") {
+        // fs.fstat(fd, callback)
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_fstat_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "fsync") {
+        // fs.fsync(fd, callback)
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_fsync_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "fdatasync") {
+        // fs.fdatasync(fd, callback)
+        if (node->arguments.size() < 2) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_fdatasync_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "ftruncate") {
+        // fs.ftruncate(fd, len, callback)
+        if (node->arguments.size() < 3) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* len = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_ftruncate_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd, len });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "futimes") {
+        // fs.futimes(fd, atime, mtime, callback)
+        if (node->arguments.size() < 4) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* fd = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[1].get());
+        llvm::Value* atime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* mtime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[3].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_futimes_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { fd, atime, mtime });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "lchmod") {
+        // fs.lchmod(path, mode, callback)
+        if (node->arguments.size() < 3) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* mode = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_lchmod_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { path, mode });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "lchown") {
+        // fs.lchown(path, uid, gid, callback)
+        if (node->arguments.size() < 4) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* uid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* gid = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[3].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_lchown_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { path, uid, gid });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "lutimes") {
+        // fs.lutimes(path, atime, mtime, callback)
+        if (node->arguments.size() < 4) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* path = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* atime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[2].get());
+        llvm::Value* mtime = castValue(lastValue, llvm::Type::getDoubleTy(*context));
+        visit(node->arguments[3].get());
+        llvm::Value* callback = lastValue;
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), llvm::Type::getDoubleTy(*context), llvm::Type::getDoubleTy(*context) }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_lutimes_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { path, atime, mtime });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
+        return true;
+    } else if (prop->name == "cp") {
+        // fs.cp(src, dest, options, callback)
+        if (node->arguments.size() < 3) return true;  // At least src, dest, callback (options optional)
+        visit(node->arguments[0].get());
+        llvm::Value* src = lastValue;
+        visit(node->arguments[1].get());
+        llvm::Value* dest = lastValue;
+
+        // Check if we have 4 args (options + callback) or 3 (callback only)
+        llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        llvm::Value* callback = nullptr;
+        if (node->arguments.size() >= 4) {
+            visit(node->arguments[2].get());
+            options = boxValue(lastValue, node->arguments[2]->inferredType);
+            visit(node->arguments[3].get());
+            callback = lastValue;
+        } else {
+            visit(node->arguments[2].get());
+            callback = lastValue;
+        }
+
+        llvm::FunctionType* ftAsync = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnAsync = module->getOrInsertFunction("ts_fs_cp_async", ftAsync);
+        llvm::Value* promise = createCall(ftAsync, fnAsync.getCallee(), { src, dest, options });
+        llvm::FunctionType* ftThen = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fnThen = getRuntimeFunction("ts_promise_then", ftThen);
+        llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        createCall(ftThen, fnThen.getCallee(), { promise, callback, nullPtr });
+        lastValue = nullptr;
         return true;
     }
 

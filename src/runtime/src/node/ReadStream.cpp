@@ -10,14 +10,16 @@
 #include <stdlib.h>
 #include <new>
 
-TsReadStream::TsReadStream(int fd) : fd(fd), closed(false) {
+TsReadStream::TsReadStream(int fd, const ReadStreamOptions& opts)
+    : fd(fd), closed(false), started(false), position(opts.start),
+      endPosition(opts.end), bytesRead(0), path(nullptr), autoClose(opts.autoClose) {
     flowing = false;
     reading = false;
-    buffer = TsBuffer::Create(65536); // 64KB buffer
+    buffer = TsBuffer::Create(opts.highWaterMark);
 }
 
 TsReadStream::~TsReadStream() {
-    if (!closed) {
+    if (!closed && autoClose) {
         Close();
     }
 }
@@ -44,29 +46,57 @@ void TsReadStream::Resume() {
 
 void TsReadStream::Start() {
     if (closed || reading || !flowing) return;
+    started = true;
     reading = true;
-    
+
     uv_fs_t* req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
     req->data = this;
-    
-    uv_buf_t buf = uv_buf_init((char*)buffer->GetData(), (unsigned int)buffer->GetLength());
-    uv_fs_read(uv_default_loop(), req, fd, &buf, 1, -1, OnRead);
+
+    // Calculate how many bytes to read
+    size_t toRead = buffer->GetLength();
+    if (endPosition >= 0) {
+        int64_t remaining = endPosition - position + 1;
+        if (remaining <= 0) {
+            // Reached end position
+            reading = false;
+            Emit("end", 0, nullptr);
+            if (autoClose) Close();
+            return;
+        }
+        if ((int64_t)toRead > remaining) {
+            toRead = (size_t)remaining;
+        }
+    }
+
+    uv_buf_t buf = uv_buf_init((char*)buffer->GetData(), (unsigned int)toRead);
+    uv_fs_read(uv_default_loop(), req, fd, &buf, 1, position, OnRead);
 }
 
 void TsReadStream::OnRead(uv_fs_t* req) {
     TsReadStream* self = (TsReadStream*)req->data;
     self->reading = false;
     int result = (int)req->result;
-    
+
     if (result > 0) {
+        self->position += result;
+        self->bytesRead += result;
+
         // Emit 'data' event
         TsBuffer* chunk = TsBuffer::Create(result);
         memcpy(chunk->GetData(), self->buffer->GetData(), result);
-        
+
         TsValue* arg0 = ts_value_make_object(chunk);
         void* args[] = { arg0 };
         self->Emit("data", 1, args);
-        
+
+        // Check if we've reached end position
+        if (self->endPosition >= 0 && self->position > self->endPosition) {
+            self->Emit("end", 0, nullptr);
+            if (self->autoClose) self->Close();
+            uv_fs_req_cleanup(req);
+            return;
+        }
+
         // Read next chunk if still flowing
         if (self->flowing && !self->closed) {
             self->Start();
@@ -76,8 +106,13 @@ void TsReadStream::OnRead(uv_fs_t* req) {
         // EOF or error
         if (result == 0) {
             self->Emit("end", 0, nullptr);
+        } else {
+            // Error - emit error event
+            void* err = ts_error_create(TsString::Create("Read error"));
+            void* args[] = { err };
+            self->Emit("error", 1, args);
         }
-        self->Close();
+        if (self->autoClose) self->Close();
         uv_fs_req_cleanup(req);
     }
 }
@@ -85,30 +120,124 @@ void TsReadStream::OnRead(uv_fs_t* req) {
 void TsReadStream::Close() {
     if (closed) return;
     closed = true;
-    
+
     uv_fs_t req;
     uv_fs_close(uv_default_loop(), &req, fd, nullptr);
     uv_fs_req_cleanup(&req);
-    
+
     Emit("close", 0, nullptr);
+}
+
+void TsReadStream::SetPath(const char* p) {
+    if (p) {
+        size_t len = strlen(p);
+        path = (char*)ts_alloc(len + 1);
+        memcpy(path, p, len + 1);
+    } else {
+        path = nullptr;
+    }
 }
 
 extern "C" {
     void* ts_fs_createReadStream(void* path) {
         TsString* pathStr = (TsString*)path;
-        
+
         uv_fs_t req;
         int fd = (int)uv_fs_open(uv_default_loop(), &req, pathStr->ToUtf8(), O_RDONLY, 0, nullptr);
         uv_fs_req_cleanup(&req);
-        
+
         if (fd < 0) {
             return nullptr;
         }
-        
+
         void* mem = ts_alloc(sizeof(TsReadStream));
         TsReadStream* stream = new(mem) TsReadStream(fd);
-        
+        stream->SetPath(pathStr->ToUtf8());
+
         return stream;
+    }
+
+    void* ts_fs_createReadStream_opts(void* path, void* options) {
+        TsString* pathStr = (TsString*)path;
+
+        // Parse options object
+        ReadStreamOptions opts;
+
+        if (options) {
+            // Unbox if needed
+            void* rawOpts = ts_value_get_object((TsValue*)options);
+            if (!rawOpts) rawOpts = options;
+
+            // Check for TsMap (object)
+            TsObject* objPtr = (TsObject*)rawOpts;
+
+            // Try to get properties
+            TsValue* startVal = ts_object_get_property(rawOpts, "start");
+            if (startVal && (startVal->type == ValueType::NUMBER_INT || startVal->type == ValueType::NUMBER_DBL)) {
+                opts.start = ts_value_get_int(startVal);
+            }
+
+            TsValue* endVal = ts_object_get_property(rawOpts, "end");
+            if (endVal && (endVal->type == ValueType::NUMBER_INT || endVal->type == ValueType::NUMBER_DBL)) {
+                opts.end = ts_value_get_int(endVal);
+            }
+
+            TsValue* hwmVal = ts_object_get_property(rawOpts, "highWaterMark");
+            if (hwmVal && (hwmVal->type == ValueType::NUMBER_INT || hwmVal->type == ValueType::NUMBER_DBL)) {
+                opts.highWaterMark = (size_t)ts_value_get_int(hwmVal);
+            }
+
+            TsValue* autoCloseVal = ts_object_get_property(rawOpts, "autoClose");
+            if (autoCloseVal && autoCloseVal->type == ValueType::BOOLEAN) {
+                opts.autoClose = ts_value_get_bool(autoCloseVal);
+            }
+        }
+
+        uv_fs_t req;
+        int fd = (int)uv_fs_open(uv_default_loop(), &req, pathStr->ToUtf8(), O_RDONLY, 0, nullptr);
+        uv_fs_req_cleanup(&req);
+
+        if (fd < 0) {
+            return nullptr;
+        }
+
+        void* mem = ts_alloc(sizeof(TsReadStream));
+        TsReadStream* stream = new(mem) TsReadStream(fd, opts);
+
+        // Store path for the path property
+        stream->SetPath(pathStr->ToUtf8());
+
+        return stream;
+    }
+
+    // ReadStream property accessors
+    int64_t ts_read_stream_bytes_read(void* stream) {
+        if (!stream) return 0;
+        void* rawPtr = ts_value_get_object((TsValue*)stream);
+        if (!rawPtr) rawPtr = stream;
+        TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
+        if (!rs) return 0;
+        return rs->GetBytesRead();
+    }
+
+    void* ts_read_stream_path(void* stream) {
+        if (!stream) return nullptr;
+        void* rawPtr = ts_value_get_object((TsValue*)stream);
+        if (!rawPtr) rawPtr = stream;
+        TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
+        if (!rs) return nullptr;
+        const char* path = rs->GetPath();
+        if (!path) return nullptr;
+        return TsString::Create(path);
+    }
+
+    bool ts_read_stream_pending(void* stream) {
+        if (!stream) return true;
+        void* rawPtr = ts_value_get_object((TsValue*)stream);
+        if (!rawPtr) rawPtr = stream;
+        TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
+        if (!rs) return true;
+        return rs->IsPending();
     }
 
     struct PipeContext {

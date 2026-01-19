@@ -11,7 +11,18 @@ void Analyzer::registerFS() {
     statsType->fields["size"] = std::make_shared<Type>(TypeKind::Double);
     statsType->fields["mtimeMs"] = std::make_shared<Type>(TypeKind::Double);
     statsType->fields["atimeMs"] = std::make_shared<Type>(TypeKind::Double);
+    statsType->fields["ctimeMs"] = std::make_shared<Type>(TypeKind::Double);
     statsType->fields["birthtimeMs"] = std::make_shared<Type>(TypeKind::Double);
+
+    // Date properties - these return Date objects
+    auto dateType = symbols.lookupType("Date");
+    if (!dateType) {
+        dateType = std::make_shared<ClassType>("Date");
+    }
+    statsType->fields["mtime"] = dateType;
+    statsType->fields["atime"] = dateType;
+    statsType->fields["ctime"] = dateType;
+    statsType->fields["birthtime"] = dateType;
     
     auto isFile = std::make_shared<FunctionType>();
     isFile->returnType = std::make_shared<Type>(TypeKind::Boolean);
@@ -171,15 +182,28 @@ void Analyzer::registerFS() {
     existsSync->returnType = std::make_shared<Type>(TypeKind::Boolean);
     fsType->fields["existsSync"] = existsSync;
 
-    // fs.createReadStream(path: string): ReadStream
+    // fs.exists(path: string, callback: (exists: boolean) => void): void
+    // Deprecated but still commonly used
+    auto existsCb = std::make_shared<FunctionType>();
+    existsCb->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    auto existsCbType = std::make_shared<FunctionType>();
+    existsCbType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean));
+    existsCbType->returnType = std::make_shared<Type>(TypeKind::Void);
+    existsCb->paramTypes.push_back(existsCbType);
+    existsCb->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["exists"] = existsCb;
+
+    // fs.createReadStream(path: string, options?: { start?, end?, highWaterMark?, encoding?, flags?, mode?, autoClose? }): ReadStream
     auto createReadStream = std::make_shared<FunctionType>();
     createReadStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    createReadStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // Optional options object
     createReadStream->returnType = symbols.lookupType("ReadStream");
     fsType->fields["createReadStream"] = createReadStream;
 
-    // fs.createWriteStream(path: string): WriteStream
+    // fs.createWriteStream(path: string, options?: { flags?, encoding?, mode?, autoClose?, start? }): WriteStream
     auto createWriteStream = std::make_shared<FunctionType>();
     createWriteStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    createWriteStream->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // Optional options object
     createWriteStream->returnType = symbols.lookupType("WriteStream");
     fsType->fields["createWriteStream"] = createWriteStream;
 
@@ -294,6 +318,121 @@ void Analyzer::registerFS() {
     ftruncateSync->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["ftruncateSync"] = ftruncateSync;
 
+    // fs.lchmodSync(path: string, mode: number): void
+    auto lchmodSync = std::make_shared<FunctionType>();
+    lchmodSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchmodSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchmodSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lchmodSync"] = lchmodSync;
+
+    // fs.lchownSync(path: string, uid: number, gid: number): void
+    auto lchownSync = std::make_shared<FunctionType>();
+    lchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchownSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchownSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lchownSync"] = lchownSync;
+
+    // fs.lutimesSync(path: string, atime: number, mtime: number): void
+    auto lutimesSync = std::make_shared<FunctionType>();
+    lutimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lutimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimesSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimesSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lutimesSync"] = lutimesSync;
+
+    // Callback-based fd operations (fchmod, fchown, fstat, fsync, fdatasync, ftruncate, futimes)
+    // fs.fchmod(fd: number, mode: number, callback: Function): void
+    auto fchmod = std::make_shared<FunctionType>();
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fchmod->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchmod"] = fchmod;
+
+    // fs.fchown(fd: number, uid: number, gid: number, callback: Function): void
+    auto fchown = std::make_shared<FunctionType>();
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fchown->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fchown"] = fchown;
+
+    // fs.fstat(fd: number, callback: Function): void
+    auto fstat = std::make_shared<FunctionType>();
+    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fstat->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fstat"] = fstat;
+
+    // fs.fsync(fd: number, callback: Function): void
+    auto fsync = std::make_shared<FunctionType>();
+    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fsync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fsync"] = fsync;
+
+    // fs.fdatasync(fd: number, callback: Function): void
+    auto fdatasync = std::make_shared<FunctionType>();
+    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    fdatasync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["fdatasync"] = fdatasync;
+
+    // fs.ftruncate(fd: number, len: number, callback: Function): void
+    auto ftruncate = std::make_shared<FunctionType>();
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    ftruncate->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["ftruncate"] = ftruncate;
+
+    // fs.futimes(fd: number, atime: number, mtime: number, callback: Function): void
+    auto futimes = std::make_shared<FunctionType>();
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    futimes->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["futimes"] = futimes;
+
+    // Callback-based symlink operations (lchmod, lchown, lutimes)
+    // fs.lchmod(path: string, mode: number, callback: Function): void
+    auto lchmod = std::make_shared<FunctionType>();
+    lchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    lchmod->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lchmod"] = lchmod;
+
+    // fs.lchown(path: string, uid: number, gid: number, callback: Function): void
+    auto lchown = std::make_shared<FunctionType>();
+    lchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    lchown->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lchown"] = lchown;
+
+    // fs.lutimes(path: string, atime: number, mtime: number, callback: Function): void
+    auto lutimes = std::make_shared<FunctionType>();
+    lutimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lutimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    lutimes->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["lutimes"] = lutimes;
+
+    // fs.cp(src: string, dest: string, options?: object, callback?: Function): void
+    auto cp = std::make_shared<FunctionType>();
+    cp->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cp->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cp->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    cp->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    cp->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["cp"] = cp;
+
     // fs.readvSync(fd: number, buffers: any[], position?: number): number
     auto readvSync = std::make_shared<FunctionType>();
     readvSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
@@ -392,6 +531,14 @@ void Analyzer::registerFS() {
     copyFileSync->returnType = std::make_shared<Type>(TypeKind::Void);
     fsType->fields["copyFileSync"] = copyFileSync;
 
+    // fs.cpSync(src: string, dest: string, options?: object): void
+    auto cpSync = std::make_shared<FunctionType>();
+    cpSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cpSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cpSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    cpSync->returnType = std::make_shared<Type>(TypeKind::Void);
+    fsType->fields["cpSync"] = cpSync;
+
     // fs.truncateSync(path: string, len?: number): void
     auto truncateSync = std::make_shared<FunctionType>();
     truncateSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
@@ -432,61 +579,6 @@ void Analyzer::registerFS() {
     mkdtempSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     mkdtempSync->returnType = std::make_shared<Type>(TypeKind::String);
     fsType->fields["mkdtempSync"] = mkdtempSync;
-
-    // fs.fchmod(fd: number, mode: number, callback: any): void
-    auto fchmod = std::make_shared<FunctionType>();
-    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fchmod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    fchmod->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["fchmod"] = fchmod;
-
-    // fs.fchown(fd: number, uid: number, gid: number, callback: any): void
-    auto fchown = std::make_shared<FunctionType>();
-    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fchown->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    fchown->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["fchown"] = fchown;
-
-    // fs.futimes(fd: number, atime: number, mtime: number, callback: any): void
-    auto futimes = std::make_shared<FunctionType>();
-    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    futimes->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    futimes->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["futimes"] = futimes;
-
-    // fs.fstat(fd: number, callback: any): void
-    auto fstat = std::make_shared<FunctionType>();
-    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fstat->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    fstat->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["fstat"] = fstat;
-
-    // fs.fsync(fd: number, callback: any): void
-    auto fsync = std::make_shared<FunctionType>();
-    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    fsync->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["fsync"] = fsync;
-
-    // fs.fdatasync(fd: number, callback: any): void
-    auto fdatasync = std::make_shared<FunctionType>();
-    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    fdatasync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    fdatasync->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["fdatasync"] = fdatasync;
-
-    // fs.ftruncate(fd: number, len: number, callback: any): void
-    auto ftruncate = std::make_shared<FunctionType>();
-    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
-    ftruncate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-    ftruncate->returnType = std::make_shared<Type>(TypeKind::Void);
-    fsType->fields["ftruncate"] = ftruncate;
 
     // fs.readv(fd: number, buffers: any[], position: number, callback: any): void
     auto readv = std::make_shared<FunctionType>();
@@ -721,6 +813,14 @@ void Analyzer::registerFS() {
     copyFileAsync->returnType = std::make_shared<Type>(TypeKind::Any);
     promises->fields["copyFile"] = copyFileAsync;
 
+    // fs.promises.cp(src: string, dest: string, options?: object): Promise<void>
+    auto cpAsync = std::make_shared<FunctionType>();
+    cpAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cpAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    cpAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    cpAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["cp"] = cpAsync;
+
     auto truncateAsync = std::make_shared<FunctionType>();
     truncateAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     truncateAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
@@ -774,6 +874,37 @@ void Analyzer::registerFS() {
     pWritev->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double)); // position
     pWritev->returnType = fhWritevPromise;
     promises->fields["writev"] = pWritev;
+
+    // Symlink operations
+    // fs.promises.lchmod(path: string, mode: number): Promise<void>
+    auto lchmodAsync = std::make_shared<FunctionType>();
+    lchmodAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchmodAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchmodAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["lchmod"] = lchmodAsync;
+
+    // fs.promises.lchown(path: string, uid: number, gid: number): Promise<void>
+    auto lchownAsync = std::make_shared<FunctionType>();
+    lchownAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lchownAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchownAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lchownAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["lchown"] = lchownAsync;
+
+    // fs.promises.lutimes(path: string, atime: number, mtime: number): Promise<void>
+    auto lutimesAsync = std::make_shared<FunctionType>();
+    lutimesAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    lutimesAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimesAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    lutimesAsync->returnType = std::make_shared<Type>(TypeKind::Any);
+    promises->fields["lutimes"] = lutimesAsync;
+
+    // fs.promises.watch(filename: string, options?: object): AsyncIterable<{eventType, filename}>
+    auto watchAsync = std::make_shared<FunctionType>();
+    watchAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    watchAsync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // options
+    watchAsync->returnType = std::make_shared<Type>(TypeKind::Any);  // AsyncIterable
+    promises->fields["watch"] = watchAsync;
 
     fsType->fields["promises"] = promises;
 

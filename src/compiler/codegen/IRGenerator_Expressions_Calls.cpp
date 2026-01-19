@@ -775,6 +775,76 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             return;
         }
         
+        // Handle timer builtins BEFORE the generic FunctionType handling
+        // These are globals with FunctionType but must be handled specially
+        if (id->name == "setTimeout" || id->name == "setInterval") {
+            if (node->arguments.size() < 2) return;
+
+            visit(node->arguments[0].get());
+            llvm::Value* callback = lastValue;
+
+            // Ensure callback is a pointer to the function
+            if (callback->getType()->isIntegerTy()) {
+                callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+            }
+
+            llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
+
+            visit(node->arguments[1].get());
+            llvm::Value* delay = lastValue;
+
+            std::string funcName = (id->name == "setTimeout") ? "ts_set_timeout" : "ts_set_interval";
+            llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
+            llvm::FunctionCallee timerFn = module->getOrInsertFunction(funcName, timerFt);
+
+            llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback, delay });
+            lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
+            return;
+        }
+
+        if (id->name == "clearTimeout" || id->name == "clearInterval") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* timerId = lastValue;
+            llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
+
+            llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
+
+            createCall(clearFt, clearFn.getCallee(), { boxedId });
+            lastValue = nullptr;
+            return;
+        }
+
+        if (id->name == "setImmediate") {
+            if (node->arguments.empty()) return;
+
+            visit(node->arguments[0].get());
+            llvm::Value* callback = lastValue;
+            llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
+
+            llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee timerFn = getRuntimeFunction("ts_set_immediate", timerFt);
+
+            llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback });
+            lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
+            return;
+        }
+
+        if (id->name == "clearImmediate") {
+            if (node->arguments.empty()) return;
+            visit(node->arguments[0].get());
+            llvm::Value* timerId = lastValue;
+            llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
+
+            llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
+
+            createCall(clearFt, clearFn.getCallee(), { boxedId });
+            lastValue = nullptr;
+            return;
+        }
+
         // Check if this identifier has Function type and is a variable that holds a function
         // This handles cases where the callee is loaded from somewhere and has Function type
         // BUT: Skip this if there's a directly callable function with this name - that takes priority
@@ -852,74 +922,6 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
                     }
                 }
             }
-        }
-
-        if (id->name == "setTimeout" || id->name == "setInterval") {
-            if (node->arguments.size() < 2) return;
-            
-            visit(node->arguments[0].get());
-            llvm::Value* callback = lastValue;
-            
-            // Ensure callback is a pointer to the function
-            if (callback->getType()->isIntegerTy()) {
-                callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
-            }
-            
-            llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
-            
-            visit(node->arguments[1].get());
-            llvm::Value* delay = lastValue;
-            
-            std::string funcName = (id->name == "setTimeout") ? "ts_set_timeout" : "ts_set_interval";
-            llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
-            llvm::FunctionCallee timerFn = module->getOrInsertFunction(funcName, timerFt);
-            
-            llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback, delay });
-            lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
-            return;
-        }
-
-        if (id->name == "clearTimeout" || id->name == "clearInterval") {
-            if (node->arguments.empty()) return;
-            visit(node->arguments[0].get());
-            llvm::Value* timerId = lastValue;
-            llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
-            
-            llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
-            
-            createCall(clearFt, clearFn.getCallee(), { boxedId });
-            lastValue = nullptr;
-            return;
-        }
-
-        if (id->name == "setImmediate") {
-            if (node->arguments.empty()) return;
-            
-            visit(node->arguments[0].get());
-            llvm::Value* callback = lastValue;
-            llvm::Value* boxedCallback = boxValue(callback, node->arguments[0]->inferredType);
-            
-            llvm::FunctionType* timerFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee timerFn = getRuntimeFunction("ts_set_immediate", timerFt);
-            
-            llvm::Value* boxedRes = createCall(timerFt, timerFn.getCallee(), { boxedCallback });
-            lastValue = unboxValue(boxedRes, std::make_shared<Type>(TypeKind::Int));
-            return;
-        }
-
-        if (id->name == "clearImmediate") {
-            if (node->arguments.empty()) return;
-            visit(node->arguments[0].get());
-            llvm::Value* timerId = lastValue;
-            llvm::Value* boxedId = boxValue(timerId, node->arguments[0]->inferredType);
-            
-            llvm::FunctionType* clearFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee clearFn = getRuntimeFunction("ts_clear_timer", clearFt);
-            
-            createCall(clearFt, clearFn.getCallee(), { boxedId });
-            lastValue = nullptr;
-            return;
         }
 
         if (id->name == "parseInt") {

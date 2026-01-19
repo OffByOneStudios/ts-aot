@@ -2,6 +2,7 @@
 #include "TsBuffer.h"
 #include "TsObject.h"
 #include "TsArray.h"
+#include "TsMap.h"
 #include "TsRuntime.h"
 #include "GC.h"
 #include "md5.h"
@@ -11,6 +12,9 @@
 #include <openssl/rand.h>
 #include <openssl/kdf.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/ec.h>
 
 #include <uv.h>
 
@@ -1537,6 +1541,1282 @@ void* Hmac_update(void* hmacObj, void* data) {
 
 void* Hmac_digest(void* hmacObj, void* encoding) {
     return ts_crypto_hmac_digest(hmacObj, encoding);
+}
+
+// ============================================================================
+// Sign class - wraps OpenSSL EVP_MD_CTX for digital signature creation
+// Accumulates data during update() calls, signs when sign() is called
+// ============================================================================
+
+class TsCryptoSign : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x5349474E; // "SIGN"
+
+    const EVP_MD* md;
+    bool finalized;
+    // Accumulated data buffer
+    uint8_t* data;
+    size_t dataLen;
+    size_t dataCapacity;
+
+    static TsCryptoSign* Create(const char* algorithm) {
+        const EVP_MD* md = EVP_get_digestbyname(algorithm);
+        if (!md) return nullptr;
+
+        void* mem = ts_alloc(sizeof(TsCryptoSign));
+        TsCryptoSign* sign = new(mem) TsCryptoSign();
+        sign->magic = MAGIC;
+        sign->md = md;
+        sign->finalized = false;
+        sign->data = nullptr;
+        sign->dataLen = 0;
+        sign->dataCapacity = 0;
+
+        return sign;
+    }
+
+    ~TsCryptoSign() {
+        // Data is GC allocated, no need to free
+    }
+
+    bool Update(const void* newData, size_t len) {
+        if (finalized) return false;
+        if (len == 0) return true;
+
+        // Ensure capacity
+        if (dataLen + len > dataCapacity) {
+            size_t newCap = dataCapacity == 0 ? 256 : dataCapacity * 2;
+            while (newCap < dataLen + len) newCap *= 2;
+            uint8_t* newBuf = (uint8_t*)ts_alloc(newCap);
+            if (data && dataLen > 0) {
+                memcpy(newBuf, data, dataLen);
+            }
+            data = newBuf;
+            dataCapacity = newCap;
+        }
+
+        memcpy(data + dataLen, newData, len);
+        dataLen += len;
+        return true;
+    }
+
+    TsBuffer* Sign(EVP_PKEY* pkey) {
+        if (finalized || !pkey) return nullptr;
+        finalized = true;
+
+        // Initialize signing context
+        EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+        if (!ctx) return nullptr;
+
+        if (EVP_DigestSignInit(ctx, nullptr, md, nullptr, pkey) != 1) {
+            EVP_MD_CTX_free(ctx);
+            return nullptr;
+        }
+
+        // Add accumulated data
+        if (data && dataLen > 0) {
+            if (EVP_DigestSignUpdate(ctx, data, dataLen) != 1) {
+                EVP_MD_CTX_free(ctx);
+                return nullptr;
+            }
+        }
+
+        // Get signature length first
+        size_t sigLen = 0;
+        if (EVP_DigestSignFinal(ctx, nullptr, &sigLen) != 1) {
+            EVP_MD_CTX_free(ctx);
+            return nullptr;
+        }
+
+        TsBuffer* sigBuf = TsBuffer::Create(sigLen);
+        if (EVP_DigestSignFinal(ctx, sigBuf->GetData(), &sigLen) != 1) {
+            EVP_MD_CTX_free(ctx);
+            return nullptr;
+        }
+
+        EVP_MD_CTX_free(ctx);
+
+        // Resize if needed (RSA signatures are usually exact size)
+        if (sigLen < sigBuf->GetLength()) {
+            TsBuffer* resized = TsBuffer::Create(sigLen);
+            memcpy(resized->GetData(), sigBuf->GetData(), sigLen);
+            return resized;
+        }
+
+        return sigBuf;
+    }
+};
+
+// ============================================================================
+// Verify class - wraps OpenSSL EVP_MD_CTX for signature verification
+// Accumulates data during update() calls, verifies when verify() is called
+// ============================================================================
+
+class TsCryptoVerify : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x56455249; // "VERI"
+
+    const EVP_MD* md;
+    bool finalized;
+    // Accumulated data buffer
+    uint8_t* data;
+    size_t dataLen;
+    size_t dataCapacity;
+
+    static TsCryptoVerify* Create(const char* algorithm) {
+        const EVP_MD* md = EVP_get_digestbyname(algorithm);
+        if (!md) return nullptr;
+
+        void* mem = ts_alloc(sizeof(TsCryptoVerify));
+        TsCryptoVerify* verify = new(mem) TsCryptoVerify();
+        verify->magic = MAGIC;
+        verify->md = md;
+        verify->finalized = false;
+        verify->data = nullptr;
+        verify->dataLen = 0;
+        verify->dataCapacity = 0;
+
+        return verify;
+    }
+
+    ~TsCryptoVerify() {
+        // Data is GC allocated, no need to free
+    }
+
+    bool Update(const void* newData, size_t len) {
+        if (finalized) return false;
+        if (len == 0) return true;
+
+        // Ensure capacity
+        if (dataLen + len > dataCapacity) {
+            size_t newCap = dataCapacity == 0 ? 256 : dataCapacity * 2;
+            while (newCap < dataLen + len) newCap *= 2;
+            uint8_t* newBuf = (uint8_t*)ts_alloc(newCap);
+            if (data && dataLen > 0) {
+                memcpy(newBuf, data, dataLen);
+            }
+            data = newBuf;
+            dataCapacity = newCap;
+        }
+
+        memcpy(data + dataLen, newData, len);
+        dataLen += len;
+        return true;
+    }
+
+    bool Verify(EVP_PKEY* pkey, const void* sig, size_t sigLen) {
+        if (finalized || !pkey) return false;
+        finalized = true;
+
+        EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+        if (!ctx) return false;
+
+        if (EVP_DigestVerifyInit(ctx, nullptr, md, nullptr, pkey) != 1) {
+            EVP_MD_CTX_free(ctx);
+            return false;
+        }
+
+        // Add accumulated data
+        if (data && dataLen > 0) {
+            if (EVP_DigestVerifyUpdate(ctx, data, dataLen) != 1) {
+                EVP_MD_CTX_free(ctx);
+                return false;
+            }
+        }
+
+        int result = EVP_DigestVerifyFinal(ctx, (const unsigned char*)sig, sigLen);
+        EVP_MD_CTX_free(ctx);
+
+        return result == 1;
+    }
+};
+
+// Helper function to load a private key from PEM
+static EVP_PKEY* LoadPrivateKey(const void* keyData, size_t keyLen) {
+    BIO* bio = BIO_new_mem_buf(keyData, (int)keyLen);
+    if (!bio) return nullptr;
+
+    EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    return pkey;
+}
+
+// Helper function to load a public key from PEM
+static EVP_PKEY* LoadPublicKey(const void* keyData, size_t keyLen) {
+    BIO* bio = BIO_new_mem_buf(keyData, (int)keyLen);
+    if (!bio) return nullptr;
+
+    // Try reading as public key first
+    EVP_PKEY* pkey = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
+    if (!pkey) {
+        // Try reading as certificate to extract public key
+        BIO_reset(bio);
+        X509* cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+        if (cert) {
+            pkey = X509_get_pubkey(cert);
+            X509_free(cert);
+        }
+    }
+    BIO_free(bio);
+    return pkey;
+}
+
+// Helper to extract key data from TsValue (string or buffer)
+static bool ExtractKeyData(void* key, const void** outData, size_t* outLen) {
+    TsValue* keyVal = (TsValue*)key;
+    if (!keyVal) return false;
+
+    if (keyVal->type == ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)keyVal->ptr_val;
+        *outData = keyStr->ToUtf8();
+        *outLen = strlen((const char*)*outData);
+        return true;
+    } else if (keyVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)keyVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            *outData = buf->GetData();
+            *outLen = buf->GetLength();
+            return true;
+        }
+    } else {
+        void* raw = ts_value_get_object(keyVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                *outData = buf->GetData();
+                *outLen = buf->GetLength();
+                return true;
+            } else {
+                TsString* keyStr = (TsString*)raw;
+                *outData = keyStr->ToUtf8();
+                *outLen = strlen((const char*)*outData);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// ============================================================================
+// C API - Sign/Verify functions
+// ============================================================================
+
+// crypto.createSign(algorithm) -> Sign
+void* ts_crypto_createSign(void* algorithm) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) return nullptr;
+    return TsCryptoSign::Create(alg->ToUtf8());
+}
+
+// sign.update(data) -> Sign (chainable)
+void* ts_crypto_sign_update(void* signObj, void* data) {
+    TsCryptoSign* sign = (TsCryptoSign*)signObj;
+    if (!sign || sign->magic != TsCryptoSign::MAGIC) return signObj;
+
+    TsValue* val = (TsValue*)data;
+    if (!val) return signObj;
+
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        sign->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            sign->Update(buf->GetData(), buf->GetLength());
+        }
+    } else {
+        void* raw = ts_value_get_object(val);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                sign->Update(buf->GetData(), buf->GetLength());
+            } else {
+                TsString* str = (TsString*)raw;
+                sign->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+            }
+        }
+    }
+
+    return signObj;
+}
+
+// sign.sign(privateKey, outputEncoding?) -> Buffer|string
+void* ts_crypto_sign_sign(void* signObj, void* privateKey, void* outputEncoding) {
+    TsCryptoSign* sign = (TsCryptoSign*)signObj;
+    if (!sign || sign->magic != TsCryptoSign::MAGIC) return nullptr;
+
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(privateKey, &keyData, &keyLen)) return nullptr;
+
+    EVP_PKEY* pkey = LoadPrivateKey(keyData, keyLen);
+    if (!pkey) return nullptr;
+
+    // Use the class's Sign method which handles accumulated data
+    TsBuffer* sigBuf = sign->Sign(pkey);
+    EVP_PKEY_free(pkey);
+
+    if (!sigBuf) return nullptr;
+
+    // Check if encoding requested
+    if (outputEncoding) {
+        TsString* enc = nullptr;
+        TsValue* encVal = (TsValue*)outputEncoding;
+        if (encVal->type == ValueType::STRING_PTR) {
+            enc = (TsString*)encVal->ptr_val;
+        } else {
+            void* raw = ts_value_get_object(encVal);
+            if (raw) enc = (TsString*)raw;
+        }
+
+        if (enc) {
+            const char* encStr = enc->ToUtf8();
+            if (strcmp(encStr, "hex") == 0) {
+                return sigBuf->ToHex();
+            } else if (strcmp(encStr, "base64") == 0) {
+                return sigBuf->ToBase64();
+            }
+        }
+    }
+
+    return sigBuf;
+}
+
+// crypto.createVerify(algorithm) -> Verify
+void* ts_crypto_createVerify(void* algorithm) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) return nullptr;
+    return TsCryptoVerify::Create(alg->ToUtf8());
+}
+
+// verify.update(data) -> Verify (chainable)
+void* ts_crypto_verify_update(void* verifyObj, void* data) {
+    TsCryptoVerify* verify = (TsCryptoVerify*)verifyObj;
+    if (!verify || verify->magic != TsCryptoVerify::MAGIC) return verifyObj;
+
+    TsValue* val = (TsValue*)data;
+    if (!val) return verifyObj;
+
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        verify->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            verify->Update(buf->GetData(), buf->GetLength());
+        }
+    } else {
+        void* raw = ts_value_get_object(val);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                verify->Update(buf->GetData(), buf->GetLength());
+            } else {
+                TsString* str = (TsString*)raw;
+                verify->Update(str->ToUtf8(), strlen(str->ToUtf8()));
+            }
+        }
+    }
+
+    return verifyObj;
+}
+
+// verify.verify(publicKey, signature, signatureEncoding?) -> boolean
+bool ts_crypto_verify_verify(void* verifyObj, void* publicKey, void* signature, void* signatureEncoding) {
+    TsCryptoVerify* verify = (TsCryptoVerify*)verifyObj;
+    if (!verify || verify->magic != TsCryptoVerify::MAGIC) return false;
+
+    // Load public key
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(publicKey, &keyData, &keyLen)) return false;
+
+    EVP_PKEY* pkey = LoadPublicKey(keyData, keyLen);
+    if (!pkey) {
+        // Try as private key (can extract public key from it)
+        pkey = LoadPrivateKey(keyData, keyLen);
+    }
+    if (!pkey) return false;
+
+    // Extract signature data
+    const void* sigData = nullptr;
+    size_t sigLen = 0;
+
+    TsValue* sigVal = (TsValue*)signature;
+    TsBuffer* sigBuf = nullptr;
+
+    if (sigVal->type == ValueType::STRING_PTR) {
+        TsString* sigStr = (TsString*)sigVal->ptr_val;
+        // Check if encoding specified - need to decode
+        if (signatureEncoding) {
+            TsString* enc = nullptr;
+            TsValue* encVal = (TsValue*)signatureEncoding;
+            if (encVal->type == ValueType::STRING_PTR) {
+                enc = (TsString*)encVal->ptr_val;
+            } else {
+                void* raw = ts_value_get_object(encVal);
+                if (raw) enc = (TsString*)raw;
+            }
+
+            if (enc) {
+                const char* encStr = enc->ToUtf8();
+                if (strcmp(encStr, "hex") == 0) {
+                    sigBuf = TsBuffer::FromHex(sigStr);
+                } else if (strcmp(encStr, "base64") == 0) {
+                    sigBuf = TsBuffer::FromBase64(sigStr);
+                }
+            }
+        }
+
+        if (sigBuf) {
+            sigData = sigBuf->GetData();
+            sigLen = sigBuf->GetLength();
+        } else {
+            sigData = sigStr->ToUtf8();
+            sigLen = strlen((const char*)sigData);
+        }
+    } else if (sigVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)sigVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            sigData = buf->GetData();
+            sigLen = buf->GetLength();
+        }
+    } else {
+        void* raw = ts_value_get_object(sigVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* buf = (TsBuffer*)obj;
+                sigData = buf->GetData();
+                sigLen = buf->GetLength();
+            }
+        }
+    }
+
+    if (!sigData || sigLen == 0) {
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+
+    // Use the class's Verify method which handles accumulated data
+    bool result = verify->Verify(pkey, sigData, sigLen);
+    EVP_PKEY_free(pkey);
+
+    return result;
+}
+
+// ============================================================================
+// One-shot crypto.sign() and crypto.verify() functions
+// ============================================================================
+
+// crypto.sign(algorithm, data, key) -> Buffer
+void* ts_crypto_sign_oneshot(void* algorithm, void* data, void* key) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) return nullptr;
+
+    const EVP_MD* md = EVP_get_digestbyname(alg->ToUtf8());
+    if (!md) return nullptr;
+
+    // Extract data
+    const void* dataPtr = nullptr;
+    size_t dataLen = 0;
+    if (!ExtractKeyData(data, &dataPtr, &dataLen)) return nullptr;
+
+    // Extract key
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(key, &keyData, &keyLen)) return nullptr;
+
+    EVP_PKEY* pkey = LoadPrivateKey(keyData, keyLen);
+    if (!pkey) return nullptr;
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+
+    if (EVP_DigestSignInit(ctx, nullptr, md, nullptr, pkey) != 1) {
+        EVP_MD_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+
+    // Use two-step API: Update then Final
+    if (EVP_DigestSignUpdate(ctx, dataPtr, dataLen) != 1) {
+        EVP_MD_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+
+    // Get required signature size
+    size_t sigLen = 0;
+    if (EVP_DigestSignFinal(ctx, nullptr, &sigLen) != 1) {
+        EVP_MD_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+
+    TsBuffer* sigBuf = TsBuffer::Create(sigLen);
+    memset(sigBuf->GetData(), 0, sigLen);  // Zero-initialize
+    size_t actualSigLen = sigLen;
+    int signResult = EVP_DigestSignFinal(ctx, sigBuf->GetData(), &actualSigLen);
+    if (signResult != 1) {
+        EVP_MD_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+
+    EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+
+    // Resize if needed
+    if (actualSigLen < sigLen) {
+        TsBuffer* resized = TsBuffer::Create(actualSigLen);
+        memcpy(resized->GetData(), sigBuf->GetData(), actualSigLen);
+        return resized;
+    }
+
+    return sigBuf;
+}
+
+// crypto.verify(algorithm, data, key, signature) -> boolean
+bool ts_crypto_verify_oneshot(void* algorithm, void* data, void* key, void* signature) {
+    TsString* alg = (TsString*)algorithm;
+    if (!alg) {
+        return false;
+    }
+
+    const EVP_MD* md = EVP_get_digestbyname(alg->ToUtf8());
+    if (!md) {
+        return false;
+    }
+
+    // Extract data
+    const void* dataPtr = nullptr;
+    size_t dataLen = 0;
+    if (!ExtractKeyData(data, &dataPtr, &dataLen)) {
+        return false;
+    }
+
+    // Extract key
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(key, &keyData, &keyLen)) return false;
+
+    EVP_PKEY* pkey = LoadPublicKey(keyData, keyLen);
+    if (!pkey) pkey = LoadPrivateKey(keyData, keyLen);
+    if (!pkey) {
+        return false;
+    }
+
+    // Extract signature - may be passed as raw Buffer* or boxed TsValue*
+    const void* sigData = nullptr;
+    size_t sigLen = 0;
+
+    // Try ExtractKeyData which handles TsValue, TsBuffer, TsString
+    if (!ExtractKeyData(signature, &sigData, &sigLen)) {
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+
+    if (!sigData || sigLen == 0) {
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+
+    if (EVP_DigestVerifyInit(ctx, nullptr, md, nullptr, pkey) != 1) {
+        EVP_MD_CTX_free(ctx);
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+
+    int result = EVP_DigestVerify(ctx, (const unsigned char*)sigData, sigLen,
+                                   (const unsigned char*)dataPtr, dataLen);
+
+    EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+
+    return result == 1;
+}
+
+// ============================================================================
+// VTable entry points for Sign class
+// ============================================================================
+
+void* Sign_update(void* signObj, void* data) {
+    return ts_crypto_sign_update(signObj, data);
+}
+
+void* Sign_sign(void* signObj, void* privateKey, void* outputEncoding) {
+    return ts_crypto_sign_sign(signObj, privateKey, outputEncoding);
+}
+
+// ============================================================================
+// VTable entry points for Verify class
+// ============================================================================
+
+void* Verify_update(void* verifyObj, void* data) {
+    return ts_crypto_verify_update(verifyObj, data);
+}
+
+bool Verify_verify(void* verifyObj, void* publicKey, void* signature, void* signatureEncoding) {
+    return ts_crypto_verify_verify(verifyObj, publicKey, signature, signatureEncoding);
+}
+
+// ============================================================================
+// Key Generation Functions
+// ============================================================================
+
+// Helper to convert EVP_PKEY to PEM encoded string
+static TsString* PKeyToPrivatePEM(EVP_PKEY* pkey) {
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) return nullptr;
+
+    if (PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+        BIO_free(bio);
+        return nullptr;
+    }
+
+    char* data = nullptr;
+    long len = BIO_get_mem_data(bio, &data);
+    // Create null-terminated copy for TsString
+    char* nullTerminated = (char*)ts_alloc(len + 1);
+    memcpy(nullTerminated, data, len);
+    nullTerminated[len] = '\0';
+    TsString* result = TsString::Create(nullTerminated);
+    BIO_free(bio);
+    return result;
+}
+
+static TsString* PKeyToPublicPEM(EVP_PKEY* pkey) {
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) return nullptr;
+
+    if (PEM_write_bio_PUBKEY(bio, pkey) != 1) {
+        BIO_free(bio);
+        return nullptr;
+    }
+
+    char* data = nullptr;
+    long len = BIO_get_mem_data(bio, &data);
+    // Create null-terminated copy for TsString
+    char* nullTerminated = (char*)ts_alloc(len + 1);
+    memcpy(nullTerminated, data, len);
+    nullTerminated[len] = '\0';
+    TsString* result = TsString::Create(nullTerminated);
+    BIO_free(bio);
+    return result;
+}
+
+// crypto.generateKeyPairSync('rsa', options) -> { publicKey, privateKey }
+// crypto.generateKeyPairSync('ec', options) -> { publicKey, privateKey }
+void* ts_crypto_generateKeyPairSync(void* typeArg, int64_t modulusLength, void* namedCurve) {
+    TsString* type = (TsString*)typeArg;
+    if (!type) return nullptr;
+
+    const char* typeStr = type->ToUtf8();
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* ctx = nullptr;
+
+    if (strcmp(typeStr, "rsa") == 0 || strcmp(typeStr, "rsa-pss") == 0) {
+        // RSA key generation
+        if (modulusLength <= 0) modulusLength = 2048;
+
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        if (!ctx) return nullptr;
+
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, (int)modulusLength) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(typeStr, "ec") == 0 || strcmp(typeStr, "ecdsa") == 0) {
+        // EC key generation
+        const char* curve = "prime256v1"; // default to P-256
+        if (namedCurve) {
+            TsString* curveStr = (TsString*)namedCurve;
+            curve = curveStr->ToUtf8();
+        }
+
+        int nid = OBJ_sn2nid(curve);
+        if (nid == NID_undef) {
+            // Try long name
+            nid = OBJ_ln2nid(curve);
+        }
+        if (nid == NID_undef) {
+            // Common curve name mappings
+            if (strcmp(curve, "P-256") == 0 || strcmp(curve, "secp256r1") == 0) {
+                nid = NID_X9_62_prime256v1;
+            } else if (strcmp(curve, "P-384") == 0 || strcmp(curve, "secp384r1") == 0) {
+                nid = NID_secp384r1;
+            } else if (strcmp(curve, "P-521") == 0 || strcmp(curve, "secp521r1") == 0) {
+                nid = NID_secp521r1;
+            }
+        }
+        if (nid == NID_undef) return nullptr;
+
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+        if (!ctx) return nullptr;
+
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(typeStr, "ed25519") == 0) {
+        // Ed25519 key generation
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
+        if (!ctx) return nullptr;
+
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(typeStr, "x25519") == 0) {
+        // X25519 key generation
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+        if (!ctx) return nullptr;
+
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            return nullptr;
+        }
+
+        EVP_PKEY_CTX_free(ctx);
+
+    } else {
+        return nullptr;
+    }
+
+    if (!pkey) return nullptr;
+
+    // Convert to PEM format
+    TsString* publicKeyPEM = PKeyToPublicPEM(pkey);
+    TsString* privateKeyPEM = PKeyToPrivatePEM(pkey);
+
+    EVP_PKEY_free(pkey);
+
+    if (!publicKeyPEM || !privateKeyPEM) return nullptr;
+
+    // Return object with publicKey and privateKey properties
+    TsMap* result = TsMap::Create();
+    TsValue pubKeyVal;
+    pubKeyVal.type = ValueType::STRING_PTR;
+    pubKeyVal.ptr_val = publicKeyPEM;
+    TsValue privKeyVal;
+    privKeyVal.type = ValueType::STRING_PTR;
+    privKeyVal.ptr_val = privateKeyPEM;
+    TsValue pubKeyName;
+    pubKeyName.type = ValueType::STRING_PTR;
+    pubKeyName.ptr_val = TsString::Create("publicKey");
+    TsValue privKeyName;
+    privKeyName.type = ValueType::STRING_PTR;
+    privKeyName.ptr_val = TsString::Create("privateKey");
+    result->Set(pubKeyName, pubKeyVal);
+    result->Set(privKeyName, privKeyVal);
+
+    return result;
+}
+
+// Async key pair generation callback data
+struct GenerateKeyPairWorkData {
+    char* type;
+    int modulusLength;
+    char* namedCurve;
+    void* callback;
+    // Output
+    TsString* publicKey;
+    TsString* privateKey;
+    bool success;
+    char* errorMsg;
+};
+
+static void generateKeyPair_work_cb(uv_work_t* req) {
+    GenerateKeyPairWorkData* data = (GenerateKeyPairWorkData*)req->data;
+
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* ctx = nullptr;
+
+    if (strcmp(data->type, "rsa") == 0 || strcmp(data->type, "rsa-pss") == 0) {
+        int bits = data->modulusLength > 0 ? data->modulusLength : 2048;
+
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        if (!ctx) {
+            data->errorMsg = strdup("Failed to create RSA context");
+            data->success = false;
+            return;
+        }
+
+        if (EVP_PKEY_keygen_init(ctx) <= 0 ||
+            EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits) <= 0 ||
+            EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            EVP_PKEY_CTX_free(ctx);
+            data->errorMsg = strdup("RSA key generation failed");
+            data->success = false;
+            return;
+        }
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(data->type, "ec") == 0 || strcmp(data->type, "ecdsa") == 0) {
+        const char* curve = data->namedCurve ? data->namedCurve : "prime256v1";
+        int nid = OBJ_sn2nid(curve);
+        if (nid == NID_undef) nid = OBJ_ln2nid(curve);
+        if (nid == NID_undef) {
+            if (strcmp(curve, "P-256") == 0) nid = NID_X9_62_prime256v1;
+            else if (strcmp(curve, "P-384") == 0) nid = NID_secp384r1;
+            else if (strcmp(curve, "P-521") == 0) nid = NID_secp521r1;
+        }
+
+        if (nid == NID_undef) {
+            data->errorMsg = strdup("Unknown EC curve");
+            data->success = false;
+            return;
+        }
+
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+        if (!ctx ||
+            EVP_PKEY_keygen_init(ctx) <= 0 ||
+            EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid) <= 0 ||
+            EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            if (ctx) EVP_PKEY_CTX_free(ctx);
+            data->errorMsg = strdup("EC key generation failed");
+            data->success = false;
+            return;
+        }
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(data->type, "ed25519") == 0) {
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
+        if (!ctx ||
+            EVP_PKEY_keygen_init(ctx) <= 0 ||
+            EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            if (ctx) EVP_PKEY_CTX_free(ctx);
+            data->errorMsg = strdup("Ed25519 key generation failed");
+            data->success = false;
+            return;
+        }
+        EVP_PKEY_CTX_free(ctx);
+
+    } else if (strcmp(data->type, "x25519") == 0) {
+        ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+        if (!ctx ||
+            EVP_PKEY_keygen_init(ctx) <= 0 ||
+            EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            if (ctx) EVP_PKEY_CTX_free(ctx);
+            data->errorMsg = strdup("X25519 key generation failed");
+            data->success = false;
+            return;
+        }
+        EVP_PKEY_CTX_free(ctx);
+
+    } else {
+        data->errorMsg = strdup("Unknown key type");
+        data->success = false;
+        return;
+    }
+
+    data->publicKey = PKeyToPublicPEM(pkey);
+    data->privateKey = PKeyToPrivatePEM(pkey);
+    EVP_PKEY_free(pkey);
+
+    data->success = (data->publicKey && data->privateKey);
+    if (!data->success) {
+        data->errorMsg = strdup("Failed to convert keys to PEM");
+    }
+}
+
+static void generateKeyPair_after_work_cb(uv_work_t* req, int status) {
+    GenerateKeyPairWorkData* data = (GenerateKeyPairWorkData*)req->data;
+
+    TsValue* err = nullptr;
+    TsValue* pubKey = nullptr;
+    TsValue* privKey = nullptr;
+
+    if (!data->success) {
+        err = (TsValue*)ts_error_create(TsString::Create(data->errorMsg ? data->errorMsg : "Key generation failed"));
+        pubKey = ts_value_make_undefined();
+        privKey = ts_value_make_undefined();
+    } else {
+        err = ts_value_make_undefined();
+        pubKey = ts_value_make_string(data->publicKey);
+        privKey = ts_value_make_string(data->privateKey);
+    }
+
+    // Call callback(err, publicKey, privateKey)
+    if (data->callback) {
+        TsValue* args[3] = { err, pubKey, privKey };
+        ts_function_call((TsValue*)data->callback, 3, args);
+    }
+
+    // Cleanup
+    if (data->type) free(data->type);
+    if (data->namedCurve) free(data->namedCurve);
+    if (data->errorMsg) free(data->errorMsg);
+    delete req;
+}
+
+// crypto.generateKeyPair(type, options, callback)
+void ts_crypto_generateKeyPair(void* typeArg, int64_t modulusLength, void* namedCurve, void* callback) {
+    TsString* type = (TsString*)typeArg;
+    if (!type) {
+        if (callback) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Type is required"));
+            TsValue* args[3] = { err, ts_value_make_undefined(), ts_value_make_undefined() };
+            ts_function_call((TsValue*)callback, 3, args);
+        }
+        return;
+    }
+
+    GenerateKeyPairWorkData* data = (GenerateKeyPairWorkData*)ts_alloc(sizeof(GenerateKeyPairWorkData));
+    data->type = strdup(type->ToUtf8());
+    data->modulusLength = (int)modulusLength;
+    data->namedCurve = namedCurve ? strdup(((TsString*)namedCurve)->ToUtf8()) : nullptr;
+    data->callback = callback;
+    data->publicKey = nullptr;
+    data->privateKey = nullptr;
+    data->success = false;
+    data->errorMsg = nullptr;
+
+    uv_work_t* req = new uv_work_t();
+    req->data = data;
+
+    uv_queue_work(uv_default_loop(), req, generateKeyPair_work_cb, generateKeyPair_after_work_cb);
+}
+
+// crypto.generateKeySync(type, options) -> Buffer (for symmetric keys like AES)
+void* ts_crypto_generateKeySync(void* typeArg, int64_t length) {
+    TsString* type = (TsString*)typeArg;
+    if (!type) return nullptr;
+
+    const char* typeStr = type->ToUtf8();
+
+    // For symmetric keys, just generate random bytes
+    size_t keyLen = 0;
+
+    if (strcmp(typeStr, "aes") == 0) {
+        // Default to 256-bit AES key
+        keyLen = length > 0 ? (size_t)(length / 8) : 32;
+    } else if (strcmp(typeStr, "hmac") == 0) {
+        // Default to 256-bit HMAC key
+        keyLen = length > 0 ? (size_t)(length / 8) : 32;
+    } else {
+        // Generic - use length directly as byte count
+        keyLen = length > 0 ? (size_t)length : 32;
+    }
+
+    TsBuffer* keyBuf = TsBuffer::Create(keyLen);
+    if (RAND_bytes(keyBuf->GetData(), (int)keyLen) != 1) {
+        return nullptr;
+    }
+
+    return keyBuf;
+}
+
+// Async symmetric key generation
+struct GenerateKeyWorkData {
+    char* type;
+    int length;
+    void* callback;
+    TsBuffer* result;
+    bool success;
+};
+
+static void generateKey_work_cb(uv_work_t* req) {
+    GenerateKeyWorkData* data = (GenerateKeyWorkData*)req->data;
+
+    size_t keyLen = 0;
+    if (strcmp(data->type, "aes") == 0 || strcmp(data->type, "hmac") == 0) {
+        keyLen = data->length > 0 ? (size_t)(data->length / 8) : 32;
+    } else {
+        keyLen = data->length > 0 ? (size_t)data->length : 32;
+    }
+
+    data->result = TsBuffer::Create(keyLen);
+    data->success = (RAND_bytes(data->result->GetData(), (int)keyLen) == 1);
+}
+
+static void generateKey_after_work_cb(uv_work_t* req, int status) {
+    GenerateKeyWorkData* data = (GenerateKeyWorkData*)req->data;
+
+    TsValue* err = nullptr;
+    TsValue* key = nullptr;
+
+    if (!data->success) {
+        err = (TsValue*)ts_error_create(TsString::Create("Key generation failed"));
+        key = ts_value_make_undefined();
+    } else {
+        err = ts_value_make_undefined();
+        key = ts_value_make_object(data->result);
+    }
+
+    if (data->callback) {
+        TsValue* args[2] = { err, key };
+        ts_function_call((TsValue*)data->callback, 2, args);
+    }
+
+    if (data->type) free(data->type);
+    delete req;
+}
+
+// crypto.generateKey(type, options, callback)
+void ts_crypto_generateKey(void* typeArg, int64_t length, void* callback) {
+    TsString* type = (TsString*)typeArg;
+    if (!type) {
+        if (callback) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Type is required"));
+            TsValue* args[2] = { err, ts_value_make_undefined() };
+            ts_function_call((TsValue*)callback, 2, args);
+        }
+        return;
+    }
+
+    GenerateKeyWorkData* data = (GenerateKeyWorkData*)ts_alloc(sizeof(GenerateKeyWorkData));
+    data->type = strdup(type->ToUtf8());
+    data->length = (int)length;
+    data->callback = callback;
+    data->result = nullptr;
+    data->success = false;
+
+    uv_work_t* req = new uv_work_t();
+    req->data = data;
+
+    uv_queue_work(uv_default_loop(), req, generateKey_work_cb, generateKey_after_work_cb);
+}
+
+// ============================================================================
+// Key Object Functions (createPrivateKey, createPublicKey, createSecretKey)
+// These wrap key material in a KeyObject for use with other crypto functions
+// ============================================================================
+
+// For simplicity, we'll store keys as TsBuffer or TsString and return them directly
+// In a full implementation, these would be KeyObject instances
+
+// crypto.createPrivateKey(key) -> KeyObject (returns string PEM for now)
+void* ts_crypto_createPrivateKey(void* keyArg) {
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(keyArg, &keyData, &keyLen)) return nullptr;
+
+    // Try to parse the key to validate it
+    EVP_PKEY* pkey = LoadPrivateKey(keyData, keyLen);
+    if (!pkey) return nullptr;
+
+    // Re-encode as PEM (normalized format)
+    TsString* result = PKeyToPrivatePEM(pkey);
+    EVP_PKEY_free(pkey);
+    return result;
+}
+
+// crypto.createPublicKey(key) -> KeyObject (returns string PEM for now)
+void* ts_crypto_createPublicKey(void* keyArg) {
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+    if (!ExtractKeyData(keyArg, &keyData, &keyLen)) return nullptr;
+
+    // Try to parse as public key
+    EVP_PKEY* pkey = LoadPublicKey(keyData, keyLen);
+    if (!pkey) {
+        // Try as private key and extract public
+        pkey = LoadPrivateKey(keyData, keyLen);
+    }
+    if (!pkey) return nullptr;
+
+    TsString* result = PKeyToPublicPEM(pkey);
+    EVP_PKEY_free(pkey);
+    return result;
+}
+
+// crypto.createSecretKey(key, encoding?) -> KeyObject (returns Buffer for now)
+void* ts_crypto_createSecretKey(void* keyArg, void* encoding) {
+    const void* keyData = nullptr;
+    size_t keyLen = 0;
+
+    TsValue* keyVal = (TsValue*)keyArg;
+    if (!keyVal) return nullptr;
+
+    if (keyVal->type == ValueType::STRING_PTR) {
+        TsString* keyStr = (TsString*)keyVal->ptr_val;
+        // Check encoding
+        if (encoding) {
+            TsString* enc = nullptr;
+            TsValue* encVal = (TsValue*)encoding;
+            if (encVal->type == ValueType::STRING_PTR) {
+                enc = (TsString*)encVal->ptr_val;
+            } else {
+                void* raw = ts_value_get_object(encVal);
+                if (raw) enc = (TsString*)raw;
+            }
+
+            if (enc) {
+                const char* encStr = enc->ToUtf8();
+                if (strcmp(encStr, "hex") == 0) {
+                    return TsBuffer::FromHex(keyStr);
+                } else if (strcmp(encStr, "base64") == 0) {
+                    return TsBuffer::FromBase64(keyStr);
+                }
+            }
+        }
+        // Return as buffer from UTF-8
+        const char* str = keyStr->ToUtf8();
+        TsBuffer* buf = TsBuffer::Create(strlen(str));
+        memcpy(buf->GetData(), str, strlen(str));
+        return buf;
+
+    } else if (keyVal->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)keyVal->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            // Already a buffer, return copy
+            TsBuffer* srcBuf = (TsBuffer*)obj;
+            TsBuffer* buf = TsBuffer::Create(srcBuf->GetLength());
+            memcpy(buf->GetData(), srcBuf->GetData(), srcBuf->GetLength());
+            return buf;
+        }
+    } else {
+        void* raw = ts_value_get_object(keyVal);
+        if (raw) {
+            TsObject* obj = (TsObject*)raw;
+            if (obj->magic == TsBuffer::MAGIC) {
+                TsBuffer* srcBuf = (TsBuffer*)obj;
+                TsBuffer* buf = TsBuffer::Create(srcBuf->GetLength());
+                memcpy(buf->GetData(), srcBuf->GetData(), srcBuf->GetLength());
+                return buf;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+// ============================================================================
+// HKDF (HMAC-based Key Derivation Function) - RFC 5869
+// ============================================================================
+
+// crypto.hkdfSync(digest, ikm, salt, info, keylen) -> Buffer
+void* ts_crypto_hkdfSync(void* digestArg, void* ikmArg, void* saltArg, void* infoArg, int64_t keylen) {
+    // Get digest algorithm - passed directly as TsString*
+    TsString* digestStr = (TsString*)digestArg;
+    if (!digestStr) return nullptr;
+
+    const char* digest = digestStr->ToUtf8();
+    const EVP_MD* md = EVP_get_digestbyname(digest);
+    if (!md) return nullptr;
+
+    // Get IKM (Input Keying Material)
+    const void* ikmData = nullptr;
+    size_t ikmLen = 0;
+    if (!ExtractKeyData(ikmArg, &ikmData, &ikmLen)) return nullptr;
+
+    // Get salt (optional - can be null/empty)
+    const void* saltData = nullptr;
+    size_t saltLen = 0;
+    if (saltArg) {
+        TsValue* saltVal = (TsValue*)saltArg;
+        // Check for undefined or null pointer (null is represented as ptr_val == nullptr with OBJECT_PTR)
+        if (saltVal->type != ValueType::UNDEFINED &&
+            !(saltVal->type == ValueType::OBJECT_PTR && saltVal->ptr_val == nullptr)) {
+            ExtractKeyData(saltArg, &saltData, &saltLen);
+        }
+    }
+
+    // Get info (optional - can be null/empty)
+    const void* infoData = nullptr;
+    size_t infoLen = 0;
+    if (infoArg) {
+        TsValue* infoVal = (TsValue*)infoArg;
+        if (infoVal->type != ValueType::UNDEFINED &&
+            !(infoVal->type == ValueType::OBJECT_PTR && infoVal->ptr_val == nullptr)) {
+            ExtractKeyData(infoArg, &infoData, &infoLen);
+        }
+    }
+
+    if (keylen <= 0) return nullptr;
+
+    // Allocate output buffer
+    TsBuffer* result = TsBuffer::Create((size_t)keylen);
+    if (!result) return nullptr;
+
+    // Perform HKDF using OpenSSL EVP_KDF
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "HKDF", nullptr);
+    if (!kdf) return nullptr;
+
+    EVP_KDF_CTX* kctx = EVP_KDF_CTX_new(kdf);
+    EVP_KDF_free(kdf);
+    if (!kctx) return nullptr;
+
+    OSSL_PARAM params[6];
+    int idx = 0;
+
+    params[idx++] = OSSL_PARAM_construct_utf8_string("digest", (char*)digest, 0);
+    params[idx++] = OSSL_PARAM_construct_octet_string("key", (void*)ikmData, ikmLen);
+
+    if (saltData && saltLen > 0) {
+        params[idx++] = OSSL_PARAM_construct_octet_string("salt", (void*)saltData, saltLen);
+    }
+
+    if (infoData && infoLen > 0) {
+        params[idx++] = OSSL_PARAM_construct_octet_string("info", (void*)infoData, infoLen);
+    }
+
+    params[idx] = OSSL_PARAM_construct_end();
+
+    if (EVP_KDF_derive(kctx, result->GetData(), (size_t)keylen, params) != 1) {
+        EVP_KDF_CTX_free(kctx);
+        return nullptr;
+    }
+
+    EVP_KDF_CTX_free(kctx);
+    return result;
 }
 
 } // extern "C"

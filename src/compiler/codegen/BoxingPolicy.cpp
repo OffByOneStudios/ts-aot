@@ -502,6 +502,22 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_crypto_decipher_final",      {false}},                // (decipher*) -> Buffer*
     {"ts_crypto_decipher_setAuthTag", {false, true}},          // (decipher*, tag: boxed) -> Decipher*
     {"ts_crypto_decipher_setAAD",     {false, true}},          // (decipher*, aad: boxed) -> Decipher*
+    {"ts_crypto_createSign",          {false}},                // (algorithm*) -> Sign*
+    {"ts_crypto_sign_update",         {false, true}},          // (sign*, data: boxed) -> Sign*
+    {"ts_crypto_sign_sign",           {false, true, false}},   // (sign*, privateKey: boxed, encoding*) -> Buffer*
+    {"ts_crypto_createVerify",        {false}},                // (algorithm*) -> Verify*
+    {"ts_crypto_verify_update",       {false, true}},          // (verify*, data: boxed) -> Verify*
+    {"ts_crypto_verify_verify",       {false, true, true, false}}, // (verify*, publicKey: boxed, signature: boxed, encoding*) -> bool
+    {"ts_crypto_sign_oneshot",        {false, true, true}},    // (algorithm*, data: boxed, key: boxed) -> Buffer*
+    {"ts_crypto_verify_oneshot",      {false, true, true, true}},  // (algorithm*, data: boxed, key: boxed, signature: boxed) -> bool
+    {"ts_crypto_generateKeyPairSync", {false, false, false}},     // (type*, modulusLength, namedCurve*) -> {publicKey, privateKey}
+    {"ts_crypto_generateKeyPair",     {false, false, false, false}}, // (type*, modulusLength, namedCurve*, callback) -> void
+    {"ts_crypto_generateKeySync",     {false, false}},            // (type*, length) -> Buffer*
+    {"ts_crypto_generateKey",         {false, false, false}},     // (type*, length, callback) -> void
+    {"ts_crypto_createPrivateKey",    {true}},                    // (key: boxed) -> KeyObject*
+    {"ts_crypto_createPublicKey",     {true}},                    // (key: boxed) -> KeyObject*
+    {"ts_crypto_createSecretKey",     {true, false}},             // (key: boxed, encoding*) -> KeyObject*
+    {"ts_crypto_hkdfSync",            {false, true, true, true, false}}, // (digest*, ikm: boxed, salt: boxed, info: boxed, keylen) -> Buffer*
 
     // =========================================================================
     // Timers/Promises operations

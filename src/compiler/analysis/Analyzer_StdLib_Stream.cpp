@@ -155,10 +155,18 @@ void Analyzer::registerStreams() {
     // fs.ReadStream and fs.WriteStream
     auto readStreamClass = std::make_shared<ClassType>("ReadStream");
     readStreamClass->baseClass = readableClass;
+    // ReadStream-specific properties
+    readStreamClass->fields["bytesRead"] = std::make_shared<Type>(TypeKind::Int);
+    readStreamClass->fields["path"] = std::make_shared<Type>(TypeKind::String);
+    readStreamClass->fields["pending"] = std::make_shared<Type>(TypeKind::Boolean);
     symbols.defineType("ReadStream", readStreamClass);
 
     auto writeStreamClass = std::make_shared<ClassType>("WriteStream");
     writeStreamClass->baseClass = writableClass;
+    // WriteStream-specific properties
+    writeStreamClass->fields["bytesWritten"] = std::make_shared<Type>(TypeKind::Int);
+    writeStreamClass->fields["path"] = std::make_shared<Type>(TypeKind::String);
+    writeStreamClass->fields["pending"] = std::make_shared<Type>(TypeKind::Boolean);
     symbols.defineType("WriteStream", writeStreamClass);
 
     auto streamModule = std::make_shared<ObjectType>();

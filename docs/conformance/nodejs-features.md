@@ -24,12 +24,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
-| `crypto` | ⚠️ | 67% | Cryptographic functions |
+| `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
 | `dns` | ❌ | 0% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 86% | EventEmitter |
-| `fs` | ⚠️ | 76% | File system |
+| `fs` | ⚠️ | 98% | File system |
 | `http` | ⚠️ | 70% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
@@ -252,25 +252,30 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 ### Keys
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.generateKeyPair()` | ❌ | |
-| `crypto.generateKeyPairSync()` | ❌ | |
-| `crypto.generateKey()` | ❌ | |
-| `crypto.generateKeySync()` | ❌ | |
-| `crypto.createPrivateKey()` | ❌ | |
-| `crypto.createPublicKey()` | ❌ | |
-| `crypto.createSecretKey()` | ❌ | |
+| `crypto.generateKeyPair()` | ✅ | RSA, EC, Ed25519, X25519 via OpenSSL |
+| `crypto.generateKeyPairSync()` | ✅ | RSA, EC, Ed25519, X25519 via OpenSSL |
+| `crypto.generateKey()` | ✅ | AES, HMAC symmetric keys |
+| `crypto.generateKeySync()` | ✅ | AES, HMAC symmetric keys |
+| `crypto.createPrivateKey()` | ✅ | From PEM string |
+| `crypto.createPublicKey()` | ✅ | From PEM string |
+| `crypto.createSecretKey()` | ✅ | From Buffer |
 
 ### Sign/Verify
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `crypto.createSign()` | ❌ | |
-| `crypto.createVerify()` | ❌ | |
-| `crypto.sign()` | ❌ | |
-| `crypto.verify()` | ❌ | |
+| `crypto.createSign()` | ✅ | OpenSSL EVP_DigestSign API |
+| `crypto.createVerify()` | ✅ | OpenSSL EVP_DigestVerify API |
+| `crypto.sign()` | ✅ | One-shot signing |
+| `crypto.verify()` | ✅ | One-shot verification |
+| `Sign.update(data)` | ✅ | Chainable |
+| `Sign.sign(privateKey)` | ✅ | Returns Buffer |
+| `Verify.update(data)` | ✅ | Chainable |
+| `Verify.verify(publicKey, signature)` | ✅ | Returns boolean |
 
 ### Key Derivation
 | Feature | Status | Notes |
 |---------|--------|-------|
+| `crypto.hkdfSync()` | ✅ | HKDF (RFC 5869) via OpenSSL EVP_KDF |
 | `crypto.pbkdf2()` | ✅ | Async with libuv thread pool |
 | `crypto.pbkdf2Sync()` | ✅ | OpenSSL PKCS5_PBKDF2_HMAC |
 | `crypto.scrypt()` | ✅ | Async with libuv thread pool |
@@ -281,7 +286,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `crypto.timingSafeEqual()` | ✅ | OpenSSL CRYPTO_memcmp |
 
-**Crypto Coverage: 28/42 (67%)**
+**Crypto Coverage: 46/46 (100%)**
 
 ---
 
@@ -334,12 +339,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.promises.chmod()` | ✅ | |
 | `fs.promises.chown()` | ✅ | |
 | `fs.promises.copyFile()` | ✅ | |
-| `fs.promises.cp()` | ❌ | |
-| `fs.promises.lchmod()` | ❌ | |
-| `fs.promises.lchown()` | ❌ | |
+| `fs.promises.cp()` | ✅ | Recursive copy |
+| `fs.promises.lchmod()` | ✅ | Symlink mode |
+| `fs.promises.lchown()` | ✅ | Symlink ownership |
 | `fs.promises.link()` | ✅ | |
 | `fs.promises.lstat()` | ✅ | |
-| `fs.promises.lutimes()` | ❌ | |
+| `fs.promises.lutimes()` | ✅ | Symlink timestamps |
 | `fs.promises.mkdir()` | ✅ | |
 | `fs.promises.mkdtemp()` | ✅ | |
 | `fs.promises.open()` | ✅ | |
@@ -356,7 +361,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.promises.truncate()` | ✅ | |
 | `fs.promises.unlink()` | ✅ | |
 | `fs.promises.utimes()` | ✅ | |
-| `fs.promises.watch()` | ❌ | |
+| `fs.promises.watch()` | ✅ | Async iterator with libuv fs events |
 | `fs.promises.writeFile()` | ✅ | |
 
 ### Synchronous API
@@ -368,20 +373,20 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.chownSync()` | ✅ | |
 | `fs.closeSync()` | ✅ | |
 | `fs.copyFileSync()` | ✅ | |
-| `fs.cpSync()` | ❌ | |
+| `fs.cpSync()` | ✅ | Recursive copy |
 | `fs.existsSync()` | ✅ | |
-| `fs.fchmodSync()` | ❌ | |
-| `fs.fchownSync()` | ❌ | |
+| `fs.fchmodSync()` | ✅ | |
+| `fs.fchownSync()` | ✅ | |
 | `fs.fdatasyncSync()` | ✅ | |
 | `fs.fstatSync()` | ✅ | |
 | `fs.fsyncSync()` | ✅ | |
 | `fs.ftruncateSync()` | ✅ | |
-| `fs.futimesSync()` | ❌ | |
-| `fs.lchmodSync()` | ❌ | |
-| `fs.lchownSync()` | ❌ | |
+| `fs.futimesSync()` | ✅ | |
+| `fs.lchmodSync()` | ✅ | Symlink mode (falls back to chmod on Windows) |
+| `fs.lchownSync()` | ✅ | Symlink ownership |
 | `fs.linkSync()` | ✅ | |
 | `fs.lstatSync()` | ✅ | |
-| `fs.lutimesSync()` | ❌ | |
+| `fs.lutimesSync()` | ✅ | Symlink timestamps |
 | `fs.mkdirSync()` | ✅ | |
 | `fs.mkdtempSync()` | ✅ | |
 | `fs.openSync()` | ✅ | |
@@ -411,20 +416,20 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.chown()` | ✅ | Via promises |
 | `fs.close()` | ✅ | |
 | `fs.copyFile()` | ✅ | Via promises |
-| `fs.cp()` | ❌ | |
-| `fs.exists()` | ❌ | Deprecated |
-| `fs.fchmod()` | ❌ | |
-| `fs.fchown()` | ❌ | |
-| `fs.fdatasync()` | ❌ | |
-| `fs.fstat()` | ❌ | |
-| `fs.fsync()` | ❌ | |
-| `fs.ftruncate()` | ❌ | |
-| `fs.futimes()` | ❌ | |
-| `fs.lchmod()` | ❌ | |
-| `fs.lchown()` | ❌ | |
+| `fs.cp()` | ✅ | Recursive copy via promises |
+| `fs.exists()` | ✅ | Deprecated but implemented |
+| `fs.fchmod()` | ✅ | Async via promise.then |
+| `fs.fchown()` | ✅ | Async via promise.then |
+| `fs.fdatasync()` | ✅ | Async via promise.then |
+| `fs.fstat()` | ✅ | Async via promise.then |
+| `fs.fsync()` | ✅ | Async via promise.then |
+| `fs.ftruncate()` | ✅ | Async via promise.then |
+| `fs.futimes()` | ✅ | Async via promise.then |
+| `fs.lchmod()` | ✅ | Symlink mode async |
+| `fs.lchown()` | ✅ | Symlink ownership async |
 | `fs.link()` | ✅ | Via promises |
 | `fs.lstat()` | ✅ | Via promises |
-| `fs.lutimes()` | ❌ | |
+| `fs.lutimes()` | ✅ | Symlink timestamps async |
 | `fs.mkdir()` | ✅ | |
 | `fs.mkdtemp()` | ✅ | Via promises |
 | `fs.open()` | ✅ | |
@@ -441,18 +446,18 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `fs.symlink()` | ✅ | Via promises |
 | `fs.truncate()` | ✅ | Via promises |
 | `fs.unlink()` | ✅ | |
-| `fs.unwatchFile()` | ❌ | |
+| `fs.unwatchFile()` | ✅ | Removes file watch listener |
 | `fs.utimes()` | ✅ | Via promises |
-| `fs.watch()` | ❌ | |
-| `fs.watchFile()` | ❌ | |
+| `fs.watch()` | ✅ | Returns FSWatcher |
+| `fs.watchFile()` | ✅ | Polling-based file watch |
 | `fs.write()` | ✅ | |
 | `fs.writeFile()` | ✅ | |
 
 ### Streams
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `fs.createReadStream()` | ⚠️ | Basic support |
-| `fs.createWriteStream()` | ⚠️ | Basic support |
+| `fs.createReadStream()` | ✅ | Options: start, end, highWaterMark, autoClose; Properties: bytesRead, path, pending |
+| `fs.createWriteStream()` | ✅ | Options: start, flags, autoClose; Properties: bytesWritten, path, pending |
 
 ### Stats
 | Feature | Status | Notes |
@@ -465,11 +470,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stats.isFIFO()` | ✅ | |
 | `stats.isSocket()` | ✅ | |
 | `stats.size` | ✅ | |
-| `stats.mtime` | ⚠️ | Returns number |
-| `stats.atime` | ⚠️ | Returns number |
-| `stats.ctime` | ⚠️ | Returns number |
+| `stats.mtime` | ✅ | Returns Date object |
+| `stats.atime` | ✅ | Returns Date object |
+| `stats.ctime` | ✅ | Returns Date object |
 
-**File System Coverage: 94/123 (76%)**
+**File System Coverage: 123/123 (100%)**
 
 ---
 
@@ -1092,9 +1097,9 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 |----------|-------------|-------|----------|
 | Buffer | 68 | 68 | 100% |
 | Console | 19 | 19 | 100% |
-| Crypto | 20 | 34 | 59% |
+| Crypto | 46 | 46 | 100% |
 | Events | 21 | 21 | 100% |
-| File System | 94 | 123 | 76% |
+| File System | 123 | 123 | 100% |
 | HTTP | 49 | 67 | 73% |
 | HTTPS | 5 | 7 | 71% |
 | Net | 36 | 36 | 100% |
@@ -1109,7 +1114,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **556** | **661** | **84%** |
+| **Total** | **609** | **673** | **90%** |
 
 ### Priority Implementation Targets
 
