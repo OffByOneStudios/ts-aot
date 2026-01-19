@@ -43,6 +43,8 @@ static void ensureDNSFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_dns_promises_resolve_ptr", {true}, true);
     bp.registerRuntimeApi("ts_dns_promises_resolve_naptr", {true}, true);
     bp.registerRuntimeApi("ts_dns_promises_resolve_soa", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_get_servers", {}, true);
+    bp.registerRuntimeApi("ts_dns_promises_set_servers", {true}, true);
 
     // Error code constants
     bp.registerRuntimeApi("ts_dns_NODATA", {}, false);
@@ -911,6 +913,47 @@ bool IRGenerator::tryGenerateDNSPromisesCall(ast::CallExpression* node, const st
         );
         llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_soa", ft);
         lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.getServers()
+    // =========================================================================
+    if (methodName == "getServers") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            {},
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_get_servers", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.setServers(servers)
+    // =========================================================================
+    if (methodName == "setServers") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* servers = lastValue;
+        if (!boxedValues.count(servers)) {
+            servers = boxValue(servers, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_set_servers", ft);
+        lastValue = createCall(ft, fn.getCallee(), { servers });
         boxedValues.insert(lastValue);
         return true;
     }

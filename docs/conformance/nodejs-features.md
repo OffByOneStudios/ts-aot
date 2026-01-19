@@ -26,7 +26,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
-| `dns` | ✅ | 97% | DNS resolution |
+| `dns` | ✅ | 100% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 86% | EventEmitter |
 | `fs` | ⚠️ | 98% | File system |
@@ -471,8 +471,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns.promises.resolveNaptr(hostname)` | ✅ | Returns Promise<NaptrRecord[]> |
 | `dns.promises.resolveSoa(hostname)` | ✅ | Returns Promise<SoaRecord> |
 | `dns.promises.reverse(ip)` | ✅ | Returns Promise<string[]> |
-| `dns.promises.getServers()` | ❌ | |
-| `dns.promises.setServers()` | ❌ | |
+| `dns.promises.getServers()` | ✅ | Returns Promise<string[]> |
+| `dns.promises.setServers()` | ✅ | Returns Promise<void> |
 
 ### Error Codes
 | Feature | Status | Notes |
@@ -502,7 +502,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns.ADDRGETNETWORKPARAMS` | ✅ | |
 | `dns.CANCELLED` | ✅ | |
 
-**DNS Coverage: 56/58 (97%)**
+**DNS Coverage: 58/58 (100%)**
 
 ---
 
@@ -1316,7 +1316,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Cluster | 26 | 32 | 81% |
 | Console | 19 | 19 | 100% |
 | Crypto | 46 | 46 | 100% |
-| DNS | 56 | 58 | 97% |
+| DNS | 58 | 58 | 100% |
 | Events | 21 | 21 | 100% |
 | File System | 123 | 123 | 100% |
 | HTTP | 49 | 67 | 73% |
@@ -1333,7 +1333,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **722** | **794** | **91%** |
+| **Total** | **724** | **794** | **91%** |
 
 ### Priority Implementation Targets
 
