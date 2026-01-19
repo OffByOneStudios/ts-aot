@@ -202,6 +202,12 @@ private:
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateUtilPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateUtilInspectPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateAsyncHooksCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateAsyncLocalStorageCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateAsyncResourceCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateAsyncHookMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateAsyncLocalStorageNew(ast::NewExpression* node);
+    bool tryGenerateAsyncResourceNew(ast::NewExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

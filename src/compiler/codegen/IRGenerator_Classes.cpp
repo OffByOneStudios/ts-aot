@@ -200,7 +200,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -1094,8 +1094,50 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             lastValue = createCall(createFt, fn.getCallee(), { url, protocols });
             nonNullValues.insert(lastValue);
             return;
+        } else if (className == "AsyncLocalStorage") {
+            // new AsyncLocalStorage()
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_async_local_storage_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "AsyncResource") {
+            // new AsyncResource(type, triggerAsyncId?)
+            llvm::Value* typeStr = nullptr;
+            llvm::Value* triggerId = llvm::ConstantInt::get(builder->getInt64Ty(), -1);
+
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                typeStr = lastValue;
+            } else {
+                // Create a default "UNKNOWN" string
+                llvm::Constant* unknownCStr = builder->CreateGlobalStringPtr("UNKNOWN");
+                llvm::FunctionType* strFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee strFn = getRuntimeFunction("ts_string_create", strFt);
+                typeStr = createCall(strFt, strFn.getCallee(), { unknownCStr });
+            }
+
+            if (node->arguments.size() >= 2) {
+                visit(node->arguments[1].get());
+                triggerId = lastValue;
+                // Ensure it's an i64
+                if (triggerId->getType() != builder->getInt64Ty()) {
+                    if (triggerId->getType()->isDoubleTy()) {
+                        triggerId = builder->CreateFPToSI(triggerId, builder->getInt64Ty());
+                    }
+                }
+            }
+
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_async_resource_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { typeStr, triggerId });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
         }
-        
+
         // 1. Get Struct Type
         llvm::StructType* structType = llvm::StructType::getTypeByName(*context, className);
         if (!structType) {
