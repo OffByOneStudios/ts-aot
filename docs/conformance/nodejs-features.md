@@ -18,7 +18,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Module | Status | Coverage | Notes |
 |--------|--------|----------|-------|
-| `assert` | ✅ | 89% | Testing utilities |
+| `assert` | ✅ | 100% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
@@ -75,14 +75,14 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert.notDeepStrictEqual(actual, expected)` | ✅ | Deep strict inequality check |
 | `assert.throws(fn)` | ✅ | Full exception handling via setjmp/longjmp |
 | `assert.doesNotThrow(fn)` | ✅ | Full exception handling via setjmp/longjmp |
-| `assert.rejects(asyncFn)` | ⚠️ | Stub - async exception handling limited |
-| `assert.doesNotReject(asyncFn)` | ⚠️ | Stub - async exception handling limited |
+| `assert.rejects(asyncFn)` | ✅ | Full async rejection handling via Promise.then() |
+| `assert.doesNotReject(asyncFn)` | ✅ | Full async rejection handling via Promise.then() |
 | `assert.match(string, regexp)` | ✅ | Regex string matching |
 | `assert.doesNotMatch(string, regexp)` | ✅ | Regex string non-matching |
 | `assert.fail(message)` | ✅ | Always fails with message |
 | `assert.ifError(value)` | ✅ | Fails if value is truthy |
 
-**Assert Coverage: 16/18 (89%)**
+**Assert Coverage: 18/18 (100%)**
 
 ---
 
