@@ -21,7 +21,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert` | ✅ | 100% | Testing utilities |
 | `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
-| `child_process` | ⚠️ | 81% | Process spawning |
+| `child_process` | ✅ | 100% | Process spawning with IPC |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
@@ -220,7 +220,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `child_process.execSync(command, options)` | ✅ | Synchronous shell execution |
 | `child_process.execFile(file, args, callback)` | ✅ | Delegates to spawn |
 | `child_process.execFileSync(file, args, options)` | ✅ | Synchronous file execution |
-| `child_process.fork(modulePath)` | ❌ | |
+| `child_process.fork(modulePath)` | ✅ | IPC via fd 3, length-prefixed JSON |
 
 ### ChildProcess Class
 | Feature | Status | Notes |
@@ -236,10 +236,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process.stdout` | ✅ | Readable stream |
 | `process.stderr` | ✅ | Readable stream |
 | `process.stdio` | ✅ | Array [stdin, stdout, stderr] |
-| `process.channel` | ❌ | IPC channel |
+| `process.channel` | ✅ | IPC channel (pipe handle) |
 | `process.kill(signal)` | ✅ | Send signal to process |
-| `process.send(message)` | ❌ | IPC messaging |
-| `process.disconnect()` | ❌ | Disconnect IPC |
+| `process.send(message)` | ✅ | IPC messaging |
+| `process.disconnect()` | ✅ | Disconnect IPC |
 | `process.ref()` | ✅ | Keep event loop alive |
 | `process.unref()` | ✅ | Allow event loop to exit |
 
@@ -250,10 +250,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'exit'` event | ✅ | Process exited |
 | `'close'` event | ✅ | Streams closed |
 | `'error'` event | ✅ | Error occurred |
-| `'disconnect'` event | ❌ | IPC disconnected |
-| `'message'` event | ❌ | IPC message |
+| `'disconnect'` event | ✅ | IPC disconnected |
+| `'message'` event | ✅ | IPC message |
 
-**Child Process Coverage: 25/31 (81%)**
+**Child Process Coverage: 31/31 (100%)**
 
 ---
 

@@ -10,6 +10,12 @@
 #include <new>
 #include <sstream>
 
+// Forward declarations for JSON functions
+extern "C" {
+    TsString* ts_json_stringify(TsValue* value);
+    TsValue* ts_json_parse(TsValue* jsonStr);
+}
+
 #ifdef _WIN32
 #include <windows.h>
 #define SIGTERM 15
@@ -28,6 +34,7 @@ TsChildProcess::TsChildProcess()
     , stdinPipe_(nullptr)
     , stdoutPipe_(nullptr)
     , stderrPipe_(nullptr)
+    , ipcPipe_(nullptr)
     , stdin_(nullptr)
     , stdout_(nullptr)
     , stderr_(nullptr)
@@ -39,6 +46,8 @@ TsChildProcess::TsChildProcess()
     , spawnfile_("")
     , channel_(nullptr)
     , referenced_(true)
+    , ipcConnected_(false)
+    , ipcReadBuffer_("")
     , execCallback_(nullptr)
     , accumulatedStdout_("")
     , accumulatedStderr_("")
@@ -159,6 +168,122 @@ int TsChildProcess::Spawn(const char* file, const std::vector<std::string>& args
     return 0;
 }
 
+int TsChildProcess::SpawnWithIPC(const char* file, const std::vector<std::string>& args,
+                                  const char* cwd, char** env, bool detached, bool windowsHide) {
+    spawnfile_ = file ? file : "";
+    spawnargs_.clear();
+    for (const auto& arg : args) {
+        spawnargs_.push_back(arg);
+    }
+
+    // Allocate process handle
+    processHandle_ = (uv_process_t*)ts_alloc(sizeof(uv_process_t));
+    memset(processHandle_, 0, sizeof(uv_process_t));
+    processHandle_->data = this;
+
+    // Set up process options
+    uv_process_options_t options;
+    memset(&options, 0, sizeof(options));
+
+    options.exit_cb = OnProcessExit;
+    options.file = file;
+
+    // Build args array (first element must be the command itself)
+    std::vector<char*> argsArray;
+    argsArray.push_back(const_cast<char*>(file));
+    for (const auto& arg : args) {
+        argsArray.push_back(const_cast<char*>(arg.c_str()));
+    }
+    argsArray.push_back(nullptr);
+    options.args = argsArray.data();
+
+    // Set cwd if provided
+    if (cwd && strlen(cwd) > 0) {
+        options.cwd = cwd;
+    }
+
+    // Set environment if provided
+    if (env) {
+        options.env = env;
+    }
+
+    // Set flags
+    if (detached) {
+        options.flags |= UV_PROCESS_DETACHED;
+    }
+#ifdef _WIN32
+    if (windowsHide) {
+        options.flags |= UV_PROCESS_WINDOWS_HIDE;
+    }
+#endif
+
+    // Set up stdio pipes (stdin, stdout, stderr, IPC)
+    stdinPipe_ = (uv_pipe_t*)ts_alloc(sizeof(uv_pipe_t));
+    stdoutPipe_ = (uv_pipe_t*)ts_alloc(sizeof(uv_pipe_t));
+    stderrPipe_ = (uv_pipe_t*)ts_alloc(sizeof(uv_pipe_t));
+    ipcPipe_ = (uv_pipe_t*)ts_alloc(sizeof(uv_pipe_t));
+
+    uv_pipe_init(uv_default_loop(), stdinPipe_, 0);
+    uv_pipe_init(uv_default_loop(), stdoutPipe_, 0);
+    uv_pipe_init(uv_default_loop(), stderrPipe_, 0);
+    uv_pipe_init(uv_default_loop(), ipcPipe_, 1);  // 1 = enable IPC
+
+    stdinPipe_->data = this;
+    stdoutPipe_->data = this;
+    stderrPipe_->data = this;
+    ipcPipe_->data = this;
+
+    // Configure stdio containers: stdin(0), stdout(1), stderr(2), IPC(3)
+    uv_stdio_container_t stdio[4];
+    stdio[0].flags = (uv_stdio_flags)(UV_CREATE_PIPE | UV_READABLE_PIPE);
+    stdio[0].data.stream = (uv_stream_t*)stdinPipe_;
+    stdio[1].flags = (uv_stdio_flags)(UV_CREATE_PIPE | UV_WRITABLE_PIPE);
+    stdio[1].data.stream = (uv_stream_t*)stdoutPipe_;
+    stdio[2].flags = (uv_stdio_flags)(UV_CREATE_PIPE | UV_WRITABLE_PIPE);
+    stdio[2].data.stream = (uv_stream_t*)stderrPipe_;
+    // IPC pipe on fd 3 - bidirectional
+    stdio[3].flags = (uv_stdio_flags)(UV_CREATE_PIPE | UV_READABLE_PIPE | UV_WRITABLE_PIPE);
+    stdio[3].data.stream = (uv_stream_t*)ipcPipe_;
+
+    options.stdio = stdio;
+    options.stdio_count = 4;
+
+    // Spawn the process
+    int r = uv_spawn(uv_default_loop(), processHandle_, &options);
+    if (r < 0) {
+        // Emit error event
+        TsValue* err = (TsValue*)ts_error_create(TsString::Create(uv_strerror(r)));
+        void* errArgs[] = { err };
+        Emit("error", 1, errArgs);
+        return r;
+    }
+
+    pid_ = processHandle_->pid;
+    connected_ = true;
+    ipcConnected_ = true;
+
+    // Create wrapper stream objects
+    stdin_ = new (ts_alloc(sizeof(TsChildProcessWritable)))
+        TsChildProcessWritable(stdinPipe_, this);
+    stdout_ = new (ts_alloc(sizeof(TsChildProcessReadable)))
+        TsChildProcessReadable(stdoutPipe_, this);
+    stderr_ = new (ts_alloc(sizeof(TsChildProcessReadable)))
+        TsChildProcessReadable(stderrPipe_, this);
+
+    // Store IPC pipe as channel for external access
+    channel_ = ipcPipe_;
+
+    // Start reading from stdout, stderr, and IPC
+    uv_read_start((uv_stream_t*)stdoutPipe_, OnAlloc, OnStdoutRead);
+    uv_read_start((uv_stream_t*)stderrPipe_, OnAlloc, OnStderrRead);
+    uv_read_start((uv_stream_t*)ipcPipe_, OnAlloc, OnIPCRead);
+
+    // Emit spawn event
+    Emit("spawn", 0, nullptr);
+
+    return 0;
+}
+
 bool TsChildProcess::Kill(const char* signal) {
     if (!signal) signal = "SIGTERM";
 
@@ -196,11 +321,51 @@ void* TsChildProcess::GetSpawnargs() const {
 }
 
 bool TsChildProcess::Send(void* message, void* sendHandle) {
-    // IPC not implemented yet
-    return false;
+    if (!ipcPipe_ || !ipcConnected_) {
+        return false;
+    }
+
+    // Serialize message to JSON
+    TsValue* msgVal = (TsValue*)message;
+    TsString* jsonStr = ts_json_stringify(msgVal);
+    if (!jsonStr) {
+        return false;
+    }
+
+    const char* jsonData = jsonStr->ToUtf8();
+    size_t jsonLen = strlen(jsonData);
+
+    // Create length-prefixed message: 4-byte little-endian length + JSON data
+    size_t totalLen = 4 + jsonLen;
+    char* buffer = (char*)ts_alloc(totalLen);
+
+    // Write length as 4-byte little-endian
+    buffer[0] = (char)(jsonLen & 0xFF);
+    buffer[1] = (char)((jsonLen >> 8) & 0xFF);
+    buffer[2] = (char)((jsonLen >> 16) & 0xFF);
+    buffer[3] = (char)((jsonLen >> 24) & 0xFF);
+
+    // Copy JSON data
+    memcpy(buffer + 4, jsonData, jsonLen);
+
+    // Write to IPC pipe
+    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
+    req->data = this;
+
+    uv_buf_t buf = uv_buf_init(buffer, (unsigned int)totalLen);
+    int r = uv_write(req, (uv_stream_t*)ipcPipe_, &buf, 1, OnIPCWrite);
+
+    return r == 0;
 }
 
 void TsChildProcess::Disconnect() {
+    if (ipcConnected_ && ipcPipe_) {
+        ipcConnected_ = false;
+        uv_read_stop((uv_stream_t*)ipcPipe_);
+        uv_close((uv_handle_t*)ipcPipe_, OnClose);
+        ipcPipe_ = nullptr;
+        channel_ = nullptr;
+    }
     connected_ = false;
     Emit("disconnect", 0, nullptr);
 }
@@ -331,6 +496,82 @@ void TsChildProcess::OnStderrRead(uv_stream_t* stream, ssize_t nread, const uv_b
 
 void TsChildProcess::OnStdinWrite(uv_write_t* req, int status) {
     // Write completed - req->data contains context if needed
+}
+
+void TsChildProcess::OnIPCRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+    TsChildProcess* self = (TsChildProcess*)stream->data;
+    if (!self) return;
+
+    if (nread > 0) {
+        // Append to IPC read buffer
+        self->ipcReadBuffer_.append(buf->base, nread);
+
+        // Process complete messages from buffer
+        self->ProcessIPCMessage(nullptr, 0);
+    } else if (nread < 0) {
+        if (nread == UV_EOF) {
+            // IPC pipe closed - emit disconnect
+            self->ipcConnected_ = false;
+            self->Emit("disconnect", 0, nullptr);
+        } else {
+            // Error reading IPC
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create(uv_strerror((int)nread)));
+            void* errArgs[] = { err };
+            self->Emit("error", 1, errArgs);
+        }
+    }
+}
+
+void TsChildProcess::OnIPCWrite(uv_write_t* req, int status) {
+    // IPC write completed
+    if (status < 0) {
+        TsChildProcess* self = (TsChildProcess*)req->data;
+        if (self) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create(uv_strerror(status)));
+            void* errArgs[] = { err };
+            self->Emit("error", 1, errArgs);
+        }
+    }
+}
+
+void TsChildProcess::ProcessIPCMessage(const char* data, size_t length) {
+    // Process length-prefixed messages from ipcReadBuffer_
+    // Format: 4-byte little-endian length + JSON data
+
+    while (ipcReadBuffer_.length() >= 4) {
+        // Read message length (little-endian)
+        uint32_t msgLen =
+            ((uint8_t)ipcReadBuffer_[0]) |
+            (((uint8_t)ipcReadBuffer_[1]) << 8) |
+            (((uint8_t)ipcReadBuffer_[2]) << 16) |
+            (((uint8_t)ipcReadBuffer_[3]) << 24);
+
+        // Check if we have the full message
+        if (ipcReadBuffer_.length() < 4 + msgLen) {
+            break;  // Wait for more data
+        }
+
+        // Extract JSON string
+        std::string jsonStr = ipcReadBuffer_.substr(4, msgLen);
+
+        // Remove processed message from buffer
+        ipcReadBuffer_.erase(0, 4 + msgLen);
+
+        // Parse JSON and emit 'message' event
+        TsString* jsonTsStr = TsString::Create(jsonStr.c_str());
+        TsValue* jsonVal = ts_value_make_string(jsonTsStr);
+        TsValue* parsedMsg = ts_json_parse(jsonVal);
+
+        if (parsedMsg) {
+            OnIPCMessage(parsedMsg);
+        }
+    }
+}
+
+void TsChildProcess::OnIPCMessage(void* message) {
+    // Emit 'message' event with the parsed message
+    void* args[] = { message };
+    Emit("message", 1, args);
 }
 
 void TsChildProcess::OnClose(uv_handle_t* handle) {
@@ -717,8 +958,71 @@ void* ts_child_process_exec_file_sync(void* file, void* args, void* options) {
 }
 
 void* ts_child_process_fork(void* modulePath, void* args, void* options) {
-    // TODO: Implement fork with IPC
-    return ts_value_make_null();
+    // Get the executable path (pre-compiled ts-aot binary)
+    TsString* pathStr = (TsString*)ts_value_get_string((TsValue*)modulePath);
+    const char* execPath = pathStr ? pathStr->ToUtf8() : nullptr;
+    if (!execPath) {
+        return ts_value_make_null();
+    }
+
+    // Unbox args array
+    std::vector<std::string> argsVec;
+    if (args) {
+        void* rawArgs = ts_value_get_object((TsValue*)args);
+        if (!rawArgs) rawArgs = args;
+
+        uint32_t magic = *(uint32_t*)rawArgs;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            TsArray* argsArr = (TsArray*)rawArgs;
+            for (int64_t i = 0; i < argsArr->Length(); i++) {
+                int64_t val = argsArr->Get(i);
+                TsString* argStr = (TsString*)ts_value_get_string((TsValue*)(void*)val);
+                if (argStr) {
+                    argsVec.push_back(argStr->ToUtf8());
+                }
+            }
+        }
+    }
+
+    // Parse options if provided
+    const char* cwd = nullptr;
+    char** env = nullptr;
+    bool detached = false;
+
+    if (options) {
+        void* rawOpts = ts_value_get_object((TsValue*)options);
+        if (!rawOpts) rawOpts = options;
+
+        uint32_t magic16 = *(uint32_t*)((char*)rawOpts + 16);
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC "MAPS"
+            TsMap* optsMap = (TsMap*)rawOpts;
+
+            // Get cwd option
+            TsValue cwdKey(TsString::Create("cwd"));
+            TsValue cwdVal = optsMap->Get(cwdKey);
+            if (cwdVal.type == ValueType::STRING_PTR) {
+                TsString* cwdStr = (TsString*)cwdVal.ptr_val;
+                if (cwdStr) cwd = cwdStr->ToUtf8();
+            }
+
+            // Get detached option
+            TsValue detachedKey(TsString::Create("detached"));
+            TsValue detachedVal = optsMap->Get(detachedKey);
+            if (detachedVal.type == ValueType::BOOLEAN) {
+                detached = detachedVal.b_val;
+            }
+        }
+    }
+
+    // Create and spawn the process with IPC
+    TsChildProcess* cp = new (ts_alloc(sizeof(TsChildProcess))) TsChildProcess();
+    int result = cp->SpawnWithIPC(execPath, argsVec, cwd, env, detached, false);
+
+    if (result < 0) {
+        // Spawn failed - error already emitted
+    }
+
+    return ts_value_make_object(cp);
 }
 
 void* ts_child_process_spawn_sync(void* command, void* args, void* options) {

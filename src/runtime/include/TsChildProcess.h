@@ -74,11 +74,17 @@ public:
     void AppendStdout(const char* data, size_t len) { accumulatedStdout_.append(data, len); }
     void AppendStderr(const char* data, size_t len) { accumulatedStderr_.append(data, len); }
 
+    // IPC support for fork()
+    int SpawnWithIPC(const char* file, const std::vector<std::string>& args,
+                     const char* cwd, char** env, bool detached, bool windowsHide);
+    bool HasIPC() const { return ipcPipe_ != nullptr; }
+
 protected:
     uv_process_t* processHandle_;
     uv_pipe_t* stdinPipe_;
     uv_pipe_t* stdoutPipe_;
     uv_pipe_t* stderrPipe_;
+    uv_pipe_t* ipcPipe_;         // IPC pipe for fork()
 
     TsWritable* stdin_;
     TsReadable* stdout_;
@@ -94,6 +100,8 @@ protected:
 
     void* channel_;
     bool referenced_;
+    bool ipcConnected_;          // IPC connection state
+    std::string ipcReadBuffer_;  // Buffer for partial IPC messages
 
     // For exec() callback support
     void* execCallback_;
@@ -104,6 +112,8 @@ protected:
     void OnExit(int64_t exitStatus, int termSignal);
     void SetupStdio(int stdinMode, int stdoutMode, int stderrMode);
     void CleanupHandles();
+    void ProcessIPCMessage(const char* data, size_t length);
+    void OnIPCMessage(void* message);
 
     // Static callbacks for libuv
     static void OnProcessExit(uv_process_t* handle, int64_t exitStatus, int termSignal);
@@ -111,6 +121,8 @@ protected:
     static void OnStdoutRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
     static void OnStderrRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
     static void OnStdinWrite(uv_write_t* req, int status);
+    static void OnIPCRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
+    static void OnIPCWrite(uv_write_t* req, int status);
     static void OnClose(uv_handle_t* handle);
 };
 

@@ -809,6 +809,201 @@ void ts_process_report_set_filename(void* filename) {
     (void)filename;
 }
 
+// ============================================================================
+// Child-side IPC support for fork()
+// ============================================================================
+
+// IPC state for child processes
+static uv_pipe_t* child_ipc_pipe = nullptr;
+static bool child_ipc_connected = false;
+static std::string child_ipc_read_buffer;
+static std::vector<TsValue*> message_handlers;
+static std::vector<TsValue*> disconnect_handlers;
+
+// Forward declarations for JSON functions
+extern TsString* ts_json_stringify(TsValue* value);
+extern TsValue* ts_json_parse(TsValue* jsonStr);
+
+static void on_child_ipc_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+    buf->base = (char*)ts_alloc(suggested_size);
+    buf->len = (unsigned int)suggested_size;
+}
+
+static void on_child_ipc_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
+
+static void process_child_ipc_messages() {
+    // Process length-prefixed messages from child_ipc_read_buffer
+    while (child_ipc_read_buffer.length() >= 4) {
+        uint32_t msgLen =
+            ((uint8_t)child_ipc_read_buffer[0]) |
+            (((uint8_t)child_ipc_read_buffer[1]) << 8) |
+            (((uint8_t)child_ipc_read_buffer[2]) << 16) |
+            (((uint8_t)child_ipc_read_buffer[3]) << 24);
+
+        if (child_ipc_read_buffer.length() < 4 + msgLen) {
+            break;  // Wait for more data
+        }
+
+        std::string jsonStr = child_ipc_read_buffer.substr(4, msgLen);
+        child_ipc_read_buffer.erase(0, 4 + msgLen);
+
+        // Parse JSON and emit 'message' event
+        TsString* jsonTsStr = TsString::Create(jsonStr.c_str());
+        TsValue* jsonVal = ts_value_make_string(jsonTsStr);
+        TsValue* parsedMsg = ts_json_parse(jsonVal);
+
+        if (parsedMsg) {
+            // Call all message handlers
+            TsValue* args[] = { parsedMsg };
+            for (TsValue* handler : message_handlers) {
+                ts_function_call(handler, 1, args);
+            }
+        }
+    }
+}
+
+static void on_child_ipc_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+    if (nread > 0) {
+        child_ipc_read_buffer.append(buf->base, nread);
+        process_child_ipc_messages();
+    } else if (nread < 0) {
+        if (nread == UV_EOF) {
+            child_ipc_connected = false;
+            // Call disconnect handlers
+            for (TsValue* handler : disconnect_handlers) {
+                ts_function_call(handler, 0, nullptr);
+            }
+        }
+    }
+}
+
+static void on_child_ipc_write(uv_write_t* req, int status) {
+    // Write completed
+    (void)req;
+    (void)status;
+}
+
+// Check if running as a forked child with IPC
+bool ts_process_has_ipc() {
+    return child_ipc_connected;
+}
+
+// Initialize child IPC (called from ts_main if fd 3 is a pipe)
+void ts_process_init_child_ipc() {
+    // Check if fd 3 is a pipe (IPC channel from parent)
+    // On Windows, uv_guess_handle can be unreliable for non-existent handles
+    // Only attempt IPC initialization if NODE_CHANNEL_FD env var is set
+    // (this is the convention Node.js uses for IPC)
+    const char* channelFd = getenv("NODE_CHANNEL_FD");
+    if (!channelFd || strcmp(channelFd, "3") != 0) {
+        return;  // No IPC channel expected
+    }
+
+    uv_handle_type type = uv_guess_handle(3);
+    if (type != UV_NAMED_PIPE && type != UV_TCP) {
+        return;  // Not a valid IPC handle type
+    }
+
+    // Try to initialize the IPC pipe on fd 3
+    child_ipc_pipe = (uv_pipe_t*)ts_alloc(sizeof(uv_pipe_t));
+    int r = uv_pipe_init(uv_default_loop(), child_ipc_pipe, 1);  // 1 = enable IPC
+    if (r != 0) {
+        child_ipc_pipe = nullptr;
+        return;
+    }
+
+    r = uv_pipe_open(child_ipc_pipe, 3);
+    if (r != 0) {
+        // fd 3 is not a valid pipe - don't close, just nullify
+        // (closing a handle that failed to open can cause issues)
+        child_ipc_pipe = nullptr;
+        return;
+    }
+
+    child_ipc_connected = true;
+
+    // Start reading from IPC pipe
+    uv_read_start((uv_stream_t*)child_ipc_pipe, on_child_ipc_alloc, on_child_ipc_read);
+}
+
+// Send a message to the parent process
+bool ts_process_send(void* message) {
+    if (!child_ipc_pipe || !child_ipc_connected) {
+        return false;
+    }
+
+    TsValue* msgVal = (TsValue*)message;
+    TsString* jsonStr = ts_json_stringify(msgVal);
+    if (!jsonStr) {
+        return false;
+    }
+
+    const char* jsonData = jsonStr->ToUtf8();
+    size_t jsonLen = strlen(jsonData);
+
+    // Create length-prefixed message
+    size_t totalLen = 4 + jsonLen;
+    char* buffer = (char*)ts_alloc(totalLen);
+
+    buffer[0] = (char)(jsonLen & 0xFF);
+    buffer[1] = (char)((jsonLen >> 8) & 0xFF);
+    buffer[2] = (char)((jsonLen >> 16) & 0xFF);
+    buffer[3] = (char)((jsonLen >> 24) & 0xFF);
+    memcpy(buffer + 4, jsonData, jsonLen);
+
+    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
+    uv_buf_t buf = uv_buf_init(buffer, (unsigned int)totalLen);
+    int r = uv_write(req, (uv_stream_t*)child_ipc_pipe, &buf, 1, on_child_ipc_write);
+
+    return r == 0;
+}
+
+// Disconnect from the parent process
+void ts_process_disconnect() {
+    if (!child_ipc_pipe || !child_ipc_connected) {
+        return;
+    }
+
+    child_ipc_connected = false;
+    uv_read_stop((uv_stream_t*)child_ipc_pipe);
+    uv_close((uv_handle_t*)child_ipc_pipe, nullptr);
+    child_ipc_pipe = nullptr;
+
+    // Call disconnect handlers
+    for (TsValue* handler : disconnect_handlers) {
+        ts_function_call(handler, 0, nullptr);
+    }
+}
+
+// Get the IPC channel (for process.channel property)
+void* ts_process_get_channel() {
+    if (!child_ipc_pipe || !child_ipc_connected) {
+        return ts_value_make_null();
+    }
+    return ts_value_make_object(child_ipc_pipe);
+}
+
+// Check if connected to parent
+bool ts_process_get_connected() {
+    return child_ipc_connected;
+}
+
+// Register message handler (for process.on('message', ...))
+void ts_process_on_message(void* callback) {
+    TsValue* cb = (TsValue*)callback;
+    if (cb) {
+        message_handlers.push_back(cb);
+    }
+}
+
+// Register disconnect handler (for process.on('disconnect', ...))
+void ts_process_on_disconnect(void* callback) {
+    TsValue* cb = (TsValue*)callback;
+    if (cb) {
+        disconnect_handlers.push_back(cb);
+    }
+}
+
 void* ts_push_exception_handler() {
     ExceptionContext* ctx = (ExceptionContext*)malloc(sizeof(ExceptionContext));
     exceptionStack.push_back(ctx);
@@ -877,6 +1072,9 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 2. Initialize Event Loop
     ts_loop_init();
+
+    // 2.5 Initialize child IPC if we're a forked process
+    ts_process_init_child_ipc();
 
     // 3. Initialize process.argv
     TsArray* argvArray = TsArray::Create(argc);
