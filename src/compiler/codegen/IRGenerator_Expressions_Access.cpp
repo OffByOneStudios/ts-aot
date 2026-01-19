@@ -888,6 +888,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateUtilPropertyAccess(node)) return;
     if (tryGenerateUtilInspectPropertyAccess(node)) return;
     if (tryGenerateChildProcessPropertyAccess(node)) return;
+    if (tryGenerateDNSPropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {

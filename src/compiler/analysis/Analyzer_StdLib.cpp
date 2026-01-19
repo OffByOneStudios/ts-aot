@@ -1450,5 +1450,6 @@ Analyzer::Analyzer() {
     registerAsyncHooks();
     registerChildProcess();
     registerCluster();
+    registerDNS();
 }
 } // namespace ts
