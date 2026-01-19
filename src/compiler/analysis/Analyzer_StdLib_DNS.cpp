@@ -246,6 +246,17 @@ void Analyzer::registerDNS() {
     promisesResolveSoaMethod->returnType = std::make_shared<ClassType>("Promise");
     dnsPromises->fields["resolveSoa"] = promisesResolveSoaMethod;
 
+    // promises.getServers(): Promise<string[]>
+    auto promisesGetServersMethod = std::make_shared<FunctionType>();
+    promisesGetServersMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["getServers"] = promisesGetServersMethod;
+
+    // promises.setServers(servers: string[]): Promise<void>
+    auto promisesSetServersMethod = std::make_shared<FunctionType>();
+    promisesSetServersMethod->paramTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String)));
+    promisesSetServersMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["setServers"] = promisesSetServersMethod;
+
     dnsModule->fields["promises"] = dnsPromises;
 
     // =========================================================================

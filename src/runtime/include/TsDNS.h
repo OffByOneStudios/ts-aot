@@ -134,6 +134,8 @@ extern "C" {
     void* ts_dns_promises_resolve_naptr(void* hostname);
     void* ts_dns_promises_resolve_soa(void* hostname);
     void* ts_dns_promises_reverse(void* ip);
+    void* ts_dns_promises_get_servers();
+    void* ts_dns_promises_set_servers(void* servers);
 
     // Error code constants
     int64_t ts_dns_NODATA();

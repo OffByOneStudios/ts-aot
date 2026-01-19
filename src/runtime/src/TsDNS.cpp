@@ -1465,6 +1465,25 @@ void* ts_dns_promises_resolve_soa(void* hostname) {
     return ts_value_make_object(promise);
 }
 
+// dns.promises.getServers() - returns Promise<string[]>
+void* ts_dns_promises_get_servers() {
+    TsPromise* promise = ts_promise_create();
+    // libuv doesn't expose DNS server list directly
+    // Return empty array for now (same as callback version)
+    TsArray* servers = TsArray::Create();
+    ts_promise_resolve_internal(promise, ts_value_make_array(servers));
+    return ts_value_make_object(promise);
+}
+
+// dns.promises.setServers(servers) - returns Promise<void>
+void* ts_dns_promises_set_servers(void* servers) {
+    TsPromise* promise = ts_promise_create();
+    // libuv uses system resolver, can't easily change DNS servers
+    // Just resolve with undefined (same behavior as callback version)
+    ts_promise_resolve_internal(promise, nullptr);
+    return ts_value_make_object(promise);
+}
+
 // DNS error constants (using custom codes similar to c-ares)
 int64_t ts_dns_NODATA() { return 1; }
 int64_t ts_dns_FORMERR() { return 2; }
