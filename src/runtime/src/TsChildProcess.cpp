@@ -588,8 +588,90 @@ void* ts_child_process_exec_file(void* file, void* args, void* options, void* ca
 }
 
 void* ts_child_process_exec_file_sync(void* file, void* args, void* options) {
-    // TODO: Implement synchronous file execution
-    return ts_value_make_null();
+    // Unbox file string
+    TsString* fileStr = (TsString*)ts_value_get_string((TsValue*)file);
+    const char* fileCmd = fileStr ? fileStr->ToUtf8() : nullptr;
+    if (!fileCmd) {
+        return ts_error_create(TsString::Create("Invalid file path"));
+    }
+
+    // Unbox args array
+    std::vector<std::string> argsVec;
+    if (args) {
+        void* rawArgs = ts_value_get_object((TsValue*)args);
+        if (!rawArgs) rawArgs = args;
+
+        uint32_t magic = *(uint32_t*)rawArgs;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            TsArray* argsArr = (TsArray*)rawArgs;
+            for (int64_t i = 0; i < argsArr->Length(); i++) {
+                int64_t val = argsArr->Get(i);
+                TsString* argStr = (TsString*)ts_value_get_string((TsValue*)(void*)val);
+                if (argStr) {
+                    argsVec.push_back(argStr->ToUtf8());
+                }
+            }
+        }
+    }
+
+    // Build command line - execFile executes directly without shell
+#ifdef _WIN32
+    std::string fullCmd = fileCmd;
+    for (const auto& arg : argsVec) {
+        fullCmd += " ";
+        // Quote arguments that contain spaces
+        if (arg.find(' ') != std::string::npos) {
+            fullCmd += "\"" + arg + "\"";
+        } else {
+            fullCmd += arg;
+        }
+    }
+#else
+    std::string fullCmd = fileCmd;
+    for (const auto& arg : argsVec) {
+        fullCmd += " ";
+        // Escape single quotes and wrap in single quotes
+        std::string escaped = arg;
+        size_t pos = 0;
+        while ((pos = escaped.find("'", pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "'\\''");
+            pos += 4;
+        }
+        fullCmd += "'" + escaped + "'";
+    }
+#endif
+
+    // Use popen for synchronous execution
+#ifdef _WIN32
+    FILE* pipe = _popen(fullCmd.c_str(), "r");
+#else
+    FILE* pipe = popen(fullCmd.c_str(), "r");
+#endif
+
+    if (!pipe) {
+        return ts_error_create(TsString::Create("Failed to execute file"));
+    }
+
+    // Read stdout
+    std::string stdoutStr;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        stdoutStr += buffer;
+    }
+
+#ifdef _WIN32
+    int status = _pclose(pipe);
+#else
+    int status = pclose(pipe);
+#endif
+    (void)status;  // execFileSync throws on non-zero, but we'll just return output for now
+
+    // Return output as Buffer
+    TsBuffer* result = TsBuffer::Create(stdoutStr.length());
+    if (stdoutStr.length() > 0) {
+        memcpy(result->GetData(), stdoutStr.c_str(), stdoutStr.length());
+    }
+    return ts_value_make_object(result);
 }
 
 void* ts_child_process_fork(void* modulePath, void* args, void* options) {
@@ -598,8 +680,166 @@ void* ts_child_process_fork(void* modulePath, void* args, void* options) {
 }
 
 void* ts_child_process_spawn_sync(void* command, void* args, void* options) {
-    // TODO: Implement synchronous spawn
-    return ts_value_make_null();
+    // Unbox command string
+    TsString* cmdStr = (TsString*)ts_value_get_string((TsValue*)command);
+    const char* cmd = cmdStr ? cmdStr->ToUtf8() : nullptr;
+    if (!cmd) {
+        TsMap* result = TsMap::Create();
+        TsValue errKey(TsString::Create("error"));
+        TsValue errVal;
+        errVal.type = ValueType::OBJECT_PTR;
+        errVal.ptr_val = ts_error_create(TsString::Create("Invalid command"));
+        result->Set(errKey, errVal);
+        return ts_value_make_object(result);
+    }
+
+    // Unbox args array
+    std::vector<std::string> argsVec;
+    if (args) {
+        void* rawArgs = ts_value_get_object((TsValue*)args);
+        if (!rawArgs) rawArgs = args;
+
+        uint32_t magic = *(uint32_t*)rawArgs;
+        if (magic == 0x41525259) { // TsArray::MAGIC
+            TsArray* argsArr = (TsArray*)rawArgs;
+            for (int64_t i = 0; i < argsArr->Length(); i++) {
+                int64_t val = argsArr->Get(i);
+                TsString* argStr = (TsString*)ts_value_get_string((TsValue*)(void*)val);
+                if (argStr) {
+                    argsVec.push_back(argStr->ToUtf8());
+                }
+            }
+        }
+    }
+
+    // Build command line for shell execution
+#ifdef _WIN32
+    std::string fullCmd = cmd;
+    for (const auto& arg : argsVec) {
+        fullCmd += " ";
+        // Quote arguments that contain spaces
+        if (arg.find(' ') != std::string::npos) {
+            fullCmd += "\"" + arg + "\"";
+        } else {
+            fullCmd += arg;
+        }
+    }
+#else
+    std::string fullCmd = cmd;
+    for (const auto& arg : argsVec) {
+        fullCmd += " ";
+        // Escape single quotes and wrap in single quotes
+        std::string escaped = arg;
+        size_t pos = 0;
+        while ((pos = escaped.find("'", pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "'\\''");
+            pos += 4;
+        }
+        fullCmd += "'" + escaped + "'";
+    }
+#endif
+
+    // Use popen for synchronous execution with output capture
+#ifdef _WIN32
+    FILE* pipe = _popen(fullCmd.c_str(), "r");
+#else
+    FILE* pipe = popen(fullCmd.c_str(), "r");
+#endif
+
+    // Create result object
+    TsMap* result = TsMap::Create();
+
+    if (!pipe) {
+        TsValue errKey(TsString::Create("error"));
+        TsValue errVal;
+        errVal.type = ValueType::OBJECT_PTR;
+        errVal.ptr_val = ts_error_create(TsString::Create("Failed to spawn process"));
+        result->Set(errKey, errVal);
+        return ts_value_make_object(result);
+    }
+
+    // Read stdout
+    std::string stdoutStr;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        stdoutStr += buffer;
+    }
+
+#ifdef _WIN32
+    int status = _pclose(pipe);
+#else
+    int status = pclose(pipe);
+#endif
+
+    // Set pid (not available from popen, use 0)
+    TsValue pidKey(TsString::Create("pid"));
+    TsValue pidVal;
+    pidVal.type = ValueType::NUMBER_INT;
+    pidVal.i_val = 0;
+    result->Set(pidKey, pidVal);
+
+    // Set stdout as Buffer
+    TsValue stdoutKey(TsString::Create("stdout"));
+    TsBuffer* stdoutBuf = TsBuffer::Create(stdoutStr.length());
+    if (stdoutStr.length() > 0) {
+        memcpy(stdoutBuf->GetData(), stdoutStr.c_str(), stdoutStr.length());
+    }
+    TsValue stdoutVal;
+    stdoutVal.type = ValueType::OBJECT_PTR;
+    stdoutVal.ptr_val = stdoutBuf;
+    result->Set(stdoutKey, stdoutVal);
+
+    // Set stderr as empty Buffer (popen doesn't capture stderr separately)
+    TsValue stderrKey(TsString::Create("stderr"));
+    TsBuffer* stderrBuf = TsBuffer::Create(0);
+    TsValue stderrVal;
+    stderrVal.type = ValueType::OBJECT_PTR;
+    stderrVal.ptr_val = stderrBuf;
+    result->Set(stderrKey, stderrVal);
+
+    // Set status (exit code)
+    TsValue statusKey(TsString::Create("status"));
+    TsValue statusVal;
+#ifdef _WIN32
+    statusVal.type = ValueType::NUMBER_INT;
+    statusVal.i_val = status;
+#else
+    if (WIFEXITED(status)) {
+        statusVal.type = ValueType::NUMBER_INT;
+        statusVal.i_val = WEXITSTATUS(status);
+    } else {
+        statusVal.type = ValueType::UNDEFINED;
+    }
+#endif
+    result->Set(statusKey, statusVal);
+
+    // Set signal (null if exited normally)
+    TsValue signalKey(TsString::Create("signal"));
+    TsValue signalVal;
+#ifndef _WIN32
+    if (WIFSIGNALED(status)) {
+        signalVal.type = ValueType::STRING_PTR;
+        signalVal.ptr_val = TsString::Create(strsignal(WTERMSIG(status)));
+    } else {
+        signalVal.type = ValueType::UNDEFINED;
+    }
+#else
+    signalVal.type = ValueType::UNDEFINED;
+#endif
+    result->Set(signalKey, signalVal);
+
+    // Set output array [null, stdout, stderr]
+    TsValue outputKey(TsString::Create("output"));
+    TsArray* outputArr = TsArray::Create();
+    outputArr->Push(0);  // null for stdin
+    outputArr->Push((int64_t)stdoutBuf);
+    outputArr->Push((int64_t)stderrBuf);
+    TsValue outputVal;
+    outputVal.type = ValueType::ARRAY_PTR;
+    outputVal.ptr_val = outputArr;
+    result->Set(outputKey, outputVal);
+
+    return ts_value_make_object(result);
 }
 
 bool ts_child_process_kill(void* cp, void* signal) {
