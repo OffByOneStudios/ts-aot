@@ -21,7 +21,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert` | ✅ | 100% | Testing utilities |
 | `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
-| `child_process` | ⚠️ | 68% | Process spawning |
+| `child_process` | ⚠️ | 77% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
@@ -235,13 +235,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process.stdin` | ✅ | Writable stream |
 | `process.stdout` | ✅ | Readable stream |
 | `process.stderr` | ✅ | Readable stream |
-| `process.stdio` | ❌ | |
+| `process.stdio` | ✅ | Array [stdin, stdout, stderr] |
 | `process.channel` | ❌ | IPC channel |
 | `process.kill(signal)` | ✅ | Send signal to process |
 | `process.send(message)` | ❌ | IPC messaging |
 | `process.disconnect()` | ❌ | Disconnect IPC |
-| `process.ref()` | ❌ | |
-| `process.unref()` | ❌ | |
+| `process.ref()` | ✅ | Keep event loop alive |
+| `process.unref()` | ✅ | Allow event loop to exit |
 
 ### ChildProcess Events
 | Feature | Status | Notes |
@@ -253,7 +253,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'disconnect'` event | ❌ | IPC disconnected |
 | `'message'` event | ❌ | IPC message |
 
-**Child Process Coverage: 21/31 (68%)**
+**Child Process Coverage: 24/31 (77%)**
 
 ---
 

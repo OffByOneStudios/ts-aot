@@ -32,6 +32,7 @@ static void ensureChildProcessFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_child_process_get_stdout", {true}, true);
     bp.registerRuntimeApi("ts_child_process_get_stderr", {true}, true);
     bp.registerRuntimeApi("ts_child_process_get_channel", {true}, true);
+    bp.registerRuntimeApi("ts_child_process_get_stdio", {true}, true);
     bp.registerRuntimeApi("ts_child_process_send", {true, true, true}, false);
     bp.registerRuntimeApi("ts_child_process_disconnect", {true}, false);
     bp.registerRuntimeApi("ts_child_process_ref", {true}, true);
@@ -699,6 +700,21 @@ bool IRGenerator::tryGenerateChildProcessPropertyAccess(ast::PropertyAccessExpre
             false
         );
         llvm::FunctionCallee fn = getRuntimeFunction("ts_child_process_get_channel", ft);
+        lastValue = createCall(ft, fn.getCallee(), { cpObj });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // cp.stdio
+    // =========================================================================
+    if (propName == "stdio") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_child_process_get_stdio", ft);
         lastValue = createCall(ft, fn.getCallee(), { cpObj });
         boxedValues.insert(lastValue);
         return true;
