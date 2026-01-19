@@ -211,6 +211,8 @@ private:
     bool tryGenerateChildProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateChildProcessMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateChildProcessPropertyAccess(ast::PropertyAccessExpression* prop);
+    bool tryGenerateClusterCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateWorkerCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

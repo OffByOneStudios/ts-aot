@@ -22,7 +22,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ✅ | 100% | Process spawning with IPC |
-| `cluster` | ❌ | 0% | Multi-process |
+| `cluster` | ⚠️ | 50% | Multi-process forking |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
 | `dgram` | ❌ | 0% | UDP sockets |
@@ -254,6 +254,64 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'message'` event | ✅ | IPC message |
 
 **Child Process Coverage: 31/31 (100%)**
+
+---
+
+## Cluster
+
+### Module Properties
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `cluster.isMaster` | ✅ | Deprecated alias for isPrimary |
+| `cluster.isPrimary` | ✅ | true if this is the primary process |
+| `cluster.isWorker` | ✅ | true if this is a worker process |
+| `cluster.worker` | ✅ | Reference to current worker object (only in worker) |
+| `cluster.workers` | ✅ | Map of all active workers (only in primary) |
+| `cluster.settings` | ✅ | Cluster settings object |
+| `cluster.schedulingPolicy` | ❌ | Load balancing policy |
+
+### Module Methods
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `cluster.fork(env)` | ✅ | Spawn worker process |
+| `cluster.setupPrimary(settings)` | ✅ | Configure cluster settings |
+| `cluster.setupMaster(settings)` | ✅ | Deprecated alias for setupPrimary |
+| `cluster.disconnect(callback)` | ✅ | Disconnect all workers |
+
+### Worker Class
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `worker.id` | ✅ | Worker ID |
+| `worker.process` | ✅ | ChildProcess reference |
+| `worker.isDead` | ✅ | Check if worker is dead |
+| `worker.exitedAfterDisconnect` | ✅ | Whether worker exited after disconnect |
+| `worker.send(message)` | ✅ | IPC messaging |
+| `worker.disconnect()` | ✅ | Disconnect worker |
+| `worker.kill(signal)` | ✅ | Kill worker process |
+| `worker.isConnected()` | ✅ | Check IPC connection status |
+
+### Cluster Events
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `'fork'` event | ✅ | Worker forked |
+| `'online'` event | ❌ | Worker is online |
+| `'listening'` event | ❌ | Worker is listening |
+| `'disconnect'` event | ✅ | Worker disconnected |
+| `'exit'` event | ✅ | Worker exited |
+| `'message'` event | ✅ | IPC message from worker |
+| `'error'` event | ✅ | Error occurred |
+
+### Worker Events
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `'online'` event | ❌ | Worker is online |
+| `'listening'` event | ❌ | Worker is listening |
+| `'disconnect'` event | ✅ | Worker disconnected |
+| `'exit'` event | ✅ | Worker exited |
+| `'message'` event | ✅ | IPC message |
+| `'error'` event | ✅ | Error occurred |
+
+**Cluster Coverage: 26/32 (81%)**
 
 ---
 
@@ -1175,6 +1233,8 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
 | Buffer | 68 | 68 | 100% |
+| Child Process | 31 | 31 | 100% |
+| Cluster | 26 | 32 | 81% |
 | Console | 19 | 19 | 100% |
 | Crypto | 46 | 46 | 100% |
 | Events | 21 | 21 | 100% |
@@ -1193,7 +1253,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **609** | **673** | **90%** |
+| **Total** | **666** | **736** | **90%** |
 
 ### Priority Implementation Targets
 
@@ -1213,8 +1273,8 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 
 #### Medium (Framework support)
 - `http.Agent` - Connection pooling
-- `cluster` module - Multi-process
-- `child_process` - Process spawning
+- ✅ `cluster` module - Multi-process forking (implemented)
+- ✅ `child_process` - Process spawning (implemented)
 - `readline` - Interactive input
 - `zlib` - Compression
 
@@ -1224,6 +1284,8 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 
 Current test coverage:
 - Buffer: 6 test files (basic, advanced, encoding, extended, typed_array, utilities)
+- Child Process: 6 test files (spawn, spawn_sync, exec, exec_file_sync, fork, stdio_ref)
+- Cluster: 1 test file (basic - tests isMaster, isPrimary, isWorker, workers, settings, setupPrimary)
 - Console: 4 test files (extended, methods, timing)
 - Crypto: 1 test file (extended - 12 tests covering hash, hmac, random, kdf, timing)
 - Events: 2 test files (basic, extended)

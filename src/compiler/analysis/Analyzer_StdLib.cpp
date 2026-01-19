@@ -1449,5 +1449,6 @@ Analyzer::Analyzer() {
     registerPerfHooks();
     registerAsyncHooks();
     registerChildProcess();
+    registerCluster();
 }
 } // namespace ts
