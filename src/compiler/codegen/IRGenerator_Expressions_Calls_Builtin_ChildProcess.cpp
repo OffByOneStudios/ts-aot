@@ -103,6 +103,8 @@ bool IRGenerator::tryGenerateChildProcessCall(ast::CallExpression* node, ast::Pr
 
     // =========================================================================
     // child_process.exec(command, options?, callback?)
+    // Node.js signature: exec(command[, options], callback)
+    // The callback can be in position 1 (if no options) or position 2
     // =========================================================================
     if (methodName == "exec") {
         if (node->arguments.empty()) {
@@ -117,28 +119,43 @@ bool IRGenerator::tryGenerateChildProcessCall(ast::CallExpression* node, ast::Pr
             command = boxValue(command, node->arguments[0]->inferredType);
         }
 
-        // Get optional options
-        llvm::Value* options;
-        if (node->arguments.size() > 1) {
+        llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        if (node->arguments.size() == 2) {
+            // Could be (command, options) or (command, callback)
+            // Check if arg 1 is a function type
+            auto arg1Type = node->arguments[1]->inferredType;
+            bool isCallback = (arg1Type && arg1Type->kind == TypeKind::Function);
+
+            if (isCallback) {
+                // exec(command, callback)
+                visit(node->arguments[1].get());
+                callback = lastValue;
+                if (!boxedValues.count(callback)) {
+                    callback = boxValue(callback, arg1Type);
+                }
+            } else {
+                // exec(command, options)
+                visit(node->arguments[1].get());
+                options = lastValue;
+                if (!boxedValues.count(options)) {
+                    options = boxValue(options, arg1Type);
+                }
+            }
+        } else if (node->arguments.size() >= 3) {
+            // exec(command, options, callback)
             visit(node->arguments[1].get());
             options = lastValue;
             if (!boxedValues.count(options)) {
                 options = boxValue(options, node->arguments[1]->inferredType);
             }
-        } else {
-            options = llvm::ConstantPointerNull::get(builder->getPtrTy());
-        }
 
-        // Get optional callback
-        llvm::Value* callback;
-        if (node->arguments.size() > 2) {
             visit(node->arguments[2].get());
             callback = lastValue;
             if (!boxedValues.count(callback)) {
                 callback = boxValue(callback, node->arguments[2]->inferredType);
             }
-        } else {
-            callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
         }
 
         llvm::FunctionType* ft = llvm::FunctionType::get(

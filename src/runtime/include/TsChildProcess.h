@@ -69,6 +69,11 @@ public:
     void Ref();
     void Unref();
 
+    // For exec() callback support
+    void SetExecCallback(void* callback) { execCallback_ = callback; }
+    void AppendStdout(const char* data, size_t len) { accumulatedStdout_.append(data, len); }
+    void AppendStderr(const char* data, size_t len) { accumulatedStderr_.append(data, len); }
+
 protected:
     uv_process_t* processHandle_;
     uv_pipe_t* stdinPipe_;
@@ -89,6 +94,11 @@ protected:
 
     void* channel_;
     bool referenced_;
+
+    // For exec() callback support
+    void* execCallback_;
+    std::string accumulatedStdout_;
+    std::string accumulatedStderr_;
 
     // Internal methods
     void OnExit(int64_t exitStatus, int termSignal);

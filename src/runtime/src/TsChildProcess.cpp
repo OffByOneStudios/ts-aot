@@ -39,6 +39,9 @@ TsChildProcess::TsChildProcess()
     , spawnfile_("")
     , channel_(nullptr)
     , referenced_(true)
+    , execCallback_(nullptr)
+    , accumulatedStdout_("")
+    , accumulatedStderr_("")
 {
     this->magic = MAGIC;
 }
@@ -230,6 +233,35 @@ void TsChildProcess::OnExit(int64_t exitStatus, int termSignal) {
         }
     }
 
+    // Call exec callback if set (error, stdout, stderr)
+    if (execCallback_) {
+        TsValue* error = nullptr;
+        if (exitCode_ != 0) {
+            std::string errMsg = "Command failed with exit code " + std::to_string(exitCode_);
+            error = (TsValue*)ts_error_create(TsString::Create(errMsg.c_str()));
+        }
+
+        // Create stdout buffer
+        TsBuffer* stdoutBuf = TsBuffer::Create(accumulatedStdout_.length());
+        if (accumulatedStdout_.length() > 0) {
+            memcpy(stdoutBuf->GetData(), accumulatedStdout_.c_str(), accumulatedStdout_.length());
+        }
+
+        // Create stderr buffer
+        TsBuffer* stderrBuf = TsBuffer::Create(accumulatedStderr_.length());
+        if (accumulatedStderr_.length() > 0) {
+            memcpy(stderrBuf->GetData(), accumulatedStderr_.c_str(), accumulatedStderr_.length());
+        }
+
+        TsValue* cbArgs[] = {
+            error ? error : ts_value_make_null(),
+            ts_value_make_object(stdoutBuf),
+            ts_value_make_object(stderrBuf)
+        };
+        ts_function_call((TsValue*)execCallback_, 3, cbArgs);
+        execCallback_ = nullptr;  // Clear callback after calling
+    }
+
     // Emit exit event with (code, signal)
     TsValue* codeArg = (exitCode_ >= 0) ? ts_value_make_int(exitCode_) : ts_value_make_null();
     TsValue* signalArg = signalCode_.empty() ? ts_value_make_null() :
@@ -263,6 +295,10 @@ void TsChildProcess::OnStdoutRead(uv_stream_t* stream, ssize_t nread, const uv_b
 
     TsChildProcessReadable* readable = (TsChildProcessReadable*)self->stdout_;
     if (nread > 0) {
+        // Accumulate for exec callback if set
+        if (self->execCallback_) {
+            self->AppendStdout(buf->base, nread);
+        }
         readable->HandleData(buf->base, nread);
     } else if (nread < 0) {
         if (nread == UV_EOF) {
@@ -279,6 +315,10 @@ void TsChildProcess::OnStderrRead(uv_stream_t* stream, ssize_t nread, const uv_b
 
     TsChildProcessReadable* readable = (TsChildProcessReadable*)self->stderr_;
     if (nread > 0) {
+        // Accumulate for exec callback if set
+        if (self->execCallback_) {
+            self->AppendStderr(buf->base, nread);
+        }
         readable->HandleData(buf->base, nread);
     } else if (nread < 0) {
         if (nread == UV_EOF) {
@@ -513,10 +553,8 @@ void* ts_child_process_spawn(void* command, void* args, void* options) {
 }
 
 void* ts_child_process_exec(void* command, void* options, void* callback) {
-    // Get the shell command
-    void* rawCmd = ts_value_get_object((TsValue*)command);
-    if (!rawCmd) rawCmd = command;
-    TsString* cmdStr = (TsString*)rawCmd;
+    // Get the shell command - use ts_value_get_string for STRING_PTR type
+    TsString* cmdStr = (TsString*)ts_value_get_string((TsValue*)command);
     const char* cmd = cmdStr ? cmdStr->ToUtf8() : nullptr;
     if (!cmd) return ts_value_make_null();
 
@@ -529,10 +567,14 @@ void* ts_child_process_exec(void* command, void* options, void* callback) {
 #endif
 
     TsChildProcess* cp = new (ts_alloc(sizeof(TsChildProcess))) TsChildProcess();
+
+    // Set the callback to be invoked when process exits
+    if (callback) {
+        cp->SetExecCallback(callback);
+    }
+
     cp->Spawn(shell, args, nullptr, nullptr, false, false);
 
-    // Store callback for when process exits (to be called with stdout/stderr)
-    // For now, just return the ChildProcess
     return ts_value_make_object(cp);
 }
 
