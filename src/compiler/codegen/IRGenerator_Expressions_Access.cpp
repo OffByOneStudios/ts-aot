@@ -1284,6 +1284,24 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             boxedValues.insert(lastValue);
             return;
         }
+        if (id->name == "cluster" && node->name == "schedulingPolicy") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_get_scheduling_policy", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "cluster" && node->name == "SCHED_NONE") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_SCHED_NONE", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "cluster" && node->name == "SCHED_RR") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_SCHED_RR", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {

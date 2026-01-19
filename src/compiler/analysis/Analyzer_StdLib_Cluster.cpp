@@ -102,6 +102,13 @@ void Analyzer::registerCluster() {
     settingsType->fields["windowsHide"] = std::make_shared<Type>(TypeKind::Boolean);
     clusterModule->fields["settings"] = settingsType;
 
+    // schedulingPolicy: number - SCHED_NONE (0) or SCHED_RR (1)
+    clusterModule->fields["schedulingPolicy"] = std::make_shared<Type>(TypeKind::Int);
+
+    // Scheduling policy constants
+    clusterModule->fields["SCHED_NONE"] = std::make_shared<Type>(TypeKind::Int);
+    clusterModule->fields["SCHED_RR"] = std::make_shared<Type>(TypeKind::Int);
+
     // =========================================================================
     // Cluster module methods
     // =========================================================================
