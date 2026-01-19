@@ -1447,5 +1447,6 @@ Analyzer::Analyzer() {
     registerAssert();
     registerStringDecoder();
     registerPerfHooks();
+    registerAsyncHooks();
 }
 } // namespace ts

@@ -70,6 +70,7 @@ public:
     void registerAssert();
     void registerStringDecoder();
     void registerPerfHooks();
+    void registerAsyncHooks();
 
     void reportError(const std::string& message);
 

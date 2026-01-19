@@ -19,7 +19,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Module | Status | Coverage | Notes |
 |--------|--------|----------|-------|
 | `assert` | ✅ | 100% | Testing utilities |
-| `async_hooks` | ❌ | 0% | Async context tracking |
+| `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
@@ -83,6 +83,33 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert.ifError(value)` | ✅ | Fails if value is truthy |
 
 **Assert Coverage: 18/18 (100%)**
+
+---
+
+## Async Hooks
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `async_hooks.executionAsyncId()` | ✅ | Returns current async ID |
+| `async_hooks.triggerAsyncId()` | ✅ | Returns trigger async ID |
+| `async_hooks.executionAsyncResource()` | ✅ | Returns current async resource |
+| `async_hooks.createHook(callbacks)` | ✅ | Creates async hook with init/before/after/destroy/promiseResolve |
+| `AsyncHook.enable()` | ✅ | Enables the hook |
+| `AsyncHook.disable()` | ✅ | Disables the hook |
+| `AsyncLocalStorage` constructor | ✅ | Creates new instance |
+| `AsyncLocalStorage.getStore()` | ✅ | Returns current store value |
+| `AsyncLocalStorage.run(store, callback)` | ✅ | Runs callback with store |
+| `AsyncLocalStorage.exit(callback)` | ✅ | Runs callback with no store |
+| `AsyncLocalStorage.enterWith(store)` | ✅ | Sets store for current context |
+| `AsyncLocalStorage.disable()` | ✅ | Disables the instance |
+| `AsyncResource` constructor | ✅ | Creates new async resource |
+| `AsyncResource.asyncId()` | ✅ | Returns resource async ID |
+| `AsyncResource.triggerAsyncId()` | ✅ | Returns resource trigger ID |
+| `AsyncResource.runInAsyncScope(fn)` | ✅ | Runs fn in resource scope |
+| `AsyncResource.bind(fn)` | ✅ | Binds fn to resource |
+| `AsyncResource.emitDestroy()` | ✅ | Emits destroy event |
+
+**Async Hooks Coverage: 18/18 (100%)**
 
 ---
 
