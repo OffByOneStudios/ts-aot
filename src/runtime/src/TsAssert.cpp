@@ -21,6 +21,13 @@ struct AssertExceptionContext {
     TsValue* exception;
 };
 
+// Context for async assert operations (rejects/doesNotReject)
+struct AsyncAssertContext {
+    ts::TsPromise* resultPromise;
+    void* expectedError;    // Optional: error class/regex/message to match
+    void* assertMessage;    // Optional: custom assertion message
+};
+
 // Helper to get string value from TsValue
 static const char* getMessageStr(void* message) {
     if (!message) return nullptr;
@@ -400,20 +407,142 @@ void ts_assert_does_not_throw(void* fn, void* error, void* message) {
     }
 }
 
-void* ts_assert_rejects(void* asyncFn, void* error, void* message) {
-    // Stub - returns a resolved promise with warning
-    fprintf(stderr, "Warning: assert.rejects() has limited support in AOT-compiled code\n");
-    TsValue undefined = {};
+// Handler for assert.rejects when promise resolves (FAILURE - should have rejected)
+static TsValue* ts_assert_rejects_fulfilled_handler(void* context, TsValue* value) {
+    AsyncAssertContext* ctx = (AsyncAssertContext*)context;
+    // Promise resolved when it should have rejected - FAIL
+    const char* msg = getMessageStr(ctx->assertMessage);
+    fprintf(stderr, "AssertionError [ERR_ASSERTION]: Missing expected rejection");
+    if (msg && strlen(msg) > 0) {
+        fprintf(stderr, ": %s", msg);
+    }
+    fprintf(stderr, "\n");
+
+    TsValue* err = (TsValue*)ts_error_create(TsString::Create("Missing expected rejection"));
+    ts::ts_promise_reject_internal(ctx->resultPromise, err);
+    return nullptr;
+}
+
+// Handler for assert.rejects when promise rejects (SUCCESS - expected behavior)
+static TsValue* ts_assert_rejects_rejected_handler(void* context, TsValue* reason) {
+    AsyncAssertContext* ctx = (AsyncAssertContext*)context;
+    // Promise rejected as expected - SUCCESS
+    // TODO: Optionally validate rejection reason matches ctx->expectedError
+    TsValue undefined;
     undefined.type = ValueType::UNDEFINED;
-    return ts::ts_promise_resolve(nullptr, &undefined);
+    ts::ts_promise_resolve_internal(ctx->resultPromise, &undefined);
+    return nullptr;
+}
+
+void* ts_assert_rejects(void* asyncFn, void* error, void* message) {
+    TsValue* inputVal = (TsValue*)asyncFn;
+    ts::TsPromise* inputPromise = nullptr;
+
+    // 1. Get promise (call function if needed)
+    if (inputVal && inputVal->type == ValueType::PROMISE_PTR) {
+        inputPromise = (ts::TsPromise*)inputVal->ptr_val;
+    } else if (inputVal && inputVal->type == ValueType::FUNCTION_PTR) {
+        // Call the async function to get the promise
+        TsValue* result = ts_function_call(inputVal, 0, nullptr);
+        if (result && result->type == ValueType::PROMISE_PTR) {
+            inputPromise = (ts::TsPromise*)result->ptr_val;
+        }
+    }
+
+    if (!inputPromise) {
+        // Not a promise or async function - immediate failure
+        ts::TsPromise* p = ts::ts_promise_create();
+        TsValue* err = (TsValue*)ts_error_create(TsString::Create("Promise or async function required"));
+        ts::ts_promise_reject_internal(p, err);
+        return ts_value_make_promise(p);
+    }
+
+    // 2. Create result promise
+    ts::TsPromise* resultPromise = ts::ts_promise_create();
+
+    // 3. Create context and attach handlers
+    AsyncAssertContext* ctx = (AsyncAssertContext*)ts_alloc(sizeof(AsyncAssertContext));
+    ctx->resultPromise = resultPromise;
+    ctx->expectedError = error;
+    ctx->assertMessage = message;
+
+    TsValue onFulfilled = *ts_value_make_function(
+        (void*)ts_assert_rejects_fulfilled_handler, ctx);
+    TsValue onRejected = *ts_value_make_function(
+        (void*)ts_assert_rejects_rejected_handler, ctx);
+
+    inputPromise->then(onFulfilled, onRejected);
+
+    return ts_value_make_promise(resultPromise);
+}
+
+// Handler for assert.doesNotReject when promise resolves (SUCCESS - expected)
+static TsValue* ts_assert_does_not_reject_fulfilled_handler(void* context, TsValue* value) {
+    AsyncAssertContext* ctx = (AsyncAssertContext*)context;
+    // Promise resolved as expected - SUCCESS
+    TsValue undefined;
+    undefined.type = ValueType::UNDEFINED;
+    ts::ts_promise_resolve_internal(ctx->resultPromise, &undefined);
+    return nullptr;
+}
+
+// Handler for assert.doesNotReject when promise rejects (FAILURE - unexpected)
+static TsValue* ts_assert_does_not_reject_rejected_handler(void* context, TsValue* reason) {
+    AsyncAssertContext* ctx = (AsyncAssertContext*)context;
+    // Promise rejected unexpectedly - FAIL
+    const char* msg = getMessageStr(ctx->assertMessage);
+    fprintf(stderr, "AssertionError [ERR_ASSERTION]: Got unwanted rejection");
+    if (msg && strlen(msg) > 0) {
+        fprintf(stderr, ": %s", msg);
+    }
+    fprintf(stderr, "\n");
+
+    TsValue* err = (TsValue*)ts_error_create(TsString::Create("Got unwanted rejection"));
+    ts::ts_promise_reject_internal(ctx->resultPromise, err);
+    return nullptr;
 }
 
 void* ts_assert_does_not_reject(void* asyncFn, void* error, void* message) {
-    // Stub - returns the promise result
-    fprintf(stderr, "Warning: assert.doesNotReject() has limited support in AOT-compiled code\n");
-    TsValue undefined = {};
-    undefined.type = ValueType::UNDEFINED;
-    return ts::ts_promise_resolve(nullptr, &undefined);
+    TsValue* inputVal = (TsValue*)asyncFn;
+    ts::TsPromise* inputPromise = nullptr;
+
+    // 1. Get promise (call function if needed)
+    if (inputVal && inputVal->type == ValueType::PROMISE_PTR) {
+        inputPromise = (ts::TsPromise*)inputVal->ptr_val;
+    } else if (inputVal && inputVal->type == ValueType::FUNCTION_PTR) {
+        // Call the async function to get the promise
+        TsValue* result = ts_function_call(inputVal, 0, nullptr);
+        if (result && result->type == ValueType::PROMISE_PTR) {
+            inputPromise = (ts::TsPromise*)result->ptr_val;
+        }
+    }
+
+    if (!inputPromise) {
+        // Not a promise - treat as success (nothing to reject)
+        ts::TsPromise* p = ts::ts_promise_create();
+        TsValue undefined;
+        undefined.type = ValueType::UNDEFINED;
+        ts::ts_promise_resolve_internal(p, &undefined);
+        return ts_value_make_promise(p);
+    }
+
+    // 2. Create result promise
+    ts::TsPromise* resultPromise = ts::ts_promise_create();
+
+    // 3. Create context and attach handlers
+    AsyncAssertContext* ctx = (AsyncAssertContext*)ts_alloc(sizeof(AsyncAssertContext));
+    ctx->resultPromise = resultPromise;
+    ctx->expectedError = error;
+    ctx->assertMessage = message;
+
+    TsValue onFulfilled = *ts_value_make_function(
+        (void*)ts_assert_does_not_reject_fulfilled_handler, ctx);
+    TsValue onRejected = *ts_value_make_function(
+        (void*)ts_assert_does_not_reject_rejected_handler, ctx);
+
+    inputPromise->then(onFulfilled, onRejected);
+
+    return ts_value_make_promise(resultPromise);
 }
 
 void ts_assert_fail(void* message) {
