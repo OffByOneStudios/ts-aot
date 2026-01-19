@@ -28,6 +28,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(llhttp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(libtommath CONFIG REQUIRED)
+find_package(c-ares CONFIG REQUIRED)
 
 # Fix broken libtommath target in some vcpkg versions
 if (TARGET libtommath)
@@ -114,6 +115,7 @@ target_link_libraries(tsruntime PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
     libtommath
+    c-ares::cares
 )
 
 if (WIN32)
@@ -142,6 +144,7 @@ if (TS_FAT_RUNTIME AND MSVC)
         OpenSSL::SSL
         OpenSSL::Crypto
         libtommath
+        c-ares::cares
     )
     
     # libuv is special because of the generator expression

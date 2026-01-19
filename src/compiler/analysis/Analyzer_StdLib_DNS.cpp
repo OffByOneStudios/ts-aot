@@ -91,6 +91,62 @@ void Analyzer::registerDNS() {
     reverseMethod->returnType = std::make_shared<Type>(TypeKind::Void);
     dnsModule->fields["reverse"] = reverseMethod;
 
+    // resolveCname(hostname: string, callback: (err, addresses) => void): void
+    auto resolveCnameMethod = std::make_shared<FunctionType>();
+    resolveCnameMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveCnameMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveCnameMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveCname"] = resolveCnameMethod;
+
+    // resolveMx(hostname: string, callback: (err, addresses) => void): void
+    auto resolveMxMethod = std::make_shared<FunctionType>();
+    resolveMxMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveMxMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveMxMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveMx"] = resolveMxMethod;
+
+    // resolveNs(hostname: string, callback: (err, addresses) => void): void
+    auto resolveNsMethod = std::make_shared<FunctionType>();
+    resolveNsMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveNsMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveNsMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveNs"] = resolveNsMethod;
+
+    // resolveTxt(hostname: string, callback: (err, addresses) => void): void
+    auto resolveTxtMethod = std::make_shared<FunctionType>();
+    resolveTxtMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveTxtMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveTxtMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveTxt"] = resolveTxtMethod;
+
+    // resolveSrv(hostname: string, callback: (err, addresses) => void): void
+    auto resolveSrvMethod = std::make_shared<FunctionType>();
+    resolveSrvMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveSrvMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveSrvMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveSrv"] = resolveSrvMethod;
+
+    // resolvePtr(hostname: string, callback: (err, addresses) => void): void
+    auto resolvePtrMethod = std::make_shared<FunctionType>();
+    resolvePtrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolvePtrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolvePtrMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolvePtr"] = resolvePtrMethod;
+
+    // resolveNaptr(hostname: string, callback: (err, addresses) => void): void
+    auto resolveNaptrMethod = std::make_shared<FunctionType>();
+    resolveNaptrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveNaptrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveNaptrMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveNaptr"] = resolveNaptrMethod;
+
+    // resolveSoa(hostname: string, callback: (err, soa) => void): void
+    auto resolveSoaMethod = std::make_shared<FunctionType>();
+    resolveSoaMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    resolveSoaMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    resolveSoaMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    dnsModule->fields["resolveSoa"] = resolveSoaMethod;
+
     // getServers(): string[]
     auto getServersMethod = std::make_shared<FunctionType>();
     getServersMethod->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
@@ -141,6 +197,54 @@ void Analyzer::registerDNS() {
     promisesReverseMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     promisesReverseMethod->returnType = std::make_shared<ClassType>("Promise");
     dnsPromises->fields["reverse"] = promisesReverseMethod;
+
+    // promises.resolveCname(hostname: string): Promise<string[]>
+    auto promisesResolveCnameMethod = std::make_shared<FunctionType>();
+    promisesResolveCnameMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveCnameMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveCname"] = promisesResolveCnameMethod;
+
+    // promises.resolveMx(hostname: string): Promise<{exchange, priority}[]>
+    auto promisesResolveMxMethod = std::make_shared<FunctionType>();
+    promisesResolveMxMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveMxMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveMx"] = promisesResolveMxMethod;
+
+    // promises.resolveNs(hostname: string): Promise<string[]>
+    auto promisesResolveNsMethod = std::make_shared<FunctionType>();
+    promisesResolveNsMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveNsMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveNs"] = promisesResolveNsMethod;
+
+    // promises.resolveTxt(hostname: string): Promise<string[][]>
+    auto promisesResolveTxtMethod = std::make_shared<FunctionType>();
+    promisesResolveTxtMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveTxtMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveTxt"] = promisesResolveTxtMethod;
+
+    // promises.resolveSrv(hostname: string): Promise<{name, port, priority, weight}[]>
+    auto promisesResolveSrvMethod = std::make_shared<FunctionType>();
+    promisesResolveSrvMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveSrvMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveSrv"] = promisesResolveSrvMethod;
+
+    // promises.resolvePtr(hostname: string): Promise<string[]>
+    auto promisesResolvePtrMethod = std::make_shared<FunctionType>();
+    promisesResolvePtrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolvePtrMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolvePtr"] = promisesResolvePtrMethod;
+
+    // promises.resolveNaptr(hostname: string): Promise<{flags, service, regexp, replacement, order, preference}[]>
+    auto promisesResolveNaptrMethod = std::make_shared<FunctionType>();
+    promisesResolveNaptrMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveNaptrMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveNaptr"] = promisesResolveNaptrMethod;
+
+    // promises.resolveSoa(hostname: string): Promise<{nsname, hostmaster, serial, refresh, retry, expire, minttl}>
+    auto promisesResolveSoaMethod = std::make_shared<FunctionType>();
+    promisesResolveSoaMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    promisesResolveSoaMethod->returnType = std::make_shared<ClassType>("Promise");
+    dnsPromises->fields["resolveSoa"] = promisesResolveSoaMethod;
 
     dnsModule->fields["promises"] = dnsPromises;
 

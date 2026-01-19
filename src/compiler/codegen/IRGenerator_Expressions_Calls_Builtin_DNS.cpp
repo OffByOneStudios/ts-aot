@@ -19,12 +19,30 @@ static void ensureDNSFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_dns_get_servers", {}, true);
     bp.registerRuntimeApi("ts_dns_set_servers", {true}, false);
 
+    // Callback-based APIs (new record types)
+    bp.registerRuntimeApi("ts_dns_resolve_cname", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_mx", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_ns", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_txt", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_srv", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_ptr", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_naptr", {true, true}, false);
+    bp.registerRuntimeApi("ts_dns_resolve_soa", {true, true}, false);
+
     // Promise-based APIs
     bp.registerRuntimeApi("ts_dns_promises_lookup", {true, true}, true);
     bp.registerRuntimeApi("ts_dns_promises_resolve", {true}, true);
     bp.registerRuntimeApi("ts_dns_promises_resolve4", {true}, true);
     bp.registerRuntimeApi("ts_dns_promises_resolve6", {true}, true);
     bp.registerRuntimeApi("ts_dns_promises_reverse", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_cname", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_mx", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_ns", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_txt", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_srv", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_ptr", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_naptr", {true}, true);
+    bp.registerRuntimeApi("ts_dns_promises_resolve_soa", {true}, true);
 
     // Error code constants
     bp.registerRuntimeApi("ts_dns_NODATA", {}, false);
@@ -253,6 +271,254 @@ bool IRGenerator::tryGenerateDNSCall(ast::CallExpression* node, ast::PropertyAcc
     }
 
     // =========================================================================
+    // dns.resolveCname(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveCname") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_cname", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveMx(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveMx") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_mx", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveNs(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveNs") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_ns", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveTxt(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveTxt") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_txt", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveSrv(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveSrv") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_srv", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolvePtr(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolvePtr") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_ptr", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveNaptr(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveNaptr") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_naptr", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
+    // dns.resolveSoa(hostname, callback)
+    // =========================================================================
+    if (methodName == "resolveSoa") {
+        if (node->arguments.size() < 2) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* callback = lastValue;
+        if (!boxedValues.count(callback)) {
+            callback = boxValue(callback, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_resolve_soa", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname, callback });
+        return true;
+    }
+
+    // =========================================================================
     // dns.getServers()
     // =========================================================================
     if (methodName == "getServers") {
@@ -437,6 +703,214 @@ bool IRGenerator::tryGenerateDNSPromisesCall(ast::CallExpression* node, const st
         );
         llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_reverse", ft);
         lastValue = createCall(ft, fn.getCallee(), { ip });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveCname(hostname)
+    // =========================================================================
+    if (methodName == "resolveCname") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_cname", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveMx(hostname)
+    // =========================================================================
+    if (methodName == "resolveMx") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_mx", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveNs(hostname)
+    // =========================================================================
+    if (methodName == "resolveNs") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_ns", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveTxt(hostname)
+    // =========================================================================
+    if (methodName == "resolveTxt") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_txt", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveSrv(hostname)
+    // =========================================================================
+    if (methodName == "resolveSrv") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_srv", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolvePtr(hostname)
+    // =========================================================================
+    if (methodName == "resolvePtr") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_ptr", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveNaptr(hostname)
+    // =========================================================================
+    if (methodName == "resolveNaptr") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_naptr", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // dns.promises.resolveSoa(hostname)
+    // =========================================================================
+    if (methodName == "resolveSoa") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* hostname = lastValue;
+        if (!boxedValues.count(hostname)) {
+            hostname = boxValue(hostname, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_dns_promises_resolve_soa", ft);
+        lastValue = createCall(ft, fn.getCallee(), { hostname });
         boxedValues.insert(lastValue);
         return true;
     }
