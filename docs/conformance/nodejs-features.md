@@ -21,7 +21,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert` | ✅ | 100% | Testing utilities |
 | `async_hooks` | ✅ | 100% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
-| `child_process` | ⚠️ | 77% | Process spawning |
+| `child_process` | ⚠️ | 81% | Process spawning |
 | `cluster` | ❌ | 0% | Multi-process |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
@@ -216,7 +216,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `child_process.spawn(command, args, options)` | ✅ | Basic process spawning with stdio |
 | `child_process.spawnSync(command, args, options)` | ✅ | Synchronous spawning with output capture |
-| `child_process.exec(command, callback)` | ⚠️ | Shell command execution |
+| `child_process.exec(command, callback)` | ✅ | Shell command with callback support |
 | `child_process.execSync(command, options)` | ✅ | Synchronous shell execution |
 | `child_process.execFile(file, args, callback)` | ✅ | Delegates to spawn |
 | `child_process.execFileSync(file, args, options)` | ✅ | Synchronous file execution |
@@ -253,7 +253,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `'disconnect'` event | ❌ | IPC disconnected |
 | `'message'` event | ❌ | IPC message |
 
-**Child Process Coverage: 24/31 (77%)**
+**Child Process Coverage: 25/31 (81%)**
 
 ---
 
