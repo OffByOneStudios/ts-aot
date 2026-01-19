@@ -1241,6 +1241,49 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             boxedValues.insert(lastValue);
             return;
         }
+
+        // ====================================================================
+        // Cluster Module Property Access
+        // ====================================================================
+        if (id->name == "cluster" && node->name == "isMaster") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_is_master", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "cluster" && node->name == "isPrimary") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_is_primary", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "cluster" && node->name == "isWorker") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_is_worker", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            return;
+        }
+        if (id->name == "cluster" && node->name == "worker") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_get_worker", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(lastValue);
+            return;
+        }
+        if (id->name == "cluster" && node->name == "workers") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_get_workers", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(lastValue);
+            return;
+        }
+        if (id->name == "cluster" && node->name == "settings") {
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_cluster_get_settings", ft);
+            lastValue = createCall(ft, fn.getCallee(), {});
+            boxedValues.insert(lastValue);
+            return;
+        }
     }
 
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
@@ -1345,7 +1388,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             visit(node->expression.get());
             llvm::Value* decoder = lastValue;
             emitNullCheckForExpression(node->expression.get(), decoder);
-            
+
             if (node->name == "encoding") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_text_decoder_get_encoding", ft);
@@ -1360,6 +1403,34 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = getRuntimeFunction("ts_text_decoder_ignore_bom", ft);
                 lastValue = createCall(ft, fn.getCallee(), { decoder });
+                return;
+            }
+        } else if (cls->name == "Worker") {
+            // Worker property access (cluster module)
+            visit(node->expression.get());
+            llvm::Value* worker = lastValue;
+            emitNullCheckForExpression(node->expression.get(), worker);
+
+            if (node->name == "id") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_worker_get_id", ft);
+                lastValue = createCall(ft, fn.getCallee(), { worker });
+                return;
+            } else if (node->name == "process") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_worker_get_process", ft);
+                lastValue = createCall(ft, fn.getCallee(), { worker });
+                boxedValues.insert(lastValue);
+                return;
+            } else if (node->name == "isDead") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_worker_is_dead", ft);
+                lastValue = createCall(ft, fn.getCallee(), { worker });
+                return;
+            } else if (node->name == "exitedAfterDisconnect") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_worker_exited_after_disconnect", ft);
+                lastValue = createCall(ft, fn.getCallee(), { worker });
                 return;
             }
         }

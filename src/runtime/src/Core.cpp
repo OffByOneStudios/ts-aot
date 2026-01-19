@@ -5,6 +5,7 @@
 #include "TsObject.h"
 #include "TsWriteStream.h"
 #include "TsReadStream.h"
+#include "TsCluster.h"
 #include <cstdio>
 #include <setjmp.h>
 #include <vector>
@@ -1075,6 +1076,9 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 2.5 Initialize child IPC if we're a forked process
     ts_process_init_child_ipc();
+
+    // 2.6 Initialize cluster module (detects master vs worker)
+    ts_cluster_init();
 
     // 3. Initialize process.argv
     TsArray* argvArray = TsArray::Create(argc);

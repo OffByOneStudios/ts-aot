@@ -72,6 +72,7 @@ public:
     void registerPerfHooks();
     void registerAsyncHooks();
     void registerChildProcess();
+    void registerCluster();
 
     void reportError(const std::string& message);
 
