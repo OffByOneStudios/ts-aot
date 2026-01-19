@@ -18,7 +18,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 | Module | Status | Coverage | Notes |
 |--------|--------|----------|-------|
-| `assert` | ✅ | 83% | Testing utilities |
+| `assert` | ✅ | 89% | Testing utilities |
 | `async_hooks` | ❌ | 0% | Async context tracking |
 | `buffer` | ✅ | 100% | Binary data handling |
 | `child_process` | ❌ | 0% | Process spawning |
@@ -73,16 +73,16 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `assert.notDeepEqual(actual, expected)` | ✅ | Deep inequality check |
 | `assert.deepStrictEqual(actual, expected)` | ✅ | Deep strict equality for objects/arrays |
 | `assert.notDeepStrictEqual(actual, expected)` | ✅ | Deep strict inequality check |
-| `assert.throws(fn)` | ⚠️ | Stub - no try/catch in AOT |
-| `assert.doesNotThrow(fn)` | ✅ | Calls function, exits on throw |
-| `assert.rejects(asyncFn)` | ⚠️ | Stub - no try/catch in AOT |
-| `assert.doesNotReject(asyncFn)` | ⚠️ | Stub - no try/catch in AOT |
+| `assert.throws(fn)` | ✅ | Full exception handling via setjmp/longjmp |
+| `assert.doesNotThrow(fn)` | ✅ | Full exception handling via setjmp/longjmp |
+| `assert.rejects(asyncFn)` | ⚠️ | Stub - async exception handling limited |
+| `assert.doesNotReject(asyncFn)` | ⚠️ | Stub - async exception handling limited |
 | `assert.match(string, regexp)` | ✅ | Regex string matching |
 | `assert.doesNotMatch(string, regexp)` | ✅ | Regex string non-matching |
 | `assert.fail(message)` | ✅ | Always fails with message |
 | `assert.ifError(value)` | ✅ | Fails if value is truthy |
 
-**Assert Coverage: 15/18 (83%)**
+**Assert Coverage: 16/18 (89%)**
 
 ---
 
