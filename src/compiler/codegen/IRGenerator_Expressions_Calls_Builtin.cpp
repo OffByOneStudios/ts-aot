@@ -1018,6 +1018,68 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 lastValue = createCall(ft, fn.getCallee(), { decipherObj, data });
                 return true;
             }
+        } else if (classType->name == "Sign") {
+            // crypto.createSign() returns Sign object
+            visit(prop->expression.get());
+            llvm::Value* signObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_sign_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { signObj, data });
+                return true;
+            } else if (prop->name == "sign") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* privateKey = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::Value* outputEncoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 1) {
+                    visit(node->arguments[1].get());
+                    outputEncoding = lastValue;
+                    if (outputEncoding->getType()->isIntegerTy(64)) {
+                        outputEncoding = builder->CreateIntToPtr(outputEncoding, builder->getPtrTy());
+                    }
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_sign_sign", ft);
+                lastValue = createCall(ft, fn.getCallee(), { signObj, privateKey, outputEncoding });
+                return true;
+            }
+        } else if (classType->name == "Verify") {
+            // crypto.createVerify() returns Verify object
+            visit(prop->expression.get());
+            llvm::Value* verifyObj = lastValue;
+
+            if (prop->name == "update") {
+                if (node->arguments.empty()) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* data = boxValue(lastValue, node->arguments[0]->inferredType);
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_verify_update", ft);
+                lastValue = createCall(ft, fn.getCallee(), { verifyObj, data });
+                return true;
+            } else if (prop->name == "verify") {
+                if (node->arguments.size() < 2) return true;
+                visit(node->arguments[0].get());
+                llvm::Value* publicKey = boxValue(lastValue, node->arguments[0]->inferredType);
+                visit(node->arguments[1].get());
+                llvm::Value* signature = boxValue(lastValue, node->arguments[1]->inferredType);
+                llvm::Value* signatureEncoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                if (node->arguments.size() > 2) {
+                    visit(node->arguments[2].get());
+                    signatureEncoding = lastValue;
+                    if (signatureEncoding->getType()->isIntegerTy(64)) {
+                        signatureEncoding = builder->CreateIntToPtr(signatureEncoding, builder->getPtrTy());
+                    }
+                }
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_verify_verify", ft);
+                lastValue = createCall(ft, fn.getCallee(), { verifyObj, publicKey, signature, signatureEncoding });
+                return true;
+            }
         } else if (classType->name == "Server") {
             if (prop->name == "listen") {
                 visit(prop->expression.get());
@@ -3977,7 +4039,12 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                prop->name == "randomFill" || prop->name == "randomFillSync" ||
                prop->name == "randomInt" || prop->name == "randomUUID" || prop->name == "pbkdf2Sync" ||
                prop->name == "pbkdf2" || prop->name == "scryptSync" || prop->name == "scrypt" ||
-               prop->name == "timingSafeEqual" || prop->name == "createCipheriv" || prop->name == "createDecipheriv") {
+               prop->name == "timingSafeEqual" || prop->name == "createCipheriv" || prop->name == "createDecipheriv" ||
+               prop->name == "createSign" || prop->name == "createVerify" || prop->name == "sign" || prop->name == "verify" ||
+               prop->name == "generateKeyPairSync" || prop->name == "generateKeyPair" ||
+               prop->name == "generateKeySync" || prop->name == "generateKey" ||
+               prop->name == "createPrivateKey" || prop->name == "createPublicKey" || prop->name == "createSecretKey" ||
+               prop->name == "hkdfSync") {
         if (auto obj = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
             if (obj->name == "crypto") {
                 if (prop->name == "md5") {
@@ -4314,6 +4381,309 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                         { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
                     llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createDecipheriv", ft);
                     lastValue = createCall(ft, fn.getCallee(), { algorithm, key, iv });
+                    return true;
+                } else if (prop->name == "createSign") {
+                    // crypto.createSign(algorithm) -> Sign
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createSign", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm });
+                    return true;
+                } else if (prop->name == "createVerify") {
+                    // crypto.createVerify(algorithm) -> Verify
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createVerify", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm });
+                    return true;
+                } else if (prop->name == "sign") {
+                    // crypto.sign(algorithm, data, key, options?) -> Buffer
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* data = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[2]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_sign_oneshot", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm, data, key });
+                    return true;
+                } else if (prop->name == "verify") {
+                    // crypto.verify(algorithm, data, key, signature) -> boolean
+                    if (node->arguments.size() < 4) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* algorithm = lastValue;
+                    if (algorithm->getType()->isIntegerTy(64)) {
+                        algorithm = builder->CreateIntToPtr(algorithm, builder->getPtrTy());
+                    }
+                    visit(node->arguments[1].get());
+                    llvm::Value* data = boxValue(lastValue, node->arguments[1]->inferredType);
+                    visit(node->arguments[2].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[2]->inferredType);
+                    visit(node->arguments[3].get());
+                    llvm::Value* signature = boxValue(lastValue, node->arguments[3]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_verify_oneshot", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { algorithm, data, key, signature });
+                    return true;
+                } else if (prop->name == "generateKeyPairSync") {
+                    // crypto.generateKeyPairSync(type, options?) -> { publicKey, privateKey }
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* type = lastValue;
+                    if (type->getType()->isIntegerTy(64)) {
+                        type = builder->CreateIntToPtr(type, builder->getPtrTy());
+                    }
+
+                    // Extract options: modulusLength (for RSA), namedCurve (for EC)
+                    llvm::Value* modulusLength = llvm::ConstantInt::get(builder->getInt64Ty(), 2048);
+                    llvm::Value* namedCurve = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                    if (node->arguments.size() > 1 && node->arguments[1]) {
+                        // Options object - try to extract modulusLength and namedCurve
+                        if (auto objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->arguments[1].get())) {
+                            for (auto& prop : objLit->properties) {
+                                if (auto propAssign = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                                    if (propAssign->name == "modulusLength") {
+                                        visit(propAssign->initializer.get());
+                                        modulusLength = lastValue;
+                                        if (modulusLength->getType()->isPointerTy()) {
+                                            modulusLength = builder->CreatePtrToInt(modulusLength, builder->getInt64Ty());
+                                        }
+                                    } else if (propAssign->name == "namedCurve") {
+                                        visit(propAssign->initializer.get());
+                                        namedCurve = lastValue;
+                                        if (namedCurve->getType()->isIntegerTy(64)) {
+                                            namedCurve = builder->CreateIntToPtr(namedCurve, builder->getPtrTy());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_generateKeyPairSync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { type, modulusLength, namedCurve });
+                    return true;
+                } else if (prop->name == "generateKeyPair") {
+                    // crypto.generateKeyPair(type, options, callback)
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* type = lastValue;
+                    if (type->getType()->isIntegerTy(64)) {
+                        type = builder->CreateIntToPtr(type, builder->getPtrTy());
+                    }
+
+                    // Extract options
+                    llvm::Value* modulusLength = llvm::ConstantInt::get(builder->getInt64Ty(), 2048);
+                    llvm::Value* namedCurve = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+                    if (node->arguments[1]) {
+                        if (auto objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->arguments[1].get())) {
+                            for (auto& prop : objLit->properties) {
+                                if (auto propAssign = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                                    if (propAssign->name == "modulusLength") {
+                                        visit(propAssign->initializer.get());
+                                        modulusLength = lastValue;
+                                        if (modulusLength->getType()->isPointerTy()) {
+                                            modulusLength = builder->CreatePtrToInt(modulusLength, builder->getInt64Ty());
+                                        }
+                                    } else if (propAssign->name == "namedCurve") {
+                                        visit(propAssign->initializer.get());
+                                        namedCurve = lastValue;
+                                        if (namedCurve->getType()->isIntegerTy(64)) {
+                                            namedCurve = builder->CreateIntToPtr(namedCurve, builder->getPtrTy());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    visit(node->arguments[2].get());
+                    llvm::Value* callback = lastValue;
+                    if (callback->getType()->isIntegerTy(64)) {
+                        callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                        { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_generateKeyPair", ft);
+                    createCall(ft, fn.getCallee(), { type, modulusLength, namedCurve, callback });
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                } else if (prop->name == "generateKeySync") {
+                    // crypto.generateKeySync(type, options?) -> Buffer
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* type = lastValue;
+                    if (type->getType()->isIntegerTy(64)) {
+                        type = builder->CreateIntToPtr(type, builder->getPtrTy());
+                    }
+
+                    llvm::Value* length = llvm::ConstantInt::get(builder->getInt64Ty(), 256); // default 256 bits
+
+                    if (node->arguments.size() > 1 && node->arguments[1]) {
+                        if (auto objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->arguments[1].get())) {
+                            for (auto& prop : objLit->properties) {
+                                if (auto propAssign = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                                    if (propAssign->name == "length") {
+                                        visit(propAssign->initializer.get());
+                                        length = lastValue;
+                                        if (length->getType()->isPointerTy()) {
+                                            length = builder->CreatePtrToInt(length, builder->getInt64Ty());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getInt64Ty() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_generateKeySync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { type, length });
+                    return true;
+                } else if (prop->name == "generateKey") {
+                    // crypto.generateKey(type, options, callback)
+                    if (node->arguments.size() < 3) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* type = lastValue;
+                    if (type->getType()->isIntegerTy(64)) {
+                        type = builder->CreateIntToPtr(type, builder->getPtrTy());
+                    }
+
+                    llvm::Value* length = llvm::ConstantInt::get(builder->getInt64Ty(), 256);
+
+                    if (node->arguments[1]) {
+                        if (auto objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->arguments[1].get())) {
+                            for (auto& prop : objLit->properties) {
+                                if (auto propAssign = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                                    if (propAssign->name == "length") {
+                                        visit(propAssign->initializer.get());
+                                        length = lastValue;
+                                        if (length->getType()->isPointerTy()) {
+                                            length = builder->CreatePtrToInt(length, builder->getInt64Ty());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    visit(node->arguments[2].get());
+                    llvm::Value* callback = lastValue;
+                    if (callback->getType()->isIntegerTy(64)) {
+                        callback = builder->CreateIntToPtr(callback, builder->getPtrTy());
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                        { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_generateKey", ft);
+                    createCall(ft, fn.getCallee(), { type, length, callback });
+                    lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    return true;
+                } else if (prop->name == "createPrivateKey") {
+                    // crypto.createPrivateKey(key) -> string
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createPrivateKey", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { key });
+                    return true;
+                } else if (prop->name == "createPublicKey") {
+                    // crypto.createPublicKey(key) -> string
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createPublicKey", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { key });
+                    return true;
+                } else if (prop->name == "createSecretKey") {
+                    // crypto.createSecretKey(key, encoding?) -> Buffer
+                    if (node->arguments.empty()) return true;
+                    visit(node->arguments[0].get());
+                    llvm::Value* key = boxValue(lastValue, node->arguments[0]->inferredType);
+                    llvm::Value* encoding = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                    if (node->arguments.size() > 1) {
+                        visit(node->arguments[1].get());
+                        encoding = lastValue;
+                        if (encoding->getType()->isIntegerTy(64)) {
+                            encoding = builder->CreateIntToPtr(encoding, builder->getPtrTy());
+                        }
+                    }
+                    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_createSecretKey", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { key, encoding });
+                    return true;
+                } else if (prop->name == "hkdfSync") {
+                    // crypto.hkdfSync(digest, ikm, salt, info, keylen) -> Buffer
+                    if (node->arguments.size() < 5) return true;
+
+                    // Get digest algorithm
+                    visit(node->arguments[0].get());
+                    llvm::Value* digest = lastValue;
+                    if (digest->getType()->isIntegerTy(64)) {
+                        digest = builder->CreateIntToPtr(digest, builder->getPtrTy());
+                    }
+
+                    // Get ikm (input keying material) - box it
+                    visit(node->arguments[1].get());
+                    llvm::Value* ikm = lastValue;
+                    if (node->arguments[1]->inferredType) {
+                        ikm = boxValue(ikm, node->arguments[1]->inferredType);
+                    }
+
+                    // Get salt - box it
+                    visit(node->arguments[2].get());
+                    llvm::Value* salt = lastValue;
+                    if (node->arguments[2]->inferredType) {
+                        salt = boxValue(salt, node->arguments[2]->inferredType);
+                    }
+
+                    // Get info - box it
+                    visit(node->arguments[3].get());
+                    llvm::Value* info = lastValue;
+                    if (node->arguments[3]->inferredType) {
+                        info = boxValue(info, node->arguments[3]->inferredType);
+                    }
+
+                    // Get keylen
+                    visit(node->arguments[4].get());
+                    llvm::Value* keylen = lastValue;
+                    if (keylen->getType()->isPointerTy()) {
+                        keylen = builder->CreatePtrToInt(keylen, builder->getInt64Ty());
+                    } else if (!keylen->getType()->isIntegerTy(64)) {
+                        keylen = builder->CreateZExtOrTrunc(keylen, builder->getInt64Ty());
+                    }
+
+                    llvm::FunctionType* ft = llvm::FunctionType::get(
+                        builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getInt64Ty() },
+                        false
+                    );
+                    llvm::FunctionCallee fn = getRuntimeFunction("ts_crypto_hkdfSync", ft);
+                    lastValue = createCall(ft, fn.getCallee(), { digest, ikm, salt, info, keylen });
                     return true;
                 }
             }

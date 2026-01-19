@@ -266,8 +266,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generator functions (`function*`) | ✅ | Basic support |
 | `yield` expression | ✅ | |
 | `yield*` delegation | ✅ | Works with generators and arrays |
-| Async generators | ❌ | |
-| `for await...of` | ⚠️ | Works with async generators; arrays of promises crash |
+| Async generators | ✅ | async function* and yield work |
+| `for await...of` | ✅ | Works with async generators |
 
 ## 20. Mixins
 

@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <iostream>
+#include <queue>
 #include <uv.h>
 #include <filesystem>
 #include <fcntl.h>
@@ -121,13 +122,25 @@ static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     
     stats->Set(TsString::Create("size"), TsValue((double)st->st_size));
     
+    // mtime - modification time
     double mtime_ms = (double)st->st_mtim.tv_sec * 1000.0 + (double)st->st_mtim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("mtimeMs"), TsValue(mtime_ms));
     stats->Set(TsString::Create("mtime"), *ts_value_make_object(TsDate::Create(mtime_ms)));
 
-    stats->Set(TsString::Create("atimeMs"), TsValue((double)st->st_atim.tv_sec * 1000.0 + (double)st->st_atim.tv_nsec / 1000000.0));
-    stats->Set(TsString::Create("ctimeMs"), TsValue((double)st->st_ctim.tv_sec * 1000.0 + (double)st->st_ctim.tv_nsec / 1000000.0));
-    stats->Set(TsString::Create("birthtimeMs"), TsValue((double)st->st_birthtim.tv_sec * 1000.0 + (double)st->st_birthtim.tv_nsec / 1000000.0));
+    // atime - access time
+    double atime_ms = (double)st->st_atim.tv_sec * 1000.0 + (double)st->st_atim.tv_nsec / 1000000.0;
+    stats->Set(TsString::Create("atimeMs"), TsValue(atime_ms));
+    stats->Set(TsString::Create("atime"), *ts_value_make_object(TsDate::Create(atime_ms)));
+
+    // ctime - change time (inode change)
+    double ctime_ms = (double)st->st_ctim.tv_sec * 1000.0 + (double)st->st_ctim.tv_nsec / 1000000.0;
+    stats->Set(TsString::Create("ctimeMs"), TsValue(ctime_ms));
+    stats->Set(TsString::Create("ctime"), *ts_value_make_object(TsDate::Create(ctime_ms)));
+
+    // birthtime - creation time
+    double birthtime_ms = (double)st->st_birthtim.tv_sec * 1000.0 + (double)st->st_birthtim.tv_nsec / 1000000.0;
+    stats->Set(TsString::Create("birthtimeMs"), TsValue(birthtime_ms));
+    stats->Set(TsString::Create("birthtime"), *ts_value_make_object(TsDate::Create(birthtime_ms)));
 
     stats->Set(TsString::Create("uid"), TsValue((int64_t)st->st_uid));
     stats->Set(TsString::Create("gid"), TsValue((int64_t)st->st_gid));
@@ -187,6 +200,33 @@ public:
         w->poll_handle = nullptr;
         
         return w;
+    }
+};
+
+// ============================================================================
+// fs.promises.watch() - Async iterator for file watching
+// ============================================================================
+
+struct FSWatchEvent {
+    std::string eventType;
+    std::string filename;
+};
+
+struct FSWatchIteratorState {
+    TsFSWatcher* watcher = nullptr;
+    std::queue<FSWatchEvent> eventQueue;
+    ts::TsPromise* pendingPromise = nullptr;
+    bool stopped = false;
+
+    void stop() {
+        stopped = true;
+        if (watcher && !watcher->closed) {
+            watcher->closed = true;
+            if (watcher->event_handle) {
+                uv_fs_event_stop(watcher->event_handle);
+                uv_close((uv_handle_t*)watcher->event_handle, [](uv_handle_t* h) { });
+            }
+        }
     }
 };
 
@@ -600,6 +640,82 @@ void ts_fs_copyFileSync(void* src, void* dest, int32_t flags) {
     uv_fs_req_cleanup(&req);
 }
 
+// Forward declaration for recursive copy
+static void cpSync_recursive(const char* src, const char* dest, bool recursive);
+
+static void cpSync_recursive(const char* src, const char* dest, bool recursive) {
+    uv_fs_t stat_req;
+    int result = uv_fs_stat(NULL, &stat_req, src, NULL);
+    if (result < 0) {
+        uv_fs_req_cleanup(&stat_req);
+        return;
+    }
+
+    if (S_ISDIR(stat_req.statbuf.st_mode)) {
+        uv_fs_req_cleanup(&stat_req);
+
+        if (!recursive) {
+            return; // Not recursive, skip directories
+        }
+
+        // Create destination directory
+        uv_fs_t mkdir_req;
+        uv_fs_mkdir(NULL, &mkdir_req, dest, 0755, NULL);
+        uv_fs_req_cleanup(&mkdir_req);
+
+        // Read directory contents
+        uv_fs_t readdir_req;
+        result = uv_fs_scandir(NULL, &readdir_req, src, 0, NULL);
+        if (result >= 0) {
+            uv_dirent_t ent;
+            while (uv_fs_scandir_next(&readdir_req, &ent) != UV_EOF) {
+                // Build full paths
+                std::string srcPath = std::string(src) + "/" + ent.name;
+                std::string destPath = std::string(dest) + "/" + ent.name;
+                cpSync_recursive(srcPath.c_str(), destPath.c_str(), recursive);
+            }
+        }
+        uv_fs_req_cleanup(&readdir_req);
+    } else {
+        uv_fs_req_cleanup(&stat_req);
+
+        // Regular file - copy it
+        uv_fs_t copy_req;
+        uv_fs_copyfile(NULL, &copy_req, src, dest, 0, NULL);
+        uv_fs_req_cleanup(&copy_req);
+    }
+}
+
+void ts_fs_cpSync(void* src, void* dest, void* options) {
+    TsString* srcStr = unboxString(src);
+    TsString* destStr = unboxString(dest);
+    if (!srcStr || !destStr) return;
+
+    // Default options
+    bool recursive = true; // cpSync is typically used with recursive
+
+    // Check options for recursive flag
+    if (options) {
+        TsMap* opts = nullptr;
+        // Try to unbox as TsValue first
+        TsValue* val = (TsValue*)options;
+        if (val && val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+            opts = dynamic_cast<TsMap*>((TsObject*)val->ptr_val);
+        }
+        if (!opts) {
+            opts = dynamic_cast<TsMap*>((TsObject*)options);
+        }
+        if (opts) {
+            TsValue recVal = opts->Get(TsValue(TsString::Create("recursive")));
+            if (recVal.type == ValueType::BOOLEAN) {
+                recursive = recVal.b_val;
+            }
+        }
+    }
+
+    cpSync_recursive(srcStr->ToUtf8(), destStr->ToUtf8(), recursive);
+}
+
 void ts_fs_truncateSync(void* path, int64_t len) {
     TsString* pathStr = unboxString(path);
     if (!pathStr) return;
@@ -674,6 +790,50 @@ bool ts_fs_existsSync(void* path) {
     if (!pathStr) return false;
     const char* pathCStr = pathStr->ToUtf8();
     return fs::exists(pathCStr);
+}
+
+// fs.exists(path, callback) - deprecated but still used
+// Unique callback signature: callback(exists: boolean) - no error argument
+struct FSExistsWork {
+    void* callback;
+    std::string path;
+};
+
+static void fs_exists_work_cb(uv_work_t* req) {
+    FSExistsWork* work = (FSExistsWork*)req->data;
+    // Work is done synchronously in after callback
+}
+
+static void fs_exists_after_cb(uv_work_t* req, int status) {
+    FSExistsWork* work = (FSExistsWork*)req->data;
+    TsValue* callback = (TsValue*)work->callback;
+
+    bool exists = fs::exists(work->path);
+    TsValue* args[1];
+    args[0] = ts_value_make_bool(exists);
+
+    ts_function_call(callback, 1, args);
+    delete work;
+    delete req;
+}
+
+void ts_fs_exists(void* path, void* callback) {
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) {
+        // Call callback with false if path is invalid
+        TsValue* args[1];
+        args[0] = ts_value_make_bool(false);
+        ts_function_call((TsValue*)callback, 1, args);
+        return;
+    }
+
+    uv_work_t* req = new uv_work_t();
+    FSExistsWork* work = new FSExistsWork();
+    work->callback = callback;
+    work->path = pathStr->ToUtf8();
+    req->data = work;
+
+    uv_queue_work(uv_default_loop(), req, fs_exists_work_cb, fs_exists_after_cb);
 }
 
 void* ts_fs_statSync(void* path) {
@@ -900,6 +1060,38 @@ void ts_fs_utimesSync(void* path, double atime, double mtime) {
     uv_fs_req_cleanup(&req);
 }
 
+// lchmodSync - change mode of a symlink itself (not supported on Windows, falls back to chmod)
+void ts_fs_lchmodSync(void* path, int32_t mode) {
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) return;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    // libuv doesn't have lchmod, so we use regular chmod
+    // On POSIX systems that support it, fchmodat with AT_SYMLINK_NOFOLLOW could be used
+    uv_fs_chmod(NULL, &req, pathCStr, mode, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+// lchownSync - change owner of a symlink itself
+void ts_fs_lchownSync(void* path, int32_t uid, int32_t gid) {
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) return;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_lchown(NULL, &req, pathCStr, uid, gid, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
+// lutimesSync - change timestamps of a symlink itself
+void ts_fs_lutimesSync(void* path, double atime, double mtime) {
+    TsString* pathStr = unboxString(path);
+    if (!pathStr) return;
+    const char* pathCStr = pathStr->ToUtf8();
+    uv_fs_t req;
+    uv_fs_lutime(NULL, &req, pathCStr, atime, mtime, NULL);
+    uv_fs_req_cleanup(&req);
+}
+
 void* ts_fs_statfsSync(void* path) {
     TsString* pathStr = unboxString(path);
     if (!pathStr) return ts_value_make_undefined();
@@ -958,11 +1150,12 @@ struct FSAsyncWork {
     int result;
     bool success;
     bool withFileTypes = false;
-    enum Type { 
+    enum Type {
         ACCESS, CHMOD, CHOWN, UTIMES, STATFS, LINK, SYMLINK, READLINK, REALPATH, STAT, LSTAT,
         RENAME, COPYFILE, TRUNCATE, MKDIR, RMDIR, RM, UNLINK, MKDTEMP, APPEND_FILE,
-        OPENDIR, DIR_READ, DIR_CLOSE, READDIR
+        OPENDIR, DIR_READ, DIR_CLOSE, READDIR, CP
     } type;
+    bool recursive = true; // For CP operation
     uv_statfs_t statfs_res;
     uv_stat_t stat_res;
     std::string string_res;
@@ -976,6 +1169,260 @@ struct FSAsyncWork {
     std::vector<std::string> readdir_res;
     std::vector<DirentRes> readdir_dirent_res;
 };
+
+// Async work structure for file descriptor based operations
+struct FSFdAsyncWork {
+    ts::TsPromise* promise;
+    int fd;
+    int mode;
+    int uid;
+    int gid;
+    double atime;
+    double mtime;
+    int64_t len;
+    int result;
+    bool success;
+    enum Type {
+        FCHMOD, FCHOWN, FUTIMES, FSTAT, FSYNC, FDATASYNC, FTRUNCATE,
+        LCHMOD, LCHOWN, LUTIMES
+    } type;
+    std::string path;  // For lchmod/lchown/lutimes which take paths
+    uv_stat_t stat_res;
+};
+
+static void fs_fd_async_worker(uv_work_t* req) {
+    FSFdAsyncWork* work = (FSFdAsyncWork*)req->data;
+    uv_fs_t fs_req;
+    memset(&fs_req, 0, sizeof(fs_req));
+    int r = 0;
+    switch (work->type) {
+        case FSFdAsyncWork::FCHMOD:
+            r = uv_fs_fchmod(NULL, &fs_req, work->fd, work->mode, NULL);
+            break;
+        case FSFdAsyncWork::FCHOWN:
+            r = uv_fs_fchown(NULL, &fs_req, work->fd, work->uid, work->gid, NULL);
+            break;
+        case FSFdAsyncWork::FUTIMES:
+            r = uv_fs_futime(NULL, &fs_req, work->fd, work->atime, work->mtime, NULL);
+            break;
+        case FSFdAsyncWork::FSTAT:
+            r = uv_fs_fstat(NULL, &fs_req, work->fd, NULL);
+            if (r >= 0) {
+                work->stat_res = fs_req.statbuf;
+            }
+            break;
+        case FSFdAsyncWork::FSYNC:
+            r = uv_fs_fsync(NULL, &fs_req, work->fd, NULL);
+            break;
+        case FSFdAsyncWork::FDATASYNC:
+            r = uv_fs_fdatasync(NULL, &fs_req, work->fd, NULL);
+            break;
+        case FSFdAsyncWork::FTRUNCATE:
+            r = uv_fs_ftruncate(NULL, &fs_req, work->fd, work->len, NULL);
+            break;
+        case FSFdAsyncWork::LCHMOD:
+            // libuv doesn't support lchmod, use regular chmod
+            r = uv_fs_chmod(NULL, &fs_req, work->path.c_str(), work->mode, NULL);
+            break;
+        case FSFdAsyncWork::LCHOWN:
+            r = uv_fs_lchown(NULL, &fs_req, work->path.c_str(), work->uid, work->gid, NULL);
+            break;
+        case FSFdAsyncWork::LUTIMES:
+            r = uv_fs_lutime(NULL, &fs_req, work->path.c_str(), work->atime, work->mtime, NULL);
+            break;
+    }
+    uv_fs_req_cleanup(&fs_req);
+    work->result = r;
+    work->success = (r >= 0);
+}
+
+static void fs_fd_async_after_worker(uv_work_t* req, int status) {
+    FSFdAsyncWork* work = (FSFdAsyncWork*)req->data;
+    if (work->success) {
+        if (work->type == FSFdAsyncWork::FSTAT) {
+            // Return stats object
+            TsMap* stats = TsMap::Create();
+            stats->Set(TsString::Create("dev"), TsValue((int64_t)work->stat_res.st_dev));
+            stats->Set(TsString::Create("ino"), TsValue((int64_t)work->stat_res.st_ino));
+            stats->Set(TsString::Create("mode"), TsValue((int64_t)work->stat_res.st_mode));
+            stats->Set(TsString::Create("nlink"), TsValue((int64_t)work->stat_res.st_nlink));
+            stats->Set(TsString::Create("uid"), TsValue((int64_t)work->stat_res.st_uid));
+            stats->Set(TsString::Create("gid"), TsValue((int64_t)work->stat_res.st_gid));
+            stats->Set(TsString::Create("rdev"), TsValue((int64_t)work->stat_res.st_rdev));
+            stats->Set(TsString::Create("size"), TsValue((int64_t)work->stat_res.st_size));
+            stats->Set(TsString::Create("blksize"), TsValue((int64_t)work->stat_res.st_blksize));
+            stats->Set(TsString::Create("blocks"), TsValue((int64_t)work->stat_res.st_blocks));
+            double atime_ms = work->stat_res.st_atim.tv_sec * 1000.0 + work->stat_res.st_atim.tv_nsec / 1000000.0;
+            double mtime_ms = work->stat_res.st_mtim.tv_sec * 1000.0 + work->stat_res.st_mtim.tv_nsec / 1000000.0;
+            double ctime_ms = work->stat_res.st_ctim.tv_sec * 1000.0 + work->stat_res.st_ctim.tv_nsec / 1000000.0;
+            double birthtime_ms = work->stat_res.st_birthtim.tv_sec * 1000.0 + work->stat_res.st_birthtim.tv_nsec / 1000000.0;
+            stats->Set(TsString::Create("atimeMs"), TsValue(atime_ms));
+            stats->Set(TsString::Create("mtimeMs"), TsValue(mtime_ms));
+            stats->Set(TsString::Create("ctimeMs"), TsValue(ctime_ms));
+            stats->Set(TsString::Create("birthtimeMs"), TsValue(birthtime_ms));
+            stats->Set(TsString::Create("atime"), *ts_value_make_object(TsDate::Create(atime_ms)));
+            stats->Set(TsString::Create("mtime"), *ts_value_make_object(TsDate::Create(mtime_ms)));
+            stats->Set(TsString::Create("ctime"), *ts_value_make_object(TsDate::Create(ctime_ms)));
+            stats->Set(TsString::Create("birthtime"), *ts_value_make_object(TsDate::Create(birthtime_ms)));
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(stats));
+        } else {
+            ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
+        }
+    } else {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "FS operation failed: %d (%s)", (int)work->result, uv_strerror((int)work->result));
+        ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create(buf)));
+    }
+    work->~FSFdAsyncWork();
+    GC_free(work);
+    free(req);
+}
+
+// File descriptor based async operations
+void* ts_fs_fchmod_async(double fd, double mode) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->mode = (int)mode;
+    work->type = FSFdAsyncWork::FCHMOD;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_fchown_async(double fd, double uid, double gid) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->uid = (int)uid;
+    work->gid = (int)gid;
+    work->type = FSFdAsyncWork::FCHOWN;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_futimes_async(double fd, double atime, double mtime) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->atime = atime;
+    work->mtime = mtime;
+    work->type = FSFdAsyncWork::FUTIMES;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_fstat_async(double fd) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->type = FSFdAsyncWork::FSTAT;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_fsync_async(double fd) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->type = FSFdAsyncWork::FSYNC;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_fdatasync_async(double fd) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->type = FSFdAsyncWork::FDATASYNC;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_ftruncate_async(double fd, double len) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    work->fd = (int)fd;
+    work->len = (int64_t)len;
+    work->type = FSFdAsyncWork::FTRUNCATE;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+// Path-based symlink operations (async)
+void* ts_fs_lchmod_async(void* path, double mode) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    TsString* pathStr = unboxString(path);
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->mode = (int)mode;
+    work->type = FSFdAsyncWork::LCHMOD;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_lchown_async(void* path, double uid, double gid) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    TsString* pathStr = unboxString(path);
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->uid = (int)uid;
+    work->gid = (int)gid;
+    work->type = FSFdAsyncWork::LCHOWN;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_lutimes_async(void* path, double atime, double mtime) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    new (work) FSFdAsyncWork();
+    work->promise = promise;
+    TsString* pathStr = unboxString(path);
+    work->path = pathStr ? pathStr->ToUtf8() : "";
+    work->atime = atime;
+    work->mtime = mtime;
+    work->type = FSFdAsyncWork::LUTIMES;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_fd_async_worker, fs_fd_async_after_worker);
+    return ts_value_make_promise(promise);
+}
 
 static void fs_async_worker(uv_work_t* req) {
     FSAsyncWork* work = (FSAsyncWork*)req->data;
@@ -1138,6 +1585,11 @@ static void fs_async_worker(uv_work_t* req) {
             }
             break;
         }
+        case FSAsyncWork::CP:
+            // Use the same recursive copy function as sync version
+            cpSync_recursive(work->path.c_str(), work->path2.c_str(), work->recursive);
+            r = 0; // cpSync_recursive doesn't return error codes yet
+            break;
     }
     work->result = r;
     work->success = (r >= 0);
@@ -1438,6 +1890,44 @@ void* ts_fs_copyFile_async(void* src, void* dest, double flags) {
     work->path2 = destStr ? destStr->ToUtf8() : "";
     work->mode = (int)flags;
     work->type = FSAsyncWork::COPYFILE;
+    uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
+    req->data = work;
+    uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
+    return ts_value_make_promise(promise);
+}
+
+void* ts_fs_cp_async(void* src, void* dest, void* options) {
+    ts::TsPromise* promise = ts::ts_promise_create();
+    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    new (work) FSAsyncWork();
+    work->promise = promise;
+
+    TsString* srcStr = unboxString(src);
+    TsString* destStr = unboxString(dest);
+
+    work->path = srcStr ? srcStr->ToUtf8() : "";
+    work->path2 = destStr ? destStr->ToUtf8() : "";
+    work->recursive = true; // Default to recursive
+
+    // Check options for recursive flag
+    if (options) {
+        TsMap* opts = nullptr;
+        TsValue* val = (TsValue*)options;
+        if (val && val->type == ValueType::OBJECT_PTR && val->ptr_val) {
+            opts = dynamic_cast<TsMap*>((TsObject*)val->ptr_val);
+        }
+        if (!opts) {
+            opts = dynamic_cast<TsMap*>((TsObject*)options);
+        }
+        if (opts) {
+            TsValue recVal = opts->Get(TsValue(TsString::Create("recursive")));
+            if (recVal.type == ValueType::BOOLEAN) {
+                work->recursive = recVal.b_val;
+            }
+        }
+    }
+
+    work->type = FSAsyncWork::CP;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
     req->data = work;
     uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
@@ -1745,6 +2235,219 @@ static TsValue* unlink_promise_wrapper(void* context, TsValue* path) {
     return (TsValue*)ts_fs_unlink_async(path->ptr_val);
 }
 
+// ============================================================================
+// fs.promises.watch() implementation - returns AsyncIterable<{eventType, filename}>
+// ============================================================================
+
+static TsValue* FSWatchIterator_next(void* context, TsValue* value) {
+    (void)value;  // Unused for async iterators - used for generators with input
+    FSWatchIteratorState* state = (FSWatchIteratorState*)context;
+    if (!state) {
+        return ts_value_make_undefined();
+    }
+
+    ts::TsPromise* promise = ts::ts_promise_create();
+
+    if (state->stopped) {
+        // Return done result
+        TsMap* result = TsMap::Create();
+        TsValue valueKey, doneKey;
+        valueKey.type = ValueType::STRING_PTR;
+        valueKey.ptr_val = TsString::Create("value");
+        doneKey.type = ValueType::STRING_PTR;
+        doneKey.ptr_val = TsString::Create("done");
+
+        TsValue undefinedVal;
+        undefinedVal.type = ValueType::UNDEFINED;
+        result->Set(valueKey, undefinedVal);
+
+        TsValue doneVal;
+        doneVal.type = ValueType::BOOLEAN;
+        doneVal.b_val = true;
+        result->Set(doneKey, doneVal);
+
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::OBJECT_PTR;
+        res->ptr_val = result;
+        ts::ts_promise_resolve_internal(promise, res);
+        return ts_value_make_promise(promise);
+    }
+
+    // Check if there's a queued event
+    if (!state->eventQueue.empty()) {
+        FSWatchEvent event = state->eventQueue.front();
+        state->eventQueue.pop();
+
+        // Create event object { eventType, filename }
+        TsMap* eventObj = TsMap::Create();
+        eventObj->Set(TsString::Create("eventType"), *ts_value_make_string(TsString::Create(event.eventType.c_str())));
+        eventObj->Set(TsString::Create("filename"), *ts_value_make_string(TsString::Create(event.filename.c_str())));
+
+        // Create iterator result { value, done }
+        TsMap* result = TsMap::Create();
+        TsValue valueKey, doneKey;
+        valueKey.type = ValueType::STRING_PTR;
+        valueKey.ptr_val = TsString::Create("value");
+        doneKey.type = ValueType::STRING_PTR;
+        doneKey.ptr_val = TsString::Create("done");
+
+        TsValue valueVal;
+        valueVal.type = ValueType::OBJECT_PTR;
+        valueVal.ptr_val = eventObj;
+        result->Set(valueKey, valueVal);
+
+        TsValue doneVal;
+        doneVal.type = ValueType::BOOLEAN;
+        doneVal.b_val = false;
+        result->Set(doneKey, doneVal);
+
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::OBJECT_PTR;
+        res->ptr_val = result;
+        ts::ts_promise_resolve_internal(promise, res);
+        return ts_value_make_promise(promise);
+    }
+
+    // No event ready - store promise to resolve when event arrives
+    state->pendingPromise = promise;
+    return ts_value_make_promise(promise);
+}
+
+static TsValue* FSWatchIterator_return(void* context, TsValue* value) {
+    (void)value;  // Unused
+    FSWatchIteratorState* state = (FSWatchIteratorState*)context;
+    if (!state) return ts_value_make_undefined();
+
+    state->stop();
+
+    ts::TsPromise* promise = ts::ts_promise_create();
+    TsMap* result = TsMap::Create();
+    TsValue valueKey, doneKey;
+    valueKey.type = ValueType::STRING_PTR;
+    valueKey.ptr_val = TsString::Create("value");
+    doneKey.type = ValueType::STRING_PTR;
+    doneKey.ptr_val = TsString::Create("done");
+
+    TsValue undefinedVal;
+    undefinedVal.type = ValueType::UNDEFINED;
+    result->Set(valueKey, undefinedVal);
+
+    TsValue doneVal;
+    doneVal.type = ValueType::BOOLEAN;
+    doneVal.b_val = true;
+    result->Set(doneKey, doneVal);
+
+    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+    res->type = ValueType::OBJECT_PTR;
+    res->ptr_val = result;
+    ts::ts_promise_resolve_internal(promise, res);
+    return ts_value_make_promise(promise);
+}
+
+static void on_watch_event(uv_fs_event_t* handle, const char* filename, int events, int status) {
+    (void)status;  // Unused
+    FSWatchIteratorState* state = (FSWatchIteratorState*)handle->data;
+    if (!state || state->stopped) {
+        return;
+    }
+
+    FSWatchEvent event;
+    event.eventType = (events & UV_RENAME) ? "rename" : "change";
+    event.filename = filename ? filename : "";
+
+    if (state->pendingPromise) {
+        // Resolve the pending promise immediately
+        ts::TsPromise* promise = state->pendingPromise;
+        state->pendingPromise = nullptr;
+
+        // Create event object { eventType, filename }
+        TsMap* eventObj = TsMap::Create();
+        eventObj->Set(TsString::Create("eventType"), *ts_value_make_string(TsString::Create(event.eventType.c_str())));
+        eventObj->Set(TsString::Create("filename"), *ts_value_make_string(TsString::Create(event.filename.c_str())));
+
+        // Create iterator result { value, done }
+        TsMap* result = TsMap::Create();
+        TsValue valueKey, doneKey;
+        valueKey.type = ValueType::STRING_PTR;
+        valueKey.ptr_val = TsString::Create("value");
+        doneKey.type = ValueType::STRING_PTR;
+        doneKey.ptr_val = TsString::Create("done");
+
+        TsValue valueVal;
+        valueVal.type = ValueType::OBJECT_PTR;
+        valueVal.ptr_val = eventObj;
+        result->Set(valueKey, valueVal);
+
+        TsValue doneVal;
+        doneVal.type = ValueType::BOOLEAN;
+        doneVal.b_val = false;
+        result->Set(doneKey, doneVal);
+
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::OBJECT_PTR;
+        res->ptr_val = result;
+        ts::ts_promise_resolve_internal(promise, res);
+    } else {
+        // Queue the event for later
+        state->eventQueue.push(event);
+    }
+}
+
+static TsValue* watch_promise_wrapper(void* context, TsValue* path, TsValue* options) {
+    TsString* pathStr = (TsString*)ts_value_get_string(path);
+    if (!pathStr) return ts_value_make_undefined();
+
+    // Create the iterator state
+    void* stateMem = ts_alloc(sizeof(FSWatchIteratorState));
+    FSWatchIteratorState* state = new (stateMem) FSWatchIteratorState();
+
+    // Create the watcher
+    TsFSWatcher* watcher = TsFSWatcher::Create();
+    state->watcher = watcher;
+
+    watcher->event_handle = (uv_fs_event_t*)GC_malloc(sizeof(uv_fs_event_t));
+    uv_fs_event_init(uv_default_loop(), watcher->event_handle);
+    watcher->event_handle->data = state;  // Point to iterator state, not watcher
+
+    int flags = 0;
+    uv_fs_event_start(watcher->event_handle, on_watch_event, pathStr->ToUtf8(), flags);
+
+    // Create the async iterator object
+    TsMap* iteratorMap = TsMap::Create();
+
+    // Set up next() method
+    TsValue* nextFunc = ts_value_make_function((void*)FSWatchIterator_next, state);
+    TsValue nextKey;
+    nextKey.type = ValueType::STRING_PTR;
+    nextKey.ptr_val = TsString::Create("next");
+    iteratorMap->Set(nextKey, *nextFunc);
+
+    // Set up return() method
+    TsValue* returnFunc = ts_value_make_function((void*)FSWatchIterator_return, state);
+    TsValue returnKey;
+    returnKey.type = ValueType::STRING_PTR;
+    returnKey.ptr_val = TsString::Create("return");
+    iteratorMap->Set(returnKey, *returnFunc);
+
+    // Set up [Symbol.asyncIterator] to return itself
+    TsValue* iterFunc = ts_value_make_function((void*)[](void* ctx) -> TsValue* {
+        return ts_value_make_object(ctx);
+    }, iteratorMap);
+    TsValue iterKey;
+    iterKey.type = ValueType::STRING_PTR;
+    iterKey.ptr_val = TsString::Create("[Symbol.asyncIterator]");
+    iteratorMap->Set(iterKey, *iterFunc);
+
+    return ts_value_make_object(iteratorMap);
+}
+
+// C API for fs.promises.watch() - called by codegen
+extern "C" void* ts_fs_promises_watch(void* filename, void* options) {
+    TsValue* filenameVal = (TsValue*)filename;
+    TsValue* optionsVal = (TsValue*)options;
+    return watch_promise_wrapper(nullptr, filenameVal, optionsVal);
+}
+
 void* ts_fs_get_promises() {
     TsMap* promises = TsMap::Create();
     promises->Set(TsString::Create("readFile"), *ts_value_make_function((void*)readFile_promise_wrapper, nullptr));
@@ -1776,6 +2479,7 @@ void* ts_fs_get_promises() {
     promises->Set(TsString::Create("mkdtemp"), *ts_value_make_function((void*)mkdtemp_promise_wrapper, nullptr));
     promises->Set(TsString::Create("opendir"), *ts_value_make_function((void*)opendir_promise_wrapper, nullptr));
     promises->Set(TsString::Create("readdir"), *ts_value_make_function((void*)readdir_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("watch"), *ts_value_make_function((void*)watch_promise_wrapper, nullptr));
     return ts_value_make_object(promises);
 }
 

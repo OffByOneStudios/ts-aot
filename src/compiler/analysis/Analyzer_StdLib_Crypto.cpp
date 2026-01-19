@@ -84,6 +84,39 @@ void Analyzer::registerCrypto() {
 
     symbols.defineType("Decipher", decipherClass);
 
+    // Sign class - returned by crypto.createSign()
+    auto signClass = std::make_shared<ClassType>("Sign");
+
+    auto signUpdate = std::make_shared<FunctionType>();
+    signUpdate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // data (string or Buffer)
+    signUpdate->returnType = signClass; // returns this for chaining
+    signClass->methods["update"] = signUpdate;
+
+    auto signSign = std::make_shared<FunctionType>();
+    signSign->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // privateKey
+    signSign->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // outputEncoding (optional)
+    signSign->returnType = std::make_shared<ClassType>("Buffer"); // returns Buffer
+    signClass->methods["sign"] = signSign;
+
+    symbols.defineType("Sign", signClass);
+
+    // Verify class - returned by crypto.createVerify()
+    auto verifyClass = std::make_shared<ClassType>("Verify");
+
+    auto verifyUpdate = std::make_shared<FunctionType>();
+    verifyUpdate->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // data (string or Buffer)
+    verifyUpdate->returnType = verifyClass; // returns this for chaining
+    verifyClass->methods["update"] = verifyUpdate;
+
+    auto verifyVerify = std::make_shared<FunctionType>();
+    verifyVerify->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // publicKey
+    verifyVerify->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // signature
+    verifyVerify->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // signatureEncoding (optional)
+    verifyVerify->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    verifyClass->methods["verify"] = verifyVerify;
+
+    symbols.defineType("Verify", verifyClass);
+
     // Buffer class reference for return types
     auto bufferType = symbols.lookupType("Buffer");
     if (!bufferType) {
@@ -121,6 +154,33 @@ void Analyzer::registerCrypto() {
     createDecipheriv->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // iv
     createDecipheriv->returnType = decipherClass;
     cryptoModule->fields["createDecipheriv"] = createDecipheriv;
+
+    // Sign/Verify functions
+    auto createSign = std::make_shared<FunctionType>();
+    createSign->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    createSign->returnType = signClass;
+    cryptoModule->fields["createSign"] = createSign;
+
+    auto createVerify = std::make_shared<FunctionType>();
+    createVerify->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    createVerify->returnType = verifyClass;
+    cryptoModule->fields["createVerify"] = createVerify;
+
+    // One-shot sign/verify
+    auto signOneshot = std::make_shared<FunctionType>();
+    signOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    signOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // data
+    signOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // key
+    signOneshot->returnType = bufferType;
+    cryptoModule->fields["sign"] = signOneshot;
+
+    auto verifyOneshot = std::make_shared<FunctionType>();
+    verifyOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // algorithm
+    verifyOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // data
+    verifyOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // key
+    verifyOneshot->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // signature
+    verifyOneshot->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    cryptoModule->fields["verify"] = verifyOneshot;
 
     // HMAC functions
     auto createHmac = std::make_shared<FunctionType>();
@@ -216,6 +276,70 @@ void Analyzer::registerCrypto() {
     md5->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
     md5->returnType = std::make_shared<Type>(TypeKind::String);
     cryptoModule->fields["md5"] = md5;
+
+    // Key generation functions
+    // generateKeyPairSync(type, options?) -> { publicKey: string, privateKey: string }
+    auto keyPairResultType = std::make_shared<ObjectType>();
+    keyPairResultType->fields["publicKey"] = std::make_shared<Type>(TypeKind::String);
+    keyPairResultType->fields["privateKey"] = std::make_shared<Type>(TypeKind::String);
+
+    auto generateKeyPairSync = std::make_shared<FunctionType>();
+    generateKeyPairSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // type ('rsa', 'ec', etc.)
+    generateKeyPairSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // options (optional)
+    generateKeyPairSync->returnType = keyPairResultType;
+    cryptoModule->fields["generateKeyPairSync"] = generateKeyPairSync;
+
+    // generateKeyPair(type, options, callback) -> void
+    auto generateKeyPair = std::make_shared<FunctionType>();
+    generateKeyPair->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // type
+    generateKeyPair->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // options
+    generateKeyPair->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // callback(err, publicKey, privateKey)
+    generateKeyPair->returnType = std::make_shared<Type>(TypeKind::Void);
+    cryptoModule->fields["generateKeyPair"] = generateKeyPair;
+
+    // generateKeySync(type, options?) -> Buffer
+    auto generateKeySync = std::make_shared<FunctionType>();
+    generateKeySync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // type ('aes', 'hmac')
+    generateKeySync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // options (optional)
+    generateKeySync->returnType = bufferType;
+    cryptoModule->fields["generateKeySync"] = generateKeySync;
+
+    // generateKey(type, options, callback) -> void
+    auto generateKey = std::make_shared<FunctionType>();
+    generateKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // type
+    generateKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // options
+    generateKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // callback(err, key)
+    generateKey->returnType = std::make_shared<Type>(TypeKind::Void);
+    cryptoModule->fields["generateKey"] = generateKey;
+
+    // createPrivateKey(key) -> string (PEM)
+    auto createPrivateKey = std::make_shared<FunctionType>();
+    createPrivateKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // key (string, Buffer, or KeyObject options)
+    createPrivateKey->returnType = std::make_shared<Type>(TypeKind::String);
+    cryptoModule->fields["createPrivateKey"] = createPrivateKey;
+
+    // createPublicKey(key) -> string (PEM)
+    auto createPublicKey = std::make_shared<FunctionType>();
+    createPublicKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // key
+    createPublicKey->returnType = std::make_shared<Type>(TypeKind::String);
+    cryptoModule->fields["createPublicKey"] = createPublicKey;
+
+    // createSecretKey(key, encoding?) -> Buffer
+    auto createSecretKey = std::make_shared<FunctionType>();
+    createSecretKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // key
+    createSecretKey->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // encoding (optional)
+    createSecretKey->returnType = bufferType;
+    cryptoModule->fields["createSecretKey"] = createSecretKey;
+
+    // hkdfSync(digest, ikm, salt, info, keylen) -> Buffer
+    auto hkdfSync = std::make_shared<FunctionType>();
+    hkdfSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::String)); // digest algorithm
+    hkdfSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // ikm (input keying material)
+    hkdfSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // salt
+    hkdfSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));    // info
+    hkdfSync->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));    // keylen
+    hkdfSync->returnType = bufferType;
+    cryptoModule->fields["hkdfSync"] = hkdfSync;
 
     symbols.define("crypto", cryptoModule);
 }

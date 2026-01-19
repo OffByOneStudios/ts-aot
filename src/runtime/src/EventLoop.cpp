@@ -30,8 +30,11 @@ static void on_timer_close(uv_handle_t* handle) {
 
 static void on_timer_callback(uv_timer_t* handle) {
     TimerData* data = (TimerData*)handle->data;
-    
-    if (data->callback && data->callback->type == ValueType::OBJECT_PTR && data->callback->ptr_val) {
+
+    // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
+    if (data->callback &&
+        (data->callback->type == ValueType::OBJECT_PTR || data->callback->type == ValueType::FUNCTION_PTR) &&
+        data->callback->ptr_val) {
         ts_call_0(data->callback);
     }
 
@@ -44,15 +47,15 @@ static void on_timer_callback(uv_timer_t* handle) {
 extern "C" TsValue* ts_set_timeout(TsValue* callback, int64_t delay) {
     uv_timer_t* timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
     uv_timer_init(uv_default_loop(), timer);
-    
+
     TimerData* data = new TimerData();
     data->callback = callback;
     data->timer = timer;
     data->isInterval = false;
-    
+
     timer->data = data;
     uv_timer_start(timer, on_timer_callback, delay, 0);
-    
+
     return ts_value_make_int((int64_t)timer);
 }
 
