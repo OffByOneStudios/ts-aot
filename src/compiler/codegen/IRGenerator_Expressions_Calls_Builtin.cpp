@@ -262,6 +262,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateAsyncLocalStorageCall(node, prop)) return true;
     if (tryGenerateAsyncResourceCall(node, prop)) return true;
     if (tryGenerateAsyncHookMethodCall(node, prop)) return true;
+    if (tryGenerateChildProcessCall(node, prop)) return true;
+    if (tryGenerateChildProcessMethodCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {

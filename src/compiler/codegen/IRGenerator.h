@@ -208,6 +208,9 @@ private:
     bool tryGenerateAsyncHookMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateAsyncLocalStorageNew(ast::NewExpression* node);
     bool tryGenerateAsyncResourceNew(ast::NewExpression* node);
+    bool tryGenerateChildProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateChildProcessMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateChildProcessPropertyAccess(ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
