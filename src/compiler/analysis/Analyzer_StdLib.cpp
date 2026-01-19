@@ -1448,5 +1448,6 @@ Analyzer::Analyzer() {
     registerStringDecoder();
     registerPerfHooks();
     registerAsyncHooks();
+    registerChildProcess();
 }
 } // namespace ts

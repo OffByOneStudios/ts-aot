@@ -71,6 +71,7 @@ public:
     void registerStringDecoder();
     void registerPerfHooks();
     void registerAsyncHooks();
+    void registerChildProcess();
 
     void reportError(const std::string& message);
 
