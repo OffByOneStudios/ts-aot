@@ -948,6 +948,39 @@ void* ts_child_process_get_channel(void* cp) {
     return ts_value_make_object(proc->GetChannel());
 }
 
+void* ts_child_process_get_stdio(void* cp) {
+    void* rawCp = ts_value_get_object((TsValue*)cp);
+    if (!rawCp) rawCp = cp;
+    TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
+    if (!proc) return ts_value_make_null();
+
+    // Create array [stdin, stdout, stderr]
+    TsArray* stdioArr = TsArray::Create();
+
+    // Add stdin (index 0)
+    if (proc->GetStdin()) {
+        stdioArr->Push((int64_t)ts_value_make_object(proc->GetStdin()));
+    } else {
+        stdioArr->Push((int64_t)ts_value_make_null());
+    }
+
+    // Add stdout (index 1)
+    if (proc->GetStdout()) {
+        stdioArr->Push((int64_t)ts_value_make_object(proc->GetStdout()));
+    } else {
+        stdioArr->Push((int64_t)ts_value_make_null());
+    }
+
+    // Add stderr (index 2)
+    if (proc->GetStderr()) {
+        stdioArr->Push((int64_t)ts_value_make_object(proc->GetStderr()));
+    } else {
+        stdioArr->Push((int64_t)ts_value_make_null());
+    }
+
+    return ts_value_make_object(stdioArr);
+}
+
 bool ts_child_process_send(void* cp, void* message, void* sendHandle) {
     void* rawCp = ts_value_get_object((TsValue*)cp);
     if (!rawCp) rawCp = cp;

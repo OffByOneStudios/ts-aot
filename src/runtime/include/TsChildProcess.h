@@ -182,8 +182,9 @@ extern "C" {
     void* ts_child_process_get_stdout(void* cp);
     void* ts_child_process_get_stderr(void* cp);
 
-    // IPC channel methods
+    // IPC channel and stdio array
     void* ts_child_process_get_channel(void* cp);
+    void* ts_child_process_get_stdio(void* cp);
     bool ts_child_process_send(void* cp, void* message, void* sendHandle);
     void ts_child_process_disconnect(void* cp);
 

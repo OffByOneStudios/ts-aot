@@ -31,6 +31,9 @@ void Analyzer::registerChildProcess() {
     childProcessClass->fields["stdout"] = readableClass;  // Readable | null
     childProcessClass->fields["stderr"] = readableClass;  // Readable | null
 
+    // stdio array [stdin, stdout, stderr]
+    childProcessClass->fields["stdio"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+
     // Channel for IPC
     childProcessClass->fields["channel"] = std::make_shared<Type>(TypeKind::Any);  // Pipe | null
 
