@@ -420,6 +420,20 @@ int64_t ts_readline_get_cursor(void* rl) {
     return 0;
 }
 
+void* ts_readline_get_prompt(void* rl) {
+    if (!rl) return TsString::Create("");
+
+    void* rawRl = ts_value_get_object((TsValue*)rl);
+    if (!rawRl) rawRl = rl;
+
+    ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
+    if (iface) {
+        TsString* prompt = iface->GetPrompt();
+        return prompt ? prompt : TsString::Create("");
+    }
+    return TsString::Create("");
+}
+
 // Utility functions - ANSI escape sequences for cursor control
 
 void ts_readline_clear_line(void* stream, void* dir) {
@@ -493,6 +507,14 @@ void ts_readline_move_cursor(void* stream, void* dx, void* dy) {
         printf("\x1b[%dA", -deltaY);  // Move up
     }
     fflush(stdout);
+}
+
+void ts_readline_emit_keypress_events(void* stream, void* iface) {
+    // Stub: In a full implementation, this would set up the stream to emit
+    // 'keypress' events with { sequence, name, ctrl, meta, shift } info.
+    // For now, this is a no-op since we don't have full terminal handling.
+    (void)stream;
+    (void)iface;
 }
 
 }  // extern "C"
