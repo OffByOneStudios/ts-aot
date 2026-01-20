@@ -202,7 +202,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook" || name == "ChildProcess" || name == "Worker" || name == "UDPSocket") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook" || name == "ChildProcess" || name == "Worker" || name == "UDPSocket" || name == "InspectorSession") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -1136,6 +1136,13 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionCallee fn = getRuntimeFunction("ts_async_resource_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), { typeStr, triggerId });
             boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "InspectorSession") {
+            // new inspector.Session() - stub implementation
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_inspector_session_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), {});
             nonNullValues.insert(lastValue);
             return;
         }

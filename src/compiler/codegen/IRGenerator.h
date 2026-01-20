@@ -217,6 +217,9 @@ private:
     bool tryGenerateDNSPromisesCall(ast::CallExpression* node, const std::string& methodName);
     bool tryGenerateDNSPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateDgramCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateInspectorCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateInspectorSessionNew(ast::NewExpression* node);
+    bool tryGenerateInspectorSessionCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

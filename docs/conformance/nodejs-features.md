@@ -33,7 +33,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `http` | ✅ | 100% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ✅ | 100% | HTTPS server/client |
-| `inspector` | ❌ | 0% | V8 inspector |
+| `inspector` | ⚠️ | 70% | V8 inspector (stubbed - no V8) |
 | `module` | ❌ | 0% | Module system |
 | `net` | ✅ | 100% | TCP sockets |
 | `os` | ✅ | 100% | OS utilities |
@@ -880,6 +880,27 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 
 ---
 
+## Inspector
+
+Note: The inspector module provides access to the V8 inspector for debugging. Since ts-aot uses LLVM (not V8), inspector functionality is **stubbed** to allow code that imports the module to compile without errors.
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `inspector.open()` | ✅ | No-op stub |
+| `inspector.close()` | ✅ | No-op stub |
+| `inspector.url()` | ✅ | Returns undefined |
+| `inspector.waitForDebugger()` | ✅ | No-op stub (returns immediately) |
+| `inspector.console` | ✅ | Returns undefined |
+| `new inspector.Session()` | ✅ | Creates stub session object |
+| `session.connect()` | ✅ | No-op stub |
+| `session.connectToMainThread()` | ✅ | No-op stub |
+| `session.disconnect()` | ✅ | No-op stub |
+| `session.post()` | ⚠️ | Stub exists but codegen routing issue |
+
+**Inspector Coverage: 9/10 (90%)** - Stubbed (no V8)
+
+---
+
 ## Net
 
 ### Server
@@ -1380,10 +1401,11 @@ Note: 6 features are marked N/A:
 | StringDecoder | 5 | 5 | 100% |
 | Timers | 14 | 14 | 100% |
 | TLS | 6 | 20 | 30% |
+| Inspector | 9 | 10 | 90% |
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **777** | **818** | **95%** |
+| **Total** | **786** | **828** | **95%** |
 
 ### Priority Implementation Targets
 
