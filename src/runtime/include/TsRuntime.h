@@ -140,6 +140,24 @@ bool ts_process_has_uncaught_exception_capture_callback();
 bool ts_process_send(void* message);
 void ts_process_disconnect();
 bool ts_process_get_connected();
+void* ts_process_get_channel();
+
+// --- Unix User/Group IDs (Unix only, stubs on Windows) ---
+int64_t ts_process_getuid();
+int64_t ts_process_geteuid();
+int64_t ts_process_getgid();
+int64_t ts_process_getegid();
+void* ts_process_getgroups();
+void ts_process_setuid(int64_t uid);
+void ts_process_seteuid(int64_t uid);
+void ts_process_setgid(int64_t gid);
+void ts_process_setegid(int64_t gid);
+void ts_process_setgroups(void* groups);
+void ts_process_initgroups(void* user, int64_t extra_group);
+
+// --- Stubs for AOT-incompatible features ---
+void ts_process_dlopen(void* module, void* filename, void* flags);
+void ts_process_set_source_maps_enabled(bool enabled);
 
 // --- Event Loop Handles (Milestone 102.9) ---
 void ts_process_ref();

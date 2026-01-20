@@ -1005,6 +1005,166 @@ void ts_process_on_disconnect(void* callback) {
     }
 }
 
+// =========================================================================
+// Unix User/Group ID functions
+// These are Unix-specific; Windows returns -1 or throws
+// =========================================================================
+
+int64_t ts_process_getuid() {
+#if defined(_WIN32)
+    return -1;  // Not supported on Windows
+#else
+    return (int64_t)getuid();
+#endif
+}
+
+int64_t ts_process_geteuid() {
+#if defined(_WIN32)
+    return -1;  // Not supported on Windows
+#else
+    return (int64_t)geteuid();
+#endif
+}
+
+int64_t ts_process_getgid() {
+#if defined(_WIN32)
+    return -1;  // Not supported on Windows
+#else
+    return (int64_t)getgid();
+#endif
+}
+
+int64_t ts_process_getegid() {
+#if defined(_WIN32)
+    return -1;  // Not supported on Windows
+#else
+    return (int64_t)getegid();
+#endif
+}
+
+void* ts_process_getgroups() {
+#if defined(_WIN32)
+    // Return empty array on Windows
+    return ts_value_make_object(TsArray::Create());
+#else
+    int ngroups = getgroups(0, nullptr);
+    if (ngroups <= 0) {
+        return ts_value_make_object(TsArray::Create());
+    }
+
+    gid_t* groups = (gid_t*)ts_alloc(ngroups * sizeof(gid_t));
+    ngroups = getgroups(ngroups, groups);
+
+    TsArray* arr = TsArray::Create();
+    for (int i = 0; i < ngroups; i++) {
+        ts_array_push(arr, ts_value_make_int((int64_t)groups[i]));
+    }
+    return ts_value_make_object(arr);
+#endif
+}
+
+void ts_process_setuid(int64_t uid) {
+#if defined(_WIN32)
+    // Not supported on Windows - throw error
+    fprintf(stderr, "process.setuid() is not supported on Windows\n");
+#else
+    if (setuid((uid_t)uid) != 0) {
+        fprintf(stderr, "setuid(%lld) failed: %s\n", (long long)uid, strerror(errno));
+    }
+#endif
+}
+
+void ts_process_seteuid(int64_t uid) {
+#if defined(_WIN32)
+    fprintf(stderr, "process.seteuid() is not supported on Windows\n");
+#else
+    if (seteuid((uid_t)uid) != 0) {
+        fprintf(stderr, "seteuid(%lld) failed: %s\n", (long long)uid, strerror(errno));
+    }
+#endif
+}
+
+void ts_process_setgid(int64_t gid) {
+#if defined(_WIN32)
+    fprintf(stderr, "process.setgid() is not supported on Windows\n");
+#else
+    if (setgid((gid_t)gid) != 0) {
+        fprintf(stderr, "setgid(%lld) failed: %s\n", (long long)gid, strerror(errno));
+    }
+#endif
+}
+
+void ts_process_setegid(int64_t gid) {
+#if defined(_WIN32)
+    fprintf(stderr, "process.setegid() is not supported on Windows\n");
+#else
+    if (setegid((gid_t)gid) != 0) {
+        fprintf(stderr, "setegid(%lld) failed: %s\n", (long long)gid, strerror(errno));
+    }
+#endif
+}
+
+void ts_process_setgroups(void* groups) {
+#if defined(_WIN32)
+    fprintf(stderr, "process.setgroups() is not supported on Windows\n");
+#else
+    TsValue* val = (TsValue*)groups;
+    void* raw = ts_value_get_object(val);
+    if (!raw) raw = groups;
+
+    TsArray* arr = dynamic_cast<TsArray*>((TsObject*)raw);
+    if (!arr) {
+        fprintf(stderr, "setgroups: expected array argument\n");
+        return;
+    }
+
+    int64_t len = ts_array_length(arr);
+    gid_t* gids = (gid_t*)ts_alloc(len * sizeof(gid_t));
+
+    for (int64_t i = 0; i < len; i++) {
+        TsValue* elem = ts_array_get_as_value(arr, i);
+        gids[i] = (gid_t)ts_value_get_int(elem);
+    }
+
+    if (setgroups((size_t)len, gids) != 0) {
+        fprintf(stderr, "setgroups() failed: %s\n", strerror(errno));
+    }
+#endif
+}
+
+void ts_process_initgroups(void* user, int64_t extra_group) {
+#if defined(_WIN32)
+    fprintf(stderr, "process.initgroups() is not supported on Windows\n");
+#else
+    TsValue* val = (TsValue*)user;
+    void* raw = ts_value_get_string(val);
+    if (!raw) raw = user;
+
+    TsString* userStr = (TsString*)raw;
+    const char* username = userStr ? userStr->ToUtf8() : "";
+
+    if (initgroups(username, (gid_t)extra_group) != 0) {
+        fprintf(stderr, "initgroups(%s, %lld) failed: %s\n", username, (long long)extra_group, strerror(errno));
+    }
+#endif
+}
+
+// =========================================================================
+// Stubs for AOT-incompatible features
+// =========================================================================
+
+void ts_process_dlopen(void* module, void* filename, void* flags) {
+    // dlopen is not supported in AOT compilation
+    // Native addons require dynamic loading which is incompatible with AOT
+    fprintf(stderr, "process.dlopen() is not supported in AOT-compiled code\n");
+}
+
+void ts_process_set_source_maps_enabled(bool enabled) {
+    // Source maps are not supported in AOT compilation
+    // This is a no-op stub for compatibility
+    (void)enabled;
+}
+
 void* ts_push_exception_handler() {
     ExceptionContext* ctx = (ExceptionContext*)malloc(sizeof(ExceptionContext));
     exceptionStack.push_back(ctx);

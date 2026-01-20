@@ -62,6 +62,23 @@ static void ensureProcessFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_process_disconnect", {}, false);
     bp.registerRuntimeApi("ts_process_get_connected", {}, false);  // -> bool
     bp.registerRuntimeApi("ts_process_get_channel", {}, true);  // -> boxed object or null
+
+    // Unix user/group IDs (stubs on Windows)
+    bp.registerRuntimeApi("ts_process_getuid", {}, false);   // -> int64
+    bp.registerRuntimeApi("ts_process_geteuid", {}, false);  // -> int64
+    bp.registerRuntimeApi("ts_process_getgid", {}, false);   // -> int64
+    bp.registerRuntimeApi("ts_process_getegid", {}, false);  // -> int64
+    bp.registerRuntimeApi("ts_process_getgroups", {}, true); // -> boxed array
+    bp.registerRuntimeApi("ts_process_setuid", {false}, false);  // uid
+    bp.registerRuntimeApi("ts_process_seteuid", {false}, false); // uid
+    bp.registerRuntimeApi("ts_process_setgid", {false}, false);  // gid
+    bp.registerRuntimeApi("ts_process_setegid", {false}, false); // gid
+    bp.registerRuntimeApi("ts_process_setgroups", {true}, false); // groups array
+    bp.registerRuntimeApi("ts_process_initgroups", {false, false}, false); // user, extra_group
+
+    // Stubs for AOT-incompatible features
+    bp.registerRuntimeApi("ts_process_dlopen", {true, false, false}, false); // module, filename, flags
+    bp.registerRuntimeApi("ts_process_set_source_maps_enabled", {false}, false); // enabled
 }
 
 bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -472,6 +489,195 @@ bool IRGenerator::tryGenerateProcessCall(ast::CallExpression* node, ast::Propert
         llvm::FunctionCallee disconnectFn = getRuntimeFunction("ts_process_disconnect", disconnectFt);
 
         createCall(disconnectFt, disconnectFn.getCallee(), {});
+        lastValue = nullptr;
+        return true;
+    }
+
+    // ========================================================================
+    // Unix User/Group IDs (Unix only, stubs on Windows)
+    // ========================================================================
+
+    if (prop->name == "getuid") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_getuid", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "geteuid") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_geteuid", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "getgid") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_getgid", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "getegid") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_getegid", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "getgroups") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_getgroups", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        return true;
+    }
+
+    if (prop->name == "setuid") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* uid = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { llvm::Type::getInt64Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_setuid", ft);
+        createCall(ft, fn.getCallee(), { uid });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "seteuid") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* uid = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { llvm::Type::getInt64Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_seteuid", ft);
+        createCall(ft, fn.getCallee(), { uid });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "setgid") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* gid = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { llvm::Type::getInt64Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_setgid", ft);
+        createCall(ft, fn.getCallee(), { gid });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "setegid") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* gid = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { llvm::Type::getInt64Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_setegid", ft);
+        createCall(ft, fn.getCallee(), { gid });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "setgroups") {
+        if (node->arguments.empty()) return true;
+        visit(node->arguments[0].get());
+        llvm::Value* groups = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_setgroups", ft);
+        createCall(ft, fn.getCallee(), { groups });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "initgroups") {
+        if (node->arguments.size() < 2) return true;
+
+        visit(node->arguments[0].get());
+        llvm::Value* user = lastValue;
+
+        visit(node->arguments[1].get());
+        llvm::Value* extraGroup = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_initgroups", ft);
+        createCall(ft, fn.getCallee(), { user, extraGroup });
+        lastValue = nullptr;
+        return true;
+    }
+
+    // ========================================================================
+    // Stubs for AOT-incompatible features
+    // ========================================================================
+
+    if (prop->name == "dlopen") {
+        if (node->arguments.size() < 2) return true;
+
+        visit(node->arguments[0].get());
+        llvm::Value* module = lastValue;
+        if (!boxedValues.count(module)) {
+            module = boxValue(module, node->arguments[0]->inferredType);
+        }
+
+        visit(node->arguments[1].get());
+        llvm::Value* filename = lastValue;
+
+        llvm::Value* flags = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        if (node->arguments.size() > 2) {
+            visit(node->arguments[2].get());
+            flags = lastValue;
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_dlopen", ft);
+        createCall(ft, fn.getCallee(), { module, filename, flags });
+        lastValue = nullptr;
+        return true;
+    }
+
+    if (prop->name == "setSourceMapsEnabled") {
+        if (node->arguments.empty()) return true;
+
+        visit(node->arguments[0].get());
+        llvm::Value* enabled = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(*context),
+            { llvm::Type::getInt1Ty(*context) },
+            false
+        );
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_process_set_source_maps_enabled", ft);
+        createCall(ft, fn.getCallee(), { enabled });
         lastValue = nullptr;
         return true;
     }

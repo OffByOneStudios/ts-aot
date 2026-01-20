@@ -90,12 +90,90 @@ void Analyzer::registerPerfHooks() {
     clearMeasuresMethod->returnType = std::make_shared<Type>(TypeKind::Void);
     performanceObj->fields["clearMeasures"] = clearMeasuresMethod;
 
+    // =========================================================================
+    // EventLoopUtilization object
+    // =========================================================================
+    auto eluClass = std::make_shared<ClassType>("EventLoopUtilization");
+    eluClass->fields["idle"] = std::make_shared<Type>(TypeKind::Double);
+    eluClass->fields["active"] = std::make_shared<Type>(TypeKind::Double);
+    eluClass->fields["utilization"] = std::make_shared<Type>(TypeKind::Double);
+    symbols.defineType("EventLoopUtilization", eluClass);
+
+    // eventLoopUtilization(util1?: EventLoopUtilization, util2?: EventLoopUtilization): EventLoopUtilization
+    auto eluMethod = std::make_shared<FunctionType>();
+    eluMethod->paramTypes.push_back(eluClass);  // optional
+    eluMethod->paramTypes.push_back(eluClass);  // optional
+    eluMethod->returnType = eluClass;
+    performanceObj->fields["eventLoopUtilization"] = eluMethod;
+
+    // timerify(fn: Function): Function - wraps function to measure timing
+    auto timerifyMethod = std::make_shared<FunctionType>();
+    timerifyMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    timerifyMethod->returnType = std::make_shared<Type>(TypeKind::Function);
+    performanceObj->fields["timerify"] = timerifyMethod;
+
+    // =========================================================================
+    // PerformanceObserverEntryList class
+    // NOTE: Using fields instead of methods to avoid vtable generation
+    // =========================================================================
+    auto entryListClass = std::make_shared<ClassType>("PerformanceObserverEntryList");
+
+    // getEntries(): PerformanceEntry[]
+    auto entryListGetEntriesMethod = std::make_shared<FunctionType>();
+    entryListGetEntriesMethod->returnType = std::make_shared<ArrayType>(performanceEntryClass);
+    entryListClass->fields["getEntries"] = entryListGetEntriesMethod;
+
+    // getEntriesByName(name: string, type?: string): PerformanceEntry[]
+    auto entryListGetEntriesByNameMethod = std::make_shared<FunctionType>();
+    entryListGetEntriesByNameMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    entryListGetEntriesByNameMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // optional
+    entryListGetEntriesByNameMethod->returnType = std::make_shared<ArrayType>(performanceEntryClass);
+    entryListClass->fields["getEntriesByName"] = entryListGetEntriesByNameMethod;
+
+    // getEntriesByType(type: string): PerformanceEntry[]
+    auto entryListGetEntriesByTypeMethod = std::make_shared<FunctionType>();
+    entryListGetEntriesByTypeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    entryListGetEntriesByTypeMethod->returnType = std::make_shared<ArrayType>(performanceEntryClass);
+    entryListClass->fields["getEntriesByType"] = entryListGetEntriesByTypeMethod;
+
+    symbols.defineType("PerformanceObserverEntryList", entryListClass);
+
+    // =========================================================================
+    // PerformanceObserver class
+    // NOTE: Using fields instead of methods to avoid vtable generation
+    // =========================================================================
+    auto observerClass = std::make_shared<ClassType>("PerformanceObserver");
+
+    // observe(options: { entryTypes: string[] }): void
+    auto observeMethod = std::make_shared<FunctionType>();
+    observeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // options object
+    observeMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    observerClass->fields["observe"] = observeMethod;
+
+    // disconnect(): void
+    auto disconnectMethod = std::make_shared<FunctionType>();
+    disconnectMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    observerClass->fields["disconnect"] = disconnectMethod;
+
+    // takeRecords(): PerformanceEntry[]
+    auto takeRecordsMethod = std::make_shared<FunctionType>();
+    takeRecordsMethod->returnType = std::make_shared<ArrayType>(performanceEntryClass);
+    observerClass->fields["takeRecords"] = takeRecordsMethod;
+
+    symbols.defineType("PerformanceObserver", observerClass);
+
+    // Register static PerformanceObserver constructor
+    auto observerStaticObj = std::make_shared<ObjectType>();
+    observerStaticObj->fields["prototype"] = observerClass;
+    symbols.define("PerformanceObserver", observerStaticObj);
+
     // Register the performance object
     symbols.define("performance", performanceObj);
 
-    // Module object for 'import { performance } from "perf_hooks"'
+    // Module object for 'import { performance, PerformanceObserver } from "perf_hooks"'
     auto perfHooksModule = std::make_shared<ObjectType>();
     perfHooksModule->fields["performance"] = performanceObj;
+    perfHooksModule->fields["PerformanceObserver"] = observerStaticObj;
 
     symbols.define("perf_hooks", perfHooksModule);
 }

@@ -199,6 +199,9 @@ private:
     bool tryGeneratePerfHooksCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGeneratePerfHooksPropertyAccess(ast::PropertyAccessExpression* prop);
     bool tryGeneratePerformanceEntryPropertyAccess(ast::PropertyAccessExpression* prop);
+    bool tryGenerateEventLoopUtilizationPropertyAccess(ast::PropertyAccessExpression* prop);
+    bool tryGeneratePerformanceObserverCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGeneratePerformanceObserverNewExpression(ast::NewExpression* node);
     bool tryGenerateOSConstantsPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateUtilPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateUtilInspectPropertyAccess(ast::PropertyAccessExpression* node);
