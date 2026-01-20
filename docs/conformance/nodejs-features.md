@@ -42,7 +42,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ✅ | 100% | Query parsing |
-| `readline` | ❌ | 0% | Line input |
+| `readline` | ⚠️ | 60% | Line input (basic Interface, no events) |
 | `repl` | N/A | - | REPL (AOT incompatible) |
 | `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
@@ -1226,6 +1226,49 @@ Note: The inspector module provides access to the V8 inspector for debugging. Si
 
 ---
 
+## Readline
+
+### Module Functions
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `readline.createInterface(options)` | ✅ | Creates Interface with input/output streams |
+| `readline.clearLine(stream, dir)` | ✅ | ANSI escape sequence for clearing line |
+| `readline.clearScreenDown(stream)` | ✅ | ANSI escape sequence for clearing screen below |
+| `readline.cursorTo(stream, x, y?)` | ✅ | ANSI escape sequence for absolute cursor position |
+| `readline.moveCursor(stream, dx, dy)` | ✅ | ANSI escape sequence for relative cursor movement |
+| `readline.emitKeypressEvents(stream)` | ❌ | Not implemented |
+
+### Interface Class
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `rl.close()` | ✅ | Closes the interface |
+| `rl.pause()` | ✅ | Pauses input stream |
+| `rl.resume()` | ✅ | Resumes input stream |
+| `rl.setPrompt(prompt)` | ✅ | Sets the prompt string |
+| `rl.prompt(preserveCursor?)` | ✅ | Writes prompt to output |
+| `rl.question(query, callback)` | ✅ | Displays query and waits for response |
+| `rl.write(data)` | ✅ | Writes to output stream |
+| `rl.line` | ✅ | Current input line property |
+| `rl.cursor` | ✅ | Cursor position property |
+| `rl.getPrompt()` | ❌ | Not implemented |
+| `rl[Symbol.asyncIterator]()` | ❌ | Requires async iteration |
+
+### Interface Events
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `'line'` event | ❌ | Line event when newline received |
+| `'close'` event | ❌ | Close event (emitted but callback has issues) |
+| `'pause'` event | ❌ | Pause event |
+| `'resume'` event | ❌ | Resume event |
+| `'history'` event | ❌ | Not implemented |
+| `'SIGCONT'` event | ❌ | Not implemented |
+| `'SIGINT'` event | ❌ | Not implemented |
+| `'SIGTSTP'` event | ❌ | Not implemented |
+
+**Readline Coverage: 15/25 (60%)**
+
+---
+
 ## URL
 
 ### URL Class
@@ -1397,6 +1440,7 @@ Note: 6 features are marked N/A:
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
+| Readline | 15 | 25 | 60% |
 | Stream | 43 | 43 | 100% |
 | StringDecoder | 5 | 5 | 100% |
 | Timers | 14 | 14 | 100% |
@@ -1405,7 +1449,7 @@ Note: 6 features are marked N/A:
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **786** | **828** | **95%** |
+| **Total** | **801** | **853** | **94%** |
 
 ### Priority Implementation Targets
 
@@ -1427,7 +1471,7 @@ Note: 6 features are marked N/A:
 - `http.Agent` - Connection pooling
 - ✅ `cluster` module - Multi-process forking (implemented)
 - ✅ `child_process` - Process spawning (implemented)
-- `readline` - Interactive input
+- ⚠️ `readline` - Interactive input (basic Interface implemented)
 - `zlib` - Compression
 
 ---
@@ -1447,6 +1491,7 @@ Current test coverage:
 - Path: 3 test files (basic, parse_format, relative)
 - Process: 2 test files (basic, extended)
 - QueryString: 1 test file (basic - 11 tests covering parse, stringify, escape, unescape, encode, decode)
+- Readline: 1 test file (basic - createInterface, setPrompt, pause, resume, close, ANSI cursor utilities)
 - Timers: 1 test file
 - URL: 5 test files (basic, extended, search params, parse, format)
 - Util: 16 test files (basic, extended, text_encoding, callbackify, promisify, strip_vt, deep_strict_equal, types_*)

@@ -76,6 +76,7 @@ public:
     void registerDNS();
     void registerDgram();
     void registerInspector();
+    void registerReadline();
 
     void reportError(const std::string& message);
 

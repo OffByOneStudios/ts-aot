@@ -240,6 +240,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGeneratePromiseCall(node, prop)) return true;
     // StringDecoder before Stream - it has write/end methods that override generic stream handling
     if (tryGenerateStringDecoderCall(node, prop)) return true;
+    // ReadlineInterface before Stream - it has pause/resume methods that override generic stream handling
+    if (tryGenerateReadlineInterfaceCall(node, prop)) return true;
     if (tryGenerateStreamCall(node, prop)) return true;
     if (tryGenerateBufferCall(node, prop)) return true;
     if (tryGenerateProcessCall(node, prop)) return true;
@@ -270,6 +272,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateDgramCall(node, prop)) return true;
     if (tryGenerateInspectorCall(node, prop)) return true;
     if (tryGenerateInspectorSessionCall(node, prop)) return true;
+    if (tryGenerateReadlineCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {

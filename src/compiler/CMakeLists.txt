@@ -75,6 +75,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_DNS.cpp
     analysis/Analyzer_StdLib_Dgram.cpp
     analysis/Analyzer_StdLib_Inspector.cpp
+    analysis/Analyzer_StdLib_Readline.cpp
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
@@ -127,6 +128,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_DNS.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Dgram.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Inspector.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_Readline.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp
