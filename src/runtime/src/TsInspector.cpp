@@ -119,24 +119,12 @@ void ts_inspector_session_disconnect(void* session) {
 
 // Post a message to the inspector
 void ts_inspector_session_post(void* session, void* method, void* params, void* callback) {
-    if (!session) return;
-
-    void* rawPtr = ts_value_get_object((TsValue*)session);
-    if (!rawPtr) rawPtr = session;
-
-    ts::TsInspectorSession* s = dynamic_cast<ts::TsInspectorSession*>((TsObject*)rawPtr);
-    if (s) {
-        const char* methodStr = nullptr;
-        if (method) {
-            void* rawMethod = ts_value_get_object((TsValue*)method);
-            if (!rawMethod) rawMethod = method;
-            TsString* methodTsStr = dynamic_cast<TsString*>((TsObject*)rawMethod);
-            if (methodTsStr) {
-                methodStr = methodTsStr->ToUtf8();
-            }
-        }
-        s->Post(methodStr, params, callback);
-    }
+    // Stub: no V8 inspector available in ts-aot
+    // All parameters are intentionally unused since this is a no-op stub
+    (void)session;
+    (void)method;
+    (void)params;
+    (void)callback;
 }
 
 }  // extern "C"
