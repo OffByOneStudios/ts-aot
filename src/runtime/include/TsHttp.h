@@ -48,9 +48,11 @@ public:
     TsString* statusMessage = nullptr;  // For HTTP client responses
     TsString* httpVersion = nullptr;  // HTTP version string (e.g., "1.1")
     bool complete = false;  // True when message has been fully received
+    bool aborted = false;  // True when request was aborted by client
     TsArray* rawHeaders = nullptr;  // Alternating key/value array of raw headers
     TsArray* rawTrailers = nullptr;  // Alternating key/value array of raw trailer headers
     TsMap* trailers = nullptr;  // Object with trailer headers (lowercase keys)
+    TsSocket* socket = nullptr;  // Underlying socket connection
 
     // TsReadable implementation
     virtual void Pause() override;
@@ -335,6 +337,10 @@ extern "C" {
     // IncomingMessage trailers
     void* ts_incoming_message_rawTrailers(void* ctx, void* msg);
     void* ts_incoming_message_trailers(void* ctx, void* msg);
+
+    // IncomingMessage socket and aborted
+    void* ts_incoming_message_socket(void* ctx, void* msg);
+    bool ts_incoming_message_aborted(void* ctx, void* msg);
 
     // ClientRequest timeout and socket config
     void ts_client_request_set_timeout(void* req, int64_t msecs, void* callback);

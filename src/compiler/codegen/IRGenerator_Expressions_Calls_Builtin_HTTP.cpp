@@ -92,6 +92,8 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_incoming_message_rawHeaders", {true, true}, true);  // (ctx, msg) -> array
     bp.registerRuntimeApi("ts_incoming_message_rawTrailers", {true, true}, true);  // (ctx, msg) -> array
     bp.registerRuntimeApi("ts_incoming_message_trailers", {true, true}, true);  // (ctx, msg) -> object
+    bp.registerRuntimeApi("ts_incoming_message_socket", {true, true}, false);  // (ctx, msg) -> socket
+    bp.registerRuntimeApi("ts_incoming_message_aborted", {true, true}, false);  // (ctx, msg) -> bool
 
     // ServerResponse addTrailers
     bp.registerRuntimeApi("ts_server_response_add_trailers", {true, true}, false);  // (res, trailers) -> void
@@ -833,6 +835,18 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
             } else if (node->name == "trailers") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_trailers", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "socket") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_socket", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "aborted") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_aborted", ft);
                 llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
                 lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
                 return true;
