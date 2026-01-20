@@ -7,11 +7,43 @@
 #include "TsObject.h"
 #include "TsEventEmitter.h"
 #include "TsString.h"
+#include <vector>
 
 class TsReadable;
 class TsWritable;
 
 namespace ts {
+
+struct TsPromise;
+
+// Forward declaration
+class TsReadlineInterface;
+
+// Async iterator for readline Interface
+// Yields lines one at a time via promises
+class TsReadlineAsyncIterator : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x524C4149; // "RLAI"
+
+    static TsReadlineAsyncIterator* Create(TsReadlineInterface* rl);
+
+    // Returns Promise<{value: string, done: boolean}>
+    TsPromise* Next();
+
+    // Called by the readline interface when a line is available
+    void OnLine(TsString* line);
+
+    // Called when the interface closes
+    void OnClose();
+
+private:
+    TsReadlineAsyncIterator(TsReadlineInterface* rl);
+
+    TsReadlineInterface* rl_ = nullptr;
+    std::vector<TsString*> pendingLines_;
+    std::vector<TsPromise*> pendingPromises_;
+    bool closed_ = false;
+};
 
 // Readline Interface class
 // Transforms a readable stream into line-oriented events
@@ -41,11 +73,22 @@ public:
     bool IsPaused() const { return paused_; }
     TsString* GetPrompt() const { return prompt_; }
 
+    // Async iterator support
+    TsReadlineAsyncIterator* GetAsyncIterator();
+
     // Internal: called when input emits 'data'
     void OnData(void* chunk);
 
     // Internal: called when input emits 'end' or 'close'
     void OnInputEnd();
+
+    // Signal handling - emits SIGINT, SIGTSTP, SIGCONT events
+    void EmitSIGINT();
+    void EmitSIGTSTP();
+    void EmitSIGCONT();
+
+    // History support
+    void AddToHistory(TsString* line);
 
 private:
     TsReadlineInterface();
@@ -67,6 +110,12 @@ private:
 
     // Track if we've set up the input listener
     bool inputListenerSet_ = false;
+
+    // Track active async iterators for line dispatch
+    std::vector<TsReadlineAsyncIterator*> asyncIterators_;
+
+    // History (for 'history' event)
+    std::vector<TsString*> history_;
 };
 
 }  // namespace ts
@@ -102,6 +151,15 @@ void ts_readline_write(void* rl, void* data);
 void* ts_readline_get_line(void* rl);
 int64_t ts_readline_get_cursor(void* rl);
 void* ts_readline_get_prompt(void* rl);
+
+// Async iterator support
+void* ts_readline_get_async_iterator(void* rl);
+void* ts_readline_async_iterator_next(void* iter);
+
+// Signal event emitters (for testing/terminal handling)
+void ts_readline_emit_sigint(void* rl);
+void ts_readline_emit_sigtstp(void* rl);
+void ts_readline_emit_sigcont(void* rl);
 
 // Utility functions (module-level)
 void ts_readline_clear_line(void* stream, void* dir);

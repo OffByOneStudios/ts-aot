@@ -6,12 +6,31 @@
 #include "TsWritable.h"
 #include "TsString.h"
 #include "TsRuntime.h"
+#include "TsPromise.h"
 #include "GC.h"
 #include <cstring>
 #include <cstdio>
 
 extern "C" TsValue* ts_object_get_property(void* obj, const char* keyStr);
 extern "C" void* ts_value_get_object(TsValue* val);
+
+// Helper to create iterator result object {value, done}
+static TsValue* create_readline_iter_result(TsValue* value, bool done) {
+    TsMap* result = TsMap::Create();
+    if (value) {
+        result->Set(TsString::Create("value"), *value);
+    } else {
+        TsValue undef;
+        undef.type = ValueType::UNDEFINED;
+        undef.i_val = 0;
+        result->Set(TsString::Create("value"), undef);
+    }
+    TsValue doneVal;
+    doneVal.type = ValueType::BOOLEAN;
+    doneVal.i_val = done ? 1 : 0;
+    result->Set(TsString::Create("done"), doneVal);
+    return ts_value_make_object(result);
+}
 
 namespace ts {
 
@@ -37,6 +56,11 @@ void TsReadlineInterface::SetOutput(TsWritable* output) {
 void TsReadlineInterface::Close() {
     if (closed_) return;
     closed_ = true;
+
+    // Notify async iterators that we're closing
+    for (TsReadlineAsyncIterator* iter : asyncIterators_) {
+        iter->OnClose();
+    }
 
     // Emit 'close' event
     Emit("close", 0, nullptr);
@@ -174,6 +198,11 @@ void TsReadlineInterface::ProcessBuffer() {
                 TsValue* lineArg = ts_value_make_string(lineStr);
                 ts_call_1((TsValue*)cb, lineArg);
             } else {
+                // Notify async iterators
+                for (TsReadlineAsyncIterator* iter : asyncIterators_) {
+                    iter->OnLine(lineStr);
+                }
+
                 // Emit 'line' event
                 void* args[] = { ts_value_make_string(lineStr) };
                 Emit("line", 1, args);
@@ -214,6 +243,114 @@ void TsReadlineInterface::OnInputEnd() {
     }
 
     Close();
+}
+
+// ============================================================================
+// TsReadlineAsyncIterator implementation
+// ============================================================================
+
+TsReadlineAsyncIterator::TsReadlineAsyncIterator(TsReadlineInterface* rl)
+    : TsObject(), rl_(rl) {
+    magic = MAGIC;
+}
+
+TsReadlineAsyncIterator* TsReadlineAsyncIterator::Create(TsReadlineInterface* rl) {
+    void* mem = ts_alloc(sizeof(TsReadlineAsyncIterator));
+    return new (mem) TsReadlineAsyncIterator(rl);
+}
+
+TsPromise* TsReadlineAsyncIterator::Next() {
+    TsPromise* promise = ts_promise_create();
+
+    if (closed_) {
+        // Already closed, return done immediately
+        TsValue* result = create_readline_iter_result(nullptr, true);
+        ts_promise_resolve_internal(promise, result);
+        return promise;
+    }
+
+    if (!pendingLines_.empty()) {
+        // We have a line available, resolve immediately
+        TsString* line = pendingLines_.front();
+        pendingLines_.erase(pendingLines_.begin());
+
+        TsValue* lineVal = ts_value_make_string(line);
+        TsValue* result = create_readline_iter_result(lineVal, false);
+        ts_promise_resolve_internal(promise, result);
+        return promise;
+    }
+
+    // No line available yet, queue the promise
+    pendingPromises_.push_back(promise);
+    return promise;
+}
+
+void TsReadlineAsyncIterator::OnLine(TsString* line) {
+    if (closed_) return;
+
+    if (!pendingPromises_.empty()) {
+        // We have a waiting promise, resolve it
+        TsPromise* promise = pendingPromises_.front();
+        pendingPromises_.erase(pendingPromises_.begin());
+
+        TsValue* lineVal = ts_value_make_string(line);
+        TsValue* result = create_readline_iter_result(lineVal, false);
+        ts_promise_resolve_internal(promise, result);
+    } else {
+        // No waiting promise, queue the line
+        pendingLines_.push_back(line);
+    }
+}
+
+void TsReadlineAsyncIterator::OnClose() {
+    closed_ = true;
+
+    // Resolve all pending promises with done=true
+    for (TsPromise* promise : pendingPromises_) {
+        TsValue* result = create_readline_iter_result(nullptr, true);
+        ts_promise_resolve_internal(promise, result);
+    }
+    pendingPromises_.clear();
+}
+
+// ============================================================================
+// TsReadlineInterface async iterator and signal support
+// ============================================================================
+
+TsReadlineAsyncIterator* TsReadlineInterface::GetAsyncIterator() {
+    TsReadlineAsyncIterator* iter = TsReadlineAsyncIterator::Create(this);
+    asyncIterators_.push_back(iter);
+    return iter;
+}
+
+void TsReadlineInterface::EmitSIGINT() {
+    Emit("SIGINT", 0, nullptr);
+}
+
+void TsReadlineInterface::EmitSIGTSTP() {
+    // SIGTSTP typically pauses the process
+    Emit("SIGTSTP", 0, nullptr);
+}
+
+void TsReadlineInterface::EmitSIGCONT() {
+    // SIGCONT typically resumes after SIGTSTP
+    Emit("SIGCONT", 0, nullptr);
+}
+
+void TsReadlineInterface::AddToHistory(TsString* line) {
+    if (!line) return;
+
+    // Add to history
+    history_.push_back(line);
+
+    // Emit 'history' event with the history array
+    // Node.js passes the history array
+    TsArray* histArray = TsArray::Create();
+    for (TsString* h : history_) {
+        histArray->Push((int64_t)ts_value_make_string(h));
+    }
+    void* args[] = { ts_value_make_object(histArray) };
+    Emit("history", 1, args);
 }
 
 }  // namespace ts
@@ -515,6 +652,81 @@ void ts_readline_emit_keypress_events(void* stream, void* iface) {
     // For now, this is a no-op since we don't have full terminal handling.
     (void)stream;
     (void)iface;
+}
+
+// ============================================================================
+// Async Iterator support
+// ============================================================================
+
+void* ts_readline_get_async_iterator(void* rl) {
+    if (!rl) return nullptr;
+
+    void* rawRl = ts_value_get_object((TsValue*)rl);
+    if (!rawRl) rawRl = rl;
+
+    ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
+    if (iface) {
+        ts::TsReadlineAsyncIterator* iter = iface->GetAsyncIterator();
+        return ts_value_make_object(iter);
+    }
+    return nullptr;
+}
+
+void* ts_readline_async_iterator_next(void* iter) {
+    if (!iter) return nullptr;
+
+    void* rawIter = ts_value_get_object((TsValue*)iter);
+    if (!rawIter) rawIter = iter;
+
+    ts::TsReadlineAsyncIterator* asyncIter = dynamic_cast<ts::TsReadlineAsyncIterator*>((TsObject*)rawIter);
+    if (asyncIter) {
+        ts::TsPromise* promise = asyncIter->Next();
+        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+        res->type = ValueType::PROMISE_PTR;
+        res->ptr_val = promise;
+        return res;
+    }
+    return nullptr;
+}
+
+// ============================================================================
+// Signal event emitters
+// ============================================================================
+
+void ts_readline_emit_sigint(void* rl) {
+    if (!rl) return;
+
+    void* rawRl = ts_value_get_object((TsValue*)rl);
+    if (!rawRl) rawRl = rl;
+
+    ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
+    if (iface) {
+        iface->EmitSIGINT();
+    }
+}
+
+void ts_readline_emit_sigtstp(void* rl) {
+    if (!rl) return;
+
+    void* rawRl = ts_value_get_object((TsValue*)rl);
+    if (!rawRl) rawRl = rl;
+
+    ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
+    if (iface) {
+        iface->EmitSIGTSTP();
+    }
+}
+
+void ts_readline_emit_sigcont(void* rl) {
+    if (!rl) return;
+
+    void* rawRl = ts_value_get_object((TsValue*)rl);
+    if (!rawRl) rawRl = rl;
+
+    ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
+    if (iface) {
+        iface->EmitSIGCONT();
+    }
 }
 
 }  // extern "C"
