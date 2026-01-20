@@ -33,7 +33,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `http` | ✅ | 100% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ✅ | 100% | HTTPS server/client |
-| `inspector` | ⚠️ | 70% | V8 inspector (stubbed - no V8) |
+| `inspector` | ✅ | 100% | V8 inspector (stubbed - no V8) |
 | `module` | ❌ | 0% | Module system |
 | `net` | ✅ | 100% | TCP sockets |
 | `os` | ✅ | 100% | OS utilities |
@@ -43,7 +43,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ✅ | 100% | Query parsing |
 | `readline` | ❌ | 0% | Line input |
-| `repl` | ❌ | 0% | REPL |
+| `repl` | N/A | - | REPL (AOT incompatible) |
 | `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
 | `timers` | ✅ | 100% | Timers |
@@ -895,9 +895,9 @@ Note: The inspector module provides access to the V8 inspector for debugging. Si
 | `session.connect()` | ✅ | No-op stub |
 | `session.connectToMainThread()` | ✅ | No-op stub |
 | `session.disconnect()` | ✅ | No-op stub |
-| `session.post()` | ⚠️ | Stub exists but codegen routing issue |
+| `session.post()` | ✅ | No-op stub |
 
-**Inspector Coverage: 9/10 (90%)** - Stubbed (no V8)
+**Inspector Coverage: 10/10 (100%)** - Stubbed (no V8)
 
 ---
 

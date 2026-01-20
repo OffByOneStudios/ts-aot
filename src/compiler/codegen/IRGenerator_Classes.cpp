@@ -31,6 +31,19 @@ static void ensureBoxedPrimitivesBoxingRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_string_object_create", {false}, true);   // ptr -> ptr
 }
 
+// Forward declaration of helper for inspector session boxing registration
+static bool inspectorSessionBoxingRegistered = false;
+static void ensureInspectorSessionBoxingRegistered(BoxingPolicy& bp) {
+    if (inspectorSessionBoxingRegistered) return;
+    inspectorSessionBoxingRegistered = true;
+    // inspector.Session methods - all stubs since no V8
+    bp.registerRuntimeApi("ts_inspector_session_create", {}, false);
+    bp.registerRuntimeApi("ts_inspector_session_connect", {true}, false);
+    bp.registerRuntimeApi("ts_inspector_session_connect_to_main_thread", {true}, false);
+    bp.registerRuntimeApi("ts_inspector_session_disconnect", {true}, false);
+    bp.registerRuntimeApi("ts_inspector_session_post", {true, true, true, true}, false);
+}
+
 // Helper to get class members from either ClassDeclaration or ClassExpression
 static const std::vector<NodePtr>* getClassMembers(std::shared_ptr<ClassType> classType) {
     if (classType->node) {
@@ -1140,6 +1153,7 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             return;
         } else if (className == "InspectorSession") {
             // new inspector.Session() - stub implementation
+            ensureInspectorSessionBoxingRegistered(boxingPolicy);
             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_inspector_session_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), {});

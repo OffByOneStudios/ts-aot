@@ -56,9 +56,12 @@ function user_main(): number {
     console.log("PASS: session.disconnect() completed without error");
     passed++;
 
-    // Note: session.post() is a stub but has issues with codegen routing
-    // The key functionality (open/close/url/waitForDebugger/Session lifecycle) works
-    // session.post() would require more complex codegen integration
+    // Test 8: session.post() should not throw (stub, no-op)
+    console.log("\nTest 8: session.post()...");
+    session.connect();  // Re-connect for the post test
+    session.post('Runtime.enable');
+    console.log("PASS: session.post() completed without error");
+    passed++;
 
     // Summary
     console.log("");
