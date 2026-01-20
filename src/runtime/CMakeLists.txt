@@ -102,6 +102,7 @@ add_library(tsruntime STATIC
     src/TsDNS.cpp
     src/TsUDPSocket.cpp
     src/TsInspector.cpp
+    src/TsReadline.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

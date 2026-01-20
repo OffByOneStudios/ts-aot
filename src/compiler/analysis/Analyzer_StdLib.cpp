@@ -1453,5 +1453,6 @@ Analyzer::Analyzer() {
     registerDNS();
     registerDgram();
     registerInspector();
+    registerReadline();
 }
 } // namespace ts

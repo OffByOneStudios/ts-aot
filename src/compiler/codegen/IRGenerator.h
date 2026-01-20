@@ -220,6 +220,8 @@ private:
     bool tryGenerateInspectorCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateInspectorSessionNew(ast::NewExpression* node);
     bool tryGenerateInspectorSessionCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateReadlineCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateReadlineInterfaceCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);
