@@ -29,8 +29,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns` | ✅ | 100% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 100% | EventEmitter |
-| `fs` | ⚠️ | 98% | File system |
-| `http` | ⚠️ | 70% | HTTP server/client |
+| `fs` | ✅ | 100% | File system |
+| `http` | ⚠️ | 73% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
 | `https` | ⚠️ | 71% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
@@ -46,11 +46,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `repl` | ❌ | 0% | REPL |
 | `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
-| `timers` | ⚠️ | 93% | Timers |
+| `timers` | ✅ | 100% | Timers |
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
-| `url` | ⚠️ | 82% | URL parsing |
-| `util` | ⚠️ | 77% | Utilities |
+| `url` | ✅ | 100% | URL parsing |
+| `util` | ⚠️ | 85% | Utilities |
 | `v8` | N/A | - | V8 specific (AOT incompatible) |
 | `vm` | N/A | - | VM contexts (AOT incompatible) |
 | `wasi` | N/A | - | WebAssembly (not planned) |
