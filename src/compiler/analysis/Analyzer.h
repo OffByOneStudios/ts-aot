@@ -75,6 +75,7 @@ public:
     void registerCluster();
     void registerDNS();
     void registerDgram();
+    void registerInspector();
 
     void reportError(const std::string& message);
 

@@ -268,6 +268,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateWorkerCall(node, prop)) return true;
     if (tryGenerateDNSCall(node, prop)) return true;
     if (tryGenerateDgramCall(node, prop)) return true;
+    if (tryGenerateInspectorCall(node, prop)) return true;
+    if (tryGenerateInspectorSessionCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {
