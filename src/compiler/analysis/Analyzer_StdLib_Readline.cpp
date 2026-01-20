@@ -76,6 +76,12 @@ void Analyzer::registerReadline() {
     getPromptFn->returnType = std::make_shared<Type>(TypeKind::String);
     interfaceClass->methods["getPrompt"] = getPromptFn;
 
+    // [Symbol.asyncIterator](): AsyncIterableIterator<string>
+    // Returns an async iterator for the interface
+    auto asyncIteratorFn = std::make_shared<FunctionType>();
+    asyncIteratorFn->returnType = std::make_shared<Type>(TypeKind::Any);  // AsyncIterator object
+    interfaceClass->methods["Symbol.asyncIterator"] = asyncIteratorFn;
+
     // Register the Interface type
     symbols.defineType("Interface", interfaceClass);
 

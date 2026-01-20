@@ -31,6 +31,15 @@ static void ensureReadlineFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readline_cursor_to", {true, true, true}, false);
     bp.registerRuntimeApi("ts_readline_move_cursor", {true, true, true}, false);
     bp.registerRuntimeApi("ts_readline_emit_keypress_events", {true, true}, false);
+
+    // Async iterator support
+    bp.registerRuntimeApi("ts_readline_get_async_iterator", {true}, true);  // returns boxed iterator
+    bp.registerRuntimeApi("ts_readline_async_iterator_next", {true}, true); // returns boxed promise
+
+    // Signal event emitters
+    bp.registerRuntimeApi("ts_readline_emit_sigint", {true}, false);
+    bp.registerRuntimeApi("ts_readline_emit_sigtstp", {true}, false);
+    bp.registerRuntimeApi("ts_readline_emit_sigcont", {true}, false);
 }
 
 bool IRGenerator::tryGenerateReadlineCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {

@@ -42,7 +42,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ✅ | 100% | Query parsing |
-| `readline` | ⚠️ | 84% | Line input (Interface with events) |
+| `readline` | ✅ | 100% | Line input |
 | `repl` | N/A | - | REPL (AOT incompatible) |
 | `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
@@ -1251,7 +1251,7 @@ Note: The inspector module provides access to the V8 inspector for debugging. Si
 | `rl.line` | ✅ | Current input line property |
 | `rl.cursor` | ✅ | Cursor position property |
 | `rl.getPrompt()` | ✅ | Gets the current prompt string |
-| `rl[Symbol.asyncIterator]()` | ❌ | Requires async iteration |
+| `rl[Symbol.asyncIterator]()` | ✅ | Returns async iterator for lines |
 
 ### Interface Events
 | Feature | Status | Notes |
@@ -1260,12 +1260,12 @@ Note: The inspector module provides access to the V8 inspector for debugging. Si
 | `'close'` event | ✅ | Close event emitted on close() |
 | `'pause'` event | ✅ | Pause event emitted on pause() |
 | `'resume'` event | ✅ | Resume event emitted on resume() |
-| `'history'` event | ❌ | Not implemented |
-| `'SIGCONT'` event | ❌ | Not implemented |
-| `'SIGINT'` event | ❌ | Not implemented |
-| `'SIGTSTP'` event | ❌ | Not implemented |
+| `'history'` event | ✅ | Emitted when history changes |
+| `'SIGCONT'` event | ✅ | Emitted on SIGCONT signal |
+| `'SIGINT'` event | ✅ | Emitted on SIGINT signal |
+| `'SIGTSTP'` event | ✅ | Emitted on SIGTSTP signal |
 
-**Readline Coverage: 21/25 (84%)**
+**Readline Coverage: 25/25 (100%)**
 
 ---
 
