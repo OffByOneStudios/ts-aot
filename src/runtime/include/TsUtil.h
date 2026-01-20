@@ -60,6 +60,15 @@ namespace TsUtilTypes {
     bool isStringObject(void* value);
     bool isSymbolObject(void* value);
     bool isBoxedPrimitive(void* value);
+
+    // Additional type checks for 100% coverage
+    bool isCryptoKey(void* value);
+    bool isExternal(void* value);
+    bool isKeyObject(void* value);
+    bool isMapIterator(void* value);
+    bool isModuleNamespaceObject(void* value);
+    bool isSetIterator(void* value);
+    bool isSharedArrayBuffer(void* value);
 }
 
 extern "C" {
@@ -146,4 +155,17 @@ extern "C" {
     bool ts_util_types_is_string_object(void* value);
     bool ts_util_types_is_symbol_object(void* value);
     bool ts_util_types_is_boxed_primitive(void* value);
+
+    // Additional type checks for 100% coverage
+    bool ts_util_types_is_crypto_key(void* value);
+    bool ts_util_types_is_external(void* value);
+    bool ts_util_types_is_key_object(void* value);
+    bool ts_util_types_is_map_iterator(void* value);
+    bool ts_util_types_is_module_namespace_object(void* value);
+    bool ts_util_types_is_set_iterator(void* value);
+    bool ts_util_types_is_shared_array_buffer(void* value);
+
+    // util.transferableAbortController and util.transferableAbortSignal
+    void* ts_util_transferable_abort_controller();
+    void* ts_util_transferable_abort_signal(void* signal);
 }

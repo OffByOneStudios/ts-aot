@@ -227,8 +227,29 @@ void Analyzer::registerUtil() {
     typesType->fields["isWeakMap"] = makePredicate();
     typesType->fields["isWeakSet"] = makePredicate();
     typesType->fields["isAnyArrayBuffer"] = makePredicate();
+    typesType->fields["isCryptoKey"] = makePredicate();
+    typesType->fields["isExternal"] = makePredicate();
+    typesType->fields["isKeyObject"] = makePredicate();
+    typesType->fields["isModuleNamespaceObject"] = makePredicate();
 
     utilType->fields["types"] = typesType;
+
+    // =========================================================================
+    // util.transferableAbortController(): AbortController
+    // Returns an AbortController that can be transferred across workers
+    // =========================================================================
+    auto transferableAbortControllerType = std::make_shared<FunctionType>();
+    transferableAbortControllerType->returnType = std::make_shared<Type>(TypeKind::Any);
+    utilType->fields["transferableAbortController"] = transferableAbortControllerType;
+
+    // =========================================================================
+    // util.transferableAbortSignal(signal: AbortSignal): AbortSignal
+    // Makes an AbortSignal transferable across workers
+    // =========================================================================
+    auto transferableAbortSignalType = std::make_shared<FunctionType>();
+    transferableAbortSignalType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    transferableAbortSignalType->returnType = std::make_shared<Type>(TypeKind::Any);
+    utilType->fields["transferableAbortSignal"] = transferableAbortSignalType;
 
     // Register the util module
     symbols.define("util", utilType);

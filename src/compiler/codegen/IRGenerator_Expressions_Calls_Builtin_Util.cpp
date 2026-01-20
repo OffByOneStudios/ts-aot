@@ -69,6 +69,19 @@ static void ensureUtilFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_util_types_is_symbol_object", {true}, false);
     bp.registerRuntimeApi("ts_util_types_is_boxed_primitive", {true}, false);
 
+    // Additional type checks for 100% coverage
+    bp.registerRuntimeApi("ts_util_types_is_crypto_key", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_external", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_key_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_map_iterator", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_module_namespace_object", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_set_iterator", {true}, false);
+    bp.registerRuntimeApi("ts_util_types_is_shared_array_buffer", {true}, false);
+
+    // Transferable functions
+    bp.registerRuntimeApi("ts_util_transferable_abort_controller", {}, true);
+    bp.registerRuntimeApi("ts_util_transferable_abort_signal", {true}, true);
+
     // Array helpers used in util
     bp.registerRuntimeApi("ts_array_create_sized", {false}, true);
     bp.registerRuntimeApi("ts_array_push", {true, true}, false);
@@ -488,6 +501,39 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
     }
 
     // =========================================================================
+    // util.transferableAbortController()
+    // Returns an AbortController that can be transferred across workers
+    // =========================================================================
+    if (isUtil && prop->name == "transferableAbortController") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_transferable_abort_controller", ft);
+        lastValue = createCall(ft, fn.getCallee(), {});
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
+    // util.transferableAbortSignal(signal)
+    // Makes an AbortSignal transferable across workers
+    // =========================================================================
+    if (isUtil && prop->name == "transferableAbortSignal") {
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* signal = lastValue;
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_util_transferable_abort_signal", ft);
+        lastValue = createCall(ft, fn.getCallee(), { signal });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    // =========================================================================
     // util.types.* - Type checking functions
     // =========================================================================
     if (isUtilTypes) {
@@ -536,6 +582,14 @@ bool IRGenerator::tryGenerateUtilCall(ast::CallExpression* node, ast::PropertyAc
         else if (prop->name == "isStringObject") fnName = "ts_util_types_is_string_object";
         else if (prop->name == "isSymbolObject") fnName = "ts_util_types_is_symbol_object";
         else if (prop->name == "isBoxedPrimitive") fnName = "ts_util_types_is_boxed_primitive";
+        // Additional type checks for 100% coverage
+        else if (prop->name == "isCryptoKey") fnName = "ts_util_types_is_crypto_key";
+        else if (prop->name == "isExternal") fnName = "ts_util_types_is_external";
+        else if (prop->name == "isKeyObject") fnName = "ts_util_types_is_key_object";
+        else if (prop->name == "isMapIterator") fnName = "ts_util_types_is_map_iterator";
+        else if (prop->name == "isModuleNamespaceObject") fnName = "ts_util_types_is_module_namespace_object";
+        else if (prop->name == "isSetIterator") fnName = "ts_util_types_is_set_iterator";
+        else if (prop->name == "isSharedArrayBuffer") fnName = "ts_util_types_is_shared_array_buffer";
         else {
             // Unknown util.types function - return false
             lastValue = llvm::ConstantInt::get(builder->getInt1Ty(), false);

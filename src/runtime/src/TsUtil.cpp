@@ -2510,4 +2510,115 @@ void* ts_util_parse_env(void* contentArg) {
     return ts_value_make_object(result);
 }
 
+// ============================================================================
+// Additional util.types functions for 100% coverage
+// ============================================================================
+
+// util.types.isCryptoKey - checks if value is a CryptoKey
+// Note: We don't have a native CryptoKey implementation, always returns false
+bool ts_util_types_is_crypto_key(void* value) {
+    // CryptoKey is part of the Web Crypto API, not implemented in our runtime
+    return false;
+}
+
+// util.types.isExternal - checks if value is an External value (V8-specific)
+// Note: This is a V8-specific concept, not applicable in AOT compilation
+bool ts_util_types_is_external(void* value) {
+    // External values are V8-specific, not applicable in AOT
+    return false;
+}
+
+// util.types.isKeyObject - checks if value is a KeyObject (crypto keys)
+// Note: We don't have a native KeyObject implementation, always returns false
+bool ts_util_types_is_key_object(void* value) {
+    // KeyObject is part of Node.js crypto module for key storage
+    // Not yet implemented in our runtime
+    return false;
+}
+
+// util.types.isMapIterator - checks if value is a Map Iterator
+// Note: Our Map.entries/keys/values return arrays, not true iterators
+bool ts_util_types_is_map_iterator(void* value) {
+    // We return arrays from Map iteration methods, not true iterators
+    // A true Map iterator would have a specific type/magic
+    return false;
+}
+
+// util.types.isModuleNamespaceObject - checks if value is a module namespace
+// Note: AOT compilation doesn't preserve module namespace objects
+bool ts_util_types_is_module_namespace_object(void* value) {
+    // Module namespace objects are not preserved in AOT compilation
+    return false;
+}
+
+// util.types.isSetIterator - checks if value is a Set Iterator
+// Note: Our Set.entries/keys/values return arrays, not true iterators
+bool ts_util_types_is_set_iterator(void* value) {
+    // We return arrays from Set iteration methods, not true iterators
+    return false;
+}
+
+// util.types.isSharedArrayBuffer - checks if value is a SharedArrayBuffer
+// Note: SharedArrayBuffer requires shared memory support, not implemented
+bool ts_util_types_is_shared_array_buffer(void* value) {
+    // SharedArrayBuffer is not implemented (requires threading support)
+    return false;
+}
+
+
+// ============================================================================
+// util.transferableAbortController and util.transferableAbortSignal
+// These are used for transferring AbortController/Signal across workers
+// Since we don't have worker_threads, these return the input unchanged
+// ============================================================================
+
+void* ts_util_transferable_abort_controller() {
+    // Without worker_threads support, we create a regular AbortController
+    // For now, return a simple object that mimics AbortController interface
+    TsMap* controller = TsMap::Create();
+
+    // Create a signal object
+    TsMap* signal = TsMap::Create();
+    TsValue abortedKey, abortedVal;
+    abortedKey.type = ValueType::STRING_PTR;
+    abortedKey.ptr_val = TsString::Create("aborted");
+    abortedVal.type = ValueType::BOOLEAN;
+    abortedVal.b_val = false;
+    signal->Set(abortedKey, abortedVal);
+
+    TsValue reasonKey, reasonVal;
+    reasonKey.type = ValueType::STRING_PTR;
+    reasonKey.ptr_val = TsString::Create("reason");
+    reasonVal.type = ValueType::UNDEFINED;
+    signal->Set(reasonKey, reasonVal);
+
+    // Set signal on controller
+    TsValue signalKey, signalVal;
+    signalKey.type = ValueType::STRING_PTR;
+    signalKey.ptr_val = TsString::Create("signal");
+    signalVal.type = ValueType::OBJECT_PTR;
+    signalVal.ptr_val = signal;
+    controller->Set(signalKey, signalVal);
+
+    return ts_value_make_object(controller);
+}
+
+void* ts_util_transferable_abort_signal(void* signal) {
+    // Without worker_threads, just return the signal as-is
+    // The signal is already "transferable" in a single-threaded context
+    if (!signal) return nullptr;
+    return signal;
+}
+
 } // extern "C"
+
+// Namespace implementations (outside extern "C" for C++ linkage)
+namespace TsUtilTypes {
+    bool isCryptoKey(void* value) { return false; }
+    bool isExternal(void* value) { return false; }
+    bool isKeyObject(void* value) { return false; }
+    bool isMapIterator(void* value) { return false; }
+    bool isModuleNamespaceObject(void* value) { return false; }
+    bool isSetIterator(void* value) { return false; }
+    bool isSharedArrayBuffer(void* value) { return false; }
+}
