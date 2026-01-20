@@ -49,6 +49,8 @@ public:
     TsString* httpVersion = nullptr;  // HTTP version string (e.g., "1.1")
     bool complete = false;  // True when message has been fully received
     TsArray* rawHeaders = nullptr;  // Alternating key/value array of raw headers
+    TsArray* rawTrailers = nullptr;  // Alternating key/value array of raw trailer headers
+    TsMap* trailers = nullptr;  // Object with trailer headers (lowercase keys)
 
     // TsReadable implementation
     virtual void Pause() override;
@@ -95,25 +97,50 @@ public:
     static TsServerResponse* Create(TsSocket* socket);
 
     void WriteHead(int status, TsObject* headers);
-    
+
     // TsWritable implementation
     virtual bool Write(void* data, size_t length) override;
     virtual void End() override;
     void End(TsValue data);
-    
+
     // ServerResponse-specific properties
     int statusCode = 200;
     TsString* statusMessage = nullptr;
 
+    // Trailer support
+    void AddTrailers(TsMap* trailers);
+    TsMap* pendingTrailers = nullptr;  // Trailers to be sent after body
+
+    // Timeout support
+    void SetTimeout(int msecs, void* callback = nullptr);
+    void* timeoutCallback = nullptr;
+    uv_timer_t* timeoutTimer = nullptr;
+
+    // Get underlying socket
+    TsSocket* GetSocket() { return socket; }
+
 private:
     TsServerResponse(TsSocket* socket);
     TsSocket* socket;
+
+    static void OnTimeout(uv_timer_t* handle);
 };
 
 class TsHttpServer : public TsServer {
 public:
     static constexpr uint32_t MAGIC = 0x48535256; // "HSRV"
     static TsHttpServer* Create(TsValue* options, void* callback);
+
+    // Timeout configuration (in milliseconds)
+    int timeout = 0;                // Socket timeout (0 = no timeout)
+    int keepAliveTimeout = 5000;    // Keep-alive timeout (default: 5 seconds)
+    int headersTimeout = 60000;     // Headers receive timeout (default: 60 seconds)
+    int requestTimeout = 0;         // Request body timeout (0 = no timeout)
+    int maxHeadersCount = 2000;     // Maximum number of headers
+
+    // Set timeout for all sockets
+    void SetTimeout(int msecs, void* callback = nullptr);
+    void* timeoutCallback = nullptr;
 
 protected:
     TsHttpServer();
@@ -164,8 +191,23 @@ public:
     virtual void Connect();
     void ReturnSocketToAgent();          // Return socket to agent pool after request
 
+    // Timeout support
+    void SetTimeout(int msecs, void* callback = nullptr);
+    void* timeoutCallback = nullptr;
+    uv_timer_t* timeoutTimer = nullptr;
+
+    // Socket configuration
+    void SetNoDelay(bool noDelay);
+    void SetSocketKeepAlive(bool enable, int initialDelay = 0);
+
+    // Additional properties
+    bool reusedSocket = false;           // True if socket was reused from pool
+    int maxHeadersCount = 2000;          // Maximum number of headers
+
 protected:
     TsClientRequest(TsValue* options, void* callback, bool is_https = false);
+
+    static void OnTimeout(uv_timer_t* handle);
 };
 
 // HTTP Agent for connection pooling
@@ -271,6 +313,37 @@ extern "C" {
     void* ts_client_request_get_header(void* req, void* name);
     void ts_client_request_set_header(void* req, void* name, void* value);
     void* ts_client_request_get_socket(void* req);
+
+    // Server timeout configuration
+    void ts_http_server_set_timeout(void* server, int64_t msecs, void* callback);
+    int64_t ts_http_server_get_timeout(void* server);
+    int64_t ts_http_server_get_keep_alive_timeout(void* server);
+    void ts_http_server_set_keep_alive_timeout(void* server, int64_t msecs);
+    int64_t ts_http_server_get_headers_timeout(void* server);
+    void ts_http_server_set_headers_timeout(void* server, int64_t msecs);
+    int64_t ts_http_server_get_request_timeout(void* server);
+    void ts_http_server_set_request_timeout(void* server, int64_t msecs);
+    int64_t ts_http_server_get_max_headers_count(void* server);
+    void ts_http_server_set_max_headers_count(void* server, int64_t count);
+
+    // ServerResponse timeout
+    void ts_server_response_set_timeout(void* res, int64_t msecs, void* callback);
+
+    // ServerResponse trailers
+    void ts_server_response_add_trailers(void* res, void* trailers);
+
+    // IncomingMessage trailers
+    void* ts_incoming_message_rawTrailers(void* ctx, void* msg);
+    void* ts_incoming_message_trailers(void* ctx, void* msg);
+
+    // ClientRequest timeout and socket config
+    void ts_client_request_set_timeout(void* req, int64_t msecs, void* callback);
+    void ts_client_request_set_no_delay(void* req, int64_t noDelay);
+    void ts_client_request_set_socket_keep_alive(void* req, int64_t enable, int64_t initialDelay);
+    bool ts_client_request_get_reused_socket(void* req);
+    int64_t ts_client_request_get_max_headers_count(void* req);
+    void ts_client_request_set_max_headers_count(void* req, int64_t count);
+    void* ts_client_request_get_raw_header_names(void* req);
 }
 
 // HTTP CloseEvent class (for WebSocket and other close events)

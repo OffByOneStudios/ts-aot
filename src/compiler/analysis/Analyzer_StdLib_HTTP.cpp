@@ -156,7 +156,9 @@ void Analyzer::registerHTTP() {
     incomingMessageClass->fields["httpVersion"] = std::make_shared<Type>(TypeKind::String);
     incomingMessageClass->fields["complete"] = std::make_shared<Type>(TypeKind::Boolean);
     incomingMessageClass->fields["rawHeaders"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
-    
+    incomingMessageClass->fields["rawTrailers"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    incomingMessageClass->fields["trailers"] = std::make_shared<Type>(TypeKind::Any);  // Object with trailer headers
+
     symbols.defineType("IncomingMessage", incomingMessageClass);
 
     auto serverResponseClass = std::make_shared<ClassType>("ServerResponse");
@@ -181,6 +183,19 @@ void Analyzer::registerHTTP() {
     serverResponseClass->fields["statusCode"] = std::make_shared<Type>(TypeKind::Int);
     serverResponseClass->fields["statusMessage"] = std::make_shared<Type>(TypeKind::String);
 
+    // res.setTimeout(msecs, callback?)
+    auto resSetTimeoutMethod = std::make_shared<FunctionType>();
+    resSetTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // msecs
+    resSetTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback (optional)
+    resSetTimeoutMethod->returnType = serverResponseClass;  // Returns this for chaining
+    serverResponseClass->methods["setTimeout"] = resSetTimeoutMethod;
+
+    // res.addTrailers(trailers)
+    auto addTrailersMethod = std::make_shared<FunctionType>();
+    addTrailersMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // trailers object
+    addTrailersMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    serverResponseClass->methods["addTrailers"] = addTrailersMethod;
+
     symbols.defineType("ServerResponse", serverResponseClass);
 
     // Use existing Server class from net module, or create one
@@ -191,6 +206,20 @@ void Analyzer::registerHTTP() {
     }
     auto eventEmitterClass = std::static_pointer_cast<ClassType>(symbols.lookupType("EventEmitter"));
     serverClass->baseClass = eventEmitterClass;
+
+    // Server timeout properties
+    serverClass->fields["timeout"] = std::make_shared<Type>(TypeKind::Int);
+    serverClass->fields["keepAliveTimeout"] = std::make_shared<Type>(TypeKind::Int);
+    serverClass->fields["headersTimeout"] = std::make_shared<Type>(TypeKind::Int);
+    serverClass->fields["requestTimeout"] = std::make_shared<Type>(TypeKind::Int);
+    serverClass->fields["maxHeadersCount"] = std::make_shared<Type>(TypeKind::Int);
+
+    // server.setTimeout(msecs, callback?)
+    auto setTimeoutMethod = std::make_shared<FunctionType>();
+    setTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // msecs
+    setTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback (optional)
+    setTimeoutMethod->returnType = serverClass;  // Returns this for chaining
+    serverClass->methods["setTimeout"] = setTimeoutMethod;
     
     auto createServerType = std::make_shared<FunctionType>();
     auto requestCallback = std::make_shared<FunctionType>();
@@ -238,6 +267,37 @@ void Analyzer::registerHTTP() {
     auto flushHeadersMethodCR = std::make_shared<FunctionType>();
     flushHeadersMethodCR->returnType = std::make_shared<Type>(TypeKind::Void);
     clientRequestClass->methods["flushHeaders"] = flushHeadersMethodCR;
+
+    // req.setTimeout(msecs, callback?)
+    auto reqSetTimeoutMethod = std::make_shared<FunctionType>();
+    reqSetTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // msecs
+    reqSetTimeoutMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback (optional)
+    reqSetTimeoutMethod->returnType = clientRequestClass;  // Returns this for chaining
+    clientRequestClass->methods["setTimeout"] = reqSetTimeoutMethod;
+
+    // req.setNoDelay(noDelay?)
+    auto setNoDelayMethod = std::make_shared<FunctionType>();
+    setNoDelayMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // noDelay (optional, default true)
+    setNoDelayMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    clientRequestClass->methods["setNoDelay"] = setNoDelayMethod;
+
+    // req.setSocketKeepAlive(enable?, initialDelay?)
+    auto setSocketKeepAliveMethod = std::make_shared<FunctionType>();
+    setSocketKeepAliveMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean)); // enable
+    setSocketKeepAliveMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int)); // initialDelay (optional)
+    setSocketKeepAliveMethod->returnType = std::make_shared<Type>(TypeKind::Void);
+    clientRequestClass->methods["setSocketKeepAlive"] = setSocketKeepAliveMethod;
+
+    // req.reusedSocket - boolean property
+    clientRequestClass->fields["reusedSocket"] = std::make_shared<Type>(TypeKind::Boolean);
+
+    // req.maxHeadersCount - number property
+    clientRequestClass->fields["maxHeadersCount"] = std::make_shared<Type>(TypeKind::Int);
+
+    // req.getRawHeaderNames() - returns array of original-case header names
+    auto getRawHeaderNamesMethod = std::make_shared<FunctionType>();
+    getRawHeaderNamesMethod->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+    clientRequestClass->methods["getRawHeaderNames"] = getRawHeaderNamesMethod;
 
     symbols.defineType("ClientRequest", clientRequestClass);
 

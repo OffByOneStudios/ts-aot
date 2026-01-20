@@ -211,6 +211,64 @@ TsServerResponse* TsServerResponse::Create(TsSocket* socket) {
     return new (mem) TsServerResponse(socket);
 }
 
+void TsServerResponse::OnTimeout(uv_timer_t* handle) {
+    TsServerResponse* res = (TsServerResponse*)handle->data;
+    if (!res) return;
+
+    // Emit 'timeout' event
+    res->Emit("timeout", 0, nullptr);
+
+    // Call the timeout callback if provided
+    if (res->timeoutCallback) {
+        TsValue* cb = (TsValue*)res->timeoutCallback;
+        if (cb->type == ValueType::FUNCTION_PTR) {
+            ts_call_0(cb);
+        }
+    }
+}
+
+void TsServerResponse::SetTimeout(int msecs, void* callback) {
+    this->timeoutCallback = callback;
+
+    if (msecs <= 0) {
+        // Stop and clean up existing timer
+        if (timeoutTimer) {
+            uv_timer_stop(timeoutTimer);
+        }
+        return;
+    }
+
+    // Create timer if needed
+    if (!timeoutTimer) {
+        timeoutTimer = (uv_timer_t*)ts_alloc(sizeof(uv_timer_t));
+        uv_timer_init(uv_default_loop(), timeoutTimer);
+        timeoutTimer->data = this;
+    }
+
+    // Start/restart timer
+    uv_timer_start(timeoutTimer, OnTimeout, msecs, 0);
+}
+
+void TsServerResponse::AddTrailers(TsMap* trailers) {
+    if (!trailers) return;
+    if (!pendingTrailers) {
+        pendingTrailers = TsMap::Create();
+    }
+    // Copy all entries from trailers to pendingTrailers
+    // GetKeys() returns a void* which is a TsArray*
+    TsArray* keys = (TsArray*)trailers->GetKeys();
+    if (keys) {
+        for (int64_t i = 0; i < keys->Length(); i++) {
+            // TsArray::Get returns int64_t which we cast to TsString*
+            TsString* keyStr = (TsString*)keys->Get(i);
+            if (keyStr) {
+                TsValue value = trailers->Get(TsValue(keyStr));
+                pendingTrailers->Set(TsValue(keyStr), value);
+            }
+        }
+    }
+}
+
 void TsServerResponse::WriteHead(int status, TsObject* headers) {
     this->statusCode = status;
     this->headersSent = true;
@@ -256,8 +314,37 @@ void TsServerResponse::End(TsValue data) {
 
     if (!headersSent) WriteHead(200, nullptr);
 
-    socket->Write((void*)"0\r\n\r\n", 5);
-    
+    // Write final chunk marker
+    socket->Write((void*)"0\r\n", 3);
+
+    // Write trailers if present
+    if (pendingTrailers) {
+        TsArray* keys = (TsArray*)pendingTrailers->GetKeys();
+        if (keys) {
+            for (int64_t i = 0; i < keys->Length(); i++) {
+                // TsArray::Get returns int64_t which we cast to TsString*
+                TsString* keyStr = (TsString*)keys->Get(i);
+                if (keyStr) {
+                    TsValue value = pendingTrailers->Get(TsValue(keyStr));
+                    std::string trailer = keyStr->ToUtf8();
+                    trailer += ": ";
+                    if (value.type == ValueType::STRING_PTR) {
+                        trailer += ((TsString*)value.ptr_val)->ToUtf8();
+                    } else if (value.type == ValueType::NUMBER_INT) {
+                        trailer += std::to_string(value.i_val);
+                    } else if (value.type == ValueType::NUMBER_DBL) {
+                        trailer += std::to_string((int64_t)value.d_val);
+                    }
+                    trailer += "\r\n";
+                    socket->Write((void*)trailer.c_str(), trailer.length());
+                }
+            }
+        }
+    }
+
+    // Final CRLF
+    socket->Write((void*)"\r\n", 2);
+
     closed = true;
     Emit("finish", 0, nullptr);
 }
@@ -346,6 +433,13 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 // TsHttpServer
 TsHttpServer::TsHttpServer() : TsServer() {
     this->magic = MAGIC;
+}
+
+void TsHttpServer::SetTimeout(int msecs, void* callback) {
+    this->timeout = msecs;
+    this->timeoutCallback = callback;
+    // Note: The actual timeout is applied to each socket when connected
+    // The timeout value is used by the connection handler to set socket timeouts
 }
 
 TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
@@ -557,6 +651,56 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
 TsClientRequest* TsClientRequest::Create(TsValue* options, void* callback, bool is_https) {
     void* mem = ts_alloc(sizeof(TsClientRequest));
     return new (mem) TsClientRequest(options, callback, is_https);
+}
+
+void TsClientRequest::OnTimeout(uv_timer_t* handle) {
+    TsClientRequest* req = (TsClientRequest*)handle->data;
+    if (!req) return;
+
+    // Emit 'timeout' event
+    req->Emit("timeout", 0, nullptr);
+
+    // Call the timeout callback if provided
+    if (req->timeoutCallback) {
+        TsValue* cb = (TsValue*)req->timeoutCallback;
+        if (cb->type == ValueType::FUNCTION_PTR) {
+            ts_call_0(cb);
+        }
+    }
+}
+
+void TsClientRequest::SetTimeout(int msecs, void* callback) {
+    this->timeoutCallback = callback;
+
+    if (msecs <= 0) {
+        // Stop and clean up existing timer
+        if (timeoutTimer) {
+            uv_timer_stop(timeoutTimer);
+        }
+        return;
+    }
+
+    // Create timer if needed
+    if (!timeoutTimer) {
+        timeoutTimer = (uv_timer_t*)ts_alloc(sizeof(uv_timer_t));
+        uv_timer_init(uv_default_loop(), timeoutTimer);
+        timeoutTimer->data = this;
+    }
+
+    // Start/restart timer
+    uv_timer_start(timeoutTimer, OnTimeout, msecs, 0);
+}
+
+void TsClientRequest::SetNoDelay(bool noDelay) {
+    if (socket) {
+        socket->SetNoDelay(noDelay);
+    }
+}
+
+void TsClientRequest::SetSocketKeepAlive(bool enable, int initialDelay) {
+    if (socket) {
+        socket->SetKeepAlive(enable, initialDelay);
+    }
 }
 
 static TsValue* client_on_data(void* context, int argc, TsValue** argv) {
@@ -933,6 +1077,27 @@ bool ts_incoming_message_complete(void* ctx, void* msg) {
 void* ts_incoming_message_rawHeaders(void* ctx, void* msg) {
     TsIncomingMessage* m = (TsIncomingMessage*)msg;
     return m->rawHeaders ? m->rawHeaders : TsArray::Create();
+}
+
+void* ts_incoming_message_rawTrailers(void* ctx, void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
+    if (!m) return TsArray::Create();
+    return m->rawTrailers ? m->rawTrailers : TsArray::Create();
+}
+
+void* ts_incoming_message_trailers(void* ctx, void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
+    if (!m) {
+        return TsMap::Create();
+    }
+    if (!m->trailers) {
+        m->trailers = TsMap::Create();
+    }
+    return m->trailers;
 }
 
 // OutgoingMessage/ServerResponse property getters
@@ -2153,6 +2318,176 @@ int64_t ts_websocket_connecting() { return WS_CONNECTING; }
 int64_t ts_websocket_open() { return WS_OPEN; }
 int64_t ts_websocket_closing() { return WS_CLOSING; }
 int64_t ts_websocket_closed() { return WS_CLOSED; }
+
+// =============================================================================
+// Server timeout configuration
+// =============================================================================
+
+void ts_http_server_set_timeout(void* server, int64_t msecs, void* callback) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return;
+    s->SetTimeout((int)msecs, callback);
+}
+
+int64_t ts_http_server_get_timeout(void* server) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return 0;
+    return s->timeout;
+}
+
+int64_t ts_http_server_get_keep_alive_timeout(void* server) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return 5000;
+    return s->keepAliveTimeout;
+}
+
+void ts_http_server_set_keep_alive_timeout(void* server, int64_t msecs) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return;
+    s->keepAliveTimeout = (int)msecs;
+}
+
+int64_t ts_http_server_get_headers_timeout(void* server) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return 60000;
+    return s->headersTimeout;
+}
+
+void ts_http_server_set_headers_timeout(void* server, int64_t msecs) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return;
+    s->headersTimeout = (int)msecs;
+}
+
+int64_t ts_http_server_get_request_timeout(void* server) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return 0;
+    return s->requestTimeout;
+}
+
+void ts_http_server_set_request_timeout(void* server, int64_t msecs) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return;
+    s->requestTimeout = (int)msecs;
+}
+
+int64_t ts_http_server_get_max_headers_count(void* server) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return 2000;
+    return s->maxHeadersCount;
+}
+
+void ts_http_server_set_max_headers_count(void* server, int64_t count) {
+    void* rawPtr = ts_value_get_object((TsValue*)server);
+    if (!rawPtr) rawPtr = server;
+    TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
+    if (!s) return;
+    s->maxHeadersCount = (int)count;
+}
+
+// =============================================================================
+// ServerResponse timeout
+// =============================================================================
+
+void ts_server_response_set_timeout(void* res, int64_t msecs, void* callback) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->SetTimeout((int)msecs, callback);
+}
+
+void ts_server_response_add_trailers(void* res, void* trailers) {
+    void* rawPtr = ts_value_get_object((TsValue*)res);
+    if (!rawPtr) rawPtr = res;
+    TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
+    if (!r) return;
+
+    void* rawTrailers = ts_value_get_object((TsValue*)trailers);
+    if (!rawTrailers) rawTrailers = trailers;
+    TsMap* trailersMap = dynamic_cast<TsMap*>((TsObject*)rawTrailers);
+    if (trailersMap) {
+        r->AddTrailers(trailersMap);
+    }
+}
+
+// =============================================================================
+// ClientRequest timeout and socket config
+// =============================================================================
+
+void ts_client_request_set_timeout(void* req, int64_t msecs, void* callback) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->SetTimeout((int)msecs, callback);
+}
+
+void ts_client_request_set_no_delay(void* req, int64_t noDelay) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->SetNoDelay(noDelay != 0);
+}
+
+void ts_client_request_set_socket_keep_alive(void* req, int64_t enable, int64_t initialDelay) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->SetSocketKeepAlive(enable != 0, (int)initialDelay);
+}
+
+bool ts_client_request_get_reused_socket(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return false;
+    return r->reusedSocket;
+}
+
+int64_t ts_client_request_get_max_headers_count(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return 2000;
+    return r->maxHeadersCount;
+}
+
+void ts_client_request_set_max_headers_count(void* req, int64_t count) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+    r->maxHeadersCount = (int)count;
+}
+
+void* ts_client_request_get_raw_header_names(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return TsArray::Create();  // Return empty array
+    return r->GetRawHeaderNames();
+}
 
 }
 
