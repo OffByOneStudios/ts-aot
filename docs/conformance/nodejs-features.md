@@ -747,12 +747,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `http.createServer()` | ✅ | |
 | `server.listen()` | ✅ | |
 | `server.close()` | ✅ | |
-| `server.setTimeout()` | ❌ | |
-| `server.maxHeadersCount` | ❌ | |
-| `server.timeout` | ❌ | |
-| `server.keepAliveTimeout` | ❌ | |
-| `server.headersTimeout` | ❌ | |
-| `server.requestTimeout` | ❌ | |
+| `server.setTimeout()` | ✅ | With optional callback |
+| `server.maxHeadersCount` | ✅ | Default 2000 |
+| `server.timeout` | ✅ | Socket timeout in ms |
+| `server.keepAliveTimeout` | ✅ | Default 5000ms |
+| `server.headersTimeout` | ✅ | Default 60000ms |
+| `server.requestTimeout` | ✅ | Default 0 (disabled) |
 
 ### Request (IncomingMessage)
 | Feature | Status | Notes |
@@ -765,10 +765,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.complete` | ✅ | Set true after message fully received |
 | `req.aborted` | ❌ | |
 | `req.rawHeaders` | ✅ | Alternating key/value array with original case |
-| `req.rawTrailers` | ❌ | |
+| `req.rawTrailers` | ✅ | Alternating key/value array |
 | `req.statusCode` | ✅ | |
 | `req.statusMessage` | ✅ | For HTTP client responses |
-| `req.trailers` | ❌ | |
+| `req.trailers` | ✅ | Object with trailer headers |
 
 ### Response (ServerResponse)
 | Feature | Status | Notes |
@@ -788,8 +788,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `res.writableEnded` | ✅ | |
 | `res.writableFinished` | ✅ | |
 | `res.flushHeaders()` | ✅ | |
-| `res.setTimeout()` | ❌ | |
-| `res.addTrailers()` | ❌ | |
+| `res.setTimeout()` | ✅ | With optional callback |
+| `res.addTrailers()` | ✅ | Adds trailing headers after response body |
 
 ### Client
 | Feature | Status | Notes |
@@ -816,22 +816,22 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.end()` | ✅ | |
 | `req.flushHeaders()` | ✅ | |
 | `req.getHeader()` | ✅ | |
-| `req.getRawHeaderNames()` | ❌ | |
-| `req.maxHeadersCount` | ❌ | |
+| `req.getRawHeaderNames()` | ✅ | Returns array of original header names |
+| `req.maxHeadersCount` | ✅ | Get/set max headers |
 | `req.path` | ✅ | |
 | `req.method` | ✅ | |
 | `req.host` | ✅ | |
 | `req.protocol` | ✅ | |
 | `req.removeHeader()` | ✅ | Via OutgoingMessage base class |
-| `req.reusedSocket` | ❌ | |
+| `req.reusedSocket` | ✅ | Boolean property |
 | `req.setHeader()` | ✅ | |
-| `req.setNoDelay()` | ❌ | |
-| `req.setSocketKeepAlive()` | ❌ | |
-| `req.setTimeout()` | ❌ | |
+| `req.setNoDelay()` | ✅ | Nagle algorithm control |
+| `req.setSocketKeepAlive()` | ✅ | TCP keepalive |
+| `req.setTimeout()` | ✅ | With optional callback |
 | `req.socket` | ✅ | Returns underlying net.Socket |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 49/67 (73%)**
+**HTTP Coverage: 64/67 (96%)**
 
 ---
 
@@ -842,12 +842,12 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `https.createServer()` | ✅ | |
 | `https.request()` | ✅ | |
 | `https.get()` | ✅ | |
-| `https.Agent` | ❌ | |
-| `https.globalAgent` | ❌ | |
+| `https.Agent` | ✅ | Constructor with options |
+| `https.globalAgent` | ✅ | Default agent instance |
 | Server options (key, cert, ca, etc.) | ✅ | |
 | Client options (rejectUnauthorized, etc.) | ⚠️ | |
 
-**HTTPS Coverage: 5/7 (71%)**
+**HTTPS Coverage: 7/7 (100%)**
 
 ---
 

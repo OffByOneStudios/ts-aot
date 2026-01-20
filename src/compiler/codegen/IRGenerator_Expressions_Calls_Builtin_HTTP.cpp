@@ -90,6 +90,11 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_incoming_message_httpVersion", {true, true}, false);  // (ctx, msg) -> string
     bp.registerRuntimeApi("ts_incoming_message_complete", {true, true}, false);  // (ctx, msg) -> bool
     bp.registerRuntimeApi("ts_incoming_message_rawHeaders", {true, true}, true);  // (ctx, msg) -> array
+    bp.registerRuntimeApi("ts_incoming_message_rawTrailers", {true, true}, true);  // (ctx, msg) -> array
+    bp.registerRuntimeApi("ts_incoming_message_trailers", {true, true}, true);  // (ctx, msg) -> object
+
+    // ServerResponse addTrailers
+    bp.registerRuntimeApi("ts_server_response_add_trailers", {true, true}, false);  // (res, trailers) -> void
 
     // ClientRequest property getters and methods
     bp.registerRuntimeApi("ts_client_request_get_path", {true}, false);  // (req) -> string
@@ -99,6 +104,30 @@ static void ensureHTTPFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_client_request_get_header", {true, false}, true);  // (req, name) -> any
     bp.registerRuntimeApi("ts_client_request_set_header", {true, false, true}, false);  // (req, name, value) -> void
     bp.registerRuntimeApi("ts_client_request_get_socket", {true}, false);  // (req) -> socket
+
+    // Server timeout configuration
+    bp.registerRuntimeApi("ts_http_server_set_timeout", {true, false, true}, true);  // (server, msecs, callback) -> server
+    bp.registerRuntimeApi("ts_http_server_get_timeout", {true}, false);  // (server) -> int
+    bp.registerRuntimeApi("ts_http_server_get_keep_alive_timeout", {true}, false);  // (server) -> int
+    bp.registerRuntimeApi("ts_http_server_set_keep_alive_timeout", {true, false}, false);  // (server, msecs) -> void
+    bp.registerRuntimeApi("ts_http_server_get_headers_timeout", {true}, false);  // (server) -> int
+    bp.registerRuntimeApi("ts_http_server_set_headers_timeout", {true, false}, false);  // (server, msecs) -> void
+    bp.registerRuntimeApi("ts_http_server_get_request_timeout", {true}, false);  // (server) -> int
+    bp.registerRuntimeApi("ts_http_server_set_request_timeout", {true, false}, false);  // (server, msecs) -> void
+    bp.registerRuntimeApi("ts_http_server_get_max_headers_count", {true}, false);  // (server) -> int
+    bp.registerRuntimeApi("ts_http_server_set_max_headers_count", {true, false}, false);  // (server, count) -> void
+
+    // ServerResponse timeout
+    bp.registerRuntimeApi("ts_server_response_set_timeout", {true, false, true}, true);  // (res, msecs, callback) -> res
+
+    // ClientRequest timeout and socket configuration
+    bp.registerRuntimeApi("ts_client_request_set_timeout", {true, false, true}, true);  // (req, msecs, callback) -> req
+    bp.registerRuntimeApi("ts_client_request_set_no_delay", {true, false}, false);  // (req, noDelay) -> void
+    bp.registerRuntimeApi("ts_client_request_set_socket_keep_alive", {true, false, false}, false);  // (req, enable, initialDelay) -> void
+    bp.registerRuntimeApi("ts_client_request_get_reused_socket", {true}, false);  // (req) -> bool
+    bp.registerRuntimeApi("ts_client_request_get_max_headers_count", {true}, false);  // (req) -> int
+    bp.registerRuntimeApi("ts_client_request_set_max_headers_count", {true, false}, false);  // (req, count) -> void
+    bp.registerRuntimeApi("ts_client_request_get_raw_header_names", {true}, true);  // (req) -> string[]
 }
 
 bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -267,20 +296,42 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             if (node->arguments.empty()) return true;
             visit(prop->expression.get());
             llvm::Value* server = lastValue;
-            
+
             visit(node->arguments[0].get());
             llvm::Value* port = boxValue(lastValue, node->arguments[0]->inferredType);
-            
+
             llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
             if (node->arguments.size() > 1) {
                 visit(node->arguments[1].get());
                 callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
             }
-            
+
             llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(), { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_http_server_listen", ft);
             createCall(ft, fn.getCallee(), { server, port, callback });
             lastValue = server;
+            return true;
+        } else if (prop->name == "setTimeout") {
+            // server.setTimeout(msecs, callback?) -> server
+            visit(prop->expression.get());
+            llvm::Value* server = lastValue;
+
+            llvm::Value* msecs = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                msecs = castValue(lastValue, builder->getInt64Ty());
+            }
+
+            llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_http_server_set_timeout", ft);
+            lastValue = createCall(ft, fn.getCallee(), { server, msecs, callback });
             return true;
         }
     }
@@ -453,6 +504,96 @@ bool IRGenerator::tryGenerateHTTPCall(ast::CallExpression* node, ast::PropertyAc
             createCall(ft, fn.getCallee(), { msg });
             lastValue = msg; // Return 'this' for chaining
             return true;
+        } else if (prop->name == "setTimeout") {
+            // res.setTimeout(msecs, callback?) or req.setTimeout(msecs, callback?)
+            visit(prop->expression.get());
+            llvm::Value* obj = lastValue;
+
+            llvm::Value* msecs = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                msecs = castValue(lastValue, builder->getInt64Ty());
+            }
+
+            llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                callback = lastValue ? boxValue(lastValue, node->arguments[1]->inferredType) : getUndefinedValue();
+            }
+
+            const char* fnName = isServerResponse ? "ts_server_response_set_timeout" : "ts_client_request_set_timeout";
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(fnName, ft);
+            lastValue = createCall(ft, fn.getCallee(), { obj, msecs, callback });
+            return true;
+        } else if (prop->name == "setNoDelay" && isClientRequest) {
+            // req.setNoDelay(noDelay)
+            visit(prop->expression.get());
+            llvm::Value* req = lastValue;
+
+            llvm::Value* noDelay = llvm::ConstantInt::getTrue(*context);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                noDelay = castValue(lastValue, builder->getInt1Ty());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getInt1Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_client_request_set_no_delay", ft);
+            createCall(ft, fn.getCallee(), { req, noDelay });
+            lastValue = req;
+            return true;
+        } else if (prop->name == "setSocketKeepAlive" && isClientRequest) {
+            // req.setSocketKeepAlive(enable, initialDelay?)
+            visit(prop->expression.get());
+            llvm::Value* req = lastValue;
+
+            llvm::Value* enable = llvm::ConstantInt::getFalse(*context);
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                enable = castValue(lastValue, builder->getInt1Ty());
+            }
+
+            llvm::Value* initialDelay = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            if (node->arguments.size() > 1) {
+                visit(node->arguments[1].get());
+                initialDelay = castValue(lastValue, builder->getInt64Ty());
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getInt1Ty(), builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_client_request_set_socket_keep_alive", ft);
+            createCall(ft, fn.getCallee(), { req, enable, initialDelay });
+            lastValue = req;
+            return true;
+        } else if (prop->name == "getRawHeaderNames" && isClientRequest) {
+            // req.getRawHeaderNames() -> string[]
+            visit(prop->expression.get());
+            llvm::Value* req = lastValue;
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_client_request_get_raw_header_names", ft);
+            lastValue = createCall(ft, fn.getCallee(), { req });
+            return true;
+        } else if (prop->name == "addTrailers" && isServerResponse) {
+            // res.addTrailers(trailers)
+            visit(prop->expression.get());
+            llvm::Value* res = lastValue;
+
+            llvm::Value* trailers = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            if (!node->arguments.empty()) {
+                visit(node->arguments[0].get());
+                trailers = lastValue ? boxValue(lastValue, node->arguments[0]->inferredType) : getUndefinedValue();
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_server_response_add_trailers", ft);
+            createCall(ft, fn.getCallee(), { res, trailers });
+            lastValue = res;  // Return 'this' for chaining
+            return true;
         }
     }
 
@@ -607,8 +748,51 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_socket", ft);
                 lastValue = createCall(ft, fn.getCallee(), { res });
                 return true;
+            } else if (node->name == "reusedSocket" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt1Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_reused_socket", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
+            } else if (node->name == "maxHeadersCount" && classType->name == "ClientRequest") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_client_request_get_max_headers_count", ft);
+                lastValue = createCall(ft, fn.getCallee(), { res });
+                return true;
             }
             // Let other properties fall through to generic object property access
+        }
+
+        // Server timeout properties
+        if (classType->name == "Server") {
+            visit(node->expression.get());
+            llvm::Value* server = lastValue;
+
+            if (node->name == "timeout") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_get_timeout", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            } else if (node->name == "keepAliveTimeout") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_get_keep_alive_timeout", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            } else if (node->name == "headersTimeout") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_get_headers_timeout", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            } else if (node->name == "requestTimeout") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_get_request_timeout", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            } else if (node->name == "maxHeadersCount") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_http_server_get_max_headers_count", ft);
+                lastValue = createCall(ft, fn.getCallee(), { server });
+                return true;
+            }
         }
 
         // IncomingMessage properties (statusMessage, httpVersion, complete, rawHeaders)
@@ -637,6 +821,18 @@ bool IRGenerator::tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* n
             } else if (node->name == "rawHeaders") {
                 llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
                 llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_rawHeaders", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "rawTrailers") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_rawTrailers", ft);
+                llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
+                lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
+                return true;
+            } else if (node->name == "trailers") {
+                llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module->getOrInsertFunction("ts_incoming_message_trailers", ft);
                 llvm::Value* ctx = llvm::ConstantPointerNull::get(builder->getPtrTy());
                 lastValue = createCall(ft, fn.getCallee(), { ctx, msg });
                 return true;
