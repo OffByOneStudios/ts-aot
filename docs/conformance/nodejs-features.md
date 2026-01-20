@@ -803,7 +803,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `http.METHODS` | ✅ | Array of HTTP method strings |
-| `http.STATUS_CODES` | ⚠️ | Object exists but property access issues |
+| `http.STATUS_CODES` | ✅ | Complete with all standard status codes |
 | `http.maxHeaderSize` | ✅ | Returns 16384 |
 | `http.validateHeaderName()` | ✅ | |
 | `http.validateHeaderValue()` | ✅ | |
@@ -831,7 +831,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ✅ | Returns underlying net.Socket |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 64/67 (96%)**
+**HTTP Coverage: 65/67 (97%)**
 
 ---
 
@@ -845,7 +845,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `https.Agent` | ✅ | Constructor with options |
 | `https.globalAgent` | ✅ | Default agent instance |
 | Server options (key, cert, ca, etc.) | ✅ | |
-| Client options (rejectUnauthorized, etc.) | ⚠️ | |
+| Client options (rejectUnauthorized, etc.) | ✅ | rejectUnauthorized, ca supported |
 
 **HTTPS Coverage: 7/7 (100%)**
 
@@ -1369,8 +1369,8 @@ Note: 6 features are marked N/A:
 | Dgram | 28 | 28 | 100% |
 | Events | 21 | 21 | 100% |
 | File System | 123 | 123 | 100% |
-| HTTP | 49 | 67 | 73% |
-| HTTPS | 5 | 7 | 71% |
+| HTTP | 65 | 67 | 97% |
+| HTTPS | 7 | 7 | 100% |
 | Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
 | Path | 15 | 15 | 100% |
@@ -1383,7 +1383,7 @@ Note: 6 features are marked N/A:
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **757** | **818** | **92%** |
+| **Total** | **775** | **818** | **95%** |
 
 ### Priority Implementation Targets
 
