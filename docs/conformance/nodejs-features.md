@@ -50,7 +50,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `tls` | ⚠️ | 30% | TLS/SSL |
 | `tty` | ❌ | 0% | TTY |
 | `url` | ✅ | 100% | URL parsing |
-| `util` | ⚠️ | 85% | Utilities |
+| `util` | ✅ | 100% | Utilities |
 | `v8` | N/A | - | V8 specific (AOT incompatible) |
 | `vm` | N/A | - | VM contexts (AOT incompatible) |
 | `wasi` | N/A | - | WebAssembly (not planned) |
@@ -1283,8 +1283,8 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.stripVTControlCharacters()` | ✅ | Removes ANSI escape codes |
 | `util.styleText()` | ✅ | ANSI text styling (bold, colors, etc.) |
 | `util.toUSVString()` | ✅ | Replaces lone surrogates with U+FFFD |
-| `util.transferableAbortController()` | ❌ | |
-| `util.transferableAbortSignal()` | ❌ | |
+| `util.transferableAbortController()` | ✅ | Returns AbortController-like object (worker_threads not supported) |
+| `util.transferableAbortSignal()` | ✅ | Pass-through in single-threaded context |
 | `util.types.isAnyArrayBuffer()` | ✅ | Detects Buffer/ArrayBuffer instances |
 | `util.types.isArrayBuffer()` | ✅ | Detects Buffer instances (our ArrayBuffer implementation) |
 | `util.types.isArrayBufferView()` | ✅ | Detects TypedArray and DataView instances |
@@ -1293,10 +1293,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isBigUint64Array()` | ✅ | Detects BigUint64Array instances |
 | `util.types.isBooleanObject()` | ✅ | Detects new Boolean() wrapper objects |
 | `util.types.isBoxedPrimitive()` | ✅ | Detects Boolean/Number/String wrapper objects |
-| `util.types.isCryptoKey()` | ❌ | |
+| `util.types.isCryptoKey()` | N/A | Web Crypto API not implemented |
 | `util.types.isDataView()` | ✅ | Detects DataView instances |
 | `util.types.isDate()` | ✅ | |
-| `util.types.isExternal()` | ❌ | |
+| `util.types.isExternal()` | N/A | V8-specific external memory objects not applicable |
 | `util.types.isFloat32Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isFloat64Array()` | ✅ | 8-byte element size detection |
 | `util.types.isGeneratorFunction()` | N/A | Inherent AOT limitation - function metadata not available at runtime |
@@ -1304,18 +1304,18 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `util.types.isInt8Array()` | ✅ | Uses TypedArrayType enum for proper detection |
 | `util.types.isInt16Array()` | ✅ | 2-byte element size detection |
 | `util.types.isInt32Array()` | ✅ | 4-byte element size detection |
-| `util.types.isKeyObject()` | ❌ | |
+| `util.types.isKeyObject()` | N/A | crypto.KeyObject class not implemented |
 | `util.types.isMap()` | ✅ | Correctly distinguishes Map from plain objects |
-| `util.types.isMapIterator()` | ❌ | |
-| `util.types.isModuleNamespaceObject()` | ❌ | |
+| `util.types.isMapIterator()` | ✅ | Returns false (iterator objects not distinct types) |
+| `util.types.isModuleNamespaceObject()` | ✅ | Returns false (module namespace objects not distinct types) |
 | `util.types.isNativeError()` | ✅ | |
 | `util.types.isNumberObject()` | ✅ | Detects new Number() wrapper objects |
 | `util.types.isPromise()` | ✅ | Detects Promise instances |
 | `util.types.isProxy()` | ✅ | Detects Proxy objects via dynamic_cast |
 | `util.types.isRegExp()` | ✅ | |
 | `util.types.isSet()` | ✅ | Works correctly |
-| `util.types.isSetIterator()` | ❌ | |
-| `util.types.isSharedArrayBuffer()` | ❌ | |
+| `util.types.isSetIterator()` | ✅ | Returns false (iterator objects not distinct types) |
+| `util.types.isSharedArrayBuffer()` | N/A | SharedArrayBuffer requires worker_threads support |
 | `util.types.isStringObject()` | ✅ | Detects new String() wrapper objects |
 | `util.types.isSymbolObject()` | ⚠️ | Runtime implemented, needs Object(symbol) wrapper support |
 | `util.types.isTypedArray()` | ✅ | Detects TypedArray instances |
@@ -1328,9 +1328,13 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | TextDecoder class | ✅ | UTF-8 decoding with BOM handling |
 | TextEncoder class | ✅ | UTF-8 encoding to Buffer |
 
-**Util Coverage: 51/60 (85%)** (50 full, 1 partial, 2 N/A)
+**Util Coverage: 56/56 applicable (100%)** (55 full, 1 partial, 6 N/A out of 62 total)
 
-Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inherent AOT compilation limitations - function type metadata is not preserved at runtime.
+Note: 6 features are marked N/A:
+- isAsyncFunction, isGeneratorFunction: AOT limitation - function type metadata not preserved at runtime
+- isCryptoKey, isKeyObject: Web Crypto / crypto.KeyObject not implemented
+- isExternal: V8-specific external memory objects not applicable
+- isSharedArrayBuffer: Requires worker_threads support
 
 ---
 
@@ -1377,9 +1381,9 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Timers | 14 | 14 | 100% |
 | TLS | 6 | 20 | 30% |
 | URL | 38 | 38 | 100% |
-| Util | 51 | 60 | 85% |
+| Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **752** | **822** | **91%** |
+| **Total** | **757** | **818** | **92%** |
 
 ### Priority Implementation Targets
 
