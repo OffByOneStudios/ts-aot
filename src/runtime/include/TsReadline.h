@@ -39,6 +39,7 @@ public:
     int64_t GetCursor() const { return cursorPos_; }
     bool IsClosed() const { return closed_; }
     bool IsPaused() const { return paused_; }
+    TsString* GetPrompt() const { return prompt_; }
 
     // Internal: called when input emits 'data'
     void OnData(void* chunk);
@@ -100,12 +101,14 @@ void ts_readline_write(void* rl, void* data);
 // Property getters
 void* ts_readline_get_line(void* rl);
 int64_t ts_readline_get_cursor(void* rl);
+void* ts_readline_get_prompt(void* rl);
 
 // Utility functions (module-level)
 void ts_readline_clear_line(void* stream, void* dir);
 void ts_readline_clear_screen_down(void* stream);
 void ts_readline_cursor_to(void* stream, void* x, void* y);
 void ts_readline_move_cursor(void* stream, void* dx, void* dy);
+void ts_readline_emit_keypress_events(void* stream, void* iface);
 
 }
 

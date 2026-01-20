@@ -21,14 +21,16 @@ static void ensureReadlineFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_readline_set_prompt", {true, true}, false);
     bp.registerRuntimeApi("ts_readline_question", {true, true, true}, false);
     bp.registerRuntimeApi("ts_readline_write", {true, true}, false);
-    bp.registerRuntimeApi("ts_readline_get_line", {true}, false);
-    bp.registerRuntimeApi("ts_readline_get_cursor", {true}, false);
+    bp.registerRuntimeApi("ts_readline_get_line", {true}, false);   // rl boxed, returns raw TsString*
+    bp.registerRuntimeApi("ts_readline_get_cursor", {true}, false); // rl boxed, returns raw int64
+    bp.registerRuntimeApi("ts_readline_get_prompt", {true}, false); // rl boxed, returns raw TsString*
 
     // Utility functions
     bp.registerRuntimeApi("ts_readline_clear_line", {true, true}, false);
     bp.registerRuntimeApi("ts_readline_clear_screen_down", {true}, false);
     bp.registerRuntimeApi("ts_readline_cursor_to", {true, true, true}, false);
     bp.registerRuntimeApi("ts_readline_move_cursor", {true, true, true}, false);
+    bp.registerRuntimeApi("ts_readline_emit_keypress_events", {true, true}, false);
 }
 
 bool IRGenerator::tryGenerateReadlineCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -149,6 +151,28 @@ bool IRGenerator::tryGenerateReadlineCall(ast::CallExpression* node, ast::Proper
         return true;
     }
 
+    if (prop->name == "emitKeypressEvents") {
+        // readline.emitKeypressEvents(stream, interface?): void
+        llvm::Value* stream = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        llvm::Value* iface = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        if (node->arguments.size() > 0) {
+            visit(node->arguments[0].get());
+            stream = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            iface = boxValue(lastValue, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readline_emit_keypress_events", ft);
+        createCall(ft, fn.getCallee(), { stream, iface });
+        lastValue = getUndefinedValue();
+        return true;
+    }
+
     return false;
 }
 
@@ -261,6 +285,14 @@ bool IRGenerator::tryGenerateReadlineInterfaceCall(ast::CallExpression* node, as
         llvm::FunctionCallee fn = getRuntimeFunction("ts_readline_write", ft);
         createCall(ft, fn.getCallee(), { rl, data });
         lastValue = getUndefinedValue();
+        return true;
+    }
+
+    if (prop->name == "getPrompt") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_readline_get_prompt", ft);
+        lastValue = createCall(ft, fn.getCallee(), { rl });
         return true;
     }
 

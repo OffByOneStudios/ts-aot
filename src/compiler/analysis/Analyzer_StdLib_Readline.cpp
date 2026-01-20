@@ -71,6 +71,11 @@ void Analyzer::registerReadline() {
     writeFn->returnType = std::make_shared<Type>(TypeKind::Void);
     interfaceClass->methods["write"] = writeFn;
 
+    // getPrompt(): string
+    auto getPromptFn = std::make_shared<FunctionType>();
+    getPromptFn->returnType = std::make_shared<Type>(TypeKind::String);
+    interfaceClass->methods["getPrompt"] = getPromptFn;
+
     // Register the Interface type
     symbols.defineType("Interface", interfaceClass);
 
@@ -116,6 +121,14 @@ void Analyzer::registerReadline() {
     moveCursorFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));  // dy
     moveCursorFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
     readlineModule->fields["moveCursor"] = moveCursorFn;
+
+    // emitKeypressEvents(stream: Readable, interface?: Interface): void
+    // Causes the readable stream to begin emitting 'keypress' events
+    auto emitKeypressEventsFn = std::make_shared<FunctionType>();
+    emitKeypressEventsFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // stream
+    emitKeypressEventsFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // interface (optional)
+    emitKeypressEventsFn->returnType = std::make_shared<Type>(TypeKind::Void);
+    readlineModule->fields["emitKeypressEvents"] = emitKeypressEventsFn;
 
     // Also expose Interface class on the module
     readlineModule->fields["Interface"] = interfaceClass;
