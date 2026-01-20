@@ -445,7 +445,7 @@ void TsHttpServer::SetTimeout(int msecs, void* callback) {
 TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
     void* mem = ts_alloc(sizeof(TsHttpServer));
     TsHttpServer* server = new (mem) TsHttpServer();
-    
+
     if (callback) {
         server->On("request", callback);
     }
@@ -457,20 +457,30 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
 
         HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
-        
+
         llhttp_settings_init(&httpCtx->settings);
         httpCtx->settings.on_url = on_url;
         httpCtx->settings.on_header_field = on_header_field;
         httpCtx->settings.on_header_value = on_header_value;
         httpCtx->settings.on_headers_complete = on_headers_complete;
         httpCtx->settings.on_message_complete = on_message_complete;
-        
+
         llhttp_init(&httpCtx->parser, HTTP_REQUEST, &httpCtx->settings);
         httpCtx->parser.data = httpCtx;
-        
+
         httpCtx->currentRequest = TsIncomingMessage::Create();
+        httpCtx->currentRequest->socket = socket;  // Set socket reference
         httpCtx->currentResponse = TsServerResponse::Create(socket);
-        
+
+        // Handle client disconnect (set aborted flag)
+        socket->On("close", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            HttpContext* httpCtx = (HttpContext*)ctx;
+            if (httpCtx->currentRequest && !httpCtx->currentRequest->complete) {
+                httpCtx->currentRequest->aborted = true;
+            }
+            return nullptr;
+        }, httpCtx));
+
         socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
@@ -873,7 +883,7 @@ TsHttpsServer::TsHttpsServer(TsValue* options) : TsHttpServer(), options(options
 TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
     void* mem = ts_alloc(sizeof(TsHttpsServer));
     TsHttpsServer* server = new (mem) TsHttpsServer(options);
-    
+
     if (callback) {
         server->On("request", callback);
     }
@@ -885,20 +895,30 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
 
         HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
-        
+
         llhttp_settings_init(&httpCtx->settings);
         httpCtx->settings.on_url = on_url;
         httpCtx->settings.on_header_field = on_header_field;
         httpCtx->settings.on_header_value = on_header_value;
         httpCtx->settings.on_headers_complete = on_headers_complete;
         httpCtx->settings.on_message_complete = on_message_complete;
-        
+
         llhttp_init(&httpCtx->parser, HTTP_REQUEST, &httpCtx->settings);
         httpCtx->parser.data = httpCtx;
-        
+
         httpCtx->currentRequest = TsIncomingMessage::Create();
+        httpCtx->currentRequest->socket = socket;  // Set socket reference
         httpCtx->currentResponse = TsServerResponse::Create(socket);
-        
+
+        // Handle client disconnect (set aborted flag)
+        socket->On("close", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            HttpContext* httpCtx = (HttpContext*)ctx;
+            if (httpCtx->currentRequest && !httpCtx->currentRequest->complete) {
+                httpCtx->currentRequest->aborted = true;
+            }
+            return nullptr;
+        }, httpCtx));
+
         socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
@@ -1098,6 +1118,26 @@ void* ts_incoming_message_trailers(void* ctx, void* msg) {
         m->trailers = TsMap::Create();
     }
     return m->trailers;
+}
+
+void* ts_incoming_message_socket(void* ctx, void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
+    if (!m || !m->socket) {
+        return nullptr;
+    }
+    return m->socket;
+}
+
+bool ts_incoming_message_aborted(void* ctx, void* msg) {
+    void* rawPtr = ts_value_get_object((TsValue*)msg);
+    if (!rawPtr) rawPtr = msg;
+    TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
+    if (!m) {
+        return false;
+    }
+    return m->aborted;
 }
 
 // OutgoingMessage/ServerResponse property getters

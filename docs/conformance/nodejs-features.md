@@ -30,9 +30,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `domain` | N/A | - | Deprecated |
 | `events` | ✅ | 100% | EventEmitter |
 | `fs` | ✅ | 100% | File system |
-| `http` | ⚠️ | 73% | HTTP server/client |
+| `http` | ✅ | 100% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
-| `https` | ⚠️ | 71% | HTTPS server/client |
+| `https` | ✅ | 100% | HTTPS server/client |
 | `inspector` | ❌ | 0% | V8 inspector |
 | `module` | ❌ | 0% | Module system |
 | `net` | ✅ | 100% | TCP sockets |
@@ -761,9 +761,9 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.httpVersion` | ✅ | HTTP version string (e.g., "1.1") |
 | `req.method` | ✅ | |
 | `req.url` | ✅ | |
-| `req.socket` | ⚠️ | |
+| `req.socket` | ✅ | Returns underlying net.Socket |
 | `req.complete` | ✅ | Set true after message fully received |
-| `req.aborted` | ❌ | |
+| `req.aborted` | ✅ | Boolean, true when request aborted |
 | `req.rawHeaders` | ✅ | Alternating key/value array with original case |
 | `req.rawTrailers` | ✅ | Alternating key/value array |
 | `req.statusCode` | ✅ | |
@@ -831,7 +831,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `req.socket` | ✅ | Returns underlying net.Socket |
 | `req.write()` | ✅ | |
 
-**HTTP Coverage: 65/67 (97%)**
+**HTTP Coverage: 67/67 (100%)**
 
 ---
 
@@ -1369,7 +1369,7 @@ Note: 6 features are marked N/A:
 | Dgram | 28 | 28 | 100% |
 | Events | 21 | 21 | 100% |
 | File System | 123 | 123 | 100% |
-| HTTP | 65 | 67 | 97% |
+| HTTP | 67 | 67 | 100% |
 | HTTPS | 7 | 7 | 100% |
 | Net | 36 | 36 | 100% |
 | OS | 23 | 23 | 100% |
@@ -1383,7 +1383,7 @@ Note: 6 features are marked N/A:
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **775** | **818** | **95%** |
+| **Total** | **777** | **818** | **95%** |
 
 ### Priority Implementation Targets
 

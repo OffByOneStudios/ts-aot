@@ -158,6 +158,8 @@ void Analyzer::registerHTTP() {
     incomingMessageClass->fields["rawHeaders"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     incomingMessageClass->fields["rawTrailers"] = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
     incomingMessageClass->fields["trailers"] = std::make_shared<Type>(TypeKind::Any);  // Object with trailer headers
+    incomingMessageClass->fields["socket"] = symbols.lookupType("Socket");  // Underlying net.Socket
+    incomingMessageClass->fields["aborted"] = std::make_shared<Type>(TypeKind::Boolean);  // True if request was aborted
 
     symbols.defineType("IncomingMessage", incomingMessageClass);
 
