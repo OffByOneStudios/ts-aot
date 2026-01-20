@@ -415,7 +415,9 @@ TsValue* ts_value_make_int(int64_t i) {
             magic16 == 0x41525259 || // TsArray::MAGIC
             magic16 == 0x46554E43 || // TsFunction::MAGIC
             magic16 == 0x42554646 || // TsBuffer::MAGIC
-            magic16 == 0x534F434B) { // TsSocket::MAGIC "SOCK"
+            magic16 == 0x534F434B || // TsSocket::MAGIC "SOCK"
+            magic16 == 0x55445053 || // TsUDPSocket::MAGIC "UDPS"
+            magic16 == 0x45564E54) { // TsEventEmitter::MAGIC "EVNT"
             return v;
         }
 

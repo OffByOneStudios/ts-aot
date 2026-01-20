@@ -25,10 +25,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `cluster` | ✅ | 100% | Multi-process forking |
 | `console` | ✅ | 100% | Complete logging support |
 | `crypto` | ✅ | 100% | Cryptographic functions |
-| `dgram` | ❌ | 0% | UDP sockets |
+| `dgram` | ✅ | 100% | UDP sockets |
 | `dns` | ✅ | 100% | DNS resolution |
 | `domain` | N/A | - | Deprecated |
-| `events` | ✅ | 86% | EventEmitter |
+| `events` | ✅ | 100% | EventEmitter |
 | `fs` | ⚠️ | 98% | File system |
 | `http` | ⚠️ | 70% | HTTP server/client |
 | `http2` | ❌ | 0% | HTTP/2 |
@@ -503,6 +503,51 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `dns.CANCELLED` | ✅ | |
 
 **DNS Coverage: 58/58 (100%)**
+
+---
+
+## Dgram (UDP)
+
+### Module Functions
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `dgram.createSocket(type)` | ✅ | Creates 'udp4' or 'udp6' socket |
+| `dgram.createSocket(options)` | ✅ | type, reuseAddr, ipv6Only, recvBufferSize, sendBufferSize |
+
+### Socket Methods
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `socket.bind(port, address, callback)` | ✅ | Binds to address/port |
+| `socket.send(msg, offset, length, port, address, callback)` | ✅ | Sends UDP datagram |
+| `socket.close([callback])` | ✅ | Closes socket |
+| `socket.address()` | ✅ | Returns { address, family, port } |
+| `socket.setBroadcast(flag)` | ✅ | Via uv_udp_set_broadcast |
+| `socket.setMulticastTTL(ttl)` | ✅ | Via uv_udp_set_multicast_ttl |
+| `socket.setMulticastLoopback(flag)` | ✅ | Via uv_udp_set_multicast_loop |
+| `socket.addMembership(multicastAddress, multicastInterface)` | ✅ | Via uv_udp_set_membership |
+| `socket.dropMembership(multicastAddress, multicastInterface)` | ✅ | Via uv_udp_set_membership |
+| `socket.setMulticastInterface(multicastInterface)` | ✅ | Via uv_udp_set_multicast_interface |
+| `socket.connect(port, address, callback)` | ✅ | Via uv_udp_connect |
+| `socket.disconnect()` | ✅ | Via uv_udp_connect(null) |
+| `socket.ref()` | ✅ | Via uv_ref |
+| `socket.unref()` | ✅ | Via uv_unref |
+| `socket.remoteAddress()` | ✅ | Returns { address, family, port } for connected socket |
+| `socket.setRecvBufferSize(size)` | ✅ | Via uv_recv_buffer_size |
+| `socket.setSendBufferSize(size)` | ✅ | Via uv_send_buffer_size |
+| `socket.getRecvBufferSize()` | ✅ | Via uv_recv_buffer_size |
+| `socket.getSendBufferSize()` | ✅ | Via uv_send_buffer_size |
+| `socket.setTTL(ttl)` | ✅ | Via uv_udp_set_ttl |
+
+### Socket Events
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `'message'` event | ✅ | Emits (msg, rinfo) with Buffer and address info |
+| `'listening'` event | ✅ | Emitted when socket is bound |
+| `'close'` event | ✅ | Emitted when socket is closed |
+| `'error'` event | ✅ | Emitted on errors |
+| `'connect'` event | ✅ | Emitted after connect() succeeds |
+
+**Dgram Coverage: 28/28 (100%)**
 
 ---
 
@@ -1317,6 +1362,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | Console | 19 | 19 | 100% |
 | Crypto | 46 | 46 | 100% |
 | DNS | 58 | 58 | 100% |
+| Dgram | 28 | 28 | 100% |
 | Events | 21 | 21 | 100% |
 | File System | 123 | 123 | 100% |
 | HTTP | 49 | 67 | 73% |
@@ -1333,7 +1379,7 @@ Note: isAsyncFunction and isGeneratorFunction are marked N/A as they are inheren
 | URL | 38 | 38 | 100% |
 | Util | 51 | 60 | 85% |
 | Global | 5 | 7 | 71% |
-| **Total** | **724** | **794** | **91%** |
+| **Total** | **752** | **822** | **91%** |
 
 ### Priority Implementation Targets
 

@@ -1451,5 +1451,6 @@ Analyzer::Analyzer() {
     registerChildProcess();
     registerCluster();
     registerDNS();
+    registerDgram();
 }
 } // namespace ts

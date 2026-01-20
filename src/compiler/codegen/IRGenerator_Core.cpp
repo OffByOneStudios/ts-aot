@@ -2353,7 +2353,15 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     }
 
-    // For primitive types, only unbox if tracked in boxedValues
+    // For strings, ALWAYS unbox - ts_value_get_string is safe to call even if already unboxed
+    // This handles cases where values are loaded from TsMap properties which store boxed values
+    if (type->kind == TypeKind::String) {
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
+        return createCall(unboxFt, unboxFn.getCallee(), { val });
+    }
+
+    // For primitive types (int, double, boolean), only unbox if tracked in boxedValues
     if (!boxedValues.count(val)) return val;
 
     if (type->kind == TypeKind::Int) {
@@ -2367,10 +2375,6 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
     } else if (type->kind == TypeKind::Boolean) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
         llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_bool", unboxFt);
-        return createCall(unboxFt, unboxFn.getCallee(), { val });
-    } else if (type->kind == TypeKind::String) {
-        llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
         return createCall(unboxFt, unboxFn.getCallee(), { val });
     } else if (type->kind == TypeKind::Class) {
         auto classType = std::static_pointer_cast<ClassType>(type);

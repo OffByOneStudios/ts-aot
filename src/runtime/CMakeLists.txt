@@ -100,6 +100,7 @@ add_library(tsruntime STATIC
     src/TsChildProcess.cpp
     src/TsCluster.cpp
     src/TsDNS.cpp
+    src/TsUDPSocket.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

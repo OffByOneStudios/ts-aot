@@ -74,6 +74,7 @@ public:
     void registerChildProcess();
     void registerCluster();
     void registerDNS();
+    void registerDgram();
 
     void reportError(const std::string& message);
 
