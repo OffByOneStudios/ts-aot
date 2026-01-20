@@ -42,7 +42,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `process` | ⚠️ | 67% | Process info |
 | `punycode` | N/A | - | Deprecated |
 | `querystring` | ✅ | 100% | Query parsing |
-| `readline` | ⚠️ | 60% | Line input (basic Interface, no events) |
+| `readline` | ⚠️ | 76% | Line input (Interface with events) |
 | `repl` | N/A | - | REPL (AOT incompatible) |
 | `stream` | ✅ | 100% | Streams |
 | `string_decoder` | ✅ | 100% | String decoding |
@@ -1256,16 +1256,16 @@ Note: The inspector module provides access to the V8 inspector for debugging. Si
 ### Interface Events
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `'line'` event | ❌ | Line event when newline received |
-| `'close'` event | ❌ | Close event (emitted but callback has issues) |
-| `'pause'` event | ❌ | Pause event |
-| `'resume'` event | ❌ | Resume event |
+| `'line'` event | ✅ | Line event when newline received |
+| `'close'` event | ✅ | Close event emitted on close() |
+| `'pause'` event | ✅ | Pause event emitted on pause() |
+| `'resume'` event | ✅ | Resume event emitted on resume() |
 | `'history'` event | ❌ | Not implemented |
 | `'SIGCONT'` event | ❌ | Not implemented |
 | `'SIGINT'` event | ❌ | Not implemented |
 | `'SIGTSTP'` event | ❌ | Not implemented |
 
-**Readline Coverage: 15/25 (60%)**
+**Readline Coverage: 19/25 (76%)**
 
 ---
 
@@ -1440,7 +1440,7 @@ Note: 6 features are marked N/A:
 | Path | 15 | 15 | 100% |
 | Process | 37 | 55 | 67% |
 | QueryString | 6 | 6 | 100% |
-| Readline | 15 | 25 | 60% |
+| Readline | 19 | 25 | 76% |
 | Stream | 43 | 43 | 100% |
 | StringDecoder | 5 | 5 | 100% |
 | Timers | 14 | 14 | 100% |
@@ -1449,7 +1449,7 @@ Note: 6 features are marked N/A:
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Global | 5 | 7 | 71% |
-| **Total** | **801** | **853** | **94%** |
+| **Total** | **805** | **853** | **94%** |
 
 ### Priority Implementation Targets
 
@@ -1491,7 +1491,7 @@ Current test coverage:
 - Path: 3 test files (basic, parse_format, relative)
 - Process: 2 test files (basic, extended)
 - QueryString: 1 test file (basic - 11 tests covering parse, stringify, escape, unescape, encode, decode)
-- Readline: 1 test file (basic - createInterface, setPrompt, pause, resume, close, ANSI cursor utilities)
+- Readline: 2 test files (basic, events - createInterface, setPrompt, pause, resume, close, ANSI cursor utilities, line/close/pause/resume events)
 - Timers: 1 test file
 - URL: 5 test files (basic, extended, search params, parse, format)
 - Util: 16 test files (basic, extended, text_encoding, callbackify, promisify, strip_vt, deep_strict_equal, types_*)

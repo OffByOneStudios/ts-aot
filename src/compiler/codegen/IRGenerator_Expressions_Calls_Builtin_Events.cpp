@@ -89,9 +89,14 @@ bool IRGenerator::tryGenerateEventsCall(ast::CallExpression* node, ast::Property
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
 
-        // Box the emitter if not already boxed
-        if (!boxedValues.count(obj)) {
-            obj = boxValue(obj, prop->expression->inferredType);
+        // For Class types (like Interface, Socket, etc.), the value is typically
+        // already boxed from a function return. Don't re-box - the runtime handles
+        // both boxed and unboxed values via ts_value_get_object().
+        // Only box primitives/Any that aren't already tracked as boxed.
+        auto exprType = prop->expression->inferredType;
+        bool isClassType = exprType && exprType->kind == TypeKind::Class;
+        if (!isClassType && !boxedValues.count(obj)) {
+            obj = boxValue(obj, exprType);
         }
 
         if (node->arguments.size() < 2) return true;
