@@ -357,6 +357,90 @@ void Analyzer::registerProcess() {
     // process.channel: any (the IPC channel object, or undefined)
     processType->fields["channel"] = std::make_shared<Type>(TypeKind::Any);
 
+    // ========================================================================
+    // Unix User/Group IDs (Unix only, stubs on Windows)
+    // ========================================================================
+
+    // process.getuid(): number
+    auto getuidType = std::make_shared<FunctionType>();
+    getuidType->returnType = std::make_shared<Type>(TypeKind::Int);
+    processType->fields["getuid"] = getuidType;
+
+    // process.geteuid(): number
+    auto geteuidType = std::make_shared<FunctionType>();
+    geteuidType->returnType = std::make_shared<Type>(TypeKind::Int);
+    processType->fields["geteuid"] = geteuidType;
+
+    // process.getgid(): number
+    auto getgidType = std::make_shared<FunctionType>();
+    getgidType->returnType = std::make_shared<Type>(TypeKind::Int);
+    processType->fields["getgid"] = getgidType;
+
+    // process.getegid(): number
+    auto getegidType = std::make_shared<FunctionType>();
+    getegidType->returnType = std::make_shared<Type>(TypeKind::Int);
+    processType->fields["getegid"] = getegidType;
+
+    // process.getgroups(): number[]
+    auto getgroupsType = std::make_shared<FunctionType>();
+    getgroupsType->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
+    processType->fields["getgroups"] = getgroupsType;
+
+    // process.setuid(id: number): void
+    auto setuidType = std::make_shared<FunctionType>();
+    setuidType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setuidType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setuid"] = setuidType;
+
+    // process.seteuid(id: number): void
+    auto seteuidType = std::make_shared<FunctionType>();
+    seteuidType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    seteuidType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["seteuid"] = seteuidType;
+
+    // process.setgid(id: number): void
+    auto setgidType = std::make_shared<FunctionType>();
+    setgidType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setgidType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setgid"] = setgidType;
+
+    // process.setegid(id: number): void
+    auto setegidType = std::make_shared<FunctionType>();
+    setegidType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    setegidType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setegid"] = setegidType;
+
+    // process.setgroups(groups: number[]): void
+    auto setgroupsType = std::make_shared<FunctionType>();
+    setgroupsType->paramTypes.push_back(std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int)));
+    setgroupsType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setgroups"] = setgroupsType;
+
+    // process.initgroups(user: string, extraGroup: number): void
+    auto initgroupsType = std::make_shared<FunctionType>();
+    initgroupsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    initgroupsType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+    initgroupsType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["initgroups"] = initgroupsType;
+
+    // ========================================================================
+    // Stubs for AOT-incompatible features
+    // ========================================================================
+
+    // process.dlopen(module: object, filename: string, flags?: number): void
+    auto dlopenType = std::make_shared<FunctionType>();
+    dlopenType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));     // module
+    dlopenType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));  // filename
+    dlopenType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));     // flags (optional)
+    dlopenType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["dlopen"] = dlopenType;
+
+    // process.setSourceMapsEnabled(enabled: boolean): void
+    auto setSourceMapsEnabledType = std::make_shared<FunctionType>();
+    setSourceMapsEnabledType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Boolean));
+    setSourceMapsEnabledType->returnType = std::make_shared<Type>(TypeKind::Void);
+    processType->fields["setSourceMapsEnabled"] = setSourceMapsEnabledType;
+
     symbols.define("process", processType);
 }
 

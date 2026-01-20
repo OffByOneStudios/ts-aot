@@ -24,6 +24,17 @@ static void ensurePerfHooksFunctionsRegistered(BoxingPolicy& bp) {
     bp.registerRuntimeApi("ts_performance_entry_get_entry_type", {true}, true);  // entry -> string
     bp.registerRuntimeApi("ts_performance_entry_get_start_time", {true}, false);  // entry -> double
     bp.registerRuntimeApi("ts_performance_entry_get_duration", {true}, false);  // entry -> double
+
+    // New APIs
+    bp.registerRuntimeApi("ts_performance_event_loop_utilization", {true, true}, true);  // util1, util2 -> boxed ELU
+    bp.registerRuntimeApi("ts_performance_timerify", {true}, true);  // fn -> fn (pass-through for AOT)
+    bp.registerRuntimeApi("ts_elu_get_idle", {true}, false);  // elu -> double
+    bp.registerRuntimeApi("ts_elu_get_active", {true}, false);  // elu -> double
+    bp.registerRuntimeApi("ts_elu_get_utilization", {true}, false);  // elu -> double
+    bp.registerRuntimeApi("ts_performance_observer_create", {true}, true);  // callback -> boxed observer
+    bp.registerRuntimeApi("ts_performance_observer_observe", {true, true}, false);  // observer, options -> void
+    bp.registerRuntimeApi("ts_performance_observer_disconnect", {true}, false);  // observer -> void
+    bp.registerRuntimeApi("ts_performance_observer_take_records", {true}, true);  // observer -> boxed array
 }
 
 bool IRGenerator::tryGeneratePerfHooksCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
@@ -179,6 +190,47 @@ bool IRGenerator::tryGeneratePerfHooksCall(ast::CallExpression* node, ast::Prope
         return true;
     }
 
+    if (methodName == "eventLoopUtilization") {
+        // performance.eventLoopUtilization(util1?, util2?) -> EventLoopUtilization
+        llvm::Value* util1 = llvm::ConstantPointerNull::get(builder->getPtrTy());
+        llvm::Value* util2 = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            util1 = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+
+        if (node->arguments.size() > 1) {
+            visit(node->arguments[1].get());
+            util2 = boxValue(lastValue, node->arguments[1]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_performance_event_loop_utilization", ft);
+        lastValue = createCall(ft, fn.getCallee(), { util1, util2 });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    if (methodName == "timerify") {
+        // performance.timerify(fn) -> fn (pass-through for AOT)
+        if (node->arguments.empty()) {
+            lastValue = llvm::ConstantPointerNull::get(builder->getPtrTy());
+            return true;
+        }
+
+        visit(node->arguments[0].get());
+        llvm::Value* fn = boxValue(lastValue, node->arguments[0]->inferredType);
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee rtFn = getRuntimeFunction("ts_performance_timerify", ft);
+        lastValue = createCall(ft, rtFn.getCallee(), { fn });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
     return false;
 }
 
@@ -260,6 +312,128 @@ bool IRGenerator::tryGeneratePerformanceEntryPropertyAccess(ast::PropertyAccessE
     }
 
     return false;
+}
+
+bool IRGenerator::tryGenerateEventLoopUtilizationPropertyAccess(ast::PropertyAccessExpression* prop) {
+    // Check if the expression is EventLoopUtilization
+    if (!prop->expression->inferredType) return false;
+    if (prop->expression->inferredType->kind != TypeKind::Class) return false;
+
+    auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+    if (classType->name != "EventLoopUtilization") return false;
+
+    ensurePerfHooksFunctionsRegistered(boxingPolicy);
+    SPDLOG_DEBUG("tryGenerateEventLoopUtilizationPropertyAccess: ELU.{}", prop->name);
+
+    // Get the ELU object
+    visit(prop->expression.get());
+    llvm::Value* elu = boxValue(lastValue, prop->expression->inferredType);
+
+    const std::string& propName = prop->name;
+
+    if (propName == "idle") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getDoubleTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_elu_get_idle", ft);
+        lastValue = createCall(ft, fn.getCallee(), { elu });
+        return true;
+    }
+
+    if (propName == "active") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getDoubleTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_elu_get_active", ft);
+        lastValue = createCall(ft, fn.getCallee(), { elu });
+        return true;
+    }
+
+    if (propName == "utilization") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getDoubleTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_elu_get_utilization", ft);
+        lastValue = createCall(ft, fn.getCallee(), { elu });
+        return true;
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGeneratePerformanceObserverCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
+    // Check if the expression is a PerformanceObserver
+    if (!prop->expression->inferredType) return false;
+    if (prop->expression->inferredType->kind != TypeKind::Class) return false;
+
+    auto classType = std::static_pointer_cast<ClassType>(prop->expression->inferredType);
+    if (classType->name != "PerformanceObserver") return false;
+
+    ensurePerfHooksFunctionsRegistered(boxingPolicy);
+    SPDLOG_DEBUG("tryGeneratePerformanceObserverCall: observer.{}", prop->name);
+
+    // Get the observer object
+    visit(prop->expression.get());
+    llvm::Value* observer = boxValue(lastValue, prop->expression->inferredType);
+
+    const std::string& methodName = prop->name;
+
+    if (methodName == "observe") {
+        // observer.observe({ entryTypes: [...] })
+        llvm::Value* options = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+        if (!node->arguments.empty()) {
+            visit(node->arguments[0].get());
+            options = boxValue(lastValue, node->arguments[0]->inferredType);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_performance_observer_observe", ft);
+        lastValue = createCall(ft, fn.getCallee(), { observer, options });
+        return true;
+    }
+
+    if (methodName == "disconnect") {
+        // observer.disconnect()
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getVoidTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_performance_observer_disconnect", ft);
+        lastValue = createCall(ft, fn.getCallee(), { observer });
+        return true;
+    }
+
+    if (methodName == "takeRecords") {
+        // observer.takeRecords() -> PerformanceEntry[]
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+            { builder->getPtrTy() }, false);
+        llvm::FunctionCallee fn = getRuntimeFunction("ts_performance_observer_take_records", ft);
+        lastValue = createCall(ft, fn.getCallee(), { observer });
+        boxedValues.insert(lastValue);
+        return true;
+    }
+
+    return false;
+}
+
+bool IRGenerator::tryGeneratePerformanceObserverNewExpression(ast::NewExpression* node) {
+    // Check for: new PerformanceObserver(callback)
+    auto id = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (!id || id->name != "PerformanceObserver") return false;
+
+    ensurePerfHooksFunctionsRegistered(boxingPolicy);
+    SPDLOG_DEBUG("tryGeneratePerformanceObserverNewExpression");
+
+    llvm::Value* callback = llvm::ConstantPointerNull::get(builder->getPtrTy());
+
+    if (!node->arguments.empty()) {
+        visit(node->arguments[0].get());
+        callback = boxValue(lastValue, node->arguments[0]->inferredType);
+    }
+
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(),
+        { builder->getPtrTy() }, false);
+    llvm::FunctionCallee fn = getRuntimeFunction("ts_performance_observer_create", ft);
+    lastValue = createCall(ft, fn.getCallee(), { callback });
+    boxedValues.insert(lastValue);
+    return true;
 }
 
 } // namespace ts
