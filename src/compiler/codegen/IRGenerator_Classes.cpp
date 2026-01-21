@@ -217,7 +217,7 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
-        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook" || name == "ChildProcess" || name == "Worker" || name == "UDPSocket" || name == "InspectorSession" || name == "Interface" || name == "ReadlineInterface") continue;
+        if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook" || name == "ChildProcess" || name == "Worker" || name == "UDPSocket" || name == "InspectorSession" || name == "Interface" || name == "ReadlineInterface" || name == "TTYReadStream" || name == "TTYWriteStream") continue;
         
         auto& layout = classLayouts[name];
         llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, name);
@@ -1159,6 +1159,34 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
             llvm::FunctionCallee fn = getRuntimeFunction("ts_inspector_session_create", createFt);
             lastValue = createCall(createFt, fn.getCallee(), {});
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "TTYReadStream") {
+            // new tty.ReadStream(fd)
+            llvm::Value* fd = llvm::ConstantInt::get(builder->getInt64Ty(), 0);
+            if (node->arguments.size() > 0) {
+                visit(node->arguments[0].get());
+                fd = lastValue;
+            }
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_tty_read_stream_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { fd });
+            boxedValues.insert(lastValue);
+            nonNullValues.insert(lastValue);
+            return;
+        } else if (className == "TTYWriteStream") {
+            // new tty.WriteStream(fd)
+            llvm::Value* fd = llvm::ConstantInt::get(builder->getInt64Ty(), 1);
+            if (node->arguments.size() > 0) {
+                visit(node->arguments[0].get());
+                fd = lastValue;
+            }
+            llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
+                { builder->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = getRuntimeFunction("ts_tty_write_stream_create", createFt);
+            lastValue = createCall(createFt, fn.getCallee(), { fd });
+            boxedValues.insert(lastValue);
             nonNullValues.insert(lastValue);
             return;
         }

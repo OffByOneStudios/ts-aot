@@ -288,11 +288,22 @@ bool IRGenerator::tryGenerateStreamCall(ast::CallExpression* node, ast::Property
         lastValue = obj;  // Return the stream for chaining
         return true;
     } else if (prop->name == "destroy") {
+        auto exprType = prop->expression->inferredType;
+
+        // Skip handling for HTTP/2 session types - let HTTP/2 handler deal with those
+        if (exprType && exprType->kind == TypeKind::Class) {
+            auto className = std::static_pointer_cast<ClassType>(exprType)->name;
+            if (className == "Http2Session" || className == "ServerHttp2Session" ||
+                className == "ClientHttp2Session" || className == "Http2Stream" ||
+                className == "ServerHttp2Stream" || className == "ClientHttp2Stream") {
+                return false;  // Let HTTP/2 handler deal with this
+            }
+        }
+
         visit(prop->expression.get());
         llvm::Value* obj = lastValue;
 
         // Check if it's a readable or writable stream
-        auto exprType = prop->expression->inferredType;
         bool isReadable = exprType && exprType->kind == TypeKind::Class &&
             (std::static_pointer_cast<ClassType>(exprType)->name == "Readable" ||
              std::static_pointer_cast<ClassType>(exprType)->name == "ReadStream");

@@ -30,6 +30,18 @@ find_package(OpenSSL REQUIRED)
 find_package(libtommath CONFIG REQUIRED)
 find_package(c-ares CONFIG REQUIRED)
 
+# nghttp2 doesn't provide CMake config, find it manually
+find_path(NGHTTP2_INCLUDE_DIR nghttp2/nghttp2.h)
+find_library(NGHTTP2_LIBRARY nghttp2)
+if (NOT NGHTTP2_INCLUDE_DIR OR NOT NGHTTP2_LIBRARY)
+    message(FATAL_ERROR "nghttp2 library not found")
+endif()
+add_library(nghttp2::nghttp2 STATIC IMPORTED)
+set_target_properties(nghttp2::nghttp2 PROPERTIES
+    IMPORTED_LOCATION "${NGHTTP2_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP2_INCLUDE_DIR}"
+)
+
 # Fix broken libtommath target in some vcpkg versions
 if (TARGET libtommath)
     get_target_property(TOMMATH_INC libtommath INTERFACE_INCLUDE_DIRECTORIES)
@@ -103,6 +115,8 @@ add_library(tsruntime STATIC
     src/TsUDPSocket.cpp
     src/TsInspector.cpp
     src/TsReadline.cpp
+    src/node/TTY.cpp
+    src/TsHttp2.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)
@@ -119,6 +133,7 @@ target_link_libraries(tsruntime PUBLIC
     OpenSSL::Crypto
     libtommath
     c-ares::cares
+    nghttp2::nghttp2
 )
 
 if (WIN32)
@@ -148,6 +163,7 @@ if (TS_FAT_RUNTIME AND MSVC)
         OpenSSL::Crypto
         libtommath
         c-ares::cares
+        nghttp2::nghttp2
     )
     
     # libuv is special because of the generator expression

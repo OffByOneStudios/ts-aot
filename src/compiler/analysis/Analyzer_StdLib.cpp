@@ -1437,6 +1437,7 @@ Analyzer::Analyzer() {
     registerNet();
     registerHTTP();
     registerHTTPS();
+    registerHTTP2();
     registerUtil();
     registerOS();
     registerCrypto();
@@ -1454,5 +1455,7 @@ Analyzer::Analyzer() {
     registerDgram();
     registerInspector();
     registerReadline();
+    registerTls();
+    registerTTY();
 }
 } // namespace ts
