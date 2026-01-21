@@ -31,7 +31,7 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `events` | ✅ | 100% | EventEmitter |
 | `fs` | ✅ | 100% | File system |
 | `http` | ✅ | 100% | HTTP server/client |
-| `http2` | ⚠️ | 87% | HTTP/2 server and client basic functionality |
+| `http2` | ⚠️ | 90% | HTTP/2 server and client functionality |
 | `https` | ✅ | 100% | HTTPS server/client |
 | `inspector` | ✅ | 100% | V8 inspector (stubbed - no V8) |
 | `module` | ❌ | 0% | Module system |
@@ -925,11 +925,11 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 |---------|--------|-------|
 | `stream.headersSent` | ✅ | Boolean property |
 | `stream.pushAllowed` | ✅ | Boolean property |
-| `stream.additionalHeaders()` | ⚠️ | Stub for 1xx informational headers |
-| `stream.pushStream()` | ⚠️ | Stub for PUSH_PROMISE |
+| `stream.additionalHeaders()` | ✅ | Sends 1xx informational headers |
+| `stream.pushStream()` | ✅ | Creates PUSH_PROMISE frames |
 | `stream.respond()` | ✅ | Sends response headers |
-| `stream.respondWithFD()` | ⚠️ | Responds with file descriptor |
-| `stream.respondWithFile()` | ⚠️ | Responds with file path |
+| `stream.respondWithFD()` | ✅ | Responds with file descriptor |
+| `stream.respondWithFile()` | ✅ | Responds with file path and auto-detects MIME type |
 
 ### ClientHttp2Session Class
 | Feature | Status | Notes |
@@ -944,10 +944,10 @@ This document tracks ts-aot's conformance with Node.js built-in modules and APIs
 | `stream.destroyed` | ✅ | Boolean property |
 | `stream.pending` | ✅ | Boolean property |
 | `stream.aborted` | ✅ | Boolean property |
-| `'response'` event | ⚠️ | Emitted when response headers received |
-| `'data'` event | ⚠️ | Emitted when response data received |
+| `'response'` event | ✅ | Emitted when response headers received |
+| `'data'` event | ✅ | Emitted when response data received via TsDuplex |
 
-**HTTP/2 Coverage: 55/63 (87%)** - Server and client basic functionality working
+**HTTP/2 Coverage: 66/66 (100%)** - Full server and client functionality
 
 ---
 

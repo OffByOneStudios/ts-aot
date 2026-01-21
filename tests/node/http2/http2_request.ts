@@ -8,6 +8,12 @@ function user_main(): number {
 
     // Test 1: session.request() returns a stream
     const session = http2.connect('http://localhost:8088');
+
+    // Handle expected connection error (no server running)
+    session.on('error', (err: any) => {
+        // Expected - no server is running, just ignore
+    });
+
     const stream = session.request({
         ':method': 'GET',
         ':path': '/'

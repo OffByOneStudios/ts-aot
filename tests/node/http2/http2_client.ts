@@ -8,6 +8,11 @@ function user_main(): number {
 
     // Test 1: connect() returns a client session
     const session = http2.connect('http://localhost:8088');
+
+    // Handle expected connection error (no server running)
+    session.on('error', (err: any) => {
+        // Expected - no server is running, just ignore
+    });
     if (session !== undefined && session !== null) {
         console.log("PASS: connect returns client session");
         passed++;
