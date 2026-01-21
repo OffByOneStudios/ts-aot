@@ -273,6 +273,12 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateInspectorCall(node, prop)) return true;
     if (tryGenerateInspectorSessionCall(node, prop)) return true;
     if (tryGenerateReadlineCall(node, prop)) return true;
+    if (tryGenerateTlsCall(node, prop)) return true;
+    if (tryGenerateTlsSocketCall(node, prop)) return true;
+    if (tryGenerateTTYCall(node, prop)) return true;
+    if (tryGenerateTTYReadStreamCall(node, prop)) return true;
+    if (tryGenerateTTYWriteStreamCall(node, prop)) return true;
+    if (tryGenerateHTTP2Call(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {

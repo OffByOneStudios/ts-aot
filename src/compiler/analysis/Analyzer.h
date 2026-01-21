@@ -60,6 +60,7 @@ public:
     void registerNet();
     void registerHTTP();
     void registerHTTPS();
+    void registerHTTP2();
     void registerUtil();
     void registerOS();
     void registerCrypto();
@@ -77,6 +78,8 @@ public:
     void registerDgram();
     void registerInspector();
     void registerReadline();
+    void registerTls();
+    void registerTTY();
 
     void reportError(const std::string& message);
 

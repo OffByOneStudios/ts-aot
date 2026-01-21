@@ -225,6 +225,14 @@ private:
     bool tryGenerateInspectorSessionCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateReadlineCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateReadlineInterfaceCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTlsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTlsSocketCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTTYCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTTYReadStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTTYWriteStreamCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateTTYNewExpression(ast::NewExpression* node);
+    bool tryGenerateHTTP2Call(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateHTTP2PropertyAccess(ast::PropertyAccessExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

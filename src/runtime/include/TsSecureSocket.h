@@ -16,9 +16,37 @@ public:
     void SetCertificate(const char* cert_path, const char* key_path);
     void SetCertificate(TsBuffer* cert, TsBuffer* key);
     void SetVerify(bool rejectUnauthorized, TsValue* ca = nullptr);
-    
+
     virtual bool Write(void* data, size_t length) override;
     virtual void End() override;
+
+    // TLSSocket property getters
+    bool IsAuthorized() const;
+    TsString* GetAuthorizationError() const;
+    bool IsEncrypted() const { return true; }
+    TsObject* GetCertificate() const;
+    TsObject* GetPeerCertificate(bool detailed = false) const;
+    TsString* GetProtocol() const;
+
+    // TLSSocket methods
+    TsBuffer* GetSession() const;
+    bool Renegotiate(void* options, void* callback);
+    bool SetMaxSendFragment(size_t size);
+
+    // SNI (Server Name Indication)
+    void SetServername(const char* hostname);
+    TsString* GetServername() const;
+
+    // ALPN (Application-Layer Protocol Negotiation)
+    void SetALPNProtocols(TsArray* protocols);
+    TsString* GetALPNProtocol() const;
+
+    // Session resumption
+    void SetSession(TsBuffer* session);
+    bool IsSessionReused() const;
+
+    // Client certificate
+    void SetClientCertificate(TsBuffer* cert, TsBuffer* key);
 
 protected:
     virtual void OnConnected() override;
@@ -32,6 +60,7 @@ private:
     BIO* wbio;
     bool handshake_done;
     bool is_server;
+    char* sni_hostname;  // SNI hostname for client connections
 
     void InitSSL();
     void FlushWbio();

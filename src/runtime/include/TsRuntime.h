@@ -354,4 +354,36 @@ void ts_module_register(TsValue* path, TsValue* exports);
 TsValue* ts_module_get(const char* path);
 TsValue* ts_require(TsValue* specifier, const char* referrerPath);
 
+// --- TLS Module ---
+void* ts_tls_create_secure_context(void* options);
+void* ts_tls_connect(void* options, void* callback);
+void* ts_tls_create_server(void* options, void* callback);
+void* ts_tls_get_ciphers();
+
+// --- TLSSocket (SecureSocket) Properties and Methods ---
+bool ts_secure_socket_get_authorized(void* socket);
+void* ts_secure_socket_get_authorization_error(void* socket);
+bool ts_secure_socket_get_encrypted(void* socket);
+void* ts_secure_socket_get_certificate(void* socket);
+void* ts_secure_socket_get_peer_certificate(void* socket, bool detailed);
+void* ts_secure_socket_get_protocol(void* socket);
+void* ts_secure_socket_get_session(void* socket);
+bool ts_secure_socket_renegotiate(void* socket, void* options, void* callback);
+bool ts_secure_socket_set_max_send_fragment(void* socket, int64_t size);
+
+// --- SNI (Server Name Indication) ---
+void ts_secure_socket_set_servername(void* socket, void* hostname);
+void* ts_secure_socket_get_servername(void* socket);
+
+// --- ALPN (Application-Layer Protocol Negotiation) ---
+void ts_secure_socket_set_alpn_protocols(void* socket, void* protocols);
+void* ts_secure_socket_get_alpn_protocol(void* socket);
+
+// --- Session resumption ---
+void ts_secure_socket_set_session(void* socket, void* session);
+bool ts_secure_socket_is_session_reused(void* socket);
+
+// --- Client certificate ---
+void ts_secure_socket_set_client_certificate(void* socket, void* cert, void* key);
+
 }

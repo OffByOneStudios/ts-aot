@@ -262,6 +262,16 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
     }
 
+    // Early check for builtin method calls on class objects (e.g., session.destroy())
+    // This handles cases where the method has a proper function type (not Any)
+    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+            if (tryGenerateBuiltinCall(node, prop)) {
+                return;
+            }
+        }
+    }
+
     if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Any) {
         // If this callee ultimately resolves to a named function specialization, prefer
         // a direct call (stable ABI, avoids ts_call_N wrappers).

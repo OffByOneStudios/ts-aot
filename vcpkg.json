@@ -15,6 +15,7 @@
     "openssl",
     "spdlog",
     "libtommath",
-    "c-ares"
+    "c-ares",
+    "nghttp2"
   ]
 }
