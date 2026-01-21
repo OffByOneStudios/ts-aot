@@ -94,6 +94,7 @@ public:
 
     // Stream management
     TsHttp2Stream* GetStream(int32_t streamId);
+    void AddStream(int32_t streamId, TsHttp2Stream* stream);
     void RemoveStream(int32_t streamId);
 
     // AsXxx() helpers for safe casting
@@ -164,6 +165,11 @@ public:
 
     // Client-specific methods
     TsClientHttp2Stream* Request(TsMap* headers, TsValue* options = nullptr);
+
+    // Socket event handlers (called by static callbacks)
+    void OnSocketConnect();
+    void OnSocketData(const uint8_t* data, size_t length);
+    void OnSocketClose();
 
 protected:
     TsClientHttp2Session();

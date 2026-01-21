@@ -4,6 +4,9 @@
 #include "GC.h"
 #include <cstring>
 #include <cstdio>
+#include <fcntl.h>
+#include <algorithm>
+#include <cctype>
 
 // =============================================================================
 // TsHttp2Session Implementation
@@ -160,6 +163,21 @@ int TsHttp2Session::OnFrameRecv(nghttp2_session* session, const nghttp2_frame* f
                         TsValue* flagsVal = ts_value_make_int(frame->hd.flags);
                         void* args[] = { stream, stream->sentHeaders, flagsVal };
                         h2session->Emit("stream", 3, args);
+                    }
+
+                    // For client sessions receiving response headers, emit 'response' event
+                    if (h2session->type == 1 && frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+                        // Emit 'response' event with (headers, flags)
+                        TsValue* flagsVal = ts_value_make_int(frame->hd.flags);
+                        void* args[] = { stream->sentHeaders, flagsVal };
+                        stream->Emit("response", 2, args);
+                    }
+
+                    // For informational headers (1xx), emit 'headers' event
+                    if (h2session->type == 1 && frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
+                        TsValue* flagsVal = ts_value_make_int(frame->hd.flags);
+                        void* args[] = { stream->sentHeaders, flagsVal };
+                        stream->Emit("headers", 2, args);
                     }
 
                     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
@@ -408,6 +426,10 @@ TsHttp2Stream* TsHttp2Session::GetStream(int32_t streamId) {
     return nullptr;
 }
 
+void TsHttp2Session::AddStream(int32_t streamId, TsHttp2Stream* stream) {
+    streams[streamId] = stream;
+}
+
 void TsHttp2Session::RemoveStream(int32_t streamId) {
     streams.erase(streamId);
 }
@@ -468,14 +490,139 @@ TsClientHttp2Session* TsClientHttp2Session::Create(const char* authority, TsValu
     return session;
 }
 
+// Static callbacks for client socket events
+static void* client_session_on_connect(void* ctx, int argc, void** argv) {
+    TsClientHttp2Session* session = (TsClientHttp2Session*)ctx;
+    if (!session) return nullptr;
+
+    session->OnSocketConnect();
+    return nullptr;
+}
+
+static void* client_session_on_data(void* ctx, int argc, void** argv) {
+    TsClientHttp2Session* session = (TsClientHttp2Session*)ctx;
+    if (!session || argc < 1) return nullptr;
+
+    // argv[0] is the data buffer
+    TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)argv[0]);
+    if (buf) {
+        session->OnSocketData(buf->GetData(), buf->GetLength());
+    }
+    return nullptr;
+}
+
+static void* client_session_on_error(void* ctx, int argc, void** argv) {
+    TsClientHttp2Session* session = (TsClientHttp2Session*)ctx;
+    if (!session) return nullptr;
+
+    // Forward error to session
+    void* err = (argc > 0) ? argv[0] : ts_error_create(TsString::Create("Socket error"));
+    void* args[] = { err };
+    session->Emit("error", 1, args);
+    return nullptr;
+}
+
+static void* client_session_on_close(void* ctx, int argc, void** argv) {
+    TsClientHttp2Session* session = (TsClientHttp2Session*)ctx;
+    if (!session) return nullptr;
+
+    session->OnSocketClose();
+    return nullptr;
+}
+
 void TsClientHttp2Session::Init(const char* authority, TsValue* options) {
     this->authority = authority;
     connecting = true;
 
+    // Parse authority URL: [protocol://]host[:port]
+    std::string url = authority;
+    bool isSecure = false;
+    std::string host;
+    int port = 80;
+
+    // Check for protocol
+    if (url.find("https://") == 0) {
+        isSecure = true;
+        url = url.substr(8);  // Remove "https://"
+        port = 443;
+    } else if (url.find("http://") == 0) {
+        url = url.substr(7);  // Remove "http://"
+        port = 80;
+    }
+
+    // Parse host:port
+    size_t colonPos = url.find(':');
+    size_t slashPos = url.find('/');
+
+    if (colonPos != std::string::npos && (slashPos == std::string::npos || colonPos < slashPos)) {
+        host = url.substr(0, colonPos);
+        size_t endPos = (slashPos != std::string::npos) ? slashPos : url.length();
+        port = std::stoi(url.substr(colonPos + 1, endPos - colonPos - 1));
+    } else if (slashPos != std::string::npos) {
+        host = url.substr(0, slashPos);
+    } else {
+        host = url;
+    }
+
+    encrypted = isSecure;
+
     // Initialize nghttp2 client session
     InitSession(false);
 
-    // TODO: Connect to authority using TsSocket or TsSecureSocket
+    // Create socket
+    if (isSecure) {
+        TsSecureSocket* secureSocket = new (ts_alloc(sizeof(TsSecureSocket))) TsSecureSocket(false);
+        socket = secureSocket;
+
+        // Configure TLS options from options parameter
+        bool rejectUnauthorized = true;
+        TsValue* ca = nullptr;
+
+        if (options && options->type == ValueType::OBJECT_PTR) {
+            TsMap* opts = (TsMap*)options->ptr_val;
+            TsValue v_reject = opts->Get(TsValue(TsString::Create("rejectUnauthorized")));
+            if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
+
+            TsValue v_ca = opts->Get(TsValue(TsString::Create("ca")));
+            if (v_ca.type != ValueType::UNDEFINED) ca = &v_ca;
+        }
+
+        secureSocket->SetVerify(rejectUnauthorized, ca);
+
+        // Register event handlers
+        secureSocket->On("secureConnect", ts_value_make_native_function((void*)client_session_on_connect, this));
+    } else {
+        socket = new (ts_alloc(sizeof(TsSocket))) TsSocket();
+        socket->On("connect", ts_value_make_native_function((void*)client_session_on_connect, this));
+    }
+
+    // Common event handlers
+    socket->On("data", ts_value_make_native_function((void*)client_session_on_data, this));
+    socket->On("error", ts_value_make_native_function((void*)client_session_on_error, this));
+    socket->On("close", ts_value_make_native_function((void*)client_session_on_close, this));
+
+    // Connect
+    socket->Connect(host.c_str(), port, nullptr);
+}
+
+void TsClientHttp2Session::OnSocketConnect() {
+    connecting = false;
+
+    // Send client connection preface and initial settings
+    SendPendingData();
+
+    Emit("connect", 0, nullptr);
+}
+
+void TsClientHttp2Session::OnSocketData(const uint8_t* data, size_t length) {
+    // Feed data to nghttp2
+    OnData(data, length);
+}
+
+void TsClientHttp2Session::OnSocketClose() {
+    if (!destroyed) {
+        Destroy(nullptr, 0);
+    }
 }
 
 TsClientHttp2Stream* TsClientHttp2Session::Request(TsMap* headers, TsValue* options) {
@@ -691,17 +838,172 @@ TsServerHttp2Stream* TsServerHttp2Stream::Create(TsHttp2Session* session, int32_
 
 void TsServerHttp2Stream::AdditionalHeaders(TsMap* headers) {
     if (!session || !session->session || closed || headersSent) return;
+    if (!headers) return;
 
-    // TODO: Send informational (1xx) headers
+    // Build header array for informational (1xx) headers
+    std::vector<nghttp2_nv> nva;
+    std::vector<std::string> headerStorage;  // Keep strings alive
+
+    // Get :status pseudo-header (must be 1xx for informational)
+    TsString* statusKey = TsString::Create(":status");
+    TsValue statusVal = headers->Get(TsValue(statusKey));
+    std::string status = "100";
+    if (statusVal.type == ValueType::STRING_PTR && statusVal.ptr_val) {
+        TsString* statusStr = (TsString*)statusVal.ptr_val;
+        status = statusStr->ToUtf8();
+    } else if (statusVal.type == ValueType::NUMBER_INT) {
+        status = std::to_string(statusVal.i_val);
+    }
+
+    // Validate it's an informational status (1xx)
+    int statusCode = std::stoi(status);
+    if (statusCode < 100 || statusCode >= 200) return;
+
+    headerStorage.push_back(status);
+    nva.push_back({(uint8_t*)":status", (uint8_t*)headerStorage.back().c_str(),
+                   7, headerStorage.back().length(), NGHTTP2_NV_FLAG_NONE});
+
+    // Add other headers from the map
+    TsArray* keys = (TsArray*)headers->GetKeys();
+    if (keys) {
+        for (size_t i = 0; i < keys->Length(); i++) {
+            TsValue keyVal = keys->Get(i);
+            if (keyVal.type != ValueType::STRING_PTR || !keyVal.ptr_val) continue;
+
+            TsString* key = (TsString*)keyVal.ptr_val;
+            std::string keyStr = key->ToUtf8();
+
+            // Skip :status, we already handled it
+            if (keyStr == ":status") continue;
+
+            TsValue val = headers->Get(keyVal);
+            if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+                TsString* valStr = (TsString*)val.ptr_val;
+                headerStorage.push_back(keyStr);
+                headerStorage.push_back(valStr->ToUtf8());
+
+                nva.push_back({
+                    (uint8_t*)headerStorage[headerStorage.size()-2].c_str(),
+                    (uint8_t*)headerStorage[headerStorage.size()-1].c_str(),
+                    headerStorage[headerStorage.size()-2].length(),
+                    headerStorage[headerStorage.size()-1].length(),
+                    NGHTTP2_NV_FLAG_NONE
+                });
+            }
+        }
+    }
+
+    // Submit informational headers (no END_STREAM flag)
+    nghttp2_submit_headers(session->session, NGHTTP2_FLAG_NONE, id, nullptr,
+                           nva.data(), nva.size(), nullptr);
+    session->SendPendingData();
+
+    // Track sent info headers
+    if (!sentInfoHeaders) {
+        sentInfoHeaders = TsArray::Create();
+    }
+    ts_array_push(sentInfoHeaders, ts_value_make_object(headers));
 }
 
 void TsServerHttp2Stream::PushStream(TsMap* headers, TsValue* options, void* callback) {
+    TsValue* cbFunc = (TsValue*)callback;
+
     if (!session || !session->session || closed || !pushAllowed) {
-        // TODO: Call callback with error
+        // Call callback with error
+        if (cbFunc) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Push stream not allowed"));
+            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+        }
         return;
     }
 
-    // TODO: Implement PUSH_PROMISE
+    if (!headers) {
+        if (cbFunc) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Headers required for push stream"));
+            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+        }
+        return;
+    }
+
+    // Build header array for PUSH_PROMISE
+    std::vector<nghttp2_nv> nva;
+    std::vector<std::string> headerStorage;
+
+    // Required pseudo-headers for push: :method, :path, :scheme, :authority
+    const char* pseudoHeaders[] = { ":method", ":path", ":scheme", ":authority" };
+    for (const char* ph : pseudoHeaders) {
+        TsString* key = TsString::Create(ph);
+        TsValue val = headers->Get(TsValue(key));
+        if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+            TsString* valStr = (TsString*)val.ptr_val;
+            headerStorage.push_back(ph);
+            headerStorage.push_back(valStr->ToUtf8());
+            nva.push_back({
+                (uint8_t*)headerStorage[headerStorage.size()-2].c_str(),
+                (uint8_t*)headerStorage[headerStorage.size()-1].c_str(),
+                headerStorage[headerStorage.size()-2].length(),
+                headerStorage[headerStorage.size()-1].length(),
+                NGHTTP2_NV_FLAG_NONE
+            });
+        }
+    }
+
+    // Add other headers
+    TsArray* keys = (TsArray*)headers->GetKeys();
+    if (keys) {
+        for (size_t i = 0; i < keys->Length(); i++) {
+            TsValue keyVal = keys->Get(i);
+            if (keyVal.type != ValueType::STRING_PTR || !keyVal.ptr_val) continue;
+
+            TsString* key = (TsString*)keyVal.ptr_val;
+            std::string keyStr = key->ToUtf8();
+
+            // Skip pseudo-headers we already handled
+            if (keyStr[0] == ':') continue;
+
+            TsValue val = headers->Get(keyVal);
+            if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+                TsString* valStr = (TsString*)val.ptr_val;
+                headerStorage.push_back(keyStr);
+                headerStorage.push_back(valStr->ToUtf8());
+                nva.push_back({
+                    (uint8_t*)headerStorage[headerStorage.size()-2].c_str(),
+                    (uint8_t*)headerStorage[headerStorage.size()-1].c_str(),
+                    headerStorage[headerStorage.size()-2].length(),
+                    headerStorage[headerStorage.size()-1].length(),
+                    NGHTTP2_NV_FLAG_NONE
+                });
+            }
+        }
+    }
+
+    // Submit PUSH_PROMISE - returns the promised stream ID
+    int32_t promisedStreamId = nghttp2_submit_push_promise(
+        session->session, NGHTTP2_FLAG_NONE, id, nva.data(), nva.size(), nullptr
+    );
+
+    if (promisedStreamId < 0) {
+        if (cbFunc) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to create push promise"));
+            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+        }
+        return;
+    }
+
+    // Create the new server stream for the push
+    TsServerHttp2Stream* pushStream = TsServerHttp2Stream::Create(session, promisedStreamId);
+    pushStream->sentHeaders = headers;
+
+    // Register the stream with the session
+    session->AddStream(promisedStreamId, pushStream);
+
+    session->SendPendingData();
+
+    // Call callback with (null, pushStream, headers)
+    if (cbFunc) {
+        TsObject* objPtr = dynamic_cast<TsObject*>(pushStream);
+        ts_call_3(cbFunc, nullptr, (TsValue*)ts_value_make_object(objPtr), (TsValue*)ts_value_make_object(headers));
+    }
 }
 
 void TsServerHttp2Stream::Respond(TsMap* headers, TsValue* options) {
@@ -733,15 +1035,225 @@ void TsServerHttp2Stream::Respond(TsMap* headers, TsValue* options) {
 }
 
 void TsServerHttp2Stream::RespondWithFD(int fd, TsMap* headers, TsValue* options) {
-    // Respond using file descriptor
-    Respond(headers, options);
-    // TODO: Implement file descriptor reading
+    if (!session || !session->session || closed || headersSent) return;
+    if (fd < 0) return;
+
+    // Parse options: offset, length
+    int64_t offset = 0;
+    int64_t length = -1;  // -1 means read to end
+
+    if (options && options->type == ValueType::OBJECT_PTR) {
+        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)options->ptr_val);
+        if (opts) {
+            TsValue offsetVal = opts->Get(TsValue(TsString::Create("offset")));
+            if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
+
+            TsValue lengthVal = opts->Get(TsValue(TsString::Create("length")));
+            if (lengthVal.type == ValueType::NUMBER_INT) length = lengthVal.i_val;
+        }
+    }
+
+    // Get file size using fstat
+    uv_fs_t statReq;
+    int statResult = uv_fs_fstat(uv_default_loop(), &statReq, fd, nullptr);
+    if (statResult < 0) {
+        uv_fs_req_cleanup(&statReq);
+        // Emit error
+        TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to stat file descriptor"));
+        void* args[] = { err };
+        Emit("error", 1, args);
+        return;
+    }
+
+    int64_t fileSize = statReq.statbuf.st_size;
+    uv_fs_req_cleanup(&statReq);
+
+    // Calculate actual length to read
+    if (length < 0 || offset + length > fileSize) {
+        length = fileSize - offset;
+    }
+
+    // Add Content-Length header if not present
+    TsMap* responseHeaders = headers ? headers : TsMap::Create();
+    TsString* clKey = TsString::Create("content-length");
+    TsValue clVal = responseHeaders->Get(TsValue(clKey));
+    if (clVal.type == ValueType::UNDEFINED) {
+        responseHeaders->Set(TsValue(clKey), TsValue(TsString::Create(std::to_string(length).c_str())));
+    }
+
+    // Send response headers
+    Respond(responseHeaders, nullptr);
+
+    // Read file in chunks and write to stream
+    const size_t chunkSize = 16384;
+    std::vector<uint8_t> buffer(chunkSize);
+    int64_t bytesRemaining = length;
+    int64_t currentOffset = offset;
+
+    while (bytesRemaining > 0 && !closed && !destroyed) {
+        size_t toRead = (size_t)(std::min)((int64_t)chunkSize, bytesRemaining);
+
+        uv_buf_t uvBuf = uv_buf_init((char*)buffer.data(), (unsigned int)toRead);
+        uv_fs_t readReq;
+        int bytesRead = uv_fs_read(uv_default_loop(), &readReq, fd, &uvBuf, 1, currentOffset, nullptr);
+        uv_fs_req_cleanup(&readReq);
+
+        if (bytesRead <= 0) break;
+
+        // Write to HTTP/2 stream
+        Write(buffer.data(), bytesRead);
+
+        currentOffset += bytesRead;
+        bytesRemaining -= bytesRead;
+    }
+
+    // End the stream
+    End();
 }
 
 void TsServerHttp2Stream::RespondWithFile(const char* path, TsMap* headers, TsValue* options) {
-    // Respond with file contents
-    Respond(headers, options);
-    // TODO: Implement file reading and streaming
+    if (!session || !session->session || closed || headersSent) return;
+    if (!path) return;
+
+    // Parse options: offset, length, onError callback
+    int64_t offset = 0;
+    int64_t length = -1;
+    void* onError = nullptr;
+
+    if (options && options->type == ValueType::OBJECT_PTR) {
+        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)options->ptr_val);
+        if (opts) {
+            TsValue offsetVal = opts->Get(TsValue(TsString::Create("offset")));
+            if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
+
+            TsValue lengthVal = opts->Get(TsValue(TsString::Create("length")));
+            if (lengthVal.type == ValueType::NUMBER_INT) length = lengthVal.i_val;
+
+            TsValue onErrorVal = opts->Get(TsValue(TsString::Create("onError")));
+            if (onErrorVal.type == ValueType::FUNCTION_PTR || onErrorVal.type == ValueType::OBJECT_PTR) {
+                onError = onErrorVal.ptr_val;
+            }
+        }
+    }
+
+    // Open the file
+    uv_fs_t openReq;
+    int fd = uv_fs_open(uv_default_loop(), &openReq, path, O_RDONLY, 0, nullptr);
+    uv_fs_req_cleanup(&openReq);
+
+    if (fd < 0) {
+        // File open failed
+        if (onError) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to open file"));
+            ts_call_1((TsValue*)onError, err);
+        } else {
+            // Emit error on stream
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to open file"));
+            void* args[] = { err };
+            Emit("error", 1, args);
+        }
+        return;
+    }
+
+    // Get file size
+    uv_fs_t statReq;
+    int statResult = uv_fs_fstat(uv_default_loop(), &statReq, fd, nullptr);
+    if (statResult < 0) {
+        uv_fs_req_cleanup(&statReq);
+        uv_fs_t closeReq;
+        uv_fs_close(uv_default_loop(), &closeReq, fd, nullptr);
+        uv_fs_req_cleanup(&closeReq);
+
+        if (onError) {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to stat file"));
+            ts_call_1((TsValue*)onError, err);
+        } else {
+            TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to stat file"));
+            void* args[] = { err };
+            Emit("error", 1, args);
+        }
+        return;
+    }
+
+    int64_t fileSize = statReq.statbuf.st_size;
+    uv_fs_req_cleanup(&statReq);
+
+    // Calculate actual length
+    if (length < 0 || offset + length > fileSize) {
+        length = fileSize - offset;
+    }
+
+    // Set up response headers
+    TsMap* responseHeaders = headers ? headers : TsMap::Create();
+
+    // Add Content-Length if not present
+    TsString* clKey = TsString::Create("content-length");
+    TsValue clVal = responseHeaders->Get(TsValue(clKey));
+    if (clVal.type == ValueType::UNDEFINED) {
+        responseHeaders->Set(TsValue(clKey), TsValue(TsString::Create(std::to_string(length).c_str())));
+    }
+
+    // Try to set Content-Type based on file extension
+    TsString* ctKey = TsString::Create("content-type");
+    TsValue ctVal = responseHeaders->Get(TsValue(ctKey));
+    if (ctVal.type == ValueType::UNDEFINED) {
+        std::string pathStr = path;
+        std::string contentType = "application/octet-stream";
+
+        size_t dotPos = pathStr.rfind('.');
+        if (dotPos != std::string::npos) {
+            std::string ext = pathStr.substr(dotPos + 1);
+            // Convert to lowercase
+            for (char& c : ext) c = tolower(c);
+
+            if (ext == "html" || ext == "htm") contentType = "text/html";
+            else if (ext == "css") contentType = "text/css";
+            else if (ext == "js") contentType = "application/javascript";
+            else if (ext == "json") contentType = "application/json";
+            else if (ext == "txt") contentType = "text/plain";
+            else if (ext == "png") contentType = "image/png";
+            else if (ext == "jpg" || ext == "jpeg") contentType = "image/jpeg";
+            else if (ext == "gif") contentType = "image/gif";
+            else if (ext == "svg") contentType = "image/svg+xml";
+            else if (ext == "pdf") contentType = "application/pdf";
+            else if (ext == "xml") contentType = "application/xml";
+        }
+
+        responseHeaders->Set(TsValue(ctKey), TsValue(TsString::Create(contentType.c_str())));
+    }
+
+    // Send response headers
+    Respond(responseHeaders, nullptr);
+
+    // Read and stream file content
+    const size_t chunkSize = 16384;
+    std::vector<uint8_t> buffer(chunkSize);
+    int64_t bytesRemaining = length;
+    int64_t currentOffset = offset;
+
+    while (bytesRemaining > 0 && !closed && !destroyed) {
+        size_t toRead = (size_t)(std::min)((int64_t)chunkSize, bytesRemaining);
+
+        uv_buf_t uvBuf = uv_buf_init((char*)buffer.data(), (unsigned int)toRead);
+        uv_fs_t readReq;
+        int bytesRead = uv_fs_read(uv_default_loop(), &readReq, fd, &uvBuf, 1, currentOffset, nullptr);
+        uv_fs_req_cleanup(&readReq);
+
+        if (bytesRead <= 0) break;
+
+        Write(buffer.data(), bytesRead);
+
+        currentOffset += bytesRead;
+        bytesRemaining -= bytesRead;
+    }
+
+    // Close file descriptor
+    uv_fs_t closeReq;
+    uv_fs_close(uv_default_loop(), &closeReq, fd, nullptr);
+    uv_fs_req_cleanup(&closeReq);
+
+    // End the stream
+    End();
 }
 
 // =============================================================================
