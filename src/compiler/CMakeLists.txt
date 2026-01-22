@@ -79,6 +79,8 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Tls.cpp
     analysis/Analyzer_StdLib_TTY.cpp
     analysis/Analyzer_StdLib_Http2.cpp
+    analysis/Analyzer_StdLib_Zlib.cpp
+    analysis/Analyzer_StdLib_Module.cpp
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
@@ -135,6 +137,8 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_Tls.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_TTY.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Http2.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_Zlib.cpp
+    codegen/IRGenerator_Expressions_Calls_Builtin_Module.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp

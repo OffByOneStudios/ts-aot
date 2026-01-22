@@ -233,6 +233,12 @@ private:
     bool tryGenerateTTYNewExpression(ast::NewExpression* node);
     bool tryGenerateHTTP2Call(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateHTTP2PropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateZlibCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateZlibConstantsAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateZlibPropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateModulePropertyAccess(ast::PropertyAccessExpression* node);
+    bool tryGenerateModuleSourceMapNew(ast::NewExpression* node);
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

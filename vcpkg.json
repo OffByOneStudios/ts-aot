@@ -16,6 +16,8 @@
     "spdlog",
     "libtommath",
     "c-ares",
-    "nghttp2"
+    "nghttp2",
+    "zlib",
+    "brotli"
   ]
 }

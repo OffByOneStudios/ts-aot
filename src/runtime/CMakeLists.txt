@@ -42,6 +42,12 @@ set_target_properties(nghttp2::nghttp2 PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP2_INCLUDE_DIR}"
 )
 
+# zlib - use find_package (vcpkg provides CMake config)
+find_package(ZLIB REQUIRED)
+
+# brotli - use unofficial-brotli config from vcpkg
+find_package(unofficial-brotli CONFIG REQUIRED)
+
 # Fix broken libtommath target in some vcpkg versions
 if (TARGET libtommath)
     get_target_property(TOMMATH_INC libtommath INTERFACE_INCLUDE_DIRECTORIES)
@@ -117,6 +123,8 @@ add_library(tsruntime STATIC
     src/TsReadline.cpp
     src/node/TTY.cpp
     src/TsHttp2.cpp
+    src/TsZlib.cpp
+    src/TsModule.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)
@@ -134,6 +142,10 @@ target_link_libraries(tsruntime PUBLIC
     libtommath
     c-ares::cares
     nghttp2::nghttp2
+    ZLIB::ZLIB
+    unofficial::brotli::brotlidec
+    unofficial::brotli::brotlienc
+    unofficial::brotli::brotlicommon
 )
 
 if (WIN32)
@@ -164,6 +176,10 @@ if (TS_FAT_RUNTIME AND MSVC)
         libtommath
         c-ares::cares
         nghttp2::nghttp2
+        ZLIB::ZLIB
+        unofficial::brotli::brotlidec
+        unofficial::brotli::brotlienc
+        unofficial::brotli::brotlicommon
     )
     
     # libuv is special because of the generator expression
