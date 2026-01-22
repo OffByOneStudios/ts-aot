@@ -3254,8 +3254,18 @@ llvm::Value* IRGenerator::emitLoadTsValueUnion(llvm::Value* boxedPtr) {
 
 void IRGenerator::emitStoreTsValueFields(llvm::Value* boxedPtr, llvm::Value* type, llvm::Value* value) {
     initTsValueType();
+    // Store type field
     llvm::Value* typePtr = builder->CreateStructGEP(tsValueType, boxedPtr, 0);
     builder->CreateStore(type, typePtr);
+
+    // Zero the padding field (index 1) - CRITICAL for ts_value_get_object to recognize
+    // stack-allocated TsValue structs. Without zeroed padding, the runtime can't distinguish
+    // a TsValue from a raw vtable pointer.
+    llvm::Value* paddingPtr = builder->CreateStructGEP(tsValueType, boxedPtr, 1);
+    llvm::ArrayType* paddingType = llvm::ArrayType::get(builder->getInt8Ty(), 7);
+    builder->CreateStore(llvm::Constant::getNullValue(paddingType), paddingPtr);
+
+    // Store union value field
     llvm::Value* unionPtr = builder->CreateStructGEP(tsValueType, boxedPtr, 2);
     builder->CreateStore(value, unionPtr);
 }
@@ -3281,11 +3291,13 @@ llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* key
     llvm::Value* keyIsNull = builder->CreateICmpEQ(keyBoxed, nullPtr);
     llvm::Value* keyBoxedSafe = builder->CreateSelect(keyIsNull, undefPtr, keyBoxed);
     
-    // Allocate result on stack
+    // Allocate result and temporaries on stack - MUST be in entry block to avoid stack corruption
     llvm::Function* currentFunc = builder->GetInsertBlock()->getParent();
     llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(), currentFunc->getEntryBlock().begin());
     llvm::AllocaInst* result = entryBuilder.CreateAlloca(tsValueType, nullptr, "mapGetResult");
-    
+    llvm::AllocaInst* outType = entryBuilder.CreateAlloca(builder->getInt8Ty());
+    llvm::AllocaInst* outVal = entryBuilder.CreateAlloca(builder->getInt64Ty());
+
     // Load key fields
     llvm::Value* keyType = emitLoadTsValueType(keyBoxedSafe);
     llvm::Value* keyVal = emitLoadTsValueUnion(keyBoxedSafe);
@@ -3313,8 +3325,6 @@ llvm::Value* IRGenerator::emitInlineMapGet(llvm::Value* rawMap, llvm::Value* key
     
     // Found: call __ts_map_get_value_at
     builder->SetInsertPoint(foundBB);
-    llvm::Value* outType = builder->CreateAlloca(builder->getInt8Ty());
-    llvm::Value* outVal = builder->CreateAlloca(builder->getInt64Ty());
     llvm::FunctionType* getValFt = llvm::FunctionType::get(
         llvm::Type::getVoidTy(*context),
         { builder->getPtrTy(), builder->getInt64Ty(), builder->getPtrTy(), builder->getPtrTy() },
