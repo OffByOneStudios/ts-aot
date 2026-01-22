@@ -189,7 +189,6 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_string(void* s) {
-        // printf("ts_value_make_string(%p)\n", s);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::STRING_PTR;
         v->ptr_val = s;
@@ -372,14 +371,25 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // FIRST: Check if this is a boxed TsValue by examining the type field
         // TsValue has ValueType enum at offset 0, which is <= 10
-        // Check this BEFORE dereferencing at offset 16 (which would be out of bounds for TsValue)
+        // HOWEVER: A vtable pointer's low byte could coincidentally be <= 10.
+        // TsValue layout: [type(1)][padding(7)][union(8)] - bytes 1-7 should be 0 due to padding.
+        // vtable pointer layout: [ptr(8)] - bytes 1-7 are part of the address (typically non-zero on 64-bit).
+        // So we check that bytes 1-3 are zero to distinguish TsValue from vtable pointer.
         uint8_t typeField = *(uint8_t*)v;
-        if (typeField <= 10) {
+        uint8_t byte1 = *((uint8_t*)v + 1);
+        uint8_t byte2 = *((uint8_t*)v + 2);
+        uint8_t byte3 = *((uint8_t*)v + 3);
+
+        // A TsValue has type <= 10 AND bytes 1-3 are zero (padding)
+        // A vtable pointer has first byte that may be anything, but bytes 1-3 are part of address (non-zero on 64-bit)
+        if (typeField <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
             // It's a proper boxed TsValue - extract ptr_val
             if (v->type == ValueType::OBJECT_PTR ||
                 v->type == ValueType::ARRAY_PTR ||
                 v->type == ValueType::PROMISE_PTR ||
-                v->type == ValueType::FUNCTION_PTR) {
+                v->type == ValueType::FUNCTION_PTR ||
+                v->type == ValueType::BIGINT_PTR ||
+                v->type == ValueType::SYMBOL_PTR) {
                 return v->ptr_val;
             }
             // It's a TsValue but not an object type (e.g., int, bool, undefined)
@@ -2325,9 +2335,16 @@ TsValue* ts_value_make_int(int64_t i) {
     TsString* ts_value_typeof(TsValue* v) {
         if (!v) return TsString::Create("undefined");
 
-        // Check type field first - if in valid range (0-10), trust it
+        // Check type field first - TsValue types are 0-10
+        // A proper TsValue has type <= 10 AND bytes 1-3 are zero (padding)
+        // A raw object pointer (vtable) may have first byte <= 10 by coincidence
         uint8_t typeField = *(uint8_t*)v;
-        if (typeField <= 10) {
+        uint8_t byte1 = *((uint8_t*)v + 1);
+        uint8_t byte2 = *((uint8_t*)v + 2);
+        uint8_t byte3 = *((uint8_t*)v + 3);
+        bool isProbablyTsValue = (typeField <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0);
+
+        if (isProbablyTsValue) {
             // It's a proper TsValue - use the type field directly
             switch (v->type) {
                 case ValueType::UNDEFINED: return TsString::Create("undefined");
@@ -2350,20 +2367,21 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Type > 10 means this is a raw pointer - check magic numbers
+        // Not a TsValue - this is a raw pointer - check magic numbers
         uint32_t magic = *(uint32_t*)v;
         if (magic == 0x53545247) return TsString::Create("string"); // TsString::MAGIC
         if (magic == 0x41525259) return TsString::Create("object"); // TsArray::MAGIC
-        if (magic == 0x4D415053) return TsString::Create("object"); // TsMap::MAGIC
+        if (magic == 0x4D415053) return TsString::Create("object"); // TsMap::MAGIC at offset 0
         if (magic == 0x53455453) return TsString::Create("object"); // TsSet::MAGIC
         if (magic == 0x46554E43) return TsString::Create("function"); // TsFunction::MAGIC
 
-        // Check other offsets for magic (virtual inheritance may shift it)
+        // Check other offsets for magic (TsObject-derived classes have vtable at 0, explicit vtable at 8, magic at 16)
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        if (magic16 == 0x4D415053) return TsString::Create("object"); // TsMap::MAGIC at offset 16
+        if (magic16 == 0x46554E43) return TsString::Create("function"); // TsFunction::MAGIC at offset 16
+
         uint32_t magic8 = *(uint32_t*)((char*)v + 8);
         if (magic8 == 0x46554E43) return TsString::Create("function");
-        
-        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
-        if (magic16 == 0x46554E43) return TsString::Create("function");
 
         // Default to object for unknown raw pointers
         return TsString::Create("object");
@@ -2396,16 +2414,21 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return ts_value_make_undefined();
 
-        // Check if this is a Proxy - dispatch through proxy trap
-        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-        if (proxy) {
-            return proxy->get(key, nullptr);
-        }
-
         // Check magic at offset 0 first (TsArray has magic at offset 0)
         // Note: ARRAY_PTR is handled early above, but this catches raw array pointers
         uint32_t magic0 = *(uint32_t*)rawObj;
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+
+        // Only do dynamic_cast for Proxy check if we know this is a TsObject-derived class
+        // TsObject::magic at offset 16 should be TsMap::MAGIC for plain objects
+        // We check for Proxy AFTER verifying it's a valid TsObject to avoid crashes
+        if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
+            // It's a TsObject-derived class - safe to use dynamic_cast
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+            if (proxy) {
+                return proxy->get(key, nullptr);
+            }
+        }
         if (magic0 == 0x41525259) { // TsArray::MAGIC = "ARRY"
             // This is an array
             if (key->type == ValueType::NUMBER_INT) {

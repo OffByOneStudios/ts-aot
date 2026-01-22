@@ -3,4 +3,4 @@
 // OUTPUT: 3
 
 var obj = { a: { b: { c: 3 } } };
-    console.log(obj.a.b.c);
+console.log(obj.a.b.c);
