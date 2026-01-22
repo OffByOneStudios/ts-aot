@@ -55,6 +55,15 @@ void Analyzer::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
 
 void Analyzer::visitAsExpression(ast::AsExpression* node) {
     visit(node->expression.get());
+
+    // Handle "as const" specially - it's a compile-time assertion that makes
+    // the value readonly and narrows literal types. At runtime, it passes through.
+    if (node->type == "const") {
+        // Keep the inner expression's type - "as const" doesn't change the runtime type
+        node->inferredType = lastType;
+        return;
+    }
+
     lastType = parseType(node->type, symbols);
     node->inferredType = lastType;
 }
