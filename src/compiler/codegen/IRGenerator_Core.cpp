@@ -3207,6 +3207,14 @@ llvm::Value* IRGenerator::emitToBoolean(llvm::Value* val, std::shared_ptr<Type> 
             llvm::FunctionCallee getBoolFn = getRuntimeFunction("ts_value_get_bool", getBoolFt);
             return createCall(getBoolFt, getBoolFn.getCallee(), { val });
         }
+        // For String type, empty string is falsy in JavaScript
+        if (type && type->kind == TypeKind::String) {
+            // Check if string length > 0
+            llvm::FunctionType* lenFt = llvm::FunctionType::get(builder->getInt64Ty(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee lenFn = getRuntimeFunction("ts_string_length", lenFt);
+            llvm::Value* len = createCall(lenFt, lenFn.getCallee(), { val });
+            return builder->CreateICmpSGT(len, llvm::ConstantInt::get(builder->getInt64Ty(), 0), "strtobool");
+        }
         return builder->CreateICmpNE(val, llvm::ConstantPointerNull::get(builder->getPtrTy()), "tobool");
     }
     

@@ -30,7 +30,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `never` | 🔬 | Type-only |
 | `object` | ✅ | |
 | `bigint` | ✅ | Arbitrary precision integers |
-| `symbol` | ⚠️ | Basic support |
+| `symbol` | ✅ | Description, uniqueness, Symbol.for/keyFor, as property keys |
 
 ## 2. Variable Declarations
 
@@ -115,7 +115,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generic functions | ✅ | Monomorphized |
 | Generic classes | ✅ | Monomorphized |
 | Generic interfaces | 🔬 | Type-only |
-| Generic constraints (`extends`) | ⚠️ | Basic support |
+| Generic constraints (`extends`) | ✅ | Interface and type parameter constraints |
 | `keyof` constraint | ❌ | |
 | Default type parameters | ❌ | |
 | Generic parameter variance | 🔬 | Type-only |
@@ -212,7 +212,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |---------|--------|-------|
 | Union types (`\|`) | ⚠️ | Basic support |
 | Intersection types (`&`) | ❌ | |
-| Type guards | ⚠️ | |
+| Type guards | ✅ | typeof, in, Array.isArray |
 | Discriminated unions | ❌ | |
 
 ## 15. Literal Types
@@ -261,8 +261,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `for...of` loops | ✅ | |
-| `Symbol.iterator` | ⚠️ | |
-| Iterable protocol | ⚠️ | |
+| `Symbol.iterator` | ✅ | Well-known symbols as property keys |
+| Iterable protocol | ✅ | Custom iterables with [Symbol.iterator] work |
 | Generator functions (`function*`) | ✅ | Basic support |
 | `yield` expression | ✅ | |
 | `yield*` delegation | ✅ | Works with generators and arrays |
@@ -300,30 +300,30 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Category | Implemented | Partial | Not Implemented | Type-Only |
 |----------|-------------|---------|-----------------|-----------|
-| Basic Types | 13 | 1 | 0 | 2 |
+| Basic Types | 14 | 0 | 0 | 2 |
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
 | Classes | 17 | 1 | 1 | 1 |
 | Functions | 9 | 2 | 0 | 0 |
-| Generics | 2 | 1 | 2 | 2 |
+| Generics | 3 | 0 | 2 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 5 | 0 | 2 | 0 |
 | Type Narrowing | 5 | 1 | 4 | 0 |
-| Union/Intersection | 0 | 2 | 2 | 0 |
+| Union/Intersection | 1 | 1 | 2 | 0 |
 | Literal Types | 0 | 0 | 1 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
-| Iterators/Generators | 5 | 2 | 1 | 0 |
+| Iterators/Generators | 7 | 0 | 1 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 3 | 0 | 1 | 0 |
-| **TOTAL** | **78** | **12** | **50** | **34** |
+| **TOTAL** | **83** | **7** | **50** | **34** |
 
-**Conformance: 78/140 runtime features (56%)**
+**Conformance: 83/140 runtime features (59%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
