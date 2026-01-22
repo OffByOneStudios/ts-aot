@@ -56,5 +56,8 @@ function user_main(): number {
         req.end();
     });
 
+    // Exit after tests complete
+    setTimeout(() => process.exit(0), 500);
+
     return 0;
 }

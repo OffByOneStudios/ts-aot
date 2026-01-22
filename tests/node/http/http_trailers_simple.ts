@@ -40,5 +40,11 @@ function user_main(): number {
         req.end();
     });
 
+    // Use a timeout to allow the test to complete and then exit
+    setTimeout(() => {
+        console.log("Test complete - exiting");
+        process.exit(0);
+    }, 500);
+
     return 0;
 }

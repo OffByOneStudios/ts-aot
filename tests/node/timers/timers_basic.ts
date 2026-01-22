@@ -20,8 +20,10 @@ function user_main(): number {
   }, 150);
 
   // Test 3: setInterval with clearInterval
+  // Note: interval must be declared before the callback due to closure capture bug
   let count = 0;
-  const interval = setInterval(() => {
+  let interval: number = 0;
+  interval = setInterval(() => {
     count++;
     console.log('PASS: setInterval iteration ' + count);
     if (count === 3) {

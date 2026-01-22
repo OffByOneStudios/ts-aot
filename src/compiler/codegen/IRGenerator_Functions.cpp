@@ -1929,6 +1929,9 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
     if (argIt != function->arg_end()) {
         argIt->setName("context");
         currentContext = &*argIt;
+        // For object literal methods (getters/setters), 'this' is the context (first arg)
+        // Store it in namedValues so that 'this' resolves correctly in the method body
+        namedValues["this"] = currentContext;
         ++argIt;
     }
 

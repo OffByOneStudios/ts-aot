@@ -75,11 +75,23 @@ extern "C" TsValue* ts_set_interval(TsValue* callback, int64_t delay) {
 }
 
 extern "C" void ts_clear_timer(TsValue* timerId) {
-    if (!timerId || timerId->type != ValueType::NUMBER_INT) return;
-    
-    uv_timer_t* timer = (uv_timer_t*)timerId->i_val;
-    if (!timer) return;
+    if (!timerId) return;
 
+    // Handle different value types - timer ID can come as int or boxed pointer
+    int64_t timerAddr = 0;
+    if (timerId->type == ValueType::NUMBER_INT) {
+        timerAddr = timerId->i_val;
+    } else if (timerId->type == ValueType::OBJECT_PTR && timerId->ptr_val) {
+        // Value might be boxed - try to extract int from nested TsValue
+        TsValue* inner = (TsValue*)timerId->ptr_val;
+        if (inner->type == ValueType::NUMBER_INT) {
+            timerAddr = inner->i_val;
+        }
+    }
+
+    if (timerAddr == 0) return;
+
+    uv_timer_t* timer = (uv_timer_t*)timerAddr;
     uv_timer_stop(timer);
     uv_close((uv_handle_t*)timer, on_timer_close);
 }

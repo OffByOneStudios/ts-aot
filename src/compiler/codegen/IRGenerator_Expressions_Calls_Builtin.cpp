@@ -2730,7 +2730,11 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
 
          lastValue = createCall(codePointAtFt, fn.getCallee(), { obj, index });
          return true;
-    } else if (prop->name == "charAt" || prop->name == "at") {
+    } else if (prop->name == "charAt" ||
+               (prop->name == "at" && prop->expression->inferredType &&
+                prop->expression->inferredType->kind == TypeKind::String)) {
+         // String.at() and String.charAt() - only handle if type is String
+         // (Array.at() is handled separately below)
          visit(prop->expression.get());
          llvm::Value* obj = lastValue;
          if (obj->getType()->isIntegerTy(64)) {

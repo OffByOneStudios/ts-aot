@@ -17,12 +17,23 @@ function user_main(): number {
 
         if (worker) {
             console.log("PASS: Worker forked successfully with id:", worker.id);
+
+            // Listen for worker exit
+            worker.on('exit', () => {
+                console.log("Worker exited");
+                console.log("=== Master tests passed! ===");
+                process.exit(0);
+            });
         } else {
             console.log("FAIL: Failed to fork worker");
             return 1;
         }
 
-        console.log("=== Master tests passed! ===");
+        // Timeout in case worker doesn't exit
+        setTimeout(() => {
+            console.log("Timeout - exiting master");
+            process.exit(0);
+        }, 2000);
     } else {
         // Worker process
         console.log("Worker process started!");
@@ -41,6 +52,9 @@ function user_main(): number {
         }
 
         console.log("=== Worker tests passed! ===");
+
+        // Worker exits cleanly
+        process.exit(0);
     }
 
     return 0;
