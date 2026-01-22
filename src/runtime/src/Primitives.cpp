@@ -632,14 +632,41 @@ int64_t ts_parseInt(void* value) {
 
 bool ts_value_to_bool(TsValue* v) {
     if (!v) return false;
-    
-    // Check for raw TsString* (magic at offset 0)
-    uint32_t magic = *(uint32_t*)v;
-    if (magic == 0x53545247) { // TsString::MAGIC
-        TsString* str = (TsString*)v;
-        return str->Length() > 0;  // Empty string is falsy
+
+    // Check type field first - TsValue types are 0-10
+    // If the first byte is > 10, this could be a raw object pointer (vtable pointer)
+    uint8_t typeField = *(uint8_t*)v;
+    uint8_t byte1 = *((uint8_t*)v + 1);
+    uint8_t byte2 = *((uint8_t*)v + 2);
+    uint8_t byte3 = *((uint8_t*)v + 3);
+
+    // A TsValue has type <= 10 AND bytes 1-3 are zero (padding)
+    // A vtable pointer (raw object) has first byte that may be anything, but bytes 1-3 are part of address
+    bool isProbablyTsValue = (typeField <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0);
+
+    if (!isProbablyTsValue) {
+        // This is likely a raw object pointer - check for known magic values
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x53545247) { // TsString::MAGIC "STRG"
+            TsString* str = (TsString*)v;
+            return str->Length() > 0;  // Empty string is falsy
+        }
+        if (magic == 0x41525259) { // TsArray::MAGIC "ARRY"
+            return true;  // Arrays are always truthy
+        }
+
+        // Check TsMap magic at offset 16 (after vtable ptr + explicit vtable)
+        uint32_t magic16 = *(uint32_t*)((char*)v + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)v + 20);
+        uint32_t magic24 = *(uint32_t*)((char*)v + 24);
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC "MAPS"
+            return true;  // Objects are always truthy
+        }
+
+        // Unknown pointer type - treat as truthy (non-null pointer)
+        return true;
     }
-    
+
     switch (v->type) {
         case ValueType::UNDEFINED: return false;
         case ValueType::NUMBER_INT: return v->i_val != 0;
@@ -657,6 +684,9 @@ bool ts_value_to_bool(TsValue* v) {
         case ValueType::OBJECT_PTR:
         case ValueType::PROMISE_PTR:
         case ValueType::ARRAY_PTR:
+        case ValueType::BIGINT_PTR:
+        case ValueType::SYMBOL_PTR:
+        case ValueType::FUNCTION_PTR:
             return v->ptr_val != nullptr;
         default: return false;
     }

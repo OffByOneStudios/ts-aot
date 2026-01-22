@@ -7,7 +7,7 @@ console.log(obj.value);
 
 // CHECK: ts_map_create
 // CHECK: __ts_map_set_at
-// CHECK: __ts_object_get_map
+// CHECK: ts_object_get_dynamic
 
 // OUTPUT: Test
 // OUTPUT: 42

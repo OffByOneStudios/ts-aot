@@ -91,17 +91,20 @@ void* TsServer::Address() {
         char ipStr[INET_ADDRSTRLEN];
         uv_inet_ntop(AF_INET, &addr4->sin_addr, ipStr, sizeof(ipStr));
 
-        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
-        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv4")));
-        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr4->sin_port)));
+        // Use TsValue constructors directly instead of ts_value_make_* which return TsValue*
+        // TsMap::Set takes TsValue by value, and TsValue* would be double-wrapped via void* constructor
+        obj->Set(TsString::Create("address"), TsValue(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), TsValue(TsString::Create("IPv4")));
+        obj->Set(TsString::Create("port"), TsValue((int64_t)ntohs(addr4->sin_port)));
     } else if (addr.ss_family == AF_INET6) {
         struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
         char ipStr[INET6_ADDRSTRLEN];
         uv_inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
 
-        obj->Set(TsString::Create("address"), ts_value_make_string(TsString::Create(ipStr)));
-        obj->Set(TsString::Create("family"), ts_value_make_string(TsString::Create("IPv6")));
-        obj->Set(TsString::Create("port"), ts_value_make_int(ntohs(addr6->sin6_port)));
+        // Use TsValue constructors directly instead of ts_value_make_* which return TsValue*
+        obj->Set(TsString::Create("address"), TsValue(TsString::Create(ipStr)));
+        obj->Set(TsString::Create("family"), TsValue(TsString::Create("IPv6")));
+        obj->Set(TsString::Create("port"), TsValue((int64_t)ntohs(addr6->sin6_port)));
     } else {
         return nullptr;
     }

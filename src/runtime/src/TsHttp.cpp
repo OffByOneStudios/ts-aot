@@ -255,15 +255,15 @@ void TsServerResponse::AddTrailers(TsMap* trailers) {
         pendingTrailers = TsMap::Create();
     }
     // Copy all entries from trailers to pendingTrailers
-    // GetKeys() returns a void* which is a TsArray*
+    // GetKeys() returns a TsArray* containing TsValue* pointers (not TsString* directly)
     TsArray* keys = (TsArray*)trailers->GetKeys();
     if (keys) {
         for (int64_t i = 0; i < keys->Length(); i++) {
-            // TsArray::Get returns int64_t which we cast to TsString*
-            TsString* keyStr = (TsString*)keys->Get(i);
-            if (keyStr) {
-                TsValue value = trailers->Get(TsValue(keyStr));
-                pendingTrailers->Set(TsValue(keyStr), value);
+            // GetKeys() stores TsValue* in the array, so Get() returns TsValue* as int64_t
+            TsValue* keyVal = (TsValue*)keys->Get(i);
+            if (keyVal) {
+                TsValue value = trailers->Get(*keyVal);
+                pendingTrailers->Set(*keyVal, value);
             }
         }
     }
@@ -322,10 +322,11 @@ void TsServerResponse::End(TsValue data) {
         TsArray* keys = (TsArray*)pendingTrailers->GetKeys();
         if (keys) {
             for (int64_t i = 0; i < keys->Length(); i++) {
-                // TsArray::Get returns int64_t which we cast to TsString*
-                TsString* keyStr = (TsString*)keys->Get(i);
-                if (keyStr) {
-                    TsValue value = pendingTrailers->Get(TsValue(keyStr));
+                // GetKeys() stores TsValue* in the array, so Get() returns TsValue* as int64_t
+                TsValue* keyVal = (TsValue*)keys->Get(i);
+                if (keyVal && keyVal->type == ValueType::STRING_PTR) {
+                    TsString* keyStr = (TsString*)keyVal->ptr_val;
+                    TsValue value = pendingTrailers->Get(*keyVal);
                     std::string trailer = keyStr->ToUtf8();
                     trailer += ": ";
                     if (value.type == ValueType::STRING_PTR) {

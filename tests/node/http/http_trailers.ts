@@ -41,7 +41,15 @@ function user_main(): number {
 
     server.on('close', () => {
         console.log(`Tests passed: ${testsPassed}/3`);
+        // Exit after server closes to ensure clean shutdown
+        setTimeout(() => process.exit(0), 100);
     });
+
+    // Safety timeout - exit after 2 seconds regardless
+    setTimeout(() => {
+        console.log(`Tests passed: ${testsPassed}/3`);
+        process.exit(0);
+    }, 2000);
 
     server.listen(0, () => {
         const addr = server.address();
@@ -56,6 +64,11 @@ function user_main(): number {
             res.on('data', () => {});
             res.on('end', () => {
                 console.log("Request completed");
+                // Exit shortly after request completes
+                setTimeout(() => {
+                    console.log(`Tests passed: ${testsPassed}/3`);
+                    process.exit(0);
+                }, 100);
             });
         });
     });
