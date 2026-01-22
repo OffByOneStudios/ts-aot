@@ -1695,7 +1695,10 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!obj || !prop) return obj;
 
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) {
+            // obj might not be boxed - return unchanged
+            return obj;
+        }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
@@ -1715,7 +1718,9 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Get the descriptor object
         void* descRaw = ts_value_get_object(descriptor);
-        if (!descRaw) descRaw = descriptor;
+        if (!descRaw) {
+            return obj;  // descriptor must be an object
+        }
 
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
         if (descMagic != 0x4D415053) {
@@ -1837,7 +1842,9 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!obj || !prop) return ts_value_make_object(nullptr);
 
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) {
+            return ts_value_make_object(nullptr);  // undefined for non-objects
+        }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
