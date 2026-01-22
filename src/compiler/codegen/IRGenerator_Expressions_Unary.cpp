@@ -385,7 +385,7 @@ void IRGenerator::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node)
 
 void IRGenerator::visitAsExpression(ast::AsExpression* node) {
     visit(node->expression.get());
-    
+
     if (node->inferredType && node->inferredType->kind == TypeKind::Any) {
         // If casting to Any, we must box the value to preserve its type info
         // especially for null/undefined which are both nullptr in IR
@@ -393,6 +393,13 @@ void IRGenerator::visitAsExpression(ast::AsExpression* node) {
     } else {
         lastValue = castValue(lastValue, getLLVMType(node->inferredType));
     }
+}
+
+void IRGenerator::visitNonNullExpression(ast::NonNullExpression* node) {
+    // Non-null assertion (value!) is a compile-time type assertion
+    // At runtime, we simply pass through the value unchanged
+    visit(node->expression.get());
+    // lastValue is already set by the inner expression, nothing more needed
 }
 
 } // namespace ts

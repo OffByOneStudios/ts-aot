@@ -168,7 +168,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `export type` | 🔬 | Type-only |
 | Dynamic `import()` | ❌ | |
 | `require()` (CommonJS) | ✅ | |
-| `module.exports` | ⚠️ | |
+| `module.exports` | ✅ | Property setting and reassignment |
 | JSON imports | ✅ | Compile-time embedding |
 
 ## 11. Namespaces
@@ -199,7 +199,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Truthiness narrowing | ✅ | |
 | Equality narrowing | ✅ | |
 | `in` operator narrowing | ✅ | Object property checks work |
-| `instanceof` narrowing | ⚠️ | |
+| `instanceof` narrowing | ✅ | Class and Array checks |
 | Control flow analysis | ⚠️ | Basic |
 | Type predicates (`is`) | ❌ | |
 | Discriminated unions | ❌ | |
@@ -292,7 +292,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `as` syntax | ✅ | |
 | Angle-bracket syntax | ✅ | |
 | `as const` | ❌ | |
-| Non-null assertion (`!`) | ⚠️ | |
+| Non-null assertion (`!`) | ✅ | Pass-through expression |
 
 ---
 
@@ -309,10 +309,10 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generics | 2 | 1 | 2 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
-| Modules | 7 | 1 | 1 | 2 |
+| Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 5 | 0 | 2 | 0 |
-| Type Narrowing | 4 | 2 | 4 | 0 |
+| Type Narrowing | 5 | 1 | 4 | 0 |
 | Union/Intersection | 0 | 2 | 2 | 0 |
 | Literal Types | 0 | 0 | 1 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
@@ -321,9 +321,9 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Iterators/Generators | 5 | 2 | 1 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
-| Type Assertions | 2 | 1 | 1 | 0 |
-| **TOTAL** | **75** | **15** | **50** | **34** |
+| Type Assertions | 3 | 0 | 1 | 0 |
+| **TOTAL** | **78** | **12** | **50** | **34** |
 
-**Conformance: 75/140 runtime features (54%)**
+**Conformance: 78/140 runtime features (56%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

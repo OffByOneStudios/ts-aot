@@ -139,8 +139,55 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     }
 
     if (node->op == "instanceof") {
-        // ... existing code ...
-        lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+        // Get the object to check
+        visit(node->left.get());
+        llvm::Value* obj = lastValue;
+
+        // Unbox if it's a boxed value
+        if (node->left->inferredType && node->left->inferredType->kind == TypeKind::Any) {
+            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+            obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+        }
+
+        // Get the class/constructor to check against
+        // The right side should be a class reference (Identifier)
+        llvm::Value* targetVTable = nullptr;
+
+        if (auto id = dynamic_cast<ast::Identifier*>(node->right.get())) {
+            // Look for the VTable global for this class
+            std::string vtableGlobalName = id->name + "_VTable_Global";
+            llvm::GlobalVariable* vtableGlobal = module->getGlobalVariable(vtableGlobalName);
+            if (vtableGlobal) {
+                targetVTable = vtableGlobal;
+                SPDLOG_DEBUG("instanceof: found VTable for class {}", id->name);
+            } else {
+                // Also check for built-in types like Array
+                if (id->name == "Array") {
+                    // Arrays have a specific check using ts_array_is_array
+                    llvm::FunctionType* isArrayFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee isArrayFn = getRuntimeFunction("ts_array_is_array", isArrayFt);
+                    lastValue = createCall(isArrayFt, isArrayFn.getCallee(), { obj });
+                    return;
+                }
+                SPDLOG_DEBUG("instanceof: no VTable found for class {}", id->name);
+            }
+        }
+
+        if (targetVTable) {
+            // Call ts_instanceof(obj, targetVTable)
+            llvm::FunctionType* instanceofFt = llvm::FunctionType::get(
+                llvm::Type::getInt1Ty(*context),
+                { builder->getPtrTy(), builder->getPtrTy() },
+                false
+            );
+            llvm::FunctionCallee instanceofFn = getRuntimeFunction("ts_instanceof", instanceofFt);
+            lastValue = createCall(instanceofFt, instanceofFn.getCallee(), { obj, targetVTable });
+        } else {
+            // Fallback: return false if we can't find the class
+            SPDLOG_WARN("instanceof: could not resolve target class, returning false");
+            lastValue = llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 0);
+        }
         return;
     }
 

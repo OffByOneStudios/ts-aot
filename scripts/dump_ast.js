@@ -540,6 +540,13 @@ function visitInternal(node) {
                 operator: ts.tokenToString(node.operator),
                 operand: visit(node.operand)
             };
+        case ts.SyntaxKind.NonNullExpression:
+            // Non-null assertion (value!) - just pass through the expression
+            // The assertion is a compile-time hint that the value is not null/undefined
+            return {
+                kind: "NonNullExpression",
+                expression: visit(node.expression)
+            };
         case ts.SyntaxKind.PropertyAccessExpression:
             return {
                 kind: "PropertyAccessExpression",

@@ -1386,6 +1386,7 @@ public:
     void visitYieldExpression(ast::YieldExpression* node) override { if (node->expression) node->expression->accept(this); }
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) override {}
     void visitAsExpression(ast::AsExpression* node) override { if (node->expression) node->expression->accept(this); }
+    void visitNonNullExpression(ast::NonNullExpression* node) override { if (node->expression) node->expression->accept(this); }
     void visitClassDeclaration(ast::ClassDeclaration* node) override {}
     void visitClassExpression(ast::ClassExpression* node) override {}
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override {}
@@ -1828,7 +1829,10 @@ public:
     void visitAsExpression(ast::AsExpression* node) override {
         node->expression->accept(this);
     }
-    
+    void visitNonNullExpression(ast::NonNullExpression* node) override {
+        node->expression->accept(this);
+    }
+
     // --- Leaf nodes / no-ops: don't need recursion ---
     void visitIdentifier(ast::Identifier*) override {}
     void visitNumericLiteral(ast::NumericLiteral*) override {}
@@ -1980,6 +1984,7 @@ public:
     void visitTemplateExpression(ast::TemplateExpression*) override {}
     void visitSpreadElement(ast::SpreadElement*) override {}
     void visitAsExpression(ast::AsExpression*) override {}
+    void visitNonNullExpression(ast::NonNullExpression*) override {}
 };
 
 void IRGenerator::collectAllVariableNames(const std::vector<ast::StmtPtr>& statements,

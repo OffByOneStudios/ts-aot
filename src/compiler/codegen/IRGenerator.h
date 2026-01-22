@@ -144,6 +144,7 @@ private:
     void visitTemplateExpression(ast::TemplateExpression* node);
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitAsExpression(ast::AsExpression* node);
+    void visitNonNullExpression(ast::NonNullExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node);
     void visitDeleteExpression(ast::DeleteExpression* node);
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
