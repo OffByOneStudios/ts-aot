@@ -1,12 +1,35 @@
 # Plan: TypeScript Features Conformance Improvement
 
-## Current State
+## Current State (Updated 2026-01-22)
 
-**Conformance: 75/140 runtime features (54%)**
-- 75 Implemented (✅)
-- 15 Partial (⚠️)
+**Conformance: 83/140 runtime features (59%)**
+- 83 Implemented (✅)
+- 7 Partial (⚠️)
 - 50 Not Implemented (❌)
 - 34 Type-only (🔬) - don't require runtime support
+
+### Phase 1 Complete ✅
+Completed features:
+- `symbol` full support (Description, uniqueness, Symbol.for/keyFor, as property keys)
+- `Symbol.iterator` (Well-known symbols as property keys)
+- Iterable protocol (Custom iterables with [Symbol.iterator])
+- `instanceof` narrowing (Class and Array checks)
+- Non-null assertion (`!`) (Pass-through expression)
+- `module.exports` (Property setting and reassignment)
+- Type guards (typeof, in, Array.isArray)
+- Generic constraints (`extends`) (Interface and type parameter constraints)
+- Empty string truthiness fix
+
+### Remaining Partial Features (7)
+| Feature | Category | Issue |
+|---------|----------|-------|
+| Indexable types | Interfaces | Basic support only |
+| Hybrid types | Interfaces | Basic support only |
+| `this` type | Classes | Explicit class return type works as workaround |
+| `this` parameter | Functions | Basic support |
+| Overloads | Functions | Declaration only |
+| Control flow analysis | Type Narrowing | Basic support |
+| Union types | Union/Intersection | Basic support |
 
 ## Priority Analysis
 
@@ -65,36 +88,57 @@ Type manipulation features that are compile-time only:
 
 ## Recommended Implementation Order
 
-### Phase 1: Quick Wins (Partials → Full)
-1. **Non-null assertion (`!`)** - Already partial, just needs cleanup
-2. **`module.exports`** - Likely minor CommonJS fix
-3. **`this` type/parameter** - Minor analyzer work
-4. **`instanceof` narrowing** - Already basic support
-5. **Overloads** - Declaration only, verify works
+### Phase 1: Quick Wins (Partials → Full) ✅ COMPLETE
+1. ✅ **Non-null assertion (`!`)** - Pass-through expression
+2. ✅ **`module.exports`** - Property setting and reassignment
+3. ⚠️ **`this` type/parameter** - Explicit class return works as workaround
+4. ✅ **`instanceof` narrowing** - Class and Array checks
+5. ⚠️ **Overloads** - Declaration only (as expected)
+6. ✅ **`symbol` full support** - Description, uniqueness, as property keys
+7. ✅ **`Symbol.iterator`** - Well-known symbols as property keys
+8. ✅ **Iterable protocol** - Custom iterables work
+9. ✅ **Generic constraints** - Interface and type parameter constraints
+10. ✅ **Type guards** - typeof, in, Array.isArray
 
-### Phase 2: Iterator/Symbol Completion
-6. **`symbol` full support** - Critical for iterators
-7. **`Symbol.iterator`** - Already partial
-8. **Iterable protocol** - Builds on above
-9. **Generic constraints** - Better generics
+### Phase 2: High-Impact Features (CURRENT)
+Target: 83/140 (59%) → 90/140 (64%)
 
-### Phase 3: Type Narrowing
-10. **Control flow analysis** - Improve existing
-11. **Union types** - Improve existing
-12. **Type guards** - Improve existing
-13. **Type predicates (`is`)** - New feature
-14. **Discriminated unions** - Builds on above
+| Feature | Category | Effort | Impact |
+|---------|----------|--------|--------|
+| `as const` | Type Assertions | Medium | High - const contexts |
+| Default type parameters | Generics | Medium | High - better generics |
+| Type predicates (`is`) | Type Narrowing | Medium | High - custom guards |
+| Discriminated unions | Type Narrowing | High | High - pattern matching |
+| Index signatures in classes | Classes | Medium | Medium |
+
+### Phase 3: Type System Improvements
+Target: 90/140 (64%) → 100/140 (71%)
+
+| Feature | Category | Effort | Impact |
+|---------|----------|--------|--------|
+| Intersection types (`&`) | Union/Intersection | High | High |
+| Improve control flow analysis | Type Narrowing | Medium | Medium |
+| Improve union types | Union/Intersection | Medium | Medium |
+| `never` type exhaustiveness | Type Narrowing | Medium | Medium |
+| `asserts` keyword | Type Narrowing | Medium | Medium |
 
 ### Phase 4: Advanced Features
-15. **`as const`** - Const contexts
-16. **Default type parameters** - Better generics
-17. **Index signatures in classes** - Map-like classes
-18. **Intersection types** - Type composition
-19. **Dynamic `import()`** - Code splitting
+Target: 100/140 (71%) → 110/140 (79%)
+
+| Feature | Category | Effort | Impact |
+|---------|----------|--------|--------|
+| Dynamic `import()` | Modules | High | Medium |
+| Computed enum members | Enums | Medium | Low |
+| Namespaces | Namespaces | Medium | Low |
 
 ### Phase 5: Framework Support (Optional)
-20. **Decorators** - Needed for Angular, NestJS
-21. **JSX** - Needed for React
+Target: 110/140 (79%) → 120/140 (86%)
+
+| Feature | Category | Effort | Impact |
+|---------|----------|--------|--------|
+| Decorators (all 6) | Decorators | Very High | Medium |
+| JSX (all 4) | JSX | Very High | Medium |
+| Mixins | Mixins | High | Low |
 
 ## Test Coverage Gaps
 
@@ -126,12 +170,11 @@ Missing test categories:
 
 | Phase | Target Conformance |
 |-------|-------------------|
-| Current | 75/140 (54%) |
-| After Phase 1 | 80/140 (57%) |
-| After Phase 2 | 85/140 (61%) |
-| After Phase 3 | 92/140 (66%) |
-| After Phase 4 | 100/140 (71%) |
-| After Phase 5 | 110/140 (79%) |
+| Phase 1 (Complete) | 83/140 (59%) ✅ |
+| After Phase 2 | 90/140 (64%) |
+| After Phase 3 | 100/140 (71%) |
+| After Phase 4 | 110/140 (79%) |
+| After Phase 5 | 120/140 (86%) |
 
 ## Immediate Next Steps
 

@@ -117,7 +117,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generic interfaces | 🔬 | Type-only |
 | Generic constraints (`extends`) | ✅ | Interface and type parameter constraints |
 | `keyof` constraint | ❌ | |
-| Default type parameters | ❌ | |
+| Default type parameters | ✅ | Works via type inference at call sites |
 | Generic parameter variance | 🔬 | Type-only |
 
 ## 8. Type Manipulation
@@ -201,7 +201,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `in` operator narrowing | ✅ | Object property checks work |
 | `instanceof` narrowing | ✅ | Class and Array checks |
 | Control flow analysis | ⚠️ | Basic |
-| Type predicates (`is`) | ❌ | |
+| Type predicates (`is`) | ✅ | Returns boolean at runtime |
 | Discriminated unions | ❌ | |
 | `never` type exhaustiveness | ❌ | |
 | `asserts` keyword | ❌ | |
@@ -222,7 +222,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | String literals | 🔬 | Type-only |
 | Numeric literals | 🔬 | Type-only |
 | Boolean literals | 🔬 | Type-only |
-| `as const` assertions | ❌ | |
+| `as const` assertions | ✅ | Pass-through at runtime |
 
 ## 16. Decorators
 
@@ -291,7 +291,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |---------|--------|-------|
 | `as` syntax | ✅ | |
 | Angle-bracket syntax | ✅ | |
-| `as const` | ❌ | |
+| `as const` | ✅ | Pass-through at runtime, type-level assertion |
 | Non-null assertion (`!`) | ✅ | Pass-through expression |
 
 ---
@@ -306,24 +306,24 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Type Aliases | 0 | 0 | 4 | 2 |
 | Classes | 17 | 1 | 1 | 1 |
 | Functions | 9 | 2 | 0 | 0 |
-| Generics | 3 | 0 | 2 | 2 |
+| Generics | 4 | 0 | 1 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 5 | 0 | 2 | 0 |
-| Type Narrowing | 5 | 1 | 4 | 0 |
+| Type Narrowing | 6 | 1 | 3 | 0 |
 | Union/Intersection | 1 | 1 | 2 | 0 |
-| Literal Types | 0 | 0 | 1 | 3 |
+| Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
 | Iterators/Generators | 7 | 0 | 1 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
-| Type Assertions | 3 | 0 | 1 | 0 |
-| **TOTAL** | **83** | **7** | **50** | **34** |
+| Type Assertions | 4 | 0 | 0 | 0 |
+| **TOTAL** | **87** | **7** | **46** | **34** |
 
-**Conformance: 83/140 runtime features (59%)**
+**Conformance: 87/140 runtime features (62%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
