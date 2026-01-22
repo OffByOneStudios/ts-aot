@@ -292,6 +292,19 @@ void* ts_map_create_explicit() {
     return map;
 }
 
+// Helper for CommonJS module initialization - sets a property by C string key
+void ts_map_set_cstr(void* map, const char* key, void* value) {
+    if (!map || !key) return;
+    TsMap* tsMap = (TsMap*)map;
+    TsValue keyVal;
+    keyVal.type = ValueType::STRING_PTR;
+    keyVal.ptr_val = TsString::Create(key);
+    TsValue valVal;
+    valVal.type = ValueType::OBJECT_PTR;
+    valVal.ptr_val = value;
+    tsMap->Set(keyVal, valVal);
+}
+
 // Value-based API variants - avoid heap allocation by passing/returning TsValue by value
 // These are more efficient for hot paths where the caller can use stack-allocated TsValue
 void ts_map_set_v(void* map, TsValue key, TsValue value) {

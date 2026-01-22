@@ -183,7 +183,21 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     addRuntimeSymbol("DataView_getByteOffset", builder->getInt64Ty(), {ptrTy, ptrTy});
 
     generateGlobals(analyzer);
-    
+
+    // CommonJS module globals - these will be initialized in generateMainEntry()
+    new llvm::GlobalVariable(
+        *module, builder->getPtrTy(), false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantPointerNull::get(builder->getPtrTy()),
+        "__ts_exports"
+    );
+    new llvm::GlobalVariable(
+        *module, builder->getPtrTy(), false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantPointerNull::get(builder->getPtrTy()),
+        "__ts_module"
+    );
+
     auto tsArrayType = llvm::StructType::create(*context, "TsArray");
     tsArrayType->setBody({
         llvm::Type::getInt32Ty(*context), // magic
@@ -545,6 +559,39 @@ void IRGenerator::generateEntryPoint() {
                     createCall(sinitFt, sinitFunc, { llvm::ConstantPointerNull::get(builder->getPtrTy()) });
                 }
             }
+        }
+    }
+
+    // Initialize CommonJS module globals (exports and module)
+    {
+        // Create exports object using ts_map_create
+        llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+        llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+        llvm::Value* exportsObj = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+        // Store in __ts_exports global
+        llvm::GlobalVariable* exportsGlobal = module->getNamedGlobal("__ts_exports");
+        if (exportsGlobal) {
+            builder->CreateStore(exportsObj, exportsGlobal);
+        }
+
+        // Create module object
+        llvm::Value* moduleObj = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+        // Set module.exports = exports using ts_map_set_cstr helper
+        llvm::FunctionType* setCstrFt = llvm::FunctionType::get(
+            builder->getVoidTy(),
+            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee setCstrFn = module->getOrInsertFunction("ts_map_set_cstr", setCstrFt);
+        llvm::Value* exportsKeyPtr = builder->CreateGlobalStringPtr("exports");
+        builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { moduleObj, exportsKeyPtr, exportsObj });
+
+        // Store module in __ts_module global
+        llvm::GlobalVariable* moduleGlobal = module->getNamedGlobal("__ts_module");
+        if (moduleGlobal) {
+            builder->CreateStore(moduleObj, moduleGlobal);
         }
     }
 
