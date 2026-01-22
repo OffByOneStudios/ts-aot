@@ -318,12 +318,12 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
-| Iterators/Generators | 7 | 0 | 1 | 0 |
+| Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **87** | **7** | **46** | **34** |
+| **TOTAL** | **88** | **7** | **45** | **34** |
 
-**Conformance: 87/140 runtime features (62%)**
+**Conformance: 88/140 runtime features (63%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
