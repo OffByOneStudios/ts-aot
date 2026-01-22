@@ -167,6 +167,7 @@ private:
     void visitElementAccessExpression(ast::ElementAccessExpression* node) override;
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node) override;
     void visitAsExpression(ast::AsExpression* node);
+    void visitNonNullExpression(ast::NonNullExpression* node);
     void visitBinaryExpression(ast::BinaryExpression* node) override;
     void visitConditionalExpression(ast::ConditionalExpression* node) override;
     void visitAssignmentExpression(ast::AssignmentExpression* node) override;

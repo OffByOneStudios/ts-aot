@@ -244,6 +244,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_object_has_own",     {true, false}},      // (obj, key) -> bool
     {"ts_value_make_promise", {false}},            // (promise*) -> TsValue*
     {"ts_typeof",             {true}},             // (TsValue*) -> TsString*
+    {"ts_instanceof",         {false, false}},     // (obj, targetVTable) -> bool - raw pointers
     {"ts_array_is_array",     {true}},             // (TsValue*) -> bool
     {"ts_array_from",         {true, true, true}}, // (arrayLike, mapFn, thisArg) -> TsArray*
     

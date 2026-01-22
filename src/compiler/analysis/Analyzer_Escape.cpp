@@ -246,6 +246,9 @@ public:
     void visitAsExpression(ast::AsExpression* node) override {
         node->expression->accept(this);
     }
+    void visitNonNullExpression(ast::NonNullExpression* node) override {
+        node->expression->accept(this);
+    }
 
     void visitSwitchStatement(ast::SwitchStatement* node) override {
         node->expression->accept(this);

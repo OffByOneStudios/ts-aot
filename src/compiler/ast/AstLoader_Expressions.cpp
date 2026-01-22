@@ -205,6 +205,11 @@ ExprPtr parseExpression(const json& j) {
         node->expression = parseExpression(j["expression"]);
         node->type = j["type"];
         return node;
+    } else if (kind == "NonNullExpression") {
+        auto node = std::make_unique<NonNullExpression>();
+        setLocation(node.get(), j);
+        node->expression = parseExpression(j["expression"]);
+        return node;
     } else if (kind == "SpreadElement") {
         auto node = std::make_unique<SpreadElement>();
         setLocation(node.get(), j);

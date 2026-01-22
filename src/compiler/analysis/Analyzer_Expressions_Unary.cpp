@@ -59,4 +59,13 @@ void Analyzer::visitAsExpression(ast::AsExpression* node) {
     node->inferredType = lastType;
 }
 
+void Analyzer::visitNonNullExpression(ast::NonNullExpression* node) {
+    // Non-null assertion (value!) is a compile-time hint that the value is not null/undefined
+    // We simply pass through the inner expression's type
+    visit(node->expression.get());
+    // TODO: If lastType is a union with null/undefined, we could narrow it here
+    // For now, just keep the inferred type as-is
+    node->inferredType = lastType;
+}
+
 } // namespace ts

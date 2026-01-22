@@ -4,14 +4,14 @@ target datalayout = "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:
 target triple = "x86_64-pc-windows-msvc"
 
 %ArrayBuffer_VTable = type { ptr, ptr }
-%Zlib_VTable = type { ptr, ptr }
 %Sign_VTable = type { ptr, ptr, ptr, ptr }
+%Zlib_VTable = type { ptr, ptr }
 %ServerHttp2Session_VTable = type { ptr, ptr }
 %RegExpMatchArray_VTable = type { ptr, ptr }
 %Hash_VTable = type { ptr, ptr, ptr, ptr, ptr }
 %SocketAddress_VTable = type { ptr, ptr }
-%URLSearchParams_VTable = type { ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr }
 %ClientHttp2Stream_VTable = type { ptr, ptr }
+%URLSearchParams_VTable = type { ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr }
 %Response_VTable = type { ptr, ptr, ptr, ptr }
 %URL_VTable = type { ptr, ptr, ptr, ptr }
 %DeflateRaw_VTable = type { ptr, ptr }
@@ -28,8 +28,8 @@ target triple = "x86_64-pc-windows-msvc"
 %Verify_VTable = type { ptr, ptr, ptr, ptr }
 %Script_VTable = type { ptr, ptr, ptr, ptr, ptr, ptr }
 %AssertionError_VTable = type { ptr, ptr }
-%TLSSocket_VTable = type { ptr, ptr }
 %PerformanceEntry_VTable = type { ptr, ptr }
+%TLSSocket_VTable = type { ptr, ptr }
 %PerformanceMark_VTable = type { ptr, ptr }
 %PerformanceMeasure_VTable = type { ptr, ptr }
 %EventLoopUtilization_VTable = type { ptr, ptr }
@@ -59,8 +59,8 @@ target triple = "x86_64-pc-windows-msvc"
 %Http2Stream = type { ptr, i1, i64, i1, i1, i1, i64, i1, i64, ptr, ptr, ptr, ptr }
 %Http2Session = type { ptr, ptr, ptr, i1, i1, ptr, i1, i1, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, i64, ptr }
 %AssertionError = type { ptr, ptr, ptr, ptr, ptr, ptr }
-%TLSSocket = type { ptr, ptr, ptr, i1, i1, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr }
 %PerformanceEntry = type { ptr, double, ptr, ptr, double }
+%TLSSocket = type { ptr, ptr, ptr, i1, i1, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr }
 %PerformanceMark = type { ptr, double, ptr, ptr, double }
 %PerformanceMeasure = type { ptr, double, ptr, ptr, double }
 %EventLoopUtilization = type { ptr, double, double, double }
@@ -109,8 +109,8 @@ target triple = "x86_64-pc-windows-msvc"
 @Uint32Array = global ptr null
 @Float32Array = global ptr null
 @events = global ptr null
-@tty = global ptr null
 @Float64Array = global ptr null
+@tty = global ptr null
 @BigInt64Array = global ptr null
 @TextDecoder = global ptr null
 @String = global ptr null
@@ -146,18 +146,16 @@ target triple = "x86_64-pc-windows-msvc"
 @readline = global ptr null
 @__dirname = global ptr null
 @__filename = global ptr null
-@x_9610421887249242215 = global i64 0
-@result_9610421887249242215 = global i64 0
 @__ts_exports = internal global ptr null
 @__ts_module = internal global ptr null
 @0 = private unnamed_addr constant [11 x i8] c"byteLength\00", align 1
 @ArrayBuffer_VTable_Global = constant %ArrayBuffer_VTable { ptr null, ptr @ArrayBuffer_get_property }, !type !0
+@Sign_VTable_Global = constant %Sign_VTable { ptr null, ptr @Sign_get_property, ptr @Sign_sign, ptr @Sign_update }, !type !1
 @1 = private unnamed_addr constant [13 x i8] c"bytesWritten\00", align 1
 @2 = private unnamed_addr constant [6 x i8] c"close\00", align 1
 @3 = private unnamed_addr constant [6 x i8] c"flush\00", align 1
 @4 = private unnamed_addr constant [6 x i8] c"reset\00", align 1
-@Zlib_VTable_Global = constant %Zlib_VTable { ptr null, ptr @Zlib_get_property }, !type !1
-@Sign_VTable_Global = constant %Sign_VTable { ptr null, ptr @Sign_get_property, ptr @Sign_sign, ptr @Sign_update }, !type !2
+@Zlib_VTable_Global = constant %Zlib_VTable { ptr null, ptr @Zlib_get_property }, !type !2
 @5 = private unnamed_addr constant [13 x i8] c"alpnProtocol\00", align 1
 @6 = private unnamed_addr constant [7 x i8] c"altsvc\00", align 1
 @7 = private unnamed_addr constant [6 x i8] c"close\00", align 1
@@ -189,9 +187,9 @@ target triple = "x86_64-pc-windows-msvc"
 @30 = private unnamed_addr constant [10 x i8] c"flowlabel\00", align 1
 @31 = private unnamed_addr constant [5 x i8] c"port\00", align 1
 @SocketAddress_VTable_Global = constant %SocketAddress_VTable { ptr null, ptr @SocketAddress_get_property }, !type !6
+@ClientHttp2Stream_VTable_Global = constant %ClientHttp2Stream_VTable { ptr null, ptr @ClientHttp2Stream_get_property }, !type !7
 @32 = private unnamed_addr constant [5 x i8] c"size\00", align 1
-@URLSearchParams_VTable_Global = constant %URLSearchParams_VTable { ptr null, ptr @URLSearchParams_get_property, ptr @URLSearchParams_append, ptr @URLSearchParams_delete, ptr @URLSearchParams_entries, ptr @URLSearchParams_forEach, ptr @URLSearchParams_get, ptr @URLSearchParams_getAll, ptr @URLSearchParams_has, ptr @URLSearchParams_keys, ptr @URLSearchParams_set, ptr @URLSearchParams_sort, ptr @URLSearchParams_toString, ptr @URLSearchParams_values }, !type !7
-@ClientHttp2Stream_VTable_Global = constant %ClientHttp2Stream_VTable { ptr null, ptr @ClientHttp2Stream_get_property }, !type !8
+@URLSearchParams_VTable_Global = constant %URLSearchParams_VTable { ptr null, ptr @URLSearchParams_get_property, ptr @URLSearchParams_append, ptr @URLSearchParams_delete, ptr @URLSearchParams_entries, ptr @URLSearchParams_forEach, ptr @URLSearchParams_get, ptr @URLSearchParams_getAll, ptr @URLSearchParams_has, ptr @URLSearchParams_keys, ptr @URLSearchParams_set, ptr @URLSearchParams_sort, ptr @URLSearchParams_toString, ptr @URLSearchParams_values }, !type !8
 @33 = private unnamed_addr constant [3 x i8] c"ok\00", align 1
 @34 = private unnamed_addr constant [7 x i8] c"status\00", align 1
 @35 = private unnamed_addr constant [11 x i8] c"statusText\00", align 1
@@ -284,29 +282,29 @@ target triple = "x86_64-pc-windows-msvc"
 @107 = private unnamed_addr constant [8 x i8] c"message\00", align 1
 @108 = private unnamed_addr constant [9 x i8] c"operator\00", align 1
 @AssertionError_VTable_Global = constant %AssertionError_VTable { ptr null, ptr @AssertionError_get_property }, !type !24
-@109 = private unnamed_addr constant [13 x i8] c"alpnProtocol\00", align 1
-@110 = private unnamed_addr constant [19 x i8] c"authorizationError\00", align 1
-@111 = private unnamed_addr constant [11 x i8] c"authorized\00", align 1
-@112 = private unnamed_addr constant [10 x i8] c"encrypted\00", align 1
-@113 = private unnamed_addr constant [15 x i8] c"getCertificate\00", align 1
-@114 = private unnamed_addr constant [19 x i8] c"getPeerCertificate\00", align 1
-@115 = private unnamed_addr constant [12 x i8] c"getProtocol\00", align 1
-@116 = private unnamed_addr constant [14 x i8] c"getServername\00", align 1
-@117 = private unnamed_addr constant [11 x i8] c"getSession\00", align 1
-@118 = private unnamed_addr constant [16 x i8] c"isSessionReused\00", align 1
-@119 = private unnamed_addr constant [12 x i8] c"renegotiate\00", align 1
-@120 = private unnamed_addr constant [11 x i8] c"servername\00", align 1
-@121 = private unnamed_addr constant [17 x i8] c"setALPNProtocols\00", align 1
-@122 = private unnamed_addr constant [21 x i8] c"setClientCertificate\00", align 1
-@123 = private unnamed_addr constant [19 x i8] c"setMaxSendFragment\00", align 1
-@124 = private unnamed_addr constant [14 x i8] c"setServername\00", align 1
-@125 = private unnamed_addr constant [11 x i8] c"setSession\00", align 1
-@TLSSocket_VTable_Global = constant %TLSSocket_VTable { ptr null, ptr @TLSSocket_get_property }, !type !25
-@126 = private unnamed_addr constant [9 x i8] c"duration\00", align 1
-@127 = private unnamed_addr constant [10 x i8] c"entryType\00", align 1
-@128 = private unnamed_addr constant [5 x i8] c"name\00", align 1
-@129 = private unnamed_addr constant [10 x i8] c"startTime\00", align 1
-@PerformanceEntry_VTable_Global = constant %PerformanceEntry_VTable { ptr null, ptr @PerformanceEntry_get_property }, !type !26
+@109 = private unnamed_addr constant [9 x i8] c"duration\00", align 1
+@110 = private unnamed_addr constant [10 x i8] c"entryType\00", align 1
+@111 = private unnamed_addr constant [5 x i8] c"name\00", align 1
+@112 = private unnamed_addr constant [10 x i8] c"startTime\00", align 1
+@PerformanceEntry_VTable_Global = constant %PerformanceEntry_VTable { ptr null, ptr @PerformanceEntry_get_property }, !type !25
+@113 = private unnamed_addr constant [13 x i8] c"alpnProtocol\00", align 1
+@114 = private unnamed_addr constant [19 x i8] c"authorizationError\00", align 1
+@115 = private unnamed_addr constant [11 x i8] c"authorized\00", align 1
+@116 = private unnamed_addr constant [10 x i8] c"encrypted\00", align 1
+@117 = private unnamed_addr constant [15 x i8] c"getCertificate\00", align 1
+@118 = private unnamed_addr constant [19 x i8] c"getPeerCertificate\00", align 1
+@119 = private unnamed_addr constant [12 x i8] c"getProtocol\00", align 1
+@120 = private unnamed_addr constant [14 x i8] c"getServername\00", align 1
+@121 = private unnamed_addr constant [11 x i8] c"getSession\00", align 1
+@122 = private unnamed_addr constant [16 x i8] c"isSessionReused\00", align 1
+@123 = private unnamed_addr constant [12 x i8] c"renegotiate\00", align 1
+@124 = private unnamed_addr constant [11 x i8] c"servername\00", align 1
+@125 = private unnamed_addr constant [17 x i8] c"setALPNProtocols\00", align 1
+@126 = private unnamed_addr constant [21 x i8] c"setClientCertificate\00", align 1
+@127 = private unnamed_addr constant [19 x i8] c"setMaxSendFragment\00", align 1
+@128 = private unnamed_addr constant [14 x i8] c"setServername\00", align 1
+@129 = private unnamed_addr constant [11 x i8] c"setSession\00", align 1
+@TLSSocket_VTable_Global = constant %TLSSocket_VTable { ptr null, ptr @TLSSocket_get_property }, !type !26
 @130 = private unnamed_addr constant [9 x i8] c"duration\00", align 1
 @131 = private unnamed_addr constant [10 x i8] c"entryType\00", align 1
 @132 = private unnamed_addr constant [5 x i8] c"name\00", align 1
@@ -369,10 +367,27 @@ target triple = "x86_64-pc-windows-msvc"
 @BrotliDecompress_VTable_Global = constant %BrotliDecompress_VTable { ptr null, ptr @BrotliDecompress_get_property }, !type !39
 @177 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 @178 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
-@179 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
+@179 = private unnamed_addr constant [6 x i8] c"hello\00", align 1
+@180 = private unnamed_addr constant [6 x i8] c"value\00", align 1
 @__ts_const_undefined_value = private constant %TsValue zeroinitializer
-@180 = private unnamed_addr constant [101 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\regression\\mutable_variable_reassign.ts\00", align 1
-@181 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
+@181 = private unnamed_addr constant [30 x i8] c"Null or undefined dereference\00", align 1
+@182 = private unnamed_addr constant [6 x i8] c"value\00", align 1
+@__ts_const_undefined_value.1 = private constant %TsValue zeroinitializer
+@183 = private unnamed_addr constant [5 x i8] c"test\00", align 1
+@184 = private unnamed_addr constant [5 x i8] c"data\00", align 1
+@__ts_const_undefined_value.2 = private constant %TsValue zeroinitializer
+@185 = private unnamed_addr constant [6 x i8] c"inner\00", align 1
+@__ts_const_undefined_value.3 = private constant %TsValue zeroinitializer
+@186 = private unnamed_addr constant [30 x i8] c"Null or undefined dereference\00", align 1
+@187 = private unnamed_addr constant [6 x i8] c"inner\00", align 1
+@__ts_const_undefined_value.4 = private constant %TsValue zeroinitializer
+@188 = private unnamed_addr constant [30 x i8] c"Null or undefined dereference\00", align 1
+@189 = private unnamed_addr constant [5 x i8] c"data\00", align 1
+@__ts_const_undefined_value.5 = private constant %TsValue zeroinitializer
+@190 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
+@__ts_const_undefined_value.6 = private constant %TsValue zeroinitializer
+@191 = private unnamed_addr constant [93 x i8] c"E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\golden_ir\\typescript\\assertions\\nonnull_assertion.ts\00", align 1
+@192 = private unnamed_addr constant [8 x i8] c"exports\00", align 1
 
 declare i8 @ts_typed_array_get_u8(ptr, i64)
 
@@ -467,6 +482,16 @@ declare ptr @ts_value_make_undefined()
 
 declare ptr @ts_value_make_int(i64)
 
+define ptr @Sign_get_property(ptr %0, ptr %1) #0 {
+entry:
+  %2 = call ptr @ts_value_make_undefined()
+  ret ptr %2
+}
+
+declare ptr @Sign_sign(ptr, ptr, ptr, ptr) #0
+
+declare ptr @Sign_update(ptr, ptr, ptr) #0
+
 define ptr @Zlib_get_property(ptr %0, ptr %1) #0 {
 entry:
   %2 = call ptr @ts_string_create(ptr @1)
@@ -518,16 +543,6 @@ next_reset:                                       ; preds = %next_flush
 }
 
 declare ptr @ts_value_box_any(ptr)
-
-define ptr @Sign_get_property(ptr %0, ptr %1) #0 {
-entry:
-  %2 = call ptr @ts_value_make_undefined()
-  ret ptr %2
-}
-
-declare ptr @Sign_sign(ptr, ptr, ptr, ptr) #0
-
-declare ptr @Sign_update(ptr, ptr, ptr) #0
 
 define ptr @ServerHttp2Session_get_property(ptr %0, ptr %1) #0 {
 entry:
@@ -864,6 +879,12 @@ next_port:                                        ; preds = %next_flowlabel
   ret ptr %22
 }
 
+define ptr @ClientHttp2Stream_get_property(ptr %0, ptr %1) #0 {
+entry:
+  %2 = call ptr @ts_value_make_undefined()
+  ret ptr %2
+}
+
 define ptr @URLSearchParams_get_property(ptr %0, ptr %1) #0 {
 entry:
   %2 = call ptr @ts_string_create(ptr @32)
@@ -904,12 +925,6 @@ declare void @URLSearchParams_sort(ptr, ptr) #0
 declare ptr @URLSearchParams_toString(ptr, ptr) #0
 
 declare ptr @URLSearchParams_values(ptr, ptr) #0
-
-define ptr @ClientHttp2Stream_get_property(ptr %0, ptr %1) #0 {
-entry:
-  %2 = call ptr @ts_value_make_undefined()
-  ret ptr %2
-}
 
 define ptr @Response_get_property(ptr %0, ptr %1) #0 {
 entry:
@@ -1883,202 +1898,9 @@ next_operator:                                    ; preds = %next_message
   ret ptr %27
 }
 
-define ptr @TLSSocket_get_property(ptr %0, ptr %1) #0 {
-entry:
-  %2 = call ptr @ts_string_create(ptr @109)
-  %3 = call i1 @ts_string_eq(ptr %1, ptr %2)
-  br i1 %3, label %match_alpnProtocol, label %next_alpnProtocol
-
-match_alpnProtocol:                               ; preds = %entry
-  %4 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 1
-  %5 = load ptr, ptr %4, align 8
-  %6 = call ptr @ts_value_make_string(ptr %5)
-  ret ptr %6
-
-next_alpnProtocol:                                ; preds = %entry
-  %7 = call ptr @ts_string_create(ptr @110)
-  %8 = call i1 @ts_string_eq(ptr %1, ptr %7)
-  br i1 %8, label %match_authorizationError, label %next_authorizationError
-
-match_authorizationError:                         ; preds = %next_alpnProtocol
-  %9 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 2
-  %10 = load ptr, ptr %9, align 8
-  %11 = call ptr @ts_value_make_string(ptr %10)
-  ret ptr %11
-
-next_authorizationError:                          ; preds = %next_alpnProtocol
-  %12 = call ptr @ts_string_create(ptr @111)
-  %13 = call i1 @ts_string_eq(ptr %1, ptr %12)
-  br i1 %13, label %match_authorized, label %next_authorized
-
-match_authorized:                                 ; preds = %next_authorizationError
-  %14 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 3
-  %15 = load i1, ptr %14, align 1
-  %16 = call ptr @ts_value_make_bool(i1 %15)
-  ret ptr %16
-
-next_authorized:                                  ; preds = %next_authorizationError
-  %17 = call ptr @ts_string_create(ptr @112)
-  %18 = call i1 @ts_string_eq(ptr %1, ptr %17)
-  br i1 %18, label %match_encrypted, label %next_encrypted
-
-match_encrypted:                                  ; preds = %next_authorized
-  %19 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 4
-  %20 = load i1, ptr %19, align 1
-  %21 = call ptr @ts_value_make_bool(i1 %20)
-  ret ptr %21
-
-next_encrypted:                                   ; preds = %next_authorized
-  %22 = call ptr @ts_string_create(ptr @113)
-  %23 = call i1 @ts_string_eq(ptr %1, ptr %22)
-  br i1 %23, label %match_getCertificate, label %next_getCertificate
-
-match_getCertificate:                             ; preds = %next_encrypted
-  %24 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 5
-  %25 = load ptr, ptr %24, align 8
-  %26 = call ptr @ts_value_box_any(ptr %25)
-  ret ptr %26
-
-next_getCertificate:                              ; preds = %next_encrypted
-  %27 = call ptr @ts_string_create(ptr @114)
-  %28 = call i1 @ts_string_eq(ptr %1, ptr %27)
-  br i1 %28, label %match_getPeerCertificate, label %next_getPeerCertificate
-
-match_getPeerCertificate:                         ; preds = %next_getCertificate
-  %29 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 6
-  %30 = load ptr, ptr %29, align 8
-  %31 = call ptr @ts_value_box_any(ptr %30)
-  ret ptr %31
-
-next_getPeerCertificate:                          ; preds = %next_getCertificate
-  %32 = call ptr @ts_string_create(ptr @115)
-  %33 = call i1 @ts_string_eq(ptr %1, ptr %32)
-  br i1 %33, label %match_getProtocol, label %next_getProtocol
-
-match_getProtocol:                                ; preds = %next_getPeerCertificate
-  %34 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 7
-  %35 = load ptr, ptr %34, align 8
-  %36 = call ptr @ts_value_box_any(ptr %35)
-  ret ptr %36
-
-next_getProtocol:                                 ; preds = %next_getPeerCertificate
-  %37 = call ptr @ts_string_create(ptr @116)
-  %38 = call i1 @ts_string_eq(ptr %1, ptr %37)
-  br i1 %38, label %match_getServername, label %next_getServername
-
-match_getServername:                              ; preds = %next_getProtocol
-  %39 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 8
-  %40 = load ptr, ptr %39, align 8
-  %41 = call ptr @ts_value_box_any(ptr %40)
-  ret ptr %41
-
-next_getServername:                               ; preds = %next_getProtocol
-  %42 = call ptr @ts_string_create(ptr @117)
-  %43 = call i1 @ts_string_eq(ptr %1, ptr %42)
-  br i1 %43, label %match_getSession, label %next_getSession
-
-match_getSession:                                 ; preds = %next_getServername
-  %44 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 9
-  %45 = load ptr, ptr %44, align 8
-  %46 = call ptr @ts_value_box_any(ptr %45)
-  ret ptr %46
-
-next_getSession:                                  ; preds = %next_getServername
-  %47 = call ptr @ts_string_create(ptr @118)
-  %48 = call i1 @ts_string_eq(ptr %1, ptr %47)
-  br i1 %48, label %match_isSessionReused, label %next_isSessionReused
-
-match_isSessionReused:                            ; preds = %next_getSession
-  %49 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 10
-  %50 = load ptr, ptr %49, align 8
-  %51 = call ptr @ts_value_box_any(ptr %50)
-  ret ptr %51
-
-next_isSessionReused:                             ; preds = %next_getSession
-  %52 = call ptr @ts_string_create(ptr @119)
-  %53 = call i1 @ts_string_eq(ptr %1, ptr %52)
-  br i1 %53, label %match_renegotiate, label %next_renegotiate
-
-match_renegotiate:                                ; preds = %next_isSessionReused
-  %54 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 11
-  %55 = load ptr, ptr %54, align 8
-  %56 = call ptr @ts_value_box_any(ptr %55)
-  ret ptr %56
-
-next_renegotiate:                                 ; preds = %next_isSessionReused
-  %57 = call ptr @ts_string_create(ptr @120)
-  %58 = call i1 @ts_string_eq(ptr %1, ptr %57)
-  br i1 %58, label %match_servername, label %next_servername
-
-match_servername:                                 ; preds = %next_renegotiate
-  %59 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 12
-  %60 = load ptr, ptr %59, align 8
-  %61 = call ptr @ts_value_make_string(ptr %60)
-  ret ptr %61
-
-next_servername:                                  ; preds = %next_renegotiate
-  %62 = call ptr @ts_string_create(ptr @121)
-  %63 = call i1 @ts_string_eq(ptr %1, ptr %62)
-  br i1 %63, label %match_setALPNProtocols, label %next_setALPNProtocols
-
-match_setALPNProtocols:                           ; preds = %next_servername
-  %64 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 13
-  %65 = load ptr, ptr %64, align 8
-  %66 = call ptr @ts_value_box_any(ptr %65)
-  ret ptr %66
-
-next_setALPNProtocols:                            ; preds = %next_servername
-  %67 = call ptr @ts_string_create(ptr @122)
-  %68 = call i1 @ts_string_eq(ptr %1, ptr %67)
-  br i1 %68, label %match_setClientCertificate, label %next_setClientCertificate
-
-match_setClientCertificate:                       ; preds = %next_setALPNProtocols
-  %69 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 14
-  %70 = load ptr, ptr %69, align 8
-  %71 = call ptr @ts_value_box_any(ptr %70)
-  ret ptr %71
-
-next_setClientCertificate:                        ; preds = %next_setALPNProtocols
-  %72 = call ptr @ts_string_create(ptr @123)
-  %73 = call i1 @ts_string_eq(ptr %1, ptr %72)
-  br i1 %73, label %match_setMaxSendFragment, label %next_setMaxSendFragment
-
-match_setMaxSendFragment:                         ; preds = %next_setClientCertificate
-  %74 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 15
-  %75 = load ptr, ptr %74, align 8
-  %76 = call ptr @ts_value_box_any(ptr %75)
-  ret ptr %76
-
-next_setMaxSendFragment:                          ; preds = %next_setClientCertificate
-  %77 = call ptr @ts_string_create(ptr @124)
-  %78 = call i1 @ts_string_eq(ptr %1, ptr %77)
-  br i1 %78, label %match_setServername, label %next_setServername
-
-match_setServername:                              ; preds = %next_setMaxSendFragment
-  %79 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 16
-  %80 = load ptr, ptr %79, align 8
-  %81 = call ptr @ts_value_box_any(ptr %80)
-  ret ptr %81
-
-next_setServername:                               ; preds = %next_setMaxSendFragment
-  %82 = call ptr @ts_string_create(ptr @125)
-  %83 = call i1 @ts_string_eq(ptr %1, ptr %82)
-  br i1 %83, label %match_setSession, label %next_setSession
-
-match_setSession:                                 ; preds = %next_setServername
-  %84 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 17
-  %85 = load ptr, ptr %84, align 8
-  %86 = call ptr @ts_value_box_any(ptr %85)
-  ret ptr %86
-
-next_setSession:                                  ; preds = %next_setServername
-  %87 = call ptr @ts_value_make_undefined()
-  ret ptr %87
-}
-
 define ptr @PerformanceEntry_get_property(ptr %0, ptr %1) #0 {
 entry:
-  %2 = call ptr @ts_string_create(ptr @126)
+  %2 = call ptr @ts_string_create(ptr @109)
   %3 = call i1 @ts_string_eq(ptr %1, ptr %2)
   br i1 %3, label %match_duration, label %next_duration
 
@@ -2089,7 +1911,7 @@ match_duration:                                   ; preds = %entry
   ret ptr %6
 
 next_duration:                                    ; preds = %entry
-  %7 = call ptr @ts_string_create(ptr @127)
+  %7 = call ptr @ts_string_create(ptr @110)
   %8 = call i1 @ts_string_eq(ptr %1, ptr %7)
   br i1 %8, label %match_entryType, label %next_entryType
 
@@ -2100,7 +1922,7 @@ match_entryType:                                  ; preds = %next_duration
   ret ptr %11
 
 next_entryType:                                   ; preds = %next_duration
-  %12 = call ptr @ts_string_create(ptr @128)
+  %12 = call ptr @ts_string_create(ptr @111)
   %13 = call i1 @ts_string_eq(ptr %1, ptr %12)
   br i1 %13, label %match_name, label %next_name
 
@@ -2111,7 +1933,7 @@ match_name:                                       ; preds = %next_entryType
   ret ptr %16
 
 next_name:                                        ; preds = %next_entryType
-  %17 = call ptr @ts_string_create(ptr @129)
+  %17 = call ptr @ts_string_create(ptr @112)
   %18 = call i1 @ts_string_eq(ptr %1, ptr %17)
   br i1 %18, label %match_startTime, label %next_startTime
 
@@ -2127,6 +1949,199 @@ next_startTime:                                   ; preds = %next_name
 }
 
 declare ptr @ts_value_make_double(double)
+
+define ptr @TLSSocket_get_property(ptr %0, ptr %1) #0 {
+entry:
+  %2 = call ptr @ts_string_create(ptr @113)
+  %3 = call i1 @ts_string_eq(ptr %1, ptr %2)
+  br i1 %3, label %match_alpnProtocol, label %next_alpnProtocol
+
+match_alpnProtocol:                               ; preds = %entry
+  %4 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 1
+  %5 = load ptr, ptr %4, align 8
+  %6 = call ptr @ts_value_make_string(ptr %5)
+  ret ptr %6
+
+next_alpnProtocol:                                ; preds = %entry
+  %7 = call ptr @ts_string_create(ptr @114)
+  %8 = call i1 @ts_string_eq(ptr %1, ptr %7)
+  br i1 %8, label %match_authorizationError, label %next_authorizationError
+
+match_authorizationError:                         ; preds = %next_alpnProtocol
+  %9 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 2
+  %10 = load ptr, ptr %9, align 8
+  %11 = call ptr @ts_value_make_string(ptr %10)
+  ret ptr %11
+
+next_authorizationError:                          ; preds = %next_alpnProtocol
+  %12 = call ptr @ts_string_create(ptr @115)
+  %13 = call i1 @ts_string_eq(ptr %1, ptr %12)
+  br i1 %13, label %match_authorized, label %next_authorized
+
+match_authorized:                                 ; preds = %next_authorizationError
+  %14 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 3
+  %15 = load i1, ptr %14, align 1
+  %16 = call ptr @ts_value_make_bool(i1 %15)
+  ret ptr %16
+
+next_authorized:                                  ; preds = %next_authorizationError
+  %17 = call ptr @ts_string_create(ptr @116)
+  %18 = call i1 @ts_string_eq(ptr %1, ptr %17)
+  br i1 %18, label %match_encrypted, label %next_encrypted
+
+match_encrypted:                                  ; preds = %next_authorized
+  %19 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 4
+  %20 = load i1, ptr %19, align 1
+  %21 = call ptr @ts_value_make_bool(i1 %20)
+  ret ptr %21
+
+next_encrypted:                                   ; preds = %next_authorized
+  %22 = call ptr @ts_string_create(ptr @117)
+  %23 = call i1 @ts_string_eq(ptr %1, ptr %22)
+  br i1 %23, label %match_getCertificate, label %next_getCertificate
+
+match_getCertificate:                             ; preds = %next_encrypted
+  %24 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 5
+  %25 = load ptr, ptr %24, align 8
+  %26 = call ptr @ts_value_box_any(ptr %25)
+  ret ptr %26
+
+next_getCertificate:                              ; preds = %next_encrypted
+  %27 = call ptr @ts_string_create(ptr @118)
+  %28 = call i1 @ts_string_eq(ptr %1, ptr %27)
+  br i1 %28, label %match_getPeerCertificate, label %next_getPeerCertificate
+
+match_getPeerCertificate:                         ; preds = %next_getCertificate
+  %29 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 6
+  %30 = load ptr, ptr %29, align 8
+  %31 = call ptr @ts_value_box_any(ptr %30)
+  ret ptr %31
+
+next_getPeerCertificate:                          ; preds = %next_getCertificate
+  %32 = call ptr @ts_string_create(ptr @119)
+  %33 = call i1 @ts_string_eq(ptr %1, ptr %32)
+  br i1 %33, label %match_getProtocol, label %next_getProtocol
+
+match_getProtocol:                                ; preds = %next_getPeerCertificate
+  %34 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 7
+  %35 = load ptr, ptr %34, align 8
+  %36 = call ptr @ts_value_box_any(ptr %35)
+  ret ptr %36
+
+next_getProtocol:                                 ; preds = %next_getPeerCertificate
+  %37 = call ptr @ts_string_create(ptr @120)
+  %38 = call i1 @ts_string_eq(ptr %1, ptr %37)
+  br i1 %38, label %match_getServername, label %next_getServername
+
+match_getServername:                              ; preds = %next_getProtocol
+  %39 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 8
+  %40 = load ptr, ptr %39, align 8
+  %41 = call ptr @ts_value_box_any(ptr %40)
+  ret ptr %41
+
+next_getServername:                               ; preds = %next_getProtocol
+  %42 = call ptr @ts_string_create(ptr @121)
+  %43 = call i1 @ts_string_eq(ptr %1, ptr %42)
+  br i1 %43, label %match_getSession, label %next_getSession
+
+match_getSession:                                 ; preds = %next_getServername
+  %44 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 9
+  %45 = load ptr, ptr %44, align 8
+  %46 = call ptr @ts_value_box_any(ptr %45)
+  ret ptr %46
+
+next_getSession:                                  ; preds = %next_getServername
+  %47 = call ptr @ts_string_create(ptr @122)
+  %48 = call i1 @ts_string_eq(ptr %1, ptr %47)
+  br i1 %48, label %match_isSessionReused, label %next_isSessionReused
+
+match_isSessionReused:                            ; preds = %next_getSession
+  %49 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 10
+  %50 = load ptr, ptr %49, align 8
+  %51 = call ptr @ts_value_box_any(ptr %50)
+  ret ptr %51
+
+next_isSessionReused:                             ; preds = %next_getSession
+  %52 = call ptr @ts_string_create(ptr @123)
+  %53 = call i1 @ts_string_eq(ptr %1, ptr %52)
+  br i1 %53, label %match_renegotiate, label %next_renegotiate
+
+match_renegotiate:                                ; preds = %next_isSessionReused
+  %54 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 11
+  %55 = load ptr, ptr %54, align 8
+  %56 = call ptr @ts_value_box_any(ptr %55)
+  ret ptr %56
+
+next_renegotiate:                                 ; preds = %next_isSessionReused
+  %57 = call ptr @ts_string_create(ptr @124)
+  %58 = call i1 @ts_string_eq(ptr %1, ptr %57)
+  br i1 %58, label %match_servername, label %next_servername
+
+match_servername:                                 ; preds = %next_renegotiate
+  %59 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 12
+  %60 = load ptr, ptr %59, align 8
+  %61 = call ptr @ts_value_make_string(ptr %60)
+  ret ptr %61
+
+next_servername:                                  ; preds = %next_renegotiate
+  %62 = call ptr @ts_string_create(ptr @125)
+  %63 = call i1 @ts_string_eq(ptr %1, ptr %62)
+  br i1 %63, label %match_setALPNProtocols, label %next_setALPNProtocols
+
+match_setALPNProtocols:                           ; preds = %next_servername
+  %64 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 13
+  %65 = load ptr, ptr %64, align 8
+  %66 = call ptr @ts_value_box_any(ptr %65)
+  ret ptr %66
+
+next_setALPNProtocols:                            ; preds = %next_servername
+  %67 = call ptr @ts_string_create(ptr @126)
+  %68 = call i1 @ts_string_eq(ptr %1, ptr %67)
+  br i1 %68, label %match_setClientCertificate, label %next_setClientCertificate
+
+match_setClientCertificate:                       ; preds = %next_setALPNProtocols
+  %69 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 14
+  %70 = load ptr, ptr %69, align 8
+  %71 = call ptr @ts_value_box_any(ptr %70)
+  ret ptr %71
+
+next_setClientCertificate:                        ; preds = %next_setALPNProtocols
+  %72 = call ptr @ts_string_create(ptr @127)
+  %73 = call i1 @ts_string_eq(ptr %1, ptr %72)
+  br i1 %73, label %match_setMaxSendFragment, label %next_setMaxSendFragment
+
+match_setMaxSendFragment:                         ; preds = %next_setClientCertificate
+  %74 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 15
+  %75 = load ptr, ptr %74, align 8
+  %76 = call ptr @ts_value_box_any(ptr %75)
+  ret ptr %76
+
+next_setMaxSendFragment:                          ; preds = %next_setClientCertificate
+  %77 = call ptr @ts_string_create(ptr @128)
+  %78 = call i1 @ts_string_eq(ptr %1, ptr %77)
+  br i1 %78, label %match_setServername, label %next_setServername
+
+match_setServername:                              ; preds = %next_setMaxSendFragment
+  %79 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 16
+  %80 = load ptr, ptr %79, align 8
+  %81 = call ptr @ts_value_box_any(ptr %80)
+  ret ptr %81
+
+next_setServername:                               ; preds = %next_setMaxSendFragment
+  %82 = call ptr @ts_string_create(ptr @129)
+  %83 = call i1 @ts_string_eq(ptr %1, ptr %82)
+  br i1 %83, label %match_setSession, label %next_setSession
+
+match_setSession:                                 ; preds = %next_setServername
+  %84 = getelementptr inbounds %TLSSocket, ptr %0, i32 0, i32 17
+  %85 = load ptr, ptr %84, align 8
+  %86 = call ptr @ts_value_box_any(ptr %85)
+  ret ptr %86
+
+next_setSession:                                  ; preds = %next_setServername
+  %87 = call ptr @ts_value_make_undefined()
+  ret ptr %87
+}
 
 define ptr @PerformanceMark_get_property(ptr %0, ptr %1) #0 {
 entry:
@@ -2723,7 +2738,7 @@ next_reset:                                       ; preds = %next_flush
   ret ptr %22
 }
 
-define ptr @__module_init_9610421887249242215_any(ptr %context, ptr %module) #0 !type !44 {
+define ptr @__module_init_853456782593715192_any(ptr %context, ptr %module) #0 !type !44 {
 entry:
   %exports = alloca ptr, align 8
   %module1 = alloca ptr, align 8
@@ -2745,55 +2760,258 @@ entry:
   %3 = call ptr @ts_value_make_string(ptr %2)
   %4 = call ptr @ts_object_get_dynamic(ptr %1, ptr %3)
   store ptr %4, ptr %exports, align 8
-  store i64 2, ptr @x_9610421887249242215, align 8
-  store i64 0, ptr @result_9610421887249242215, align 8
-  %x = load i64, ptr @x_9610421887249242215, align 8
-  switch i64 %x, label %case4 [
-    i64 1, label %case
-    i64 2, label %case3
-  ]
+  %module3 = load ptr, ptr %module1, align 8
+  %5 = call ptr @ts_value_box_any(ptr %module3)
+  %6 = call ptr @ts_string_create(ptr @178)
+  %7 = call ptr @ts_value_make_string(ptr %6)
+  %8 = call ptr @ts_object_get_dynamic(ptr %5, ptr %7)
+  ret ptr %8
 
-return:                                           ; preds = %dead8
-  %5 = load ptr, ptr %returnValue, align 8
-  ret ptr %5
-
-case:                                             ; preds = %entry
-  store i64 10, ptr @result_9610421887249242215, align 8
-  br label %switch.end
-
-case3:                                            ; preds = %dead, %entry
-  store i64 20, ptr @result_9610421887249242215, align 8
-  br label %switch.end
-
-case4:                                            ; preds = %dead5, %entry
-  store i64 30, ptr @result_9610421887249242215, align 8
-  br label %switch.end
-
-switch.end:                                       ; preds = %dead6, %case4, %case3, %case
-  store i1 false, ptr %shouldBreak, align 1
-  %result = load i64, ptr @result_9610421887249242215, align 8
-  call void @ts_console_log_int(i64 %result)
-  %module7 = load ptr, ptr %module1, align 8
-  %6 = call ptr @ts_value_box_any(ptr %module7)
-  %7 = call ptr @ts_string_create(ptr @178)
-  %8 = call ptr @ts_value_make_string(ptr %7)
-  %9 = call ptr @ts_object_get_dynamic(ptr %6, ptr %8)
+return:                                           ; preds = %dead
+  %9 = load ptr, ptr %returnValue, align 8
   ret ptr %9
 
 dead:                                             ; No predecessors!
-  br label %case3
-
-dead5:                                            ; No predecessors!
-  br label %case4
-
-dead6:                                            ; No predecessors!
-  br label %switch.end
-
-dead8:                                            ; No predecessors!
   br label %return
 }
 
-define ptr @user_main(ptr %context) #0 !type !45 {
+define double @user_main(ptr %context) #0 !type !45 {
+entry:
+  %data = alloca ptr, align 8
+  %mapGetResult43 = alloca %TsValue, align 8
+  %0 = alloca i8, align 1
+  %1 = alloca i64, align 8
+  %mapGetResult32 = alloca %TsValue, align 8
+  %2 = alloca i8, align 1
+  %3 = alloca i64, align 8
+  %nested = alloca ptr, align 8
+  %val = alloca double, align 8
+  %mapGetResult = alloca %TsValue, align 8
+  %4 = alloca i8, align 1
+  %5 = alloca i64, align 8
+  %obj = alloca ptr, align 8
+  %str = alloca ptr, align 8
+  %maybeStr = alloca ptr, align 8
+  %returnValue = alloca double, align 8
+  %continueTarget = alloca ptr, align 8
+  %breakTarget = alloca ptr, align 8
+  %shouldContinue = alloca i1, align 1
+  %shouldBreak = alloca i1, align 1
+  %shouldReturn = alloca i1, align 1
+  store i1 false, ptr %shouldReturn, align 1
+  store i1 false, ptr %shouldBreak, align 1
+  store i1 false, ptr %shouldContinue, align 1
+  store double 0.000000e+00, ptr %returnValue, align 8
+  %6 = call ptr @ts_string_create(ptr @179)
+  store ptr %6, ptr %maybeStr, align 8
+  %maybeStr1 = load ptr, ptr %maybeStr, align 8
+  store ptr %maybeStr1, ptr %str, align 8
+  %str2 = load ptr, ptr %str, align 8
+  call void @ts_console_log(ptr %str2)
+  %7 = call ptr @ts_map_create()
+  %8 = call ptr @ts_value_make_int(i64 42)
+  %9 = call ptr @ts_string_create(ptr @180)
+  %10 = call ptr @ts_value_make_string(ptr %9)
+  %11 = icmp eq ptr %10, null
+  %12 = icmp eq ptr %8, null
+  %13 = select i1 %11, ptr @__ts_const_undefined_value, ptr %10
+  %14 = select i1 %12, ptr @__ts_const_undefined_value, ptr %8
+  %typePtr = getelementptr inbounds %TsValue, ptr %13, i32 0, i32 0
+  %type = load i8, ptr %typePtr, align 1
+  %unionPtr = getelementptr inbounds %TsValue, ptr %13, i32 0, i32 2
+  %unionVal = load i64, ptr %unionPtr, align 8
+  %typePtr3 = getelementptr inbounds %TsValue, ptr %14, i32 0, i32 0
+  %type4 = load i8, ptr %typePtr3, align 1
+  %unionPtr5 = getelementptr inbounds %TsValue, ptr %14, i32 0, i32 2
+  %unionVal6 = load i64, ptr %unionPtr5, align 8
+  call void @__ts_map_set_at(ptr %7, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type4, i64 %unionVal6)
+  store ptr %7, ptr %obj, align 8
+  %obj7 = load ptr, ptr %obj, align 8
+  %15 = call ptr @ts_value_get_object(ptr %obj7)
+  %16 = icmp eq ptr %15, null
+  br i1 %16, label %null_fail, label %null_cont
+
+return:                                           ; preds = %dead
+  %17 = load double, ptr %returnValue, align 8
+  ret double %17
+
+null_fail:                                        ; preds = %entry
+  call void @ts_panic(ptr @181)
+  unreachable
+
+null_cont:                                        ; preds = %entry
+  %18 = call ptr @ts_string_create(ptr @182)
+  %19 = call ptr @ts_value_make_string(ptr %18)
+  %20 = icmp eq ptr %19, null
+  %21 = select i1 %20, ptr @__ts_const_undefined_value.1, ptr %19
+  %typePtr8 = getelementptr inbounds %TsValue, ptr %21, i32 0, i32 0
+  %type9 = load i8, ptr %typePtr8, align 1
+  %unionPtr10 = getelementptr inbounds %TsValue, ptr %21, i32 0, i32 2
+  %unionVal11 = load i64, ptr %unionPtr10, align 8
+  %22 = call i64 @__ts_map_find_bucket(ptr %15, i64 %unionVal11, i8 %type9, i64 %unionVal11)
+  %notFound = icmp slt i64 %22, 0
+  br i1 %notFound, label %map.notfound, label %map.found
+
+map.found:                                        ; preds = %null_cont
+  call void @__ts_map_get_value_at(ptr %15, i64 %22, ptr %4, ptr %5)
+  %23 = load i64, ptr %5, align 8
+  %24 = load i8, ptr %4, align 1
+  %25 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 0
+  store i8 %24, ptr %25, align 1
+  %26 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %26, align 1
+  %27 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 2
+  store i64 %23, ptr %27, align 8
+  br label %map.done
+
+map.notfound:                                     ; preds = %null_cont
+  %28 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 0
+  store i8 0, ptr %28, align 1
+  %29 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %29, align 1
+  %30 = getelementptr inbounds %TsValue, ptr %mapGetResult, i32 0, i32 2
+  store i64 0, ptr %30, align 8
+  br label %map.done
+
+map.done:                                         ; preds = %map.notfound, %map.found
+  %31 = call fast double @ts_value_get_double(ptr %mapGetResult)
+  store double %31, ptr %val, align 8
+  %val12 = load double, ptr %val, align 8
+  call void @ts_console_log_double(double %val12)
+  %32 = call ptr @ts_map_create()
+  %33 = call ptr @ts_map_create()
+  %34 = call ptr @ts_string_create(ptr @183)
+  %35 = call ptr @ts_value_make_string(ptr %34)
+  %36 = call ptr @ts_string_create(ptr @184)
+  %37 = call ptr @ts_value_make_string(ptr %36)
+  %38 = icmp eq ptr %37, null
+  %39 = icmp eq ptr %35, null
+  %40 = select i1 %38, ptr @__ts_const_undefined_value.2, ptr %37
+  %41 = select i1 %39, ptr @__ts_const_undefined_value.2, ptr %35
+  %typePtr13 = getelementptr inbounds %TsValue, ptr %40, i32 0, i32 0
+  %type14 = load i8, ptr %typePtr13, align 1
+  %unionPtr15 = getelementptr inbounds %TsValue, ptr %40, i32 0, i32 2
+  %unionVal16 = load i64, ptr %unionPtr15, align 8
+  %typePtr17 = getelementptr inbounds %TsValue, ptr %41, i32 0, i32 0
+  %type18 = load i8, ptr %typePtr17, align 1
+  %unionPtr19 = getelementptr inbounds %TsValue, ptr %41, i32 0, i32 2
+  %unionVal20 = load i64, ptr %unionPtr19, align 8
+  call void @__ts_map_set_at(ptr %33, i64 %unionVal16, i8 %type14, i64 %unionVal16, i8 %type18, i64 %unionVal20)
+  %42 = call ptr @ts_value_make_object(ptr %33)
+  %43 = call ptr @ts_string_create(ptr @185)
+  %44 = call ptr @ts_value_make_string(ptr %43)
+  %45 = icmp eq ptr %44, null
+  %46 = icmp eq ptr %42, null
+  %47 = select i1 %45, ptr @__ts_const_undefined_value.3, ptr %44
+  %48 = select i1 %46, ptr @__ts_const_undefined_value.3, ptr %42
+  %typePtr21 = getelementptr inbounds %TsValue, ptr %47, i32 0, i32 0
+  %type22 = load i8, ptr %typePtr21, align 1
+  %unionPtr23 = getelementptr inbounds %TsValue, ptr %47, i32 0, i32 2
+  %unionVal24 = load i64, ptr %unionPtr23, align 8
+  %typePtr25 = getelementptr inbounds %TsValue, ptr %48, i32 0, i32 0
+  %type26 = load i8, ptr %typePtr25, align 1
+  %unionPtr27 = getelementptr inbounds %TsValue, ptr %48, i32 0, i32 2
+  %unionVal28 = load i64, ptr %unionPtr27, align 8
+  call void @__ts_map_set_at(ptr %32, i64 %unionVal24, i8 %type22, i64 %unionVal24, i8 %type26, i64 %unionVal28)
+  store ptr %32, ptr %nested, align 8
+  %nested29 = load ptr, ptr %nested, align 8
+  %49 = call ptr @ts_value_get_object(ptr %nested29)
+  %50 = icmp eq ptr %49, null
+  br i1 %50, label %null_fail30, label %null_cont31
+
+null_fail30:                                      ; preds = %map.done
+  call void @ts_panic(ptr @186)
+  unreachable
+
+null_cont31:                                      ; preds = %map.done
+  %51 = call ptr @ts_string_create(ptr @187)
+  %52 = call ptr @ts_value_make_string(ptr %51)
+  %53 = icmp eq ptr %52, null
+  %54 = select i1 %53, ptr @__ts_const_undefined_value.4, ptr %52
+  %typePtr33 = getelementptr inbounds %TsValue, ptr %54, i32 0, i32 0
+  %type34 = load i8, ptr %typePtr33, align 1
+  %unionPtr35 = getelementptr inbounds %TsValue, ptr %54, i32 0, i32 2
+  %unionVal36 = load i64, ptr %unionPtr35, align 8
+  %55 = call i64 @__ts_map_find_bucket(ptr %49, i64 %unionVal36, i8 %type34, i64 %unionVal36)
+  %notFound37 = icmp slt i64 %55, 0
+  br i1 %notFound37, label %map.notfound39, label %map.found38
+
+map.found38:                                      ; preds = %null_cont31
+  call void @__ts_map_get_value_at(ptr %49, i64 %55, ptr %2, ptr %3)
+  %56 = load i64, ptr %3, align 8
+  %57 = load i8, ptr %2, align 1
+  %58 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 0
+  store i8 %57, ptr %58, align 1
+  %59 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %59, align 1
+  %60 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 2
+  store i64 %56, ptr %60, align 8
+  br label %map.done40
+
+map.notfound39:                                   ; preds = %null_cont31
+  %61 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 0
+  store i8 0, ptr %61, align 1
+  %62 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %62, align 1
+  %63 = getelementptr inbounds %TsValue, ptr %mapGetResult32, i32 0, i32 2
+  store i64 0, ptr %63, align 8
+  br label %map.done40
+
+map.done40:                                       ; preds = %map.notfound39, %map.found38
+  %64 = call ptr @ts_value_get_object(ptr %mapGetResult32)
+  %65 = icmp eq ptr %64, null
+  br i1 %65, label %null_fail41, label %null_cont42
+
+null_fail41:                                      ; preds = %map.done40
+  call void @ts_panic(ptr @188)
+  unreachable
+
+null_cont42:                                      ; preds = %map.done40
+  %66 = call ptr @ts_string_create(ptr @189)
+  %67 = call ptr @ts_value_make_string(ptr %66)
+  %68 = icmp eq ptr %67, null
+  %69 = select i1 %68, ptr @__ts_const_undefined_value.5, ptr %67
+  %typePtr44 = getelementptr inbounds %TsValue, ptr %69, i32 0, i32 0
+  %type45 = load i8, ptr %typePtr44, align 1
+  %unionPtr46 = getelementptr inbounds %TsValue, ptr %69, i32 0, i32 2
+  %unionVal47 = load i64, ptr %unionPtr46, align 8
+  %70 = call i64 @__ts_map_find_bucket(ptr %64, i64 %unionVal47, i8 %type45, i64 %unionVal47)
+  %notFound48 = icmp slt i64 %70, 0
+  br i1 %notFound48, label %map.notfound50, label %map.found49
+
+map.found49:                                      ; preds = %null_cont42
+  call void @__ts_map_get_value_at(ptr %64, i64 %70, ptr %0, ptr %1)
+  %71 = load i64, ptr %1, align 8
+  %72 = load i8, ptr %0, align 1
+  %73 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 0
+  store i8 %72, ptr %73, align 1
+  %74 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %74, align 1
+  %75 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 2
+  store i64 %71, ptr %75, align 8
+  br label %map.done51
+
+map.notfound50:                                   ; preds = %null_cont42
+  %76 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 0
+  store i8 0, ptr %76, align 1
+  %77 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 1
+  store [7 x i8] zeroinitializer, ptr %77, align 1
+  %78 = getelementptr inbounds %TsValue, ptr %mapGetResult43, i32 0, i32 2
+  store i64 0, ptr %78, align 8
+  br label %map.done51
+
+map.done51:                                       ; preds = %map.notfound50, %map.found49
+  %79 = call ptr @ts_value_get_string(ptr %mapGetResult43)
+  store ptr %79, ptr %data, align 8
+  %data52 = load ptr, ptr %data, align 8
+  call void @ts_console_log(ptr %data52)
+  ret double 0.000000e+00
+
+dead:                                             ; No predecessors!
+  br label %return
+}
+
+define ptr @__synthetic_user_main(ptr %context) #0 !type !46 {
 entry:
   %__module_res_0 = alloca ptr, align 8
   %__module_obj_0 = alloca ptr, align 8
@@ -2811,12 +3029,12 @@ entry:
   %1 = call ptr @ts_map_create()
   %2 = call ptr @ts_map_create()
   %3 = call ptr @ts_value_make_object(ptr %2)
-  %4 = call ptr @ts_string_create(ptr @179)
+  %4 = call ptr @ts_string_create(ptr @190)
   %5 = call ptr @ts_value_make_string(ptr %4)
   %6 = icmp eq ptr %5, null
   %7 = icmp eq ptr %3, null
-  %8 = select i1 %6, ptr @__ts_const_undefined_value, ptr %5
-  %9 = select i1 %7, ptr @__ts_const_undefined_value, ptr %3
+  %8 = select i1 %6, ptr @__ts_const_undefined_value.6, ptr %5
+  %9 = select i1 %7, ptr @__ts_const_undefined_value.6, ptr %3
   %typePtr = getelementptr inbounds %TsValue, ptr %8, i32 0, i32 0
   %type = load i8, ptr %typePtr, align 1
   %unionPtr = getelementptr inbounds %TsValue, ptr %8, i32 0, i32 2
@@ -2827,21 +3045,21 @@ entry:
   %unionVal4 = load i64, ptr %unionPtr3, align 8
   call void @__ts_map_set_at(ptr %1, i64 %unionVal, i8 %type, i64 %unionVal, i8 %type2, i64 %unionVal4)
   store ptr %1, ptr %__module_obj_0, align 8
-  %10 = call ptr @ts_string_create(ptr @180)
+  %10 = call ptr @ts_string_create(ptr @191)
   %11 = call ptr @ts_value_make_string(ptr %10)
   %__module_obj_05 = load ptr, ptr %__module_obj_0, align 8
   %12 = call ptr @ts_value_box_any(ptr %__module_obj_05)
   call void @ts_module_register(ptr %11, ptr %12)
   %__module_obj_06 = load ptr, ptr %__module_obj_0, align 8
-  %13 = call ptr @__module_init_9610421887249242215_any(ptr %context, ptr %__module_obj_06)
+  %13 = call ptr @__module_init_853456782593715192_any(ptr %context, ptr %__module_obj_06)
   store ptr %13, ptr %__module_res_0, align 8
-  %__module_res_07 = load ptr, ptr %__module_res_0, align 8
-  %14 = call ptr @ts_value_box_any(ptr %__module_res_07)
-  ret ptr %14
+  %14 = call fast double @user_main(ptr %context)
+  %15 = call ptr @ts_value_make_double(double %14)
+  ret ptr %15
 
 return:                                           ; preds = %dead
-  %15 = load ptr, ptr %returnValue, align 8
-  ret ptr %15
+  %16 = load ptr, ptr %returnValue, align 8
+  ret ptr %16
 
 dead:                                             ; No predecessors!
   br label %return
@@ -2849,11 +3067,25 @@ dead:                                             ; No predecessors!
 
 declare ptr @ts_object_get_dynamic(ptr, ptr)
 
-declare void @ts_console_log_int(i64)
+declare void @ts_console_log(ptr)
 
 declare ptr @ts_map_create()
 
 declare void @__ts_map_set_at(ptr, i64, i8, i64, i8, i64)
+
+declare ptr @ts_value_get_object(ptr)
+
+declare void @ts_panic(ptr)
+
+declare i64 @__ts_map_find_bucket(ptr, i64, i8, i64)
+
+declare void @__ts_map_get_value_at(ptr, i64, ptr, ptr)
+
+declare double @ts_value_get_double(ptr)
+
+declare void @ts_console_log_double(double)
+
+declare ptr @ts_value_get_string(ptr)
 
 declare void @ts_module_register(ptr, ptr)
 
@@ -2864,9 +3096,9 @@ entry:
   %2 = call ptr @ts_map_create()
   store ptr %2, ptr @__ts_exports, align 8
   %3 = call ptr @ts_map_create()
-  call void @ts_map_set_cstr(ptr %3, ptr @181, ptr %2)
+  call void @ts_map_set_cstr(ptr %3, ptr @192, ptr %2)
   store ptr %3, ptr @__ts_module, align 8
-  %4 = call i32 @ts_main(i32 %0, ptr %1, ptr @user_main)
+  %4 = call i32 @ts_main(i32 %0, ptr %1, ptr @__synthetic_user_main)
   ret i32 0
 }
 
@@ -2877,14 +3109,14 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !llvm.linker.options = !{!40, !41, !42, !43}
 
 !0 = !{i64 0, !"ArrayBuffer"}
-!1 = !{i64 0, !"Zlib"}
-!2 = !{i64 0, !"Sign"}
+!1 = !{i64 0, !"Sign"}
+!2 = !{i64 0, !"Zlib"}
 !3 = !{i64 0, !"ServerHttp2Session"}
 !4 = !{i64 0, !"RegExpMatchArray"}
 !5 = !{i64 0, !"Hash"}
 !6 = !{i64 0, !"SocketAddress"}
-!7 = !{i64 0, !"URLSearchParams"}
-!8 = !{i64 0, !"ClientHttp2Stream"}
+!7 = !{i64 0, !"ClientHttp2Stream"}
+!8 = !{i64 0, !"URLSearchParams"}
 !9 = !{i64 0, !"Response"}
 !10 = !{i64 0, !"URL"}
 !11 = !{i64 0, !"DeflateRaw"}
@@ -2901,8 +3133,8 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !22 = !{i64 0, !"Verify"}
 !23 = !{i64 0, !"Script"}
 !24 = !{i64 0, !"AssertionError"}
-!25 = !{i64 0, !"TLSSocket"}
-!26 = !{i64 0, !"PerformanceEntry"}
+!25 = !{i64 0, !"PerformanceEntry"}
+!26 = !{i64 0, !"TLSSocket"}
 !27 = !{i64 0, !"PerformanceMark"}
 !28 = !{i64 0, !"PerformanceMeasure"}
 !29 = !{i64 0, !"EventLoopUtilization"}
@@ -2920,5 +3152,6 @@ attributes #0 = { "sspstrong" "stack-protector-buffer-size"="8" }
 !41 = !{!"/DEFAULTLIB:libcmt.lib"}
 !42 = !{!"/NODEFAULTLIB:libcmtd.lib"}
 !43 = !{!"/FAILIFMISMATCH:\22RuntimeLibrary=MT_StaticRelease\22"}
-!44 = !{i64 0, !"__module_init_9610421887249242215_any"}
+!44 = !{i64 0, !"__module_init_853456782593715192_any"}
 !45 = !{i64 0, !"user_main"}
+!46 = !{i64 0, !"__synthetic_user_main"}

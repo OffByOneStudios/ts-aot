@@ -71,6 +71,7 @@ struct TemplateExpression;
 struct TaggedTemplateExpression;
 struct ParenthesizedExpression;
 struct AsExpression;
+struct NonNullExpression;
 struct ConditionalExpression;
 struct PrefixUnaryExpression;
 struct DeleteExpression;
@@ -139,6 +140,7 @@ struct Visitor {
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
     virtual void visitTaggedTemplateExpression(TaggedTemplateExpression* node) = 0;
     virtual void visitAsExpression(AsExpression* node) = 0;
+    virtual void visitNonNullExpression(NonNullExpression* node) = 0;
     virtual void visitPrefixUnaryExpression(PrefixUnaryExpression* node) = 0;
     virtual void visitDeleteExpression(DeleteExpression* node) = 0;
     virtual void visitPostfixUnaryExpression(PostfixUnaryExpression* node) = 0;
@@ -731,6 +733,12 @@ struct AsExpression : Expression {
     std::string type;
     std::string getKind() const override { return "AsExpression"; }
     void accept(Visitor* visitor) override { visitor->visitAsExpression(this); }
+};
+
+struct NonNullExpression : Expression {
+    ExprPtr expression;
+    std::string getKind() const override { return "NonNullExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitNonNullExpression(this); }
 };
 
 } // namespace ast
