@@ -279,6 +279,8 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     if (tryGenerateTTYReadStreamCall(node, prop)) return true;
     if (tryGenerateTTYWriteStreamCall(node, prop)) return true;
     if (tryGenerateHTTP2Call(node, prop)) return true;
+    if (tryGenerateZlibCall(node, prop)) return true;
+    if (tryGenerateModuleCall(node, prop)) return true;
 
     if (auto id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
         if (id->name == "Object") {

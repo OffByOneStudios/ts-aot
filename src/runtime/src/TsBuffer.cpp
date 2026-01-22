@@ -7,6 +7,7 @@
 #include <cstring>
 #include <new>
 #include <unicode/unistr.h>
+#include <cstdio>
 
 TsBuffer* TsBuffer::Create(size_t length) {
     void* mem = ts_alloc(sizeof(TsBuffer));
@@ -1482,7 +1483,13 @@ extern "C" {
 
     void* Buffer_get_length(void* buf) {
         if (!buf) return ts_value_make_double(0);
-        return ts_value_make_double(((TsBuffer*)buf)->GetLength());
+        // Unbox if needed - buf may be a TsValue* or raw TsBuffer*
+        void* rawBuf = ts_value_get_object((TsValue*)buf);
+        fprintf(stderr, "DEBUG Buffer_get_length: buf=%p, rawBuf=%p\n", buf, rawBuf);
+        if (!rawBuf) rawBuf = buf;
+        TsBuffer* tbuf = (TsBuffer*)rawBuf;
+        fprintf(stderr, "DEBUG Buffer_get_length: tbuf=%p, length=%zu\n", tbuf, tbuf->GetLength());
+        return ts_value_make_double(tbuf->GetLength());
     }
 
     void* ts_typed_array_create_u8(int64_t length) {

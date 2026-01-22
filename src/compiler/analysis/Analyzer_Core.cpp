@@ -32,11 +32,20 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     modules[currentFilePath] = mainModule;
 
     // symbols.enterScope(); // Don't enter a new scope, use the global scope
-    
-    // Inject module and exports for CommonJS support
-    auto moduleType = std::make_shared<ObjectType>();
-    moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
-    symbols.define("module", moduleType);
+
+    // Inject module.exports for CommonJS support
+    // Note: We add to the existing module type (registered in registerModule())
+    // rather than creating a new one, to preserve all the module API methods
+    auto existingModule = symbols.lookup("module");
+    if (existingModule && existingModule->type->kind == TypeKind::Object) {
+        auto moduleObjType = std::static_pointer_cast<ObjectType>(existingModule->type);
+        moduleObjType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
+    } else {
+        // Fallback: create new module type if not found
+        auto moduleType = std::make_shared<ObjectType>();
+        moduleType->fields["exports"] = std::make_shared<Type>(TypeKind::Any);
+        symbols.define("module", moduleType);
+    }
     symbols.define("exports", std::make_shared<Type>(TypeKind::Any));
 
     // __dirname and __filename are available in all module types

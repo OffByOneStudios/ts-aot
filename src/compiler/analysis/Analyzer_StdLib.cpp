@@ -1457,5 +1457,7 @@ Analyzer::Analyzer() {
     registerReadline();
     registerTls();
     registerTTY();
+    registerZlib();
+    registerModule();
 }
 } // namespace ts

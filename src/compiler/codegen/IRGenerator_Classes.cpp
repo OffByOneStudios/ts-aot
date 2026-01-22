@@ -682,6 +682,11 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
+    // Check for module.SourceMap constructor
+    if (tryGenerateModuleSourceMapNew(node)) {
+        return;
+    }
+
     if (node->inferredType && node->inferredType->kind == TypeKind::Map) {
         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
         llvm::FunctionCallee fn = getRuntimeFunction("ts_map_create_explicit", createFt);

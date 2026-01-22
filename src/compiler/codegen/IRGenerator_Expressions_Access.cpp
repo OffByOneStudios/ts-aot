@@ -890,6 +890,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateChildProcessPropertyAccess(node)) return;
     if (tryGenerateDNSPropertyAccess(node)) return;
     if (tryGenerateHTTP2PropertyAccess(node)) return;
+    if (tryGenerateZlibPropertyAccess(node)) return;
+    if (tryGenerateZlibConstantsAccess(node)) return;
+    if (tryGenerateModulePropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {
@@ -1060,17 +1063,26 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
                 lastValue = createCall(lenFt, lenFn.getCallee(), { obj });
                 return;
             } else if (cls->name == "Buffer") {
+                // ⚠️ CRITICAL: Always unbox the buffer first.
+                // The buffer might be boxed (e.g., returned from zlib functions) but not tracked
+                // in boxedValues. ts_value_get_object is idempotent for raw pointers.
+                if (obj->getType()->isPointerTy()) {
+                    llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                    obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+                }
+
                 llvm::StructType* tsBufferType = llvm::StructType::getTypeByName(*context, "TsBuffer");
                 llvm::Value* lengthPtr = builder->CreateStructGEP(tsBufferType, obj, 4);
                 llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt64Ty(*context), lengthPtr);
-                
+
                 // Add range metadata
                 llvm::Metadata* rangeArgs[] = {
                     llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 0)),
                     llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), 9223372036854775807LL))
                 };
                 length->setMetadata(llvm::LLVMContext::MD_range, llvm::MDNode::get(*context, rangeArgs));
-                
+
                 lastValue = length;
                 return;
             }

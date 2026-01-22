@@ -80,6 +80,8 @@ public:
     void registerReadline();
     void registerTls();
     void registerTTY();
+    void registerZlib();
+    void registerModule();
 
     void reportError(const std::string& message);
 
