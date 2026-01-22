@@ -51,6 +51,28 @@ void IRGenerator::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // exports - CommonJS exports object
+    if (node->name == "exports") {
+        llvm::GlobalVariable* exportsGlobal = module->getNamedGlobal("__ts_exports");
+        if (exportsGlobal) {
+            lastValue = builder->CreateLoad(builder->getPtrTy(), exportsGlobal);
+            return;
+        }
+    }
+
+    // module - CommonJS module object (not the 'module' module)
+    if (node->name == "module") {
+        // Check if this is accessing the global module object, not an import
+        // The 'module' module import would be in namedValues
+        if (!namedValues.count("module")) {
+            llvm::GlobalVariable* moduleGlobal = module->getNamedGlobal("__ts_module");
+            if (moduleGlobal) {
+                lastValue = builder->CreateLoad(builder->getPtrTy(), moduleGlobal);
+                return;
+            }
+        }
+    }
+
     if (node->name == "this") {
         if (currentAsyncFrame) {
             auto it = currentAsyncFrameMap.find("this");

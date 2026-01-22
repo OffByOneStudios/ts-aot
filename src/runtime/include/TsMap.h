@@ -55,6 +55,9 @@ private:
 extern "C" {
     void* ts_map_create();
     void* ts_map_create_explicit();  // Creates a Map object (new Map())
+
+    // Helper for CommonJS module initialization - sets a property by C string key
+    void ts_map_set_cstr(void* map, const char* key, void* value);
     
     void ts_map_clear(void* map);
     int64_t ts_map_size(void* map);

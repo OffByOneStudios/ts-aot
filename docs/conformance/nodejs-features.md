@@ -1567,11 +1567,11 @@ Note: 6 features are marked N/A:
 | `globalThis` | ✅ | ES2020 alias for global |
 | `__dirname` | ✅ | Absolute path to directory |
 | `__filename` | ✅ | Absolute path to file |
-| `exports` | ❌ | |
-| `module` | ❌ | |
-| `require()` | ⚠️ | Basic support |
+| `exports` | ✅ | CommonJS exports object |
+| `module` | ✅ | CommonJS module object with exports property |
+| `require()` | ✅ | Module loading (compile-time resolution) |
 
-**Global Coverage: 5/7 (71%)**
+**Global Coverage: 7/7 (100%)**
 
 ---
 
@@ -1684,8 +1684,8 @@ Note: Stream classes are stub implementations that allow code to compile. Full s
 | URL | 38 | 38 | 100% |
 | Util | 56 | 56 | 100% |
 | Zlib | 40 | 40 | 100% |
-| Global | 5 | 7 | 71% |
-| **Total** | **1029** | **1040** | **99%** |
+| Global | 7 | 7 | 100% |
+| **Total** | **1031** | **1040** | **99%** |
 
 ### Priority Implementation Targets
 
