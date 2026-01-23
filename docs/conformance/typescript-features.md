@@ -211,7 +211,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Union types (`\|`) | ⚠️ | Basic support |
-| Intersection types (`&`) | ❌ | |
+| Intersection types (`&`) | ✅ | Object literals merge properties |
 | Type guards | ✅ | typeof, in, Array.isArray |
 | Discriminated unions | ❌ | |
 
@@ -313,7 +313,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 5 | 0 | 2 | 0 |
 | Type Narrowing | 6 | 1 | 3 | 0 |
-| Union/Intersection | 1 | 1 | 2 | 0 |
+| Union/Intersection | 2 | 1 | 1 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **88** | **7** | **45** | **34** |
+| **TOTAL** | **89** | **7** | **44** | **34** |
 
-**Conformance: 88/140 runtime features (63%)**
+**Conformance: 89/140 runtime features (64%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
