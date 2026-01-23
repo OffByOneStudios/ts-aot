@@ -1,7 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @add
 // CHECK: add i64
-// OUTPUT: 7.000000
+// OUTPUT: 7
 
 function add(a: number, b: number): number {
   return a + b;

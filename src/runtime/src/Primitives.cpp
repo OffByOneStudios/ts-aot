@@ -24,6 +24,26 @@ static void printConsoleIndent(FILE* stream = stdout) {
     }
 }
 
+// Helper to print double in JavaScript style (no trailing zeros for whole numbers)
+static void printJsNumber(FILE* stream, double val) {
+    // Check for special values
+    if (std::isnan(val)) {
+        std::fprintf(stream, "NaN");
+        return;
+    }
+    if (std::isinf(val)) {
+        std::fprintf(stream, val > 0 ? "Infinity" : "-Infinity");
+        return;
+    }
+    // If it's a whole number, print without decimals
+    if (val == std::floor(val) && std::abs(val) < 1e15) {
+        std::fprintf(stream, "%.0f", val);
+    } else {
+        // Use %g for compact representation (removes trailing zeros)
+        std::fprintf(stream, "%g", val);
+    }
+}
+
 extern "C" {
 
 void ts_console_error(TsString* str) {
@@ -44,7 +64,8 @@ void ts_console_error_int(int64_t val) {
 
 void ts_console_error_double(double val) {
     printConsoleIndent(stderr);
-    std::fprintf(stderr, "%f\n", val);
+    printJsNumber(stderr, val);
+    std::fprintf(stderr, "\n");
     std::fflush(stderr);
 }
 
@@ -266,7 +287,8 @@ void ts_console_log_int(int64_t val) {
 
 void ts_console_log_double(double val) {
     printConsoleIndent();
-    std::printf("%f\n", val);
+    printJsNumber(stdout, val);
+    std::printf("\n");
     std::fflush(stdout);
 }
 
@@ -323,7 +345,7 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
                     } else if (elemVal->type == ValueType::NUMBER_INT) {
                         std::fprintf(stream, "%lld", elemVal->i_val);
                     } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                        std::fprintf(stream, "%f", elemVal->d_val);
+                        printJsNumber(stream, elemVal->d_val);
                     } else {
                         uint32_t elemMagic = *(uint32_t*)elem;
                         if (elemMagic == 0x53545247) {
@@ -345,7 +367,7 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
     switch (val->type) {
         case ValueType::UNDEFINED: std::fprintf(stream, "undefined"); break;
         case ValueType::NUMBER_INT: std::fprintf(stream, "%lld", val->i_val); break;
-        case ValueType::NUMBER_DBL: std::fprintf(stream, "%f", val->d_val); break;
+        case ValueType::NUMBER_DBL: printJsNumber(stream, val->d_val); break;
         case ValueType::BOOLEAN: std::fprintf(stream, "%s", val->b_val ? "true" : "false"); break;
         case ValueType::STRING_PTR: std::fprintf(stream, "%s", ((TsString*)val->ptr_val)->ToUtf8()); break;
         case ValueType::OBJECT_PTR: {
@@ -399,7 +421,7 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
                         } else if (elemVal->type == ValueType::NUMBER_INT) {
                             std::fprintf(stream, "%lld", elemVal->i_val);
                         } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                            std::fprintf(stream, "%f", elemVal->d_val);
+                            printJsNumber(stream, elemVal->d_val);
                         } else {
                             uint32_t elemMagic = *(uint32_t*)elem;
                             if (elemMagic == 0x53545247) {
@@ -421,7 +443,7 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
                     } else if (elemVal->type == ValueType::NUMBER_INT) {
                         std::fprintf(stream, "%lld", elemVal->i_val);
                     } else if (elemVal->type == ValueType::NUMBER_DBL) {
-                        std::fprintf(stream, "%f", elemVal->d_val);
+                        printJsNumber(stream, elemVal->d_val);
                     } else {
                         uint32_t elemMagic = *(uint32_t*)elem;
                         if (elemMagic == 0x53545247) {
