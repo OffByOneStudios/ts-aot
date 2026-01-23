@@ -1,5 +1,5 @@
 // Test: Index signatures in classes
-// RUN: ts-aot %s -o %t.exe && %t.exe
+// RUN: %ts-aot %s -o %t.exe && %t.exe
 // OUTPUT: Testing index signatures...
 // OUTPUT: Set key1=value1
 // OUTPUT: Got key1=value1
