@@ -257,16 +257,14 @@ extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
     RevokeContext* ctx = (RevokeContext*)ts_alloc(sizeof(RevokeContext));
     ctx->proxy = proxy;
 
-    TsFunction* revokeFunc = (TsFunction*)ts_alloc(sizeof(TsFunction));
-    revokeFunc->magic = TsFunction::MAGIC;
-    revokeFunc->context = ctx;
-    revokeFunc->funcPtr = (void*)(+[](void* context) -> TsValue* {
+    void* revokeFuncAddr = (void*)(+[](void* context) -> TsValue* {
         RevokeContext* ctx = (RevokeContext*)context;
         if (ctx->proxy) {
             ctx->proxy->revoked = true;
         }
         return ts_value_make_undefined();
     });
+    TsFunction* revokeFunc = new (ts_alloc(sizeof(TsFunction))) TsFunction(revokeFuncAddr, ctx, FunctionType::COMPILED);
 
     TsValue revokeFuncVal;
     revokeFuncVal.type = ValueType::FUNCTION_PTR;

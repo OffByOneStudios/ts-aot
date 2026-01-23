@@ -167,7 +167,9 @@ TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
 static constexpr uint32_t ASYNC_ARRAY_ITER_MAGIC = 0x41414954; // "AAIT"
 
 extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
-    if (!iterable) return nullptr;
+    if (!iterable) {
+        return nullptr;
+    }
 
     // Check if it's an array (ARRAY_PTR type = 7) - wrap it in an async iterator
     if (iterable->type == ValueType::ARRAY_PTR && iterable->ptr_val) {
@@ -208,7 +210,9 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
 }
 
 extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
-    if (!iterator) return nullptr;
+    if (!iterator) {
+        return nullptr;
+    }
 
     // Check if it's our AsyncArrayIterator
     if (iterator->type == ValueType::OBJECT_PTR && iterator->ptr_val) {
@@ -229,14 +233,12 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
                 ts_promise_resolve_internal(p, result);
 
                 TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await to recognize it!
+                res->type = ValueType::PROMISE_PTR;
                 res->ptr_val = p;
                 return res;
             }
 
-            // Get current element - arrays store int64_t values which are either:
-            // - raw numbers
-            // - pointers to boxed TsValue*
+            // Get current element
             int64_t elemVal = iter->array->Get(iter->index);
             iter->index++;
 
@@ -244,19 +246,15 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
             TsPromise* resultPromise = ts_promise_create();
 
             // Check if the element is a boxed TsValue pointer
-            // Array elements are stored as int64_t, which for objects is the TsValue* pointer
             TsValue* elemBoxed = (TsValue*)elemVal;
 
             // Check if it looks like a valid TsValue* by checking type field
-            // The type field should be a small enum value (0-10)
             if (elemBoxed && (unsigned)elemBoxed->type <= 10) {
                 // It's a boxed value - check for Promise
-                // Promise can be wrapped as either OBJECT_PTR or PROMISE_PTR
                 if ((elemBoxed->type == ValueType::OBJECT_PTR || elemBoxed->type == ValueType::PROMISE_PTR)
                     && elemBoxed->ptr_val) {
                     void* elemPtr = elemBoxed->ptr_val;
-                    // Check if it's a TsPromise by checking magic at offset 16 (after vtable+padding)
-                    // TsObject layout: [vtable(8)] [vtable padding(8)] [magic(4)]
+                    // Check if it's a TsPromise by checking magic at offset 16
                     uint32_t magicVal = *(uint32_t*)((char*)elemPtr + 16);
                     if (magicVal == TsPromise::MAGIC) {
                         TsPromise* elemPromise = (TsPromise*)elemPtr;
@@ -271,22 +269,20 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
                         WrapContext* ctx = (WrapContext*)ts_alloc(sizeof(WrapContext));
                         ctx->resultPromise = resultPromise;
 
-                        TsFunction* wrapFunc = (TsFunction*)ts_alloc(sizeof(TsFunction));
-                        wrapFunc->magic = TsFunction::MAGIC;
-                        wrapFunc->context = ctx;
-                        wrapFunc->funcPtr = (void*)(+[](void* context, TsValue* resolvedValue) -> TsValue* {
+                        void* wrapFuncAddr = (void*)(+[](void* context, TsValue* resolvedValue) -> TsValue* {
                             WrapContext* ctx = (WrapContext*)context;
                             TsValue* iterResult = create_generator_result(*resolvedValue, false);
                             ts_promise_resolve_internal(ctx->resultPromise, iterResult);
                             return nullptr;
                         });
+                        // Use placement new with constructor to properly set up vtable
+                        TsFunction* wrapFunc = new (ts_alloc(sizeof(TsFunction))) TsFunction(wrapFuncAddr, ctx, FunctionType::COMPILED);
 
                         onFulfilled.ptr_val = wrapFunc;
-
                         elemPromise->then(onFulfilled);
 
                         TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                        res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await!
+                        res->type = ValueType::PROMISE_PTR;
                         res->ptr_val = resultPromise;
                         return res;
                     }
@@ -304,7 +300,7 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
             }
 
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            res->type = ValueType::PROMISE_PTR;  // Must be PROMISE_PTR for ts_async_await!
+            res->type = ValueType::PROMISE_PTR;
             res->ptr_val = resultPromise;
             return res;
         }
@@ -734,16 +730,14 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
         TsPromise* other = (TsPromise*)value->ptr_val;
         TsValue onFulfilled;
         onFulfilled.type = ValueType::OBJECT_PTR;
-        TsFunction* f1 = (TsFunction*)ts_alloc(sizeof(TsFunction));
-        f1->funcPtr = (void*)ts_promise_resolve_internal_helper;
-        f1->context = promise;
+        TsFunction* f1 = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)ts_promise_resolve_internal_helper, promise, FunctionType::COMPILED);
         onFulfilled.ptr_val = f1;
 
         TsValue onRejected;
         onRejected.type = ValueType::OBJECT_PTR;
-        TsFunction* f2 = (TsFunction*)ts_alloc(sizeof(TsFunction));
-        f2->funcPtr = (void*)ts_promise_reject_internal_helper;
-        f2->context = promise;
+        TsFunction* f2 = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)ts_promise_reject_internal_helper, promise, FunctionType::COMPILED);
         onRejected.ptr_val = f2;
 
         other->then(onFulfilled, onRejected);
