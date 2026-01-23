@@ -478,9 +478,17 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 
             if (cls->methodOverloads.count(prop->name)) {
                 methodType = resolveOverload(cls->methodOverloads[prop->name], argTypes);
+                // For AOT: use implementation's return type, not overload signature's.
+                // The implementation (with body) has the actual runtime return type.
+                // Overload signatures may declare specific types like 'string', but the
+                // implementation typically returns 'any' which is TsValue* at runtime.
+                if (methodType && cls->methods.count(prop->name)) {
+                    auto implType = cls->methods[prop->name];
+                    methodType = std::make_shared<FunctionType>(*methodType);
+                    methodType->returnType = implType->returnType;
+                }
             } else if (cls->methods.count(prop->name)) {
                 methodType = cls->methods[prop->name];
-                
             }
 
             if (methodType) {
@@ -495,6 +503,12 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             
             if (inter->methodOverloads.count(prop->name)) {
                 methodType = resolveOverload(inter->methodOverloads[prop->name], argTypes);
+                // For AOT: use implementation's return type, not overload signature's
+                if (methodType && inter->methods.count(prop->name)) {
+                    auto implType = inter->methods[prop->name];
+                    methodType = std::make_shared<FunctionType>(*methodType);
+                    methodType->returnType = implType->returnType;
+                }
             } else if (inter->methods.count(prop->name)) {
                 methodType = inter->methods[prop->name];
             }
@@ -512,6 +526,12 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 std::shared_ptr<FunctionType> methodType = nullptr;
                 if (cls->staticMethodOverloads.count(prop->name)) {
                     methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                    // For AOT: use implementation's return type, not overload signature's
+                    if (methodType && cls->staticMethods.count(prop->name)) {
+                        auto implType = cls->staticMethods[prop->name];
+                        methodType = std::make_shared<FunctionType>(*methodType);
+                        methodType->returnType = implType->returnType;
+                    }
                 } else if (cls->staticMethods.count(prop->name)) {
                     methodType = cls->staticMethods[prop->name];
                 }
