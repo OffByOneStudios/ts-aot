@@ -140,7 +140,8 @@ function getTypeParameters(node) {
     if (!node.typeParameters) return [];
     return node.typeParameters.map(tp => ({
         name: tp.name.text,
-        constraint: tp.constraint ? tp.constraint.getText(currentSourceFile) : null
+        constraint: tp.constraint ? tp.constraint.getText(currentSourceFile) : null,
+        default: tp.default ? tp.default.getText(currentSourceFile) : null
     }));
 }
 
@@ -290,6 +291,14 @@ function visitInternal(node) {
                 isStatic: isStatic(node),
                 isReadonly: isReadonly(node),
                 decorators: getDecorators(node)
+            };
+        case ts.SyntaxKind.IndexSignature:
+            // [key: string]: valueType
+            return {
+                kind: "IndexSignature",
+                keyType: node.parameters[0].type ? node.parameters[0].type.getText(currentSourceFile) : "string",
+                valueType: node.type ? node.type.getText(currentSourceFile) : "any",
+                isReadonly: isReadonly(node)
             };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:

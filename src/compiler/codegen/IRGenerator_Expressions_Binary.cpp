@@ -1136,12 +1136,57 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 lastValue = val;
                 return;
             }
+
+            // Check for index signature
+            if (cls->indexSignatureValueType) {
+                SPDLOG_DEBUG("Using index signature for element assignment on {}", cls->name);
+                visit(elem->expression.get());
+                llvm::Value* obj = lastValue;
+                emitNullCheckForExpression(elem->expression.get(), obj);
+
+                // Get the struct type and __properties__ field
+                llvm::StructType* structType = llvm::StructType::getTypeByName(*context, cls->name);
+                auto& layout = classLayouts[cls->name];
+
+                if (structType && layout.fieldIndices.count("__properties__")) {
+                    int propsIndex = layout.fieldIndices["__properties__"];
+                    SPDLOG_DEBUG("Setting on __properties__ at index {}", propsIndex);
+
+                    // Load the __properties__ map from the object
+                    llvm::Value* propsField = builder->CreateStructGEP(structType, obj, propsIndex);
+                    llvm::Value* propsMap = builder->CreateLoad(builder->getPtrTy(), propsField);
+
+                    // Get the key and box the value
+                    visit(elem->argumentExpression.get());
+                    llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+                    llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+
+                    // Use inline map set on the __properties__ map
+                    emitInlineMapSet(propsMap, key, boxedVal);
+                    lastValue = val;
+                    return;
+                }
+
+                // Fallback: no __properties__ field found, use dynamic property set
+                visit(elem->argumentExpression.get());
+                llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
+                llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
+
+                llvm::FunctionType* setFt = llvm::FunctionType::get(
+                    llvm::Type::getVoidTy(*context),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                    false);
+                llvm::FunctionCallee setFn = getRuntimeFunction("ts_object_set_dynamic", setFt);
+                createCall(setFt, setFn.getCallee(), { obj, key, boxedVal });
+                lastValue = val;
+                return;
+            }
         }
 
         visit(elem->expression.get());
         llvm::Value* arr = lastValue;
         emitNullCheckForExpression(elem->expression.get(), arr);
-        
+
         // ⚠️ CRITICAL: Always unbox array for Array types before any use.
         // The array may be boxed from ts_array_create_sized or similar.
         // ts_value_get_object is idempotent for raw pointers.

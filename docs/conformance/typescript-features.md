@@ -90,7 +90,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `implements` | ✅ | |
 | `super` calls | ✅ | |
 | `this` type | ⚠️ | |
-| Index signatures in classes | ❌ | |
+| Index signatures in classes | ✅ | Dynamic properties via TsMap |
 
 ## 6. Functions
 
@@ -117,7 +117,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generic interfaces | 🔬 | Type-only |
 | Generic constraints (`extends`) | ✅ | Interface and type parameter constraints |
 | `keyof` constraint | ❌ | |
-| Default type parameters | ✅ | Works via type inference at call sites |
+| Default type parameters | ✅ | Parsed and used when type args not provided |
 | Generic parameter variance | 🔬 | Type-only |
 
 ## 8. Type Manipulation
@@ -202,7 +202,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `instanceof` narrowing | ✅ | Class and Array checks |
 | Control flow analysis | ✅ | typeof, truthiness, null check narrowing |
 | Type predicates (`is`) | ✅ | Returns boolean at runtime |
-| Discriminated unions | ❌ | |
+| Discriminated unions | ⚠️ | Narrowing code exists; needs literal types for full support |
 | `never` type exhaustiveness | ❌ | |
 | `asserts` keyword | ⚠️ | Syntax compiles, runtime narrowing not supported |
 
@@ -213,7 +213,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Union types (`\|`) | ✅ | typeof, Array.isArray, in narrowing |
 | Intersection types (`&`) | ✅ | Object literals merge properties |
 | Type guards | ✅ | typeof, in, Array.isArray |
-| Discriminated unions | ❌ | |
+| Discriminated unions | ⚠️ | Narrowing code exists; needs literal types for full support |
 
 ## 15. Literal Types
 
@@ -304,7 +304,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
-| Classes | 17 | 1 | 1 | 1 |
+| Classes | 18 | 1 | 0 | 1 |
 | Functions | 9 | 2 | 0 | 0 |
 | Generics | 4 | 0 | 1 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
@@ -312,8 +312,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 6 | 0 | 1 | 0 |
-| Type Narrowing | 7 | 1 | 2 | 0 |
-| Union/Intersection | 3 | 0 | 1 | 0 |
+| Type Narrowing | 7 | 2 | 1 | 0 |
+| Union/Intersection | 3 | 1 | 0 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **92** | **6** | **42** | **34** |
+| **TOTAL** | **93** | **8** | **39** | **34** |
 
-**Conformance: 92/140 runtime features (66%)**
+**Conformance: 93/140 runtime features (66%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

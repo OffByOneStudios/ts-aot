@@ -45,6 +45,9 @@ std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
     if (j.contains("constraint") && !j["constraint"].is_null()) {
         node->constraint = j["constraint"].get<std::string>();
     }
+    if (j.contains("default") && !j["default"].is_null()) {
+        node->defaultType = j["default"].get<std::string>();
+    }
     return node;
 }
 
@@ -235,6 +238,15 @@ NodePtr parseClassMember(const json& j) {
             for (const auto& stmt : j["body"]) {
                 node->body.push_back(parseStatement(stmt));
             }
+        }
+        return node;
+    } else if (kind == "IndexSignature") {
+        auto node = std::make_unique<IndexSignature>();
+        setLocation(node.get(), j);
+        node->keyType = j.value("keyType", "string");
+        node->valueType = j.value("valueType", "any");
+        if (j.contains("isReadonly")) {
+            node->isReadonly = j["isReadonly"].get<bool>();
         }
         return node;
     }

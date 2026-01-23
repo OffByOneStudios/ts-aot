@@ -117,6 +117,80 @@ void Analyzer::visitIfStatement(ast::IfStatement* node) {
                     else if (typeString->value == "boolean") narrowedType = std::make_shared<Type>(TypeKind::Boolean);
                 }
             }
+
+            // Discriminated union narrowing: shape.kind === "circle"
+            if (!narrowedType) {
+                PropertyAccessExpression* propAccess = nullptr;
+                StringLiteral* literalValue = nullptr;
+
+                if (auto left = dynamic_cast<PropertyAccessExpression*>(bin->left.get())) {
+                    if (auto right = dynamic_cast<StringLiteral*>(bin->right.get())) {
+                        propAccess = left;
+                        literalValue = right;
+                    }
+                } else if (auto right = dynamic_cast<PropertyAccessExpression*>(bin->right.get())) {
+                    if (auto left = dynamic_cast<StringLiteral*>(bin->left.get())) {
+                        propAccess = right;
+                        literalValue = left;
+                    }
+                }
+
+                if (propAccess && literalValue) {
+                    if (auto objId = dynamic_cast<Identifier*>(propAccess->expression.get())) {
+                        auto sym = symbols.lookup(objId->name);
+                        if (sym && sym->type->kind == TypeKind::Union) {
+                            auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+                            std::vector<std::shared_ptr<Type>> matching;
+                            std::string propName = propAccess->name;
+                            std::string targetValue = literalValue->value;
+
+                            for (auto& t : unionType->types) {
+                                bool matches = false;
+                                std::shared_ptr<Type> propType = nullptr;
+
+                                // Get the property type from the union member
+                                if (t->kind == TypeKind::Interface) {
+                                    auto iface = std::static_pointer_cast<InterfaceType>(t);
+                                    if (iface->fields.count(propName)) {
+                                        propType = iface->fields[propName];
+                                    }
+                                } else if (t->kind == TypeKind::Object) {
+                                    auto obj = std::static_pointer_cast<ObjectType>(t);
+                                    if (obj->fields.count(propName)) {
+                                        propType = obj->fields[propName];
+                                    }
+                                } else if (t->kind == TypeKind::Class) {
+                                    auto cls = std::static_pointer_cast<ClassType>(t);
+                                    if (cls->fields.count(propName)) {
+                                        propType = cls->fields[propName];
+                                    }
+                                }
+
+                                // Check if the property exists and is string-typed
+                                // Note: Without literal types in the type system, we narrow to
+                                // union members that have this property as a string. The runtime
+                                // equality check ensures only the matching type's branch executes.
+                                if (propType && propType->kind == TypeKind::String) {
+                                    matches = true;
+                                }
+
+                                if (matches) {
+                                    matching.push_back(t);
+                                }
+                            }
+
+                            if (!matching.empty()) {
+                                if (matching.size() == 1) {
+                                    narrowedType = matching[0];
+                                } else {
+                                    narrowedType = std::make_shared<UnionType>(matching);
+                                }
+                                narrowedVar = objId->name;
+                            }
+                        }
+                    }
+                }
+            }
         } else if (bin->op == "!==" || bin->op == "!=") {
             // x !== null narrowing
             Identifier* id = nullptr;
