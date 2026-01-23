@@ -1,0 +1,107 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "FunctionDeclaration",
+      "name": "user_main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": true,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "Promise<number>",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "VariableDeclaration",
+          "name": {
+            "kind": "Identifier",
+            "name": "fs",
+            "line": 5,
+            "column": 11,
+            "sourceFile": "examples/test_dynamic_import.ts"
+          },
+          "isExported": false,
+          "type": "",
+          "initializer": {
+            "kind": "AwaitExpression",
+            "expression": {
+              "kind": "DynamicImport",
+              "moduleSpecifier": {
+                "kind": "StringLiteral",
+                "value": "fs",
+                "line": 5,
+                "column": 29,
+                "sourceFile": "examples/test_dynamic_import.ts"
+              },
+              "line": 5,
+              "column": 22,
+              "sourceFile": "examples/test_dynamic_import.ts"
+            },
+            "line": 5,
+            "column": 16,
+            "sourceFile": "examples/test_dynamic_import.ts"
+          },
+          "line": 5,
+          "column": 5,
+          "sourceFile": "examples/test_dynamic_import.ts"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 6,
+                "column": 5,
+                "sourceFile": "examples/test_dynamic_import.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 6,
+              "column": 5,
+              "sourceFile": "examples/test_dynamic_import.ts"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Loaded fs module",
+                "line": 6,
+                "column": 17,
+                "sourceFile": "examples/test_dynamic_import.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 6,
+            "column": 5,
+            "sourceFile": "examples/test_dynamic_import.ts"
+          },
+          "line": 6,
+          "column": 5,
+          "sourceFile": "examples/test_dynamic_import.ts"
+        },
+        {
+          "kind": "ReturnStatement",
+          "expression": {
+            "kind": "NumericLiteral",
+            "value": 0,
+            "line": 8,
+            "column": 12,
+            "sourceFile": "examples/test_dynamic_import.ts"
+          },
+          "line": 8,
+          "column": 5,
+          "sourceFile": "examples/test_dynamic_import.ts"
+        }
+      ],
+      "decorators": [],
+      "line": 3,
+      "column": 1,
+      "sourceFile": "examples/test_dynamic_import.ts"
+    }
+  ]
+}

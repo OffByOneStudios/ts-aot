@@ -201,6 +201,7 @@ private:
     void visitUndefinedLiteral(ast::UndefinedLiteral* node) override;
     void visitAwaitExpression(ast::AwaitExpression* node) override;
     void visitYieldExpression(ast::YieldExpression* node) override;
+    void visitDynamicImport(ast::DynamicImport* node) override;
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);

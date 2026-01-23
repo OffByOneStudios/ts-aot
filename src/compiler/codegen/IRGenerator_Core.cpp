@@ -1406,6 +1406,7 @@ public:
     void visitUndefinedLiteral(ast::UndefinedLiteral* node) override {}
     void visitAwaitExpression(ast::AwaitExpression* node) override { if (node->expression) node->expression->accept(this); }
     void visitYieldExpression(ast::YieldExpression* node) override { if (node->expression) node->expression->accept(this); }
+    void visitDynamicImport(ast::DynamicImport* node) override { if (node->moduleSpecifier) node->moduleSpecifier->accept(this); }
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) override {}
     void visitAsExpression(ast::AsExpression* node) override { if (node->expression) node->expression->accept(this); }
     void visitNonNullExpression(ast::NonNullExpression* node) override { if (node->expression) node->expression->accept(this); }
@@ -1821,6 +1822,9 @@ public:
     void visitYieldExpression(ast::YieldExpression* node) override {
         if (node->expression) node->expression->accept(this);
     }
+    void visitDynamicImport(ast::DynamicImport* node) override {
+        if (node->moduleSpecifier) node->moduleSpecifier->accept(this);
+    }
     void visitTemplateExpression(ast::TemplateExpression* node) override {
         for (auto& span : node->spans) span.expression->accept(this);
     }
@@ -2034,6 +2038,7 @@ public:
     void visitNewExpression(ast::NewExpression*) override {}
     void visitAwaitExpression(ast::AwaitExpression*) override {}
     void visitYieldExpression(ast::YieldExpression*) override {}
+    void visitDynamicImport(ast::DynamicImport*) override {}
     void visitTemplateExpression(ast::TemplateExpression*) override {}
     void visitSpreadElement(ast::SpreadElement*) override {}
     void visitAsExpression(ast::AsExpression*) override {}

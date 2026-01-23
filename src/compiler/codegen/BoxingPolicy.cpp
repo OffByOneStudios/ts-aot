@@ -431,6 +431,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_process_get_exec_argv",          {}},           // () -> array
     {"ts_require",                        {true, false}}, // (specifier: boxed, referrerPath: raw)
     {"ts_module_register",                {true, true}},  // (path: boxed, exports: boxed)
+    {"ts_dynamic_import",                 {true}},        // (moduleSpecifier: boxed) -> Promise*
     {"ts_debug_marker",                  {true, true}},  // (msg: boxed) -> boxed (undefined)
     {"ts_function_call",                  {true, false, false}},      // (func: boxed, argc, argv)
     {"ts_function_call_with_this",        {true, true, false, false}}, // (func: boxed, thisArg: boxed, argc, argv)

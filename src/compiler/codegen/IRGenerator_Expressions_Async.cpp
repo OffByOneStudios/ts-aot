@@ -121,6 +121,47 @@ llvm::Value* IRGenerator::emitAwait(llvm::Value* promiseVal, std::shared_ptr<Typ
     return res;
 }
 
+void IRGenerator::visitDynamicImport(ast::DynamicImport* node) {
+    // Dynamic import returns a Promise that resolves to the module's exports
+    // For AOT compilation, we need to resolve the module at compile time if possible
+
+    // Get the module specifier
+    llvm::Value* moduleSpec = nullptr;
+
+    if (auto strLit = dynamic_cast<ast::StringLiteral*>(node->moduleSpecifier.get())) {
+        // Static string - create a TsString
+        llvm::FunctionType* createStrFt = llvm::FunctionType::get(
+            builder->getPtrTy(),
+            { builder->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+        llvm::Constant* strConst = builder->CreateGlobalStringPtr(strLit->value);
+        moduleSpec = createCall(createStrFt, createStrFn.getCallee(), { strConst });
+    } else {
+        // Dynamic expression - evaluate it
+        visit(node->moduleSpecifier.get());
+        moduleSpec = lastValue;
+        if (node->moduleSpecifier->inferredType &&
+            node->moduleSpecifier->inferredType->kind != TypeKind::String) {
+            moduleSpec = boxValue(moduleSpec, node->moduleSpecifier->inferredType);
+        }
+    }
+
+    // Call runtime function ts_dynamic_import(moduleSpecifier) -> Promise<any>
+    llvm::FunctionType* importFt = llvm::FunctionType::get(
+        builder->getPtrTy(),
+        { builder->getPtrTy() },
+        false
+    );
+    llvm::FunctionCallee importFn = getRuntimeFunction("ts_dynamic_import", importFt);
+    llvm::Value* promise = createCall(importFt, importFn.getCallee(), { moduleSpec });
+
+    // The result is a Promise<any>
+    lastValue = promise;
+    boxedValues.insert(lastValue);
+}
+
 void IRGenerator::visitYieldExpression(ast::YieldExpression* node) {
     if (!currentAsyncContext) {
         // Should be caught by analyzer

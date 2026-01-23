@@ -34,6 +34,20 @@ void Analyzer::visitYieldExpression(ast::YieldExpression* node) {
     lastType = std::make_shared<Type>(TypeKind::Any);
 }
 
+void Analyzer::visitDynamicImport(ast::DynamicImport* node) {
+    // Visit the module specifier (usually a string literal)
+    if (node->moduleSpecifier) {
+        visit(node->moduleSpecifier.get());
+    }
+
+    // Dynamic import returns Promise<any> since we don't know the module's type at compile time
+    // In a real implementation, we might try to resolve the module and get its export types
+    auto promiseType = std::make_shared<ClassType>("Promise");
+    promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
+    lastType = promiseType;
+    node->inferredType = lastType;
+}
+
 } // namespace ts
 
 

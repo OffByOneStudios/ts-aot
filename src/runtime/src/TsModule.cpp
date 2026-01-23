@@ -4,8 +4,10 @@
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsMap.h"
+#include "TsPromise.h"
 #include "GC.h"
 #include <cstring>
+#include <cstdio>
 
 // List of built-in modules supported by ts-aot
 // This should match the modules in ModuleResolver.cpp
@@ -167,6 +169,55 @@ TsValue* ts_module_sourcemap_find_entry(void* sourceMap, void* line, void* col) 
     (void)col;
     // Return null - source map lookup not applicable in AOT
     return ts_value_make_null();
+}
+
+// Dynamic import() - returns Promise<module>
+// In an AOT compiler, dynamic imports must be resolved at compile time.
+// This runtime function is a fallback for cases that couldn't be resolved at compile time.
+// It returns a rejected promise with an error explaining the limitation.
+TsValue* ts_dynamic_import(void* moduleSpecifier) {
+    using namespace ts;
+
+    // Get the module name from the specifier
+    TsString* name = nullptr;
+    if (moduleSpecifier) {
+        TsValue* maybeVal = (TsValue*)moduleSpecifier;
+        if ((uint8_t)maybeVal->type <= 10) {
+            void* raw = ts_value_get_object(maybeVal);
+            if (raw) {
+                name = (TsString*)raw;
+            } else {
+                void* strRaw = ts_value_get_string(maybeVal);
+                if (strRaw) {
+                    name = (TsString*)strRaw;
+                }
+            }
+        } else {
+            name = (TsString*)moduleSpecifier;
+        }
+    }
+
+    const char* moduleName = name ? name->ToUtf8() : "unknown";
+
+    // Create a promise
+    TsPromise* promise = ts_promise_create();
+
+    // Create error message
+    char errorMsg[256];
+    snprintf(errorMsg, sizeof(errorMsg),
+        "Dynamic import() is not supported at runtime in AOT compilation. "
+        "Module '%s' must be imported statically at compile time.",
+        moduleName);
+
+    // Create the error - ts_error_create expects a TsString*
+    TsString* errorStr = TsString::Create(errorMsg);
+    void* error = ts_error_create(errorStr);
+
+    // Reject the promise with the error (ts_error_create returns already-boxed TsValue*)
+    ts_promise_reject_internal(promise, (TsValue*)error);
+
+    // Return boxed promise
+    return ts_value_make_object(promise);
 }
 
 } // extern "C"

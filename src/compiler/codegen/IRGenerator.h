@@ -134,6 +134,7 @@ private:
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node);
     void visitAwaitExpression(ast::AwaitExpression* node);
     void visitYieldExpression(ast::YieldExpression* node);
+    void visitDynamicImport(ast::DynamicImport* node);
     void visitArrowFunction(ast::ArrowFunction* node);
     void visitFunctionExpression(ast::FunctionExpression* node);
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node);

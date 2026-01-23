@@ -31,4 +31,8 @@ extern "C" {
 
     // SourceMap.findEntry(line, col)
     TsValue* ts_module_sourcemap_find_entry(void* sourceMap, void* line, void* col);
+
+    // Dynamic import() - returns Promise<module>
+    // For AOT compiler, this returns a rejected promise for non-builtin modules
+    TsValue* ts_dynamic_import(void* moduleSpecifier);
 }

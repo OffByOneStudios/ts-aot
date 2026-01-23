@@ -250,6 +250,12 @@ public:
         node->expression->accept(this);
     }
 
+    void visitDynamicImport(ast::DynamicImport* node) override {
+        if (node->moduleSpecifier) {
+            node->moduleSpecifier->accept(this);
+        }
+    }
+
     void visitSwitchStatement(ast::SwitchStatement* node) override {
         node->expression->accept(this);
         for (auto& clause : node->clauses) {
