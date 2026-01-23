@@ -120,34 +120,54 @@ void Analyzer::visitIfStatement(ast::IfStatement* node) {
         } else if (bin->op == "!==" || bin->op == "!=") {
             // x !== null narrowing
             Identifier* id = nullptr;
+            bool isNull = false;
+            bool isUndefined = false;
+
+            // Check left side is identifier and right side is null/undefined literal
             if (auto left = dynamic_cast<Identifier*>(bin->left.get())) {
-                if (auto right = dynamic_cast<Identifier*>(bin->right.get())) {
-                    if (right->name == "null" || right->name == "undefined") {
+                if (dynamic_cast<NullLiteral*>(bin->right.get())) {
+                    id = left;
+                    isNull = true;
+                } else if (dynamic_cast<UndefinedLiteral*>(bin->right.get())) {
+                    id = left;
+                    isUndefined = true;
+                } else if (auto rightId = dynamic_cast<Identifier*>(bin->right.get())) {
+                    // Handle undefined as identifier (global variable)
+                    if (rightId->name == "undefined") {
                         id = left;
+                        isUndefined = true;
                     }
                 }
-            } else if (auto right = dynamic_cast<Identifier*>(bin->right.get())) {
-                if (auto left = dynamic_cast<Identifier*>(bin->left.get())) {
-                    if (left->name == "null" || left->name == "undefined") {
+            }
+            // Check right side is identifier and left side is null/undefined literal
+            else if (auto right = dynamic_cast<Identifier*>(bin->right.get())) {
+                if (dynamic_cast<NullLiteral*>(bin->left.get())) {
+                    id = right;
+                    isNull = true;
+                } else if (dynamic_cast<UndefinedLiteral*>(bin->left.get())) {
+                    id = right;
+                    isUndefined = true;
+                } else if (auto leftId = dynamic_cast<Identifier*>(bin->left.get())) {
+                    // Handle undefined as identifier (global variable)
+                    if (leftId->name == "undefined") {
                         id = right;
+                        isUndefined = true;
                     }
                 }
             }
 
-            if (id) {
+            if (id && (isNull || isUndefined)) {
                 auto sym = symbols.lookup(id->name);
                 if (sym && sym->type->kind == TypeKind::Union) {
                     auto unionType = std::static_pointer_cast<UnionType>(sym->type);
                     std::vector<std::shared_ptr<Type>> remaining;
-                    std::string target = (dynamic_cast<Identifier*>(bin->left.get())->name == "null" || 
-                                         dynamic_cast<Identifier*>(bin->right.get())->name == "null") ? "null" : "undefined";
-                    
+
                     for (auto& t : unionType->types) {
-                        if (target == "null" && t->kind == TypeKind::Null) continue;
-                        if (target == "undefined" && t->kind == TypeKind::Undefined) continue;
+                        if (isNull && t->kind == TypeKind::Null) continue;
+                        if (isUndefined && t->kind == TypeKind::Undefined) continue;
                         remaining.push_back(t);
                     }
-                    
+
                     if (remaining.size() == 1) narrowedType = remaining[0];
                     else if (remaining.size() > 1) {
                         narrowedType = std::make_shared<UnionType>(remaining);
@@ -162,6 +182,50 @@ void Analyzer::visitIfStatement(ast::IfStatement* node) {
                     if (type) {
                         narrowedVar = id->name;
                         narrowedType = type;
+                    }
+                }
+            }
+        } else if (bin->op == "in") {
+            // "prop" in obj narrowing - narrow to types that have the property
+            StringLiteral* propName = dynamic_cast<StringLiteral*>(bin->left.get());
+            Identifier* objId = dynamic_cast<Identifier*>(bin->right.get());
+
+            if (propName && objId) {
+                auto sym = symbols.lookup(objId->name);
+                if (sym && sym->type->kind == TypeKind::Union) {
+                    auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+                    std::vector<std::shared_ptr<Type>> remaining;
+
+                    for (auto& t : unionType->types) {
+                        // Keep types that have the property
+                        bool hasProperty = false;
+                        if (t->kind == TypeKind::Object) {
+                            auto objType = std::static_pointer_cast<ObjectType>(t);
+                            if (objType->fields.count(propName->value) > 0) {
+                                hasProperty = true;
+                            }
+                        } else if (t->kind == TypeKind::Class) {
+                            auto classType = std::static_pointer_cast<ClassType>(t);
+                            if (classType->fields.count(propName->value) > 0 ||
+                                classType->methods.count(propName->value) > 0) {
+                                hasProperty = true;
+                            }
+                        } else if (t->kind == TypeKind::Interface) {
+                            auto interfaceType = std::static_pointer_cast<InterfaceType>(t);
+                            if (interfaceType->fields.count(propName->value) > 0 ||
+                                interfaceType->methods.count(propName->value) > 0) {
+                                hasProperty = true;
+                            }
+                        }
+                        if (hasProperty) {
+                            remaining.push_back(t);
+                        }
+                    }
+
+                    if (!remaining.empty()) {
+                        if (remaining.size() == 1) narrowedType = remaining[0];
+                        else narrowedType = std::make_shared<UnionType>(remaining);
+                        narrowedVar = objId->name;
                     }
                 }
             }
@@ -199,6 +263,38 @@ void Analyzer::visitIfStatement(ast::IfStatement* node) {
                     if (!remaining.empty()) {
                         // We need to apply this to the else block, but visitIfStatement doesn't easily support that yet
                         // For now, let's just handle the simple case where we narrow in the then block if it's NOT a return
+                    }
+                }
+            }
+        }
+    } else if (auto call = dynamic_cast<CallExpression*>(node->condition.get())) {
+        // Array.isArray(x) narrowing
+        if (auto prop = dynamic_cast<PropertyAccessExpression*>(call->callee.get())) {
+            if (auto objId = dynamic_cast<Identifier*>(prop->expression.get())) {
+                if (objId->name == "Array" && prop->name == "isArray" && call->arguments.size() == 1) {
+                    if (auto argId = dynamic_cast<Identifier*>(call->arguments[0].get())) {
+                        auto sym = symbols.lookup(argId->name);
+                        if (sym) {
+                            // Find array types in the union
+                            if (sym->type->kind == TypeKind::Union) {
+                                auto unionType = std::static_pointer_cast<UnionType>(sym->type);
+                                std::vector<std::shared_ptr<Type>> remaining;
+                                for (auto& t : unionType->types) {
+                                    if (t->kind == TypeKind::Array) {
+                                        remaining.push_back(t);
+                                    }
+                                }
+                                if (!remaining.empty()) {
+                                    if (remaining.size() == 1) narrowedType = remaining[0];
+                                    else narrowedType = std::make_shared<UnionType>(remaining);
+                                    narrowedVar = argId->name;
+                                }
+                            } else if (sym->type->kind == TypeKind::Array) {
+                                // Already an array, just narrow to the same type
+                                narrowedType = sym->type;
+                                narrowedVar = argId->name;
+                            }
+                        }
                     }
                 }
             }

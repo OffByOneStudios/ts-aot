@@ -200,7 +200,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Equality narrowing | ✅ | |
 | `in` operator narrowing | ✅ | Object property checks work |
 | `instanceof` narrowing | ✅ | Class and Array checks |
-| Control flow analysis | ⚠️ | Basic |
+| Control flow analysis | ✅ | typeof, truthiness, null check narrowing |
 | Type predicates (`is`) | ✅ | Returns boolean at runtime |
 | Discriminated unions | ❌ | |
 | `never` type exhaustiveness | ❌ | |
@@ -210,7 +210,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Union types (`\|`) | ⚠️ | Basic support |
+| Union types (`\|`) | ✅ | typeof, Array.isArray, in narrowing |
 | Intersection types (`&`) | ✅ | Object literals merge properties |
 | Type guards | ✅ | typeof, in, Array.isArray |
 | Discriminated unions | ❌ | |
@@ -312,8 +312,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 6 | 0 | 1 | 0 |
-| Type Narrowing | 6 | 2 | 2 | 0 |
-| Union/Intersection | 2 | 1 | 1 | 0 |
+| Type Narrowing | 7 | 1 | 2 | 0 |
+| Union/Intersection | 3 | 0 | 1 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **90** | **8** | **42** | **34** |
+| **TOTAL** | **92** | **6** | **42** | **34** |
 
-**Conformance: 90/140 runtime features (64%)**
+**Conformance: 92/140 runtime features (66%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
