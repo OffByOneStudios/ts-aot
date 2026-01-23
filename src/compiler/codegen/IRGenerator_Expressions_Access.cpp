@@ -635,6 +635,62 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             }
             return;
         }
+
+        // Check for index signature: [key: string]: valueType
+        if (cls->indexSignatureValueType) {
+            SPDLOG_DEBUG("Using index signature for element access on {}", cls->name);
+            visit(node->expression.get());
+            llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), obj);
+
+            // Get the struct type and __properties__ field
+            llvm::StructType* structType = llvm::StructType::getTypeByName(*context, cls->name);
+            auto& layout = classLayouts[cls->name];
+
+            if (structType && layout.fieldIndices.count("__properties__")) {
+                int propsIndex = layout.fieldIndices["__properties__"];
+                SPDLOG_DEBUG("Getting __properties__ from index {}", propsIndex);
+
+                // Load the __properties__ map from the object
+                llvm::Value* propsField = builder->CreateStructGEP(structType, obj, propsIndex);
+                llvm::Value* propsMap = builder->CreateLoad(builder->getPtrTy(), propsField);
+
+                // Get the key
+                visit(node->argumentExpression.get());
+                llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+
+                // Use inline map get on the __properties__ map
+                lastValue = emitInlineMapGet(propsMap, key);
+                boxedValues.insert(lastValue);
+
+                // Unbox based on index signature value type
+                if (cls->indexSignatureValueType->kind != TypeKind::Any &&
+                    cls->indexSignatureValueType->kind != TypeKind::Object) {
+                    lastValue = unboxValue(lastValue, cls->indexSignatureValueType);
+                }
+                return;
+            }
+
+            // Fallback: no __properties__ field found, use dynamic property get
+            visit(node->argumentExpression.get());
+            llvm::Value* key = boxValue(lastValue, node->argumentExpression->inferredType);
+
+            llvm::FunctionType* getFt = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy(), builder->getPtrTy() },
+                false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
+
+            lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
+            boxedValues.insert(lastValue);
+
+            // Unbox based on index signature value type
+            if (cls->indexSignatureValueType->kind != TypeKind::Any &&
+                cls->indexSignatureValueType->kind != TypeKind::Object) {
+                lastValue = unboxValue(lastValue, cls->indexSignatureValueType);
+            }
+            return;
+        }
     }
 
     // Check if this is a boxed element array (e.g., rest parameters)
@@ -1828,12 +1884,40 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             
             if (fieldType) {
                 lastValue = builder->CreateLoad(getLLVMType(fieldType), fieldPtr);
-                
+
                 if (fieldType->kind == TypeKind::Class) {
                     concreteTypes[lastValue] = std::static_pointer_cast<ClassType>(fieldType).get();
                 }
             } else {
                 lastValue = nullptr;
+            }
+            return;
+        }
+
+        // If field not found in class layout, check for index signature
+        if (classType->indexSignatureValueType) {
+            SPDLOG_DEBUG("Using index signature for {}.{}", className, fieldName);
+            visit(node->expression.get());
+            llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), obj);
+
+            // Use dynamic property access for index signature
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
+
+            lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
+            boxedValues.insert(lastValue);
+
+            // Unbox based on index signature value type
+            if (classType->indexSignatureValueType->kind != TypeKind::Any &&
+                classType->indexSignatureValueType->kind != TypeKind::Object) {
+                lastValue = unboxValue(lastValue, classType->indexSignatureValueType);
             }
             return;
         }

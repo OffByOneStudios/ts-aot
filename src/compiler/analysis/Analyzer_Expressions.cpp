@@ -1004,8 +1004,14 @@ std::vector<std::shared_ptr<Type>> Analyzer::inferTypeArguments(
         if (inferred.count(tp->name)) {
             result.push_back(inferred[tp->name]);
         } else {
-            // Fallback to Any or constraint if not inferred
-            result.push_back(tp->constraint ? tp->constraint : std::make_shared<Type>(TypeKind::Any));
+            // Fallback order: defaultType > constraint > Any
+            if (tp->defaultType) {
+                result.push_back(tp->defaultType);
+            } else if (tp->constraint) {
+                result.push_back(tp->constraint);
+            } else {
+                result.push_back(std::make_shared<Type>(TypeKind::Any));
+            }
         }
     }
     return result;

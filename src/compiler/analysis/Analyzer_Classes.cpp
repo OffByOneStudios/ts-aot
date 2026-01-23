@@ -36,6 +36,9 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
         }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
+        }
         classType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);
     }
@@ -107,6 +110,13 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
                     classType->comptimeFields.insert(name);
                 }
             }
+        }
+        if (auto indexSig = dynamic_cast<IndexSignature*>(member.get())) {
+            // Handle index signature: [key: string]: valueType
+            auto valueType = parseType(indexSig->valueType, symbols);
+            classType->indexSignatureValueType = valueType;
+            classType->indexSignatureReadonly = indexSig->isReadonly;
+            SPDLOG_DEBUG("  Class {} has index signature with value type: {}", node->name, valueType->toString());
         }
         if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             std::string name = manglePrivateName(method->name, node->name);
@@ -337,6 +347,9 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
         }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
+        }
         interfaceType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);
     }
@@ -546,6 +559,9 @@ void Analyzer::visitClassExpression(ast::ClassExpression* node) {
         auto tpType = std::make_shared<TypeParameterType>(tp->name);
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
         }
         classType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);

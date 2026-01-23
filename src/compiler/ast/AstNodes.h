@@ -84,6 +84,7 @@ struct ClassExpression;
 struct MethodDefinition;
 struct StaticBlock;
 struct PropertyDefinition;
+struct IndexSignature;
 struct InterfaceDeclaration;
 struct TypeAliasDeclaration;
 struct EnumDeclaration;
@@ -201,6 +202,7 @@ struct Parameter : Node {
 struct TypeParameter : Node {
     std::string name;
     std::string constraint;
+    std::string defaultType;  // Default type if not specified (e.g., T = string)
     std::string getKind() const override { return "TypeParameter"; }
     void accept(Visitor* visitor) override { /* Not visited directly */ }
 };
@@ -369,6 +371,14 @@ struct PropertyDefinition : Node {
     bool isStatic = false;
     bool isReadonly = false;
     std::string getKind() const override { return "PropertyDefinition"; }
+    void accept(Visitor* visitor) override { /* Visited via ClassDeclaration */ }
+};
+
+struct IndexSignature : Node {
+    std::string keyType;    // e.g., "string" or "number"
+    std::string valueType;  // e.g., "number", "string", or "any"
+    bool isReadonly = false;
+    std::string getKind() const override { return "IndexSignature"; }
     void accept(Visitor* visitor) override { /* Visited via ClassDeclaration */ }
 };
 

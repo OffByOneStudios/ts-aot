@@ -183,6 +183,15 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
                 layout.fieldIndices[fname] = (int)layout.allFields.size() + offset; // +1 for vptr if not struct
                 layout.allFields.push_back({fname, ftype});
             }
+
+            // Add __properties__ field for classes with index signatures
+            if (c->indexSignatureValueType) {
+                int offset = c->isStruct ? 0 : 1;
+                layout.fieldIndices["__properties__"] = (int)layout.allFields.size() + offset;
+                layout.allFields.push_back({"__properties__", std::make_shared<Type>(TypeKind::Any)});  // TsMap*
+                SPDLOG_DEBUG("Class {} has index signature, added __properties__ field at index {}",
+                    c->name, layout.fieldIndices["__properties__"]);
+            }
             for (const auto& [mname, mtype] : c->methods) {
                 if (layout.methodIndices.count(mname)) {
                     layout.allMethods[layout.methodIndices[mname]] = {mname, mtype};
@@ -1233,6 +1242,24 @@ void IRGenerator::visitNewExpression(ast::NewExpression* node) {
             if (vtable) {
                 llvm::Value* vptrField = builder->CreateStructGEP(structType, thisPtr, 0);
                 builder->CreateStore(vtable, vptrField);
+            }
+        }
+
+        // 3.25 Initialize __properties__ for classes with index signatures
+        if (classType->indexSignatureValueType) {
+            auto& layout = classLayouts[className];
+            if (layout.fieldIndices.count("__properties__")) {
+                int fieldIndex = layout.fieldIndices["__properties__"];
+                SPDLOG_DEBUG("Initializing __properties__ field for {} at index {}", className, fieldIndex);
+
+                // Create a TsMap for dynamic properties
+                llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createMapFn = getRuntimeFunction("ts_map_create", createMapFt);
+                llvm::Value* propsMap = createCall(createMapFt, createMapFn.getCallee(), {});
+
+                // Store the map in the __properties__ field
+                llvm::Value* propsField = builder->CreateStructGEP(structType, thisPtr, fieldIndex);
+                builder->CreateStore(propsMap, propsField);
             }
         }
 

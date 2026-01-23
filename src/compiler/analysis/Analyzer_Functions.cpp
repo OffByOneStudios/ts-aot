@@ -65,6 +65,9 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
         }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
+        }
         funcType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);
     }
@@ -270,6 +273,9 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         auto tpType = std::make_shared<TypeParameterType>(tp->name);
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
         }
         methodType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);
@@ -810,6 +816,9 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         auto tpType = std::make_shared<TypeParameterType>(tp->name);
         if (!tp->constraint.empty()) {
             tpType->constraint = parseType(tp->constraint, symbols);
+        }
+        if (!tp->defaultType.empty()) {
+            tpType->defaultType = parseType(tp->defaultType, symbols);
         }
         funcType->typeParameters.push_back(tpType);
         symbols.defineType(tp->name, tpType);

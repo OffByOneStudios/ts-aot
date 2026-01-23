@@ -91,6 +91,7 @@ struct Type : public std::enable_shared_from_this<Type> {
 struct TypeParameterType : Type {
     std::string name;
     std::shared_ptr<Type> constraint;
+    std::shared_ptr<Type> defaultType;  // Default type if not specified (e.g., T = string)
 
     TypeParameterType(const std::string& n) : Type(TypeKind::TypeParameter), name(n) {}
     std::string toString() const override { return name; }
@@ -200,6 +201,10 @@ struct ClassType : public Type {
     std::set<std::string> staticComptimeMethods;
     std::vector<ast::StaticBlock*> staticBlocks;
     std::vector<std::shared_ptr<Type>> typeArguments;
+
+    // Index signature: [key: string]: valueType
+    std::shared_ptr<Type> indexSignatureValueType;  // null if no index signature
+    bool indexSignatureReadonly = false;
 
     ClassType() : Type(TypeKind::Class) {}
     ClassType(const std::string& name) : Type(TypeKind::Class), name(name) {}
