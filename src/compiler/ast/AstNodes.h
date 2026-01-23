@@ -78,6 +78,7 @@ struct DeleteExpression;
 struct PostfixUnaryExpression;
 struct AwaitExpression;
 struct YieldExpression;
+struct DynamicImport;
 struct ClassDeclaration;
 struct ClassExpression;
 struct MethodDefinition;
@@ -135,6 +136,7 @@ struct Visitor {
     virtual void visitUndefinedLiteral(UndefinedLiteral* node) = 0;
     virtual void visitAwaitExpression(AwaitExpression* node) = 0;
     virtual void visitYieldExpression(YieldExpression* node) = 0;
+    virtual void visitDynamicImport(DynamicImport* node) = 0;
     virtual void visitArrowFunction(ArrowFunction* node) = 0;
     virtual void visitFunctionExpression(FunctionExpression* node) = 0;
     virtual void visitTemplateExpression(TemplateExpression* node) = 0;
@@ -671,6 +673,12 @@ struct YieldExpression : Expression {
     bool isAsterisk = false;
     std::string getKind() const override { return "YieldExpression"; }
     void accept(Visitor* visitor) override { visitor->visitYieldExpression(this); }
+};
+
+struct DynamicImport : Expression {
+    ExprPtr moduleSpecifier;  // Usually a StringLiteral
+    std::string getKind() const override { return "DynamicImport"; }
+    void accept(Visitor* visitor) override { visitor->visitDynamicImport(this); }
 };
 
 struct ArrowFunction : Expression {

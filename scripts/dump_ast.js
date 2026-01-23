@@ -371,6 +371,13 @@ function visitInternal(node) {
                 expression: node.expression ? visit(node.expression) : null
             };
         case ts.SyntaxKind.CallExpression:
+            // Check for dynamic import: import('module')
+            if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+                return {
+                    kind: "DynamicImport",
+                    moduleSpecifier: node.arguments.length > 0 ? visit(node.arguments[0]) : null
+                };
+            }
             return {
                 kind: "CallExpression",
                 callee: visit(node.expression),

@@ -182,6 +182,13 @@ ExprPtr parseExpression(const json& j) {
             node->isAsterisk = j["isAsterisk"];
         }
         return node;
+    } else if (kind == "DynamicImport") {
+        auto node = std::make_unique<DynamicImport>();
+        setLocation(node.get(), j);
+        if (j.contains("moduleSpecifier") && !j["moduleSpecifier"].is_null()) {
+            node->moduleSpecifier = parseExpression(j["moduleSpecifier"]);
+        }
+        return node;
     } else if (kind == "PrefixUnaryExpression") {
         auto node = std::make_unique<PrefixUnaryExpression>();
         setLocation(node.get(), j);
