@@ -102,8 +102,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Optional parameters | ✅ | |
 | Default parameters | ✅ | |
 | Rest parameters | ✅ | |
-| `this` parameter | ⚠️ | |
-| Overloads | ⚠️ | Declaration only |
+| `this` parameter | ✅ | Explicit this param type enforced |
+| Overloads | ✅ | Function and method overloads work |
 | Generic functions | ✅ | Monomorphized |
 | Call signatures | ✅ | |
 | Construct signatures | ✅ | |
@@ -305,7 +305,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Interfaces | 4 | 2 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
 | Classes | 18 | 1 | 0 | 1 |
-| Functions | 9 | 2 | 0 | 0 |
+| Functions | 11 | 0 | 0 | 0 |
 | Generics | 4 | 0 | 1 | 2 |
 | Type Manipulation | 1 | 0 | 6 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **93** | **8** | **39** | **34** |
+| **TOTAL** | **95** | **6** | **39** | **34** |
 
-**Conformance: 93/140 runtime features (66%)**
+**Conformance: 95/140 runtime features (68%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

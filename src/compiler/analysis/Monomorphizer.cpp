@@ -462,6 +462,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 for (const auto& member : cls->members) {
                     if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
                         if (method->isAbstract) continue;
+                        // Skip overload signatures (methods without bodies) - only generate for implementation
+                        if (!method->hasBody) continue;
 
                         Specialization spec;
                         spec.originalName = method->name;
@@ -540,6 +542,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         for (const auto& member : classExpr->members) {
             if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
                 if (method->isAbstract) continue;
+                // Skip overload signatures (methods without bodies) - only generate for implementation
+                if (!method->hasBody) continue;
 
                 Specialization spec;
                 spec.originalName = method->name;
@@ -630,6 +634,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             for (const auto& member : classNode->members) {
                 if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
                     if (method->isStatic) continue; // Static methods are not specialized per-instance
+                    // Skip overload signatures (methods without bodies) - only generate for implementation
+                    if (!method->hasBody) continue;
 
                     Specialization spec;
                     spec.originalName = method->name;
@@ -706,15 +712,30 @@ std::string Monomorphizer::generateMangledName(const std::string& originalName, 
 }
 
 ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const std::string& name) {
+    // For function overloads, multiple FunctionDeclarations exist with the same name:
+    // - Overload signatures: have empty body
+    // - Implementation: has the actual body
+    // We need to return the implementation (the one with a body), not the signature.
+    ast::FunctionDeclaration* firstMatch = nullptr;
+
     for (auto& [path, module] : analyzer.modules) {
         if (!module->ast) continue;
         for (auto& stmt : module->ast->body) {
             if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-                if (func->name == name) return func;
+                if (func->name == name) {
+                    // Prefer the function with a body (the implementation)
+                    if (!func->body.empty()) {
+                        return func;
+                    }
+                    // Keep track of the first match in case no implementation is found
+                    if (!firstMatch) {
+                        firstMatch = func;
+                    }
+                }
             }
         }
     }
-    return nullptr;
+    return firstMatch;  // Return first match if no implementation found (edge case)
 }
 
 ast::ClassDeclaration* Monomorphizer::findClass(Analyzer& analyzer, const std::string& name) {
