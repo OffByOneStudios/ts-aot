@@ -1,7 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @user_main
 // OUTPUT: hello
-// OUTPUT: 42.000000
+// OUTPUT: 42
 // OUTPUT: test
 
 function user_main(): number {

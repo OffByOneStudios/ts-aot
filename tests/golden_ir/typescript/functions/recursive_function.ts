@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// OUTPUT: 120.000000
+// OUTPUT: 120
 
 function factorial(n: number): number {
     if (n <= 1) return 1;

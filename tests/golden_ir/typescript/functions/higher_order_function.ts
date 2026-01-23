@@ -1,7 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
 // CHECK: ts_value_make_function
-// OUTPUT: 15.000000
+// OUTPUT: 15
 
 function multiplier(factor: number) {
     return (x: number) => x * factor;
