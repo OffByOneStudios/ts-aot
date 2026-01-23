@@ -204,7 +204,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Type predicates (`is`) | ✅ | Returns boolean at runtime |
 | Discriminated unions | ❌ | |
 | `never` type exhaustiveness | ❌ | |
-| `asserts` keyword | ❌ | |
+| `asserts` keyword | ⚠️ | Syntax compiles, runtime narrowing not supported |
 
 ## 14. Union and Intersection Types
 
@@ -312,7 +312,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 6 | 0 | 1 | 0 |
-| Type Narrowing | 6 | 1 | 3 | 0 |
+| Type Narrowing | 6 | 2 | 2 | 0 |
 | Union/Intersection | 2 | 1 | 1 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
@@ -322,7 +322,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **90** | **7** | **43** | **34** |
+| **TOTAL** | **90** | **8** | **42** | **34** |
 
 **Conformance: 90/140 runtime features (64%)**
 
