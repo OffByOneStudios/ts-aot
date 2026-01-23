@@ -3,6 +3,8 @@
 #include <memory>
 #include <map>
 #include <vector>
+#include <optional>
+#include <variant>
 #include "../ast/AstNodes.h"
 #include "SymbolTable.h"
 #include "Module.h"
@@ -232,6 +234,9 @@ private:
 
     void analyzeModule(std::shared_ptr<Module> module);
     std::shared_ptr<Module> loadModule(const std::string& specifier);
+
+    // Compile-time constant expression evaluation for enum members
+    std::optional<int64_t> evaluateConstantExpression(ast::Expression* expr, const std::map<std::string, std::variant<int, std::string>>& enumMembers);
 
     std::shared_ptr<ClassType> currentClass;
     std::string currentMethodName;

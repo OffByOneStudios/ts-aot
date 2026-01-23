@@ -186,7 +186,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Numeric enums | ✅ | Auto-increment and explicit values |
 | String enums | ✅ | |
 | Heterogeneous enums | ✅ | Mixed numeric and string values |
-| Computed members | ❌ | |
+| Computed members | ✅ | Arithmetic, string.length, Math.floor/ceil/round/trunc/abs |
 | `const` enums | ✅ | Inlined at compile time |
 | Ambient enums | ❌ | |
 | Reverse mappings | ✅ | `Color[0]` returns member name |
@@ -311,7 +311,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
-| Enums | 5 | 0 | 2 | 0 |
+| Enums | 6 | 0 | 1 | 0 |
 | Type Narrowing | 6 | 1 | 3 | 0 |
 | Union/Intersection | 2 | 1 | 1 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **89** | **7** | **44** | **34** |
+| **TOTAL** | **90** | **7** | **43** | **34** |
 
-**Conformance: 89/140 runtime features (64%)**
+**Conformance: 90/140 runtime features (64%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
