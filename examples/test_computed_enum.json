@@ -1,0 +1,672 @@
+{
+  "kind": "Program",
+  "body": [
+    {
+      "kind": "EnumDeclaration",
+      "name": "ComputedEnum",
+      "members": [
+        {
+          "name": "A",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "+",
+            "left": {
+              "kind": "NumericLiteral",
+              "value": 1,
+              "line": 4,
+              "column": 9,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 2,
+              "line": 4,
+              "column": 13,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "line": 4,
+            "column": 9,
+            "sourceFile": "examples/test_computed_enum.ts"
+          }
+        },
+        {
+          "name": "B",
+          "initializer": {
+            "kind": "PropertyAccessExpression",
+            "expression": {
+              "kind": "StringLiteral",
+              "value": "hello",
+              "line": 5,
+              "column": 9,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "name": "length",
+            "isOptional": false,
+            "line": 5,
+            "column": 9,
+            "sourceFile": "examples/test_computed_enum.ts"
+          }
+        },
+        {
+          "name": "C",
+          "initializer": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "Math",
+                "line": 6,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "floor",
+              "isOptional": false,
+              "line": 6,
+              "column": 9,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "NumericLiteral",
+                "value": 3.7,
+                "line": 6,
+                "column": 20,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 6,
+            "column": 9,
+            "sourceFile": "examples/test_computed_enum.ts"
+          }
+        },
+        {
+          "name": "D",
+          "initializer": {
+            "kind": "BinaryExpression",
+            "operator": "*",
+            "left": {
+              "kind": "Identifier",
+              "name": "A",
+              "line": 7,
+              "column": 9,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "right": {
+              "kind": "NumericLiteral",
+              "value": 2,
+              "line": 7,
+              "column": 13,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "line": 7,
+            "column": 9,
+            "sourceFile": "examples/test_computed_enum.ts"
+          }
+        }
+      ],
+      "isExported": false,
+      "line": 3,
+      "column": 1,
+      "sourceFile": "examples/test_computed_enum.ts"
+    },
+    {
+      "kind": "FunctionDeclaration",
+      "name": "user_main",
+      "isExported": false,
+      "isDefaultExport": false,
+      "isAsync": false,
+      "isGenerator": false,
+      "typeParameters": [],
+      "returnType": "number",
+      "parameters": [],
+      "body": [
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 11,
+                "column": 5,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 11,
+              "column": 5,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "StringLiteral",
+                "value": "Testing computed enum members...",
+                "line": 11,
+                "column": 17,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 11,
+            "column": 5,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 11,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 13,
+                "column": 5,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 13,
+              "column": 5,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "ComputedEnum.A = ",
+                  "line": 13,
+                  "column": 17,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "ComputedEnum",
+                    "line": 13,
+                    "column": 39,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "name": "A",
+                  "isOptional": false,
+                  "line": 13,
+                  "column": 39,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 13,
+                "column": 17,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 13,
+            "column": 5,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 13,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 14,
+                "column": 5,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 14,
+              "column": 5,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "ComputedEnum.B = ",
+                  "line": 14,
+                  "column": 17,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "ComputedEnum",
+                    "line": 14,
+                    "column": 39,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "name": "B",
+                  "isOptional": false,
+                  "line": 14,
+                  "column": 39,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 14,
+                "column": 17,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 14,
+            "column": 5,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 14,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 15,
+                "column": 5,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 15,
+              "column": 5,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "ComputedEnum.C = ",
+                  "line": 15,
+                  "column": 17,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "ComputedEnum",
+                    "line": 15,
+                    "column": 39,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "name": "C",
+                  "isOptional": false,
+                  "line": 15,
+                  "column": 39,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 15,
+                "column": 17,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 15,
+            "column": 5,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 15,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        },
+        {
+          "kind": "ExpressionStatement",
+          "expression": {
+            "kind": "CallExpression",
+            "callee": {
+              "kind": "PropertyAccessExpression",
+              "expression": {
+                "kind": "Identifier",
+                "name": "console",
+                "line": 16,
+                "column": 5,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "name": "log",
+              "isOptional": false,
+              "line": 16,
+              "column": 5,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "arguments": [
+              {
+                "kind": "BinaryExpression",
+                "operator": "+",
+                "left": {
+                  "kind": "StringLiteral",
+                  "value": "ComputedEnum.D = ",
+                  "line": 16,
+                  "column": 17,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "ComputedEnum",
+                    "line": 16,
+                    "column": 39,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "name": "D",
+                  "isOptional": false,
+                  "line": 16,
+                  "column": 39,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 16,
+                "column": 17,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "typeArguments": [],
+            "isOptional": false,
+            "line": 16,
+            "column": 5,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 16,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        },
+        {
+          "kind": "IfStatement",
+          "condition": {
+            "kind": "BinaryExpression",
+            "operator": "&&",
+            "left": {
+              "kind": "BinaryExpression",
+              "operator": "&&",
+              "left": {
+                "kind": "BinaryExpression",
+                "operator": "&&",
+                "left": {
+                  "kind": "BinaryExpression",
+                  "operator": "===",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "ComputedEnum",
+                      "line": 19,
+                      "column": 9,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    },
+                    "name": "A",
+                    "isOptional": false,
+                    "line": 19,
+                    "column": 9,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 3,
+                    "line": 19,
+                    "column": 28,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "line": 19,
+                  "column": 9,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "BinaryExpression",
+                  "operator": "===",
+                  "left": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "ComputedEnum",
+                      "line": 19,
+                      "column": 33,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    },
+                    "name": "B",
+                    "isOptional": false,
+                    "line": 19,
+                    "column": 33,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "right": {
+                    "kind": "NumericLiteral",
+                    "value": 5,
+                    "line": 19,
+                    "column": 52,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "line": 19,
+                  "column": 33,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 19,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "right": {
+                "kind": "BinaryExpression",
+                "operator": "===",
+                "left": {
+                  "kind": "PropertyAccessExpression",
+                  "expression": {
+                    "kind": "Identifier",
+                    "name": "ComputedEnum",
+                    "line": 19,
+                    "column": 57,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "name": "C",
+                  "isOptional": false,
+                  "line": 19,
+                  "column": 57,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "right": {
+                  "kind": "NumericLiteral",
+                  "value": 3,
+                  "line": 19,
+                  "column": 76,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 19,
+                "column": 57,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "line": 19,
+              "column": 9,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "right": {
+              "kind": "BinaryExpression",
+              "operator": "===",
+              "left": {
+                "kind": "PropertyAccessExpression",
+                "expression": {
+                  "kind": "Identifier",
+                  "name": "ComputedEnum",
+                  "line": 19,
+                  "column": 81,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "name": "D",
+                "isOptional": false,
+                "line": 19,
+                "column": 81,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "right": {
+                "kind": "NumericLiteral",
+                "value": 6,
+                "line": 19,
+                "column": 100,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              "line": 19,
+              "column": 81,
+              "sourceFile": "examples/test_computed_enum.ts"
+            },
+            "line": 19,
+            "column": 9,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "thenStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console",
+                      "line": 20,
+                      "column": 9,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    },
+                    "name": "log",
+                    "isOptional": false,
+                    "line": 20,
+                    "column": 9,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "PASS: computed enum members work",
+                      "line": 20,
+                      "column": 21,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 20,
+                  "column": 9,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 20,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "NumericLiteral",
+                  "value": 0,
+                  "line": 21,
+                  "column": 16,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 21,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "line": 19,
+            "column": 103,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "elseStatement": {
+            "kind": "BlockStatement",
+            "body": [
+              {
+                "kind": "ExpressionStatement",
+                "expression": {
+                  "kind": "CallExpression",
+                  "callee": {
+                    "kind": "PropertyAccessExpression",
+                    "expression": {
+                      "kind": "Identifier",
+                      "name": "console",
+                      "line": 23,
+                      "column": 9,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    },
+                    "name": "log",
+                    "isOptional": false,
+                    "line": 23,
+                    "column": 9,
+                    "sourceFile": "examples/test_computed_enum.ts"
+                  },
+                  "arguments": [
+                    {
+                      "kind": "StringLiteral",
+                      "value": "FAIL: computed enum member values incorrect",
+                      "line": 23,
+                      "column": 21,
+                      "sourceFile": "examples/test_computed_enum.ts"
+                    }
+                  ],
+                  "typeArguments": [],
+                  "isOptional": false,
+                  "line": 23,
+                  "column": 9,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 23,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              },
+              {
+                "kind": "ReturnStatement",
+                "expression": {
+                  "kind": "NumericLiteral",
+                  "value": 1,
+                  "line": 24,
+                  "column": 16,
+                  "sourceFile": "examples/test_computed_enum.ts"
+                },
+                "line": 24,
+                "column": 9,
+                "sourceFile": "examples/test_computed_enum.ts"
+              }
+            ],
+            "line": 22,
+            "column": 12,
+            "sourceFile": "examples/test_computed_enum.ts"
+          },
+          "line": 19,
+          "column": 5,
+          "sourceFile": "examples/test_computed_enum.ts"
+        }
+      ],
+      "decorators": [],
+      "line": 10,
+      "column": 1,
+      "sourceFile": "examples/test_computed_enum.ts"
+    }
+  ]
+}

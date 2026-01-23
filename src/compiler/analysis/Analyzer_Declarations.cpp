@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <filesystem>
+#include <cmath>
 
 namespace fs = std::filesystem;
 
@@ -83,16 +84,21 @@ void Analyzer::visitProgram(ast::Program* node) {
             int nextValue = 0;
             for (const auto& member : enm->members) {
                 if (member.initializer) {
-                    if (auto num = dynamic_cast<ast::NumericLiteral*>(member.initializer.get())) {
-                        nextValue = (int)num->value;
-                        enumType->members[member.name] = nextValue++;
-                    } else if (auto str = dynamic_cast<ast::StringLiteral*>(member.initializer.get())) {
+                    if (auto str = dynamic_cast<ast::StringLiteral*>(member.initializer.get())) {
                         // String enum member
                         enumType->members[member.name] = str->value;
                         // String members don't affect nextValue
                     } else {
-                        // Unknown initializer, use numeric
-                        enumType->members[member.name] = nextValue++;
+                        // Try to evaluate as a constant expression
+                        auto constVal = evaluateConstantExpression(member.initializer.get(), enumType->members);
+                        if (constVal) {
+                            nextValue = static_cast<int>(*constVal);
+                            enumType->members[member.name] = nextValue++;
+                        } else {
+                            // Fallback to auto-increment if evaluation fails
+                            SPDLOG_WARN("Could not evaluate computed enum member '{}' - using auto-increment", member.name);
+                            enumType->members[member.name] = nextValue++;
+                        }
                     }
                 } else {
                     // No initializer - use auto-incremented numeric value
@@ -231,6 +237,94 @@ void Analyzer::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
 
 void Analyzer::visitEnumDeclaration(ast::EnumDeclaration* node) {
     // Already handled in hoisting pass
+}
+
+std::optional<int64_t> Analyzer::evaluateConstantExpression(
+    ast::Expression* expr,
+    const std::map<std::string, std::variant<int, std::string>>& enumMembers) {
+
+    if (auto num = dynamic_cast<ast::NumericLiteral*>(expr)) {
+        return static_cast<int64_t>(num->value);
+    }
+
+    if (auto ident = dynamic_cast<ast::Identifier*>(expr)) {
+        // Check if this is a reference to another enum member
+        auto it = enumMembers.find(ident->name);
+        if (it != enumMembers.end() && std::holds_alternative<int>(it->second)) {
+            return static_cast<int64_t>(std::get<int>(it->second));
+        }
+        return std::nullopt;
+    }
+
+    if (auto binary = dynamic_cast<ast::BinaryExpression*>(expr)) {
+        auto left = evaluateConstantExpression(binary->left.get(), enumMembers);
+        auto right = evaluateConstantExpression(binary->right.get(), enumMembers);
+        if (!left || !right) return std::nullopt;
+
+        if (binary->op == "+") return *left + *right;
+        if (binary->op == "-") return *left - *right;
+        if (binary->op == "*") return *left * *right;
+        if (binary->op == "/") {
+            if (*right == 0) return std::nullopt;
+            return *left / *right;
+        }
+        if (binary->op == "%") {
+            if (*right == 0) return std::nullopt;
+            return *left % *right;
+        }
+        if (binary->op == "<<") return *left << *right;
+        if (binary->op == ">>") return *left >> *right;
+        if (binary->op == "&") return *left & *right;
+        if (binary->op == "|") return *left | *right;
+        if (binary->op == "^") return *left ^ *right;
+        return std::nullopt;
+    }
+
+    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(expr)) {
+        // Handle string.length
+        if (prop->name == "length") {
+            if (auto str = dynamic_cast<ast::StringLiteral*>(prop->expression.get())) {
+                return static_cast<int64_t>(str->value.length());
+            }
+        }
+        return std::nullopt;
+    }
+
+    if (auto prefix = dynamic_cast<ast::PrefixUnaryExpression*>(expr)) {
+        auto operand = evaluateConstantExpression(prefix->operand.get(), enumMembers);
+        if (!operand) return std::nullopt;
+
+        if (prefix->op == "-") return -(*operand);
+        if (prefix->op == "+") return *operand;
+        if (prefix->op == "~") return ~(*operand);
+        return std::nullopt;
+    }
+
+    if (auto call = dynamic_cast<ast::CallExpression*>(expr)) {
+        // Handle Math.floor, Math.ceil, Math.round, etc.
+        if (auto propAccess = dynamic_cast<ast::PropertyAccessExpression*>(call->callee.get())) {
+            if (auto mathIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get())) {
+                if (mathIdent->name == "Math" && call->arguments.size() == 1) {
+                    auto arg = evaluateConstantExpression(call->arguments[0].get(), enumMembers);
+                    if (!arg) return std::nullopt;
+                    double val = static_cast<double>(*arg);
+
+                    if (propAccess->name == "floor") return static_cast<int64_t>(std::floor(val));
+                    if (propAccess->name == "ceil") return static_cast<int64_t>(std::ceil(val));
+                    if (propAccess->name == "round") return static_cast<int64_t>(std::round(val));
+                    if (propAccess->name == "trunc") return static_cast<int64_t>(std::trunc(val));
+                    if (propAccess->name == "abs") return static_cast<int64_t>(std::abs(val));
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
+    if (auto paren = dynamic_cast<ast::ParenthesizedExpression*>(expr)) {
+        return evaluateConstantExpression(paren->expression.get(), enumMembers);
+    }
+
+    return std::nullopt;
 }
 
 } // namespace ts
