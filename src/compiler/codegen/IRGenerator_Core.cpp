@@ -1372,7 +1372,29 @@ public:
     void visitExportDeclaration(ast::ExportDeclaration* node) override {}
     void visitExportAssignment(ast::ExportAssignment* node) override {}
     void visitComputedPropertyName(ast::ComputedPropertyName* node) override {}
-    void visitMethodDefinition(ast::MethodDefinition* node) override {}
+    void visitMethodDefinition(ast::MethodDefinition* node) override {
+        // Object literal methods can reference free variables from outer scope
+        // Build the method's local scope (parameters)
+        std::set<std::string> methodScope = localScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                methodScope.insert(id->name);
+            }
+        }
+
+        // Traverse into method body to find references
+        FreeVariableCollector bodyCollector(methodScope);
+        for (auto& stmt : node->body) {
+            stmt->accept(&bodyCollector);
+        }
+
+        // Any reference not in the method's local scope is a free variable
+        for (const auto& name : bodyCollector.referencedNames) {
+            if (!localScope.count(name)) {
+                referencedNames.insert(name);
+            }
+        }
+    }
     void visitStaticBlock(ast::StaticBlock* node) override {}
     void visitSuperExpression(ast::SuperExpression* node) override {}
     void visitStringLiteral(ast::StringLiteral* node) override {}
@@ -1692,19 +1714,19 @@ public:
                 funcScope.insert(id->name);
             }
         }
-        
+
         FreeVariableCollector fvc(funcScope);
         for (auto& stmt : node->body) {
             stmt->accept(&fvc);
         }
-        
+
         for (const auto& name : fvc.referencedNames) {
             if (outerScope.count(name)) {
                 capturedNames.insert(name);
             }
         }
     }
-    
+
     // --- Standard traversal: just recurse to find inner arrow functions ---
     void visitVariableDeclaration(ast::VariableDeclaration* node) override {
         if (node->initializer) node->initializer->accept(this);
@@ -1856,7 +1878,38 @@ public:
     void visitExportAssignment(ast::ExportAssignment*) override {}
     void visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment*) override {}
     void visitComputedPropertyName(ast::ComputedPropertyName*) override {}
-    void visitMethodDefinition(ast::MethodDefinition*) override {}
+    void visitMethodDefinition(ast::MethodDefinition* node) override {
+        // Object literal methods can capture variables from outer scope
+        // Build the method's local scope (parameters)
+        std::set<std::string> methodScope;
+        for (auto& param : node->parameters) {
+            if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                methodScope.insert(id->name);
+            }
+        }
+
+        // Use FreeVariableCollector to find what the method references
+        FreeVariableCollector fvc(methodScope);
+        for (auto& stmt : node->body) {
+            stmt->accept(&fvc);
+        }
+
+        // Any reference to a variable in outerScope is a captured variable
+        for (const auto& name : fvc.referencedNames) {
+            if (outerScope.count(name)) {
+                capturedNames.insert(name);
+            }
+        }
+
+        // Also recurse into nested closures within the method body
+        CapturedNameCollector nestedCollector(outerScope);
+        for (auto& stmt : node->body) {
+            stmt->accept(&nestedCollector);
+        }
+        for (const auto& name : nestedCollector.capturedNames) {
+            capturedNames.insert(name);
+        }
+    }
     void visitStaticBlock(ast::StaticBlock*) override {}
     void visitSuperExpression(ast::SuperExpression*) override {}
     void visitObjectBindingPattern(ast::ObjectBindingPattern*) override {}

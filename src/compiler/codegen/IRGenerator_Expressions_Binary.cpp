@@ -339,18 +339,30 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
     bool isString = leftIsString || rightIsString;
 
     if (leftIsPtr && rightIsPtr) {
-        // Both are pointers. If it's an arithmetic or bitwise operation, we MUST unbox.
+        // Both are pointers. If it's an arithmetic, bitwise, or comparison operation, we MUST unbox.
         // EXCEPT if it's a string concatenation!
         if ((node->op == "+" && !isString) || node->op == "-" || node->op == "*" || node->op == "/" || node->op == "%" ||
             node->op == "&" || node->op == "|" || node->op == "^" || node->op == "<<" || node->op == ">>" || node->op == ">>>" ||
             (node->op == "+=" && !isString) || node->op == "-=" || node->op == "*=" || node->op == "/=" || node->op == "%=" ||
-            node->op == "&=" || node->op == "|=" || node->op == "^=" || node->op == "<<=" || node->op == ">>=" || node->op == ">>>=") {
-             
+            node->op == "&=" || node->op == "|=" || node->op == "^=" || node->op == "<<=" || node->op == ">>=" || node->op == ">>>=" ||
+            // CRITICAL: Also unbox for comparison operations when both operands are boxed pointers!
+            // This handles cases like cell variables compared against captured constants.
+            node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=") {
+
              auto targetType = std::make_shared<Type>(TypeKind::Double);
              if (node->inferredType && node->inferredType->kind == TypeKind::Int) {
                  targetType = std::make_shared<Type>(TypeKind::Int);
              }
-             
+             // For comparisons, check if operands are Int type and unbox accordingly
+             if (node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=") {
+                 // Check the operand types to determine unbox target
+                 if (node->left->inferredType && node->left->inferredType->kind == TypeKind::Int) {
+                     targetType = std::make_shared<Type>(TypeKind::Int);
+                 } else if (node->right->inferredType && node->right->inferredType->kind == TypeKind::Int) {
+                     targetType = std::make_shared<Type>(TypeKind::Int);
+                 }
+             }
+
              left = unboxValue(left, targetType);
              right = unboxValue(right, targetType);
         }

@@ -196,6 +196,38 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_object(void* o) {
+        // Check if o is already a TsValue* to avoid double-boxing
+        // This happens when union-typed parameters (e.g., string | null) receive
+        // already-boxed values like ts_value_make_null() results
+        if (o) {
+            uintptr_t raw = (uintptr_t)o;
+            if (raw >= 0x10000) {  // Guard against invalid pointers
+                // Check magic numbers FIRST to avoid misclassifying TsObject-derived classes
+                // (their vtable pointers can have a low first byte <= 10)
+                uint32_t magic = *(uint32_t*)o;
+                uint32_t magic8 = *(uint32_t*)((char*)o + 8);
+                uint32_t magic16 = *(uint32_t*)((char*)o + 16);
+                uint32_t magic24 = *(uint32_t*)((char*)o + 24);
+
+                // Skip TsValue check if this is a known TsObject type (by magic)
+                bool isKnownObject =
+                    magic == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259 ||   // TsArray
+                    magic == 0x53545247 ||                                                      // TsString
+                    magic == 0x4D415053 || magic8 == 0x4D415053 || magic16 == 0x4D415053 || magic24 == 0x4D415053 ||  // TsMap
+                    magic == 0x53455453 || magic8 == 0x53455453 || magic16 == 0x53455453 || magic24 == 0x53455453 ||  // TsSet
+                    magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43 ||  // TsFunction
+                    magic == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646;      // TsBuffer
+
+                if (!isKnownObject) {
+                    uint8_t firstByte = *(uint8_t*)o;
+                    if (firstByte <= 10) {
+                        // Already a TsValue* (types 0-10), return as-is
+                        return (TsValue*)o;
+                    }
+                }
+            }
+        }
+
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         v->type = ValueType::OBJECT_PTR;
         v->ptr_val = o;
@@ -1057,9 +1089,6 @@ TsValue* ts_value_make_int(int64_t i) {
         void* ptr = boxedFunc->ptr_val;
         if (!ptr) return nullptr;
 
-        // Check for TsProxy magic at offset 16 (after TsMap vtable and base TsObject fields)
-        // But TsProxy inherits from TsMap and has proxyMagic field
-        // Actually we need to check the object's magic field differently
         TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)ptr);
         return proxy;
     }
@@ -1123,12 +1152,10 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (func->type == FunctionType::NATIVE) {
             TsValue* argv[1] = { arg1 };
-            TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
-            return result;
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
         } else {
             typedef TsValue* (*Fn1)(void*, TsValue*);
-            TsValue* result = ((Fn1)func->funcPtr)(func->context, arg1);
-            return result;
+            return ((Fn1)func->funcPtr)(func->context, arg1);
         }
     }
 

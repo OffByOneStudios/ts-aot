@@ -406,6 +406,81 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
     currentMethodName = oldMethod;
 }
 
+// Helper function to collect return types from statements recursively
+static void collectReturnTypes(ast::Node* stmt, std::vector<std::shared_ptr<Type>>& returnTypes) {
+    if (!stmt) return;
+
+    if (auto retStmt = dynamic_cast<ast::ReturnStatement*>(stmt)) {
+        if (retStmt->expression && retStmt->expression->inferredType) {
+            returnTypes.push_back(retStmt->expression->inferredType);
+        }
+        return;
+    }
+
+    if (auto ifStmt = dynamic_cast<ast::IfStatement*>(stmt)) {
+        collectReturnTypes(ifStmt->thenStatement.get(), returnTypes);
+        collectReturnTypes(ifStmt->elseStatement.get(), returnTypes);
+        return;
+    }
+
+    if (auto block = dynamic_cast<ast::BlockStatement*>(stmt)) {
+        for (auto& s : block->statements) {
+            collectReturnTypes(s.get(), returnTypes);
+        }
+        return;
+    }
+
+    if (auto forStmt = dynamic_cast<ast::ForStatement*>(stmt)) {
+        collectReturnTypes(forStmt->body.get(), returnTypes);
+        return;
+    }
+
+    if (auto forOfStmt = dynamic_cast<ast::ForOfStatement*>(stmt)) {
+        collectReturnTypes(forOfStmt->body.get(), returnTypes);
+        return;
+    }
+
+    if (auto forInStmt = dynamic_cast<ast::ForInStatement*>(stmt)) {
+        collectReturnTypes(forInStmt->body.get(), returnTypes);
+        return;
+    }
+
+    if (auto whileStmt = dynamic_cast<ast::WhileStatement*>(stmt)) {
+        collectReturnTypes(whileStmt->body.get(), returnTypes);
+        return;
+    }
+
+    if (auto switchStmt = dynamic_cast<ast::SwitchStatement*>(stmt)) {
+        for (auto& clause : switchStmt->clauses) {
+            if (auto caseClause = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                for (auto& s : caseClause->statements) {
+                    collectReturnTypes(s.get(), returnTypes);
+                }
+            } else if (auto defaultClause = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                for (auto& s : defaultClause->statements) {
+                    collectReturnTypes(s.get(), returnTypes);
+                }
+            }
+        }
+        return;
+    }
+
+    if (auto tryStmt = dynamic_cast<ast::TryStatement*>(stmt)) {
+        for (auto& s : tryStmt->tryBlock) {
+            collectReturnTypes(s.get(), returnTypes);
+        }
+        if (tryStmt->catchClause) {
+            for (auto& s : tryStmt->catchClause->block) {
+                collectReturnTypes(s.get(), returnTypes);
+            }
+        }
+        for (auto& s : tryStmt->finallyBlock) {
+            collectReturnTypes(s.get(), returnTypes);
+        }
+        return;
+    }
+}
+
 std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     // If this function belongs to a different module (e.g. external JS), switch analyzer context
     // so semantic rules (permissive/untyped) match the function's origin.
@@ -573,15 +648,33 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     }
 
     std::shared_ptr<Type> inferredReturnType = std::make_shared<Type>(TypeKind::Void);
-    
+
+    // First, check if there's an explicit return type annotation
+    if (!node->returnType.empty() && node->returnType != "void") {
+        inferredReturnType = parseType(node->returnType, symbols);
+    }
+
     functionDepth++;
     for (auto& stmt : node->body) {
         visit(stmt.get());
-        if (stmt->getKind() == "ReturnStatement") {
-            inferredReturnType = lastType;
-        }
     }
     functionDepth--;
+
+    // If no explicit return type, collect return types from all branches
+    if (node->returnType.empty()) {
+        std::vector<std::shared_ptr<Type>> returnTypes;
+        for (auto& stmt : node->body) {
+            collectReturnTypes(stmt.get(), returnTypes);
+        }
+
+        // Use the first return type found (they should all be the same in valid TypeScript)
+        for (const auto& rt : returnTypes) {
+            if (rt && rt->kind != TypeKind::Void && rt->kind != TypeKind::Undefined) {
+                inferredReturnType = rt;
+                break;
+            }
+        }
+    }
 
     if (node->isAsync) {
         bool isPromise = false;

@@ -350,7 +350,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Async iteration (`for await...of`) | ⚠️ | Works with async generators; arrays of promises crash |
+| Async iteration (`for await...of`) | ✅ | Works with async generators and arrays of promises |
 | Rest/spread properties | ✅ | Object spread |
 | `Promise.prototype.finally()` | ✅ | |
 | RegExp named capture groups | ✅ | Indexed access and .groups property both work |
@@ -458,19 +458,19 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Version | Implemented | Partial | Not Implemented | Total | % |
 |---------|-------------|---------|-----------------|-------|---|
 | ES5 | 47 | 0 | 0 | 47 | 100% |
-| ES2015 | 107 | 5 | 0 | 112 | 96% |
+| ES2015 | 108 | 2 | 2 | 112 | 96% |
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
-| ES2018 | 7 | 0 | 1 | 8 | 88% |
+| ES2018 | 8 | 0 | 0 | 8 | 100% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
 | ES2020 | 7 | 0 | 3 | 10 | 70% |
 | ES2021 | 4 | 0 | 2 | 6 | 67% |
 | ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **209** | **5** | **16** | **230** | **91%** |
+| **TOTAL** | **214** | **2** | **14** | **230** | **93%** |
 
-**Overall ECMAScript Conformance: 209/230 features (91%)**
+**Overall ECMAScript Conformance: 214/230 features (93%)**
 
 ---
 

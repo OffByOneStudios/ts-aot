@@ -417,14 +417,72 @@ void IRGenerator::visitForOfStatement(ast::ForOfStatement* node) {
         // Use the iterator protocol (same pattern as async for...of but synchronous)
         std::string baseName = "forof_iter_" + std::to_string((uintptr_t)node);
 
-        // 1. Evaluate iterable and box it
+        // 1. Evaluate iterable
         visit(node->expression.get());
-        llvm::Value* iterableVal = boxValue(lastValue, node->expression->inferredType);
+        llvm::Value* iterableVal = lastValue;
 
-        // 2. Get iterator: iterator = ts_iterator_get(iterable)
-        llvm::FunctionType* getIterFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-        llvm::FunctionCallee getIterFn = getRuntimeFunction("ts_iterator_get", getIterFt);
-        llvm::Value* iterator = createCall(getIterFt, getIterFn.getCallee(), { iterableVal });
+        // 2. Get iterator
+        llvm::Value* iterator = nullptr;
+
+        // Check if this is a class type with [Symbol.iterator] method
+        if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(node->expression->inferredType);
+            std::string className = classType->name;
+
+            // Check if class has [Symbol.iterator] method in layout
+            if (classLayouts.count(className) && classLayouts[className].methodIndices.count("[Symbol.iterator]")) {
+                // Directly call the [Symbol.iterator] method via vtable
+                int methodIndex = classLayouts[className].methodIndices.at("[Symbol.iterator]");
+
+                // Get the method type from layout
+                auto methodType = classLayouts[className].allMethods[methodIndex].second;
+
+                // Build function type: ptr (context, this)
+                std::vector<llvm::Type*> paramTypes;
+                paramTypes.push_back(builder->getPtrTy()); // context
+                paramTypes.push_back(builder->getPtrTy()); // this
+                llvm::Type* returnType = builder->getPtrTy(); // returns Iterator object
+                llvm::FunctionType* ft = llvm::FunctionType::get(returnType, paramTypes, false);
+
+                // Get struct type and vtable
+                llvm::StructType* classStruct = llvm::StructType::getTypeByName(*context, className);
+                llvm::StructType* vtableStruct = llvm::StructType::getTypeByName(*context, className + "_VTable");
+
+                if (classStruct && vtableStruct) {
+                    // Load vtable pointer from object (at offset 0)
+                    llvm::Value* vptrPtr = builder->CreateStructGEP(classStruct, iterableVal, 0);
+                    llvm::Value* vptr = builder->CreateLoad(llvm::PointerType::getUnqual(vtableStruct), vptrPtr);
+
+                    // Load function pointer from vtable (index + 1 because parentVTable at index 0)
+                    llvm::Value* funcPtrPtr = builder->CreateStructGEP(vtableStruct, vptr, methodIndex + 1);
+                    llvm::Value* funcPtr = builder->CreateLoad(llvm::PointerType::getUnqual(ft), funcPtrPtr);
+
+                    // Call the [Symbol.iterator] method
+                    std::vector<llvm::Value*> args;
+                    if (currentAsyncContext) {
+                        args.push_back(currentAsyncContext);
+                    } else {
+                        args.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy()));
+                    }
+                    args.push_back(iterableVal); // this
+
+                    llvm::Value* rawIterator = createCall(ft, funcPtr, args);
+
+                    // Box the iterator result since ts_iterator_next expects TsValue*
+                    llvm::FunctionType* boxObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                    llvm::FunctionCallee boxObjFn = getRuntimeFunction("ts_value_make_object", boxObjFt);
+                    iterator = createCall(boxObjFt, boxObjFn.getCallee(), { rawIterator });
+                }
+            }
+        }
+
+        // Fallback to ts_iterator_get for other cases
+        if (!iterator) {
+            llvm::Value* boxedIterable = boxValue(iterableVal, node->expression->inferredType);
+            llvm::FunctionType* getIterFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee getIterFn = getRuntimeFunction("ts_iterator_get", getIterFt);
+            iterator = createCall(getIterFt, getIterFn.getCallee(), { boxedIterable });
+        }
 
         llvm::Value* iteratorVar = nullptr;
         if (currentAsyncFrame) {
