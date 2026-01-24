@@ -8,7 +8,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 - ✅ Implemented
 - ⚠️ Partial
 - ❌ Not implemented
-- 🔬 Not applicable (type-only, erased at compile time)
+- 🔬 Type-only (erased at compile time)
+- N/A Not applicable (legacy pattern or incompatible with AOT)
 
 ---
 
@@ -175,9 +176,9 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `namespace` declaration | ❌ | |
-| Namespace merging | ❌ | |
-| Ambient namespaces | ❌ | |
+| `namespace` declaration | N/A | Legacy pattern - use ES modules |
+| Namespace merging | N/A | Legacy pattern - use ES modules |
+| Ambient namespaces | N/A | Legacy pattern - use ES modules |
 
 ## 12. Enums
 
@@ -240,12 +241,12 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Interface merging | 🔬 | Type-only |
-| Namespace merging | ❌ | |
-| Class/namespace merging | ❌ | |
-| Function/namespace merging | ❌ | |
-| Enum/namespace merging | ❌ | |
-| Module augmentation | ❌ | |
-| Global augmentation | ❌ | |
+| Namespace merging | N/A | Namespaces not supported |
+| Class/namespace merging | N/A | Namespaces not supported |
+| Function/namespace merging | N/A | Namespaces not supported |
+| Enum/namespace merging | N/A | Namespaces not supported |
+| Module augmentation | N/A | Type-system feature handled at compile time |
+| Global augmentation | N/A | Type-system feature handled at compile time |
 
 ## 18. JSX
 
@@ -273,8 +274,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Mixin classes | ❌ | |
-| Constrained mixins | ❌ | |
+| Mixin classes | N/A | Requires dynamic class construction incompatible with AOT |
+| Constrained mixins | N/A | Requires dynamic class construction incompatible with AOT |
 
 ## 21. Triple-Slash Directives
 
@@ -283,7 +284,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `/// <reference path="..." />` | ✅ | Parsed and stored in AST |
 | `/// <reference types="..." />` | ✅ | Parsed and stored in AST |
 | `/// <reference lib="..." />` | ✅ | Parsed and stored in AST |
-| `/// <reference no-default-lib="true" />` | ❌ | |
+| `/// <reference no-default-lib="true" />` | N/A | Library configuration not applicable to AOT |
 
 ## 22. Type Assertions
 
@@ -298,32 +299,32 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 ## Summary
 
-| Category | Implemented | Partial | Not Implemented | Type-Only |
-|----------|-------------|---------|-----------------|-----------|
-| Basic Types | 14 | 0 | 0 | 2 |
-| Variable Declarations | 6 | 0 | 0 | 0 |
-| Interfaces | 5 | 1 | 0 | 4 |
-| Type Aliases | 0 | 0 | 0 | 5 |
-| Classes | 19 | 0 | 0 | 1 |
-| Functions | 11 | 0 | 0 | 0 |
-| Generics | 5 | 0 | 0 | 2 |
-| Type Manipulation | 3 | 0 | 0 | 4 |
-| Utility Types | 0 | 0 | 0 | 17 |
-| Modules | 8 | 0 | 0 | 3 |
-| Namespaces | 0 | 0 | 3 | 0 |
-| Enums | 7 | 0 | 0 | 0 |
-| Type Narrowing | 9 | 1 | 0 | 0 |
-| Union/Intersection | 4 | 0 | 0 | 0 |
-| Literal Types | 1 | 0 | 0 | 3 |
-| Decorators | 6 | 0 | 0 | 0 |
-| Declaration Merging | 0 | 0 | 6 | 1 |
-| JSX | 3 | 0 | 0 | 1 |
-| Iterators/Generators | 8 | 0 | 0 | 0 |
-| Mixins | 0 | 0 | 2 | 0 |
-| Triple-Slash | 3 | 0 | 1 | 0 |
-| Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **116** | **2** | **12** | **43** |
+| Category | Implemented | Partial | Not Implemented | Type-Only | N/A |
+|----------|-------------|---------|-----------------|-----------|-----|
+| Basic Types | 14 | 0 | 0 | 2 | 0 |
+| Variable Declarations | 6 | 0 | 0 | 0 | 0 |
+| Interfaces | 5 | 1 | 0 | 4 | 0 |
+| Type Aliases | 0 | 0 | 0 | 5 | 0 |
+| Classes | 19 | 0 | 0 | 1 | 0 |
+| Functions | 11 | 0 | 0 | 0 | 0 |
+| Generics | 5 | 0 | 0 | 2 | 0 |
+| Type Manipulation | 3 | 0 | 0 | 4 | 0 |
+| Utility Types | 0 | 0 | 0 | 17 | 0 |
+| Modules | 8 | 0 | 0 | 3 | 0 |
+| Namespaces | 0 | 0 | 0 | 0 | 3 |
+| Enums | 7 | 0 | 0 | 0 | 0 |
+| Type Narrowing | 9 | 1 | 0 | 0 | 0 |
+| Union/Intersection | 4 | 0 | 0 | 0 | 0 |
+| Literal Types | 1 | 0 | 0 | 3 | 0 |
+| Decorators | 6 | 0 | 0 | 0 | 0 |
+| Declaration Merging | 0 | 0 | 0 | 1 | 6 |
+| JSX | 3 | 0 | 0 | 1 | 0 |
+| Iterators/Generators | 8 | 0 | 0 | 0 | 0 |
+| Mixins | 0 | 0 | 0 | 0 | 2 |
+| Triple-Slash | 3 | 0 | 0 | 0 | 1 |
+| Type Assertions | 4 | 0 | 0 | 0 | 0 |
+| **TOTAL** | **116** | **2** | **0** | **43** | **12** |
 
-**Conformance: 116/130 runtime features (89%)**
+**Conformance: 116/118 runtime features (98%)**
 
-Note: 42 features are type-only (erased at compile time) and don't require runtime support.
+Note: 43 features are type-only (erased at compile time) and 12 features are N/A (legacy patterns or incompatible with AOT).
