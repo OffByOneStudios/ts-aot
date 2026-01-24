@@ -113,8 +113,8 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         // This handles: { a: number, b: string } but not nested objects with commas
         size_t pos = 0;
         while (pos < inner.size()) {
-            // Skip whitespace
-            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t')) pos++;
+            // Skip whitespace (including \r for Windows line endings)
+            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t' || inner[pos] == '\r')) pos++;
             if (pos >= inner.size()) break;
 
             // Find field name (ends at :)
@@ -123,14 +123,14 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
 
             std::string fieldName = inner.substr(pos, colonPos - pos);
             // Trim whitespace and handle optional marker
-            fieldName.erase(0, fieldName.find_first_not_of(" \t\n"));
-            fieldName.erase(fieldName.find_last_not_of(" \t\n?") + 1);
+            fieldName.erase(0, fieldName.find_first_not_of(" \t\n\r"));
+            fieldName.erase(fieldName.find_last_not_of(" \t\n\r?") + 1);
             if (fieldName.empty()) break;
 
             pos = colonPos + 1;
 
-            // Skip whitespace after colon
-            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t')) pos++;
+            // Skip whitespace after colon (including \r for Windows line endings)
+            while (pos < inner.size() && (inner[pos] == ' ' || inner[pos] == '\n' || inner[pos] == '\t' || inner[pos] == '\r')) pos++;
 
             // Find field type (ends at , or } taking into account nesting)
             size_t typeStart = pos;
@@ -144,10 +144,10 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
             }
 
             std::string fieldTypeStr = inner.substr(typeStart, pos - typeStart);
-            // Trim whitespace
-            fieldTypeStr.erase(0, fieldTypeStr.find_first_not_of(" \t\n"));
+            // Trim whitespace (including \r for Windows line endings)
+            fieldTypeStr.erase(0, fieldTypeStr.find_first_not_of(" \t\n\r"));
             if (!fieldTypeStr.empty()) {
-                fieldTypeStr.erase(fieldTypeStr.find_last_not_of(" \t\n") + 1);
+                fieldTypeStr.erase(fieldTypeStr.find_last_not_of(" \t\n\r") + 1);
             }
 
             if (!fieldTypeStr.empty()) {
@@ -166,6 +166,43 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         // keyof T is a union of all property names, which are strings at runtime
         // For AOT compilation, we treat this as string type
         return std::make_shared<Type>(TypeKind::String);
+    }
+
+    // Handle indexed access types: T['prop'] or T["prop"]
+    // This must come after array check (ends with []) and tuple check (starts with [)
+    if (!typeName.ends_with("[]") && !typeName.starts_with("[") &&
+        typeName.find('[') != std::string::npos && typeName.ends_with("]")) {
+        // Find the bracket position
+        size_t bracketPos = typeName.find('[');
+        std::string objectTypeName = typeName.substr(0, bracketPos);
+        std::string indexStr = typeName.substr(bracketPos + 1, typeName.size() - bracketPos - 2);
+
+        // Remove quotes from index string (handles 'name' or "name")
+        if ((indexStr.starts_with("'") && indexStr.ends_with("'")) ||
+            (indexStr.starts_with("\"") && indexStr.ends_with("\""))) {
+            indexStr = indexStr.substr(1, indexStr.size() - 2);
+        }
+
+        // Resolve the object type
+        auto objectType = parseType(objectTypeName, symbols);
+
+        // Look up the property in the object type
+        if (objectType->kind == TypeKind::Object) {
+            auto objType = std::static_pointer_cast<ObjectType>(objectType);
+            auto it = objType->fields.find(indexStr);
+            if (it != objType->fields.end()) {
+                return it->second;
+            }
+        } else if (objectType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(objectType);
+            auto it = classType->fields.find(indexStr);
+            if (it != classType->fields.end()) {
+                return it->second;
+            }
+        }
+
+        // Fall back to any if property not found
+        return std::make_shared<Type>(TypeKind::Any);
     }
 
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);

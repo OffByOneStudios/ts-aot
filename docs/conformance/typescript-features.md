@@ -126,7 +126,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |---------|--------|-------|
 | `keyof` operator | ✅ | Object property access by dynamic key |
 | `typeof` operator | ✅ | Runtime typeof |
-| Indexed access types | ❌ | |
+| Indexed access types | ✅ | T['prop'] resolves to property type |
 | Conditional types | ❌ | |
 | Mapped types | ❌ | |
 | Template literal types | ❌ | |
@@ -307,7 +307,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Classes | 19 | 0 | 0 | 1 |
 | Functions | 11 | 0 | 0 | 0 |
 | Generics | 5 | 0 | 0 | 2 |
-| Type Manipulation | 2 | 0 | 5 | 0 |
+| Type Manipulation | 3 | 0 | 4 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **105** | **2** | **33** | **34** |
+| **TOTAL** | **106** | **2** | **32** | **34** |
 
-**Conformance: 105/140 runtime features (75%)**
+**Conformance: 106/140 runtime features (76%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
