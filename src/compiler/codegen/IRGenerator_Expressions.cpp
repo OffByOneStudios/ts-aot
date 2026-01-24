@@ -665,8 +665,16 @@ void IRGenerator::visitThisExpression(ast::ThisExpression* node) {
             return;
         }
     }
+
+    // Check namedValues first - object literal methods and arrow functions store 'this' here
+    auto namedIt = namedValues.find("this");
+    if (namedIt != namedValues.end()) {
+        lastValue = namedIt->second;
+        return;
+    }
+
     llvm::Function* func = builder->GetInsertBlock()->getParent();
-    
+
     // Check if we're in the module init function (top-level code)
     // In that case, 'this' should be the global object, not the module parameter
     std::string funcName = func->getName().str();
@@ -678,7 +686,7 @@ void IRGenerator::visitThisExpression(ast::ThisExpression* node) {
             return;
         }
     }
-    
+
     // In our new calling convention, context is arg(0), this is arg(1)
     if (func->arg_size() > 1) {
         lastValue = func->getArg(1);

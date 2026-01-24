@@ -481,30 +481,30 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         return;
     }
 
-    if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Object) {
+    if (node->expression->inferredType &&
+        (node->expression->inferredType->kind == TypeKind::Object ||
+         node->expression->inferredType->kind == TypeKind::Interface)) {
         visit(node->expression.get());
         llvm::Value* obj = lastValue;
         emitNullCheckForExpression(node->expression.get(), obj);
         visit(node->argumentExpression.get());
         llvm::Value* key = lastValue;
-        
+
         // CRITICAL: The key might already be boxed (e.g., from for-in loop iteration)
         // OR it might be a raw TsString*. We need to ensure it's always boxed.
         auto keyType = node->argumentExpression->inferredType;
         key = boxValue(key, keyType);
-        
-        // Unbox object (might be boxed if loaded from global)
-        llvm::Value* rawObj = unboxValue(obj, node->expression->inferredType);
-        
-        // Unbox again to handle boxed values from globals
-        if (rawObj->getType()->isPointerTy()) {
-            llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
-            llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
-            rawObj = createCall(getObjFt, getObjFn.getCallee(), { rawObj });
-        }
-        
-        // Use inline map operations (objects ARE maps internally)
-        llvm::Value* res = emitInlineMapGet(rawObj, key);
+
+        // Box the object for the dynamic get function
+        llvm::Value* boxedObj = boxValue(obj, node->expression->inferredType);
+
+        // Use ts_object_get_dynamic for proper object property access
+        // This function handles objects with internal TsMap storage
+        llvm::FunctionType* getDynFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+        llvm::FunctionCallee getDynFn = getRuntimeFunction("ts_object_get_dynamic", getDynFt);
+        llvm::Value* res = createCall(getDynFt, getDynFn.getCallee(), { boxedObj, key });
+        // ts_object_get_dynamic returns a boxed TsValue* - mark it as boxed
+        boxedValues.insert(res);
         lastValue = res;
         return;
     }
@@ -526,6 +526,8 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         
         // Use inline map operations
         llvm::Value* res = emitInlineMapGet(rawMap, key);
+        // emitInlineMapGet returns a boxed TsValue* - mark it as boxed
+        boxedValues.insert(res);
         lastValue = res;
         return;
     }
@@ -1923,10 +1925,14 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         }
     }
 
-    if (node->expression->inferredType && (node->expression->inferredType->kind == TypeKind::Object || node->expression->inferredType->kind == TypeKind::Intersection)) {
+    if (node->expression->inferredType &&
+        (node->expression->inferredType->kind == TypeKind::Object ||
+         node->expression->inferredType->kind == TypeKind::Intersection ||
+         node->expression->inferredType->kind == TypeKind::Interface ||
+         node->expression->inferredType->kind == TypeKind::Union)) {
             visit(node->expression.get());
             llvm::Value* objPtr = lastValue;
-            
+
             // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
             // The value might be boxed (e.g., returned from a generic function) but not tracked
             // in boxedValues after being stored to and loaded from an alloca.
@@ -1993,6 +1999,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             if (node->expression->inferredType->kind == TypeKind::Object) {
                 auto obj = std::static_pointer_cast<ObjectType>(node->expression->inferredType);
                 if (obj->fields.count(node->name)) fieldType = obj->fields[node->name];
+            } else if (node->expression->inferredType->kind == TypeKind::Interface) {
+                auto inter = std::static_pointer_cast<InterfaceType>(node->expression->inferredType);
+                if (inter->fields.count(node->name)) fieldType = inter->fields[node->name];
             }
             
             if (fieldType->kind != TypeKind::Object && fieldType->kind != TypeKind::Any && fieldType->kind != TypeKind::Intersection && fieldType->kind != TypeKind::Function) {

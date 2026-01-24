@@ -361,8 +361,10 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         // Skip runtime functions and other ts_ symbols
         if (name.find("ts_") == 0) continue;
 
-        // Skip interfaces (they don't have runtime representation)
-        if (symbol->type->kind == TypeKind::Interface) continue;
+        // Note: We do NOT skip TypeKind::Interface here!
+        // A variable with an interface type annotation (e.g., const obj: MyInterface = {...})
+        // still needs runtime storage. The interface is just a compile-time type annotation.
+        // The actual value is an object that must be stored in a global variable.
 
         // Skip enums (values are resolved at compile-time)
         if (symbol->type->kind == TypeKind::Enum) continue;
@@ -394,8 +396,9 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
             continue;
         }
         if (symbol->name.find("ts_") == 0) continue;
-        if (symbol->type->kind == TypeKind::Interface) continue;
-        
+        // Note: We do NOT skip TypeKind::Interface here!
+        // Variables with interface type annotations still need globals.
+
         // For function-typed variables (e.g., const myAdd = add;), create a pointer global
         // to hold the boxed function reference. Don't skip these.
         llvm::Type* type;

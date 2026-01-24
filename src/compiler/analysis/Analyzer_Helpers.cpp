@@ -161,6 +161,13 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         return objType;
     }
 
+    // Handle keyof operator: keyof T -> string (keys are always strings at runtime)
+    if (typeName.starts_with("keyof ")) {
+        // keyof T is a union of all property names, which are strings at runtime
+        // For AOT compilation, we treat this as string type
+        return std::make_shared<Type>(TypeKind::String);
+    }
+
     if (typeName == "number") return std::make_shared<Type>(TypeKind::Double);
     if (typeName == "string") return std::make_shared<Type>(TypeKind::String);
     if (typeName == "boolean") return std::make_shared<Type>(TypeKind::Boolean);

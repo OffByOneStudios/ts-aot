@@ -70,6 +70,9 @@ std::unique_ptr<Parameter> parseParameter(const json& j) {
     if (j.contains("isRest")) {
         node->isRest = j["isRest"].get<bool>();
     }
+    if (j.contains("isThisParameter")) {
+        node->isThisParameter = j["isThisParameter"].get<bool>();
+    }
     if (j.contains("initializer") && !j["initializer"].is_null()) {
         node->initializer = parseExpression(j["initializer"]);
     }

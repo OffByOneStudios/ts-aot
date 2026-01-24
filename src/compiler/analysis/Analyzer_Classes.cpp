@@ -155,7 +155,12 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             auto methodType = std::make_shared<FunctionType>();
             if (!method->returnType.empty()) {
-                methodType->returnType = parseType(method->returnType, symbols);
+                // Handle 'this' return type for method chaining
+                if (method->returnType == "this") {
+                    methodType->returnType = classType;
+                } else {
+                    methodType->returnType = parseType(method->returnType, symbols);
+                }
             } else {
                 methodType->returnType = std::make_shared<Type>(TypeKind::Void);
             }
@@ -366,7 +371,12 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
             interfaceType->fields[prop->name] = parseType(prop->type, symbols);
         } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             auto methodType = std::make_shared<FunctionType>();
-            methodType->returnType = parseType(method->returnType, symbols);
+            // Handle 'this' return type for method chaining
+            if (method->returnType == "this") {
+                methodType->returnType = interfaceType;
+            } else {
+                methodType->returnType = parseType(method->returnType, symbols);
+            }
             for (const auto& param : method->parameters) {
                 methodType->paramTypes.push_back(parseType(param->type, symbols));
             }
@@ -445,7 +455,12 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
             for (const auto& p : method->parameters) {
                 methodType->paramTypes.push_back(substitute(parseType(p->type, symbols), env));
             }
-            methodType->returnType = substitute(parseType(method->returnType, symbols), env);
+            // Handle 'this' return type for method chaining
+            if (method->returnType == "this") {
+                methodType->returnType = classType;
+            } else {
+                methodType->returnType = substitute(parseType(method->returnType, symbols), env);
+            }
             std::string name = manglePrivateName(method->name, node->name);
             if (method->isStatic) {
                 classType->staticMethods[name] = methodType;
@@ -615,7 +630,12 @@ void Analyzer::visitClassExpression(ast::ClassExpression* node) {
 
             auto methodType = std::make_shared<FunctionType>();
             if (!method->returnType.empty()) {
-                methodType->returnType = parseType(method->returnType, symbols);
+                // Handle 'this' return type for method chaining
+                if (method->returnType == "this") {
+                    methodType->returnType = classType;
+                } else {
+                    methodType->returnType = parseType(method->returnType, symbols);
+                }
             } else {
                 methodType->returnType = std::make_shared<Type>(TypeKind::Void);
             }
