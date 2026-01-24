@@ -672,9 +672,16 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
                 );
                 llvm::FunctionCallee setCstrFn = module->getOrInsertFunction("ts_map_set_cstr", setCstrFt);
 
-                // Set 'value' - wrap the method function pointer as a native function
-                // Get the actual method function
-                std::string mangledMethodName = classType->name + "_" + method->name;
+                // Set descriptor properties based on whether this is a getter, setter, or regular method
+                // Get the actual method function - use correct prefix for getters/setters
+                std::string mangledMethodName;
+                if (method->isGetter) {
+                    mangledMethodName = classType->name + "_get_" + method->name;
+                } else if (method->isSetter) {
+                    mangledMethodName = classType->name + "_set_" + method->name;
+                } else {
+                    mangledMethodName = classType->name + "_" + method->name;
+                }
                 llvm::Function* methodFunc = module->getFunction(mangledMethodName);
 
                 // Create a TsFunction wrapper for the method using ts_value_make_native_function
@@ -696,16 +703,30 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
                           llvm::ConstantPointerNull::get(builder->getPtrTy()) });
                 }
 
-                llvm::Value* valueKeyPtr = builder->CreateGlobalStringPtr("value");
-                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, valueKeyPtr, wrappedMethod });
-
-                // Set 'writable' to true
+                // For accessors, set 'get' or 'set' property instead of 'value'
+                // For regular methods, set 'value' and 'writable'
                 llvm::FunctionType* makeBoolFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
                 llvm::FunctionCallee makeBoolFn = module->getOrInsertFunction("ts_value_make_bool", makeBoolFt);
                 llvm::Value* trueVal = builder->CreateCall(makeBoolFt, makeBoolFn.getCallee(),
                     { llvm::ConstantInt::getTrue(*context) });
-                llvm::Value* writableKeyPtr = builder->CreateGlobalStringPtr("writable");
-                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, writableKeyPtr, trueVal });
+
+                if (method->isGetter) {
+                    // Accessor decorator: set 'get' property
+                    llvm::Value* getKeyPtr = builder->CreateGlobalStringPtr("get");
+                    builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, getKeyPtr, wrappedMethod });
+                } else if (method->isSetter) {
+                    // Accessor decorator: set 'set' property
+                    llvm::Value* setKeyPtr = builder->CreateGlobalStringPtr("set");
+                    builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, setKeyPtr, wrappedMethod });
+                } else {
+                    // Regular method: set 'value' property
+                    llvm::Value* valueKeyPtr = builder->CreateGlobalStringPtr("value");
+                    builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, valueKeyPtr, wrappedMethod });
+
+                    // Set 'writable' to true (only for regular methods, not accessors)
+                    llvm::Value* writableKeyPtr = builder->CreateGlobalStringPtr("writable");
+                    builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, writableKeyPtr, trueVal });
+                }
 
                 // Set 'enumerable' to false
                 llvm::Value* falseVal = builder->CreateCall(makeBoolFt, makeBoolFn.getCallee(),
