@@ -831,6 +831,69 @@ function visitInternal(node) {
             return visit(node.statement);
         case ts.SyntaxKind.Decorator:
             return null;
+        // JSX support
+        case ts.SyntaxKind.JsxElement:
+            return {
+                kind: "JsxElement",
+                openingElement: visit(node.openingElement),
+                children: node.children.map(visit).filter(c => c !== null),
+                closingElement: visit(node.closingElement)
+            };
+        case ts.SyntaxKind.JsxSelfClosingElement:
+            return {
+                kind: "JsxSelfClosingElement",
+                tagName: node.tagName.getText(currentSourceFile),
+                attributes: node.attributes.properties.map(visit).filter(a => a !== null)
+            };
+        case ts.SyntaxKind.JsxOpeningElement:
+            return {
+                kind: "JsxOpeningElement",
+                tagName: node.tagName.getText(currentSourceFile),
+                attributes: node.attributes.properties.map(visit).filter(a => a !== null)
+            };
+        case ts.SyntaxKind.JsxClosingElement:
+            return {
+                kind: "JsxClosingElement",
+                tagName: node.tagName.getText(currentSourceFile)
+            };
+        case ts.SyntaxKind.JsxFragment:
+            return {
+                kind: "JsxFragment",
+                children: node.children.map(visit).filter(c => c !== null)
+            };
+        case ts.SyntaxKind.JsxOpeningFragment:
+            return {
+                kind: "JsxOpeningFragment"
+            };
+        case ts.SyntaxKind.JsxClosingFragment:
+            return {
+                kind: "JsxClosingFragment"
+            };
+        case ts.SyntaxKind.JsxAttribute:
+            return {
+                kind: "JsxAttribute",
+                name: node.name.getText(currentSourceFile),
+                initializer: node.initializer ? visit(node.initializer) : null
+            };
+        case ts.SyntaxKind.JsxSpreadAttribute:
+            return {
+                kind: "JsxSpreadAttribute",
+                expression: visit(node.expression)
+            };
+        case ts.SyntaxKind.JsxExpression:
+            return {
+                kind: "JsxExpression",
+                expression: node.expression ? visit(node.expression) : null
+            };
+        case ts.SyntaxKind.JsxText:
+            // Skip whitespace-only text nodes
+            const text = node.text;
+            if (text.trim() === '') return null;
+            return {
+                kind: "JsxText",
+                text: text,
+                containsOnlyTriviaWhiteSpaces: node.containsOnlyTriviaWhiteSpaces
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;

@@ -1634,6 +1634,23 @@ public:
             }
         }
     }
+
+    // JSX support - visit expressions in JSX for free variable collection
+    void visitJsxElement(ast::JsxElement* node) override {
+        for (auto& child : node->children) {
+            child->accept(this);
+        }
+    }
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) override {}
+    void visitJsxFragment(ast::JsxFragment* node) override {
+        for (auto& child : node->children) {
+            child->accept(this);
+        }
+    }
+    void visitJsxExpression(ast::JsxExpression* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    void visitJsxText(ast::JsxText* node) override {}
 };
 
 void IRGenerator::collectFreeVariables(ast::Node* node, 
@@ -1924,6 +1941,19 @@ public:
     void visitBindingElement(ast::BindingElement*) override {}
     void visitOmittedExpression(ast::OmittedExpression*) override {}
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression*) override {}
+
+    // JSX support - traverse JSX nodes to find inner closures
+    void visitJsxElement(ast::JsxElement* node) override {
+        for (auto& child : node->children) child->accept(this);
+    }
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement*) override {}
+    void visitJsxFragment(ast::JsxFragment* node) override {
+        for (auto& child : node->children) child->accept(this);
+    }
+    void visitJsxExpression(ast::JsxExpression* node) override {
+        if (node->expression) node->expression->accept(this);
+    }
+    void visitJsxText(ast::JsxText*) override {}
 };
 
 // Recursively collect all variable declarations in a statement list (including nested blocks)
@@ -2046,6 +2076,13 @@ public:
     void visitSpreadElement(ast::SpreadElement*) override {}
     void visitAsExpression(ast::AsExpression*) override {}
     void visitNonNullExpression(ast::NonNullExpression*) override {}
+
+    // JSX support - no variable declarations in JSX
+    void visitJsxElement(ast::JsxElement*) override {}
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement*) override {}
+    void visitJsxFragment(ast::JsxFragment*) override {}
+    void visitJsxExpression(ast::JsxExpression*) override {}
+    void visitJsxText(ast::JsxText*) override {}
 };
 
 void IRGenerator::collectAllVariableNames(const std::vector<ast::StmtPtr>& statements,

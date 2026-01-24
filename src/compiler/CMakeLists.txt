@@ -92,6 +92,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Expressions_Literals.cpp
     analysis/Analyzer_Expressions_Access.cpp
     analysis/Analyzer_Expressions_Async.cpp
+    analysis/Analyzer_JSX.cpp
     analysis/Analyzer_Escape.cpp
     analysis/Monomorphizer.cpp
     Driver.cpp
@@ -143,6 +144,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp
     codegen/IRGenerator_Expressions_Async.cpp
+    codegen/IRGenerator_JSX.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 

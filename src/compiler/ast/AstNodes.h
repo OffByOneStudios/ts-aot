@@ -90,6 +90,15 @@ struct TypeAliasDeclaration;
 struct EnumDeclaration;
 struct EnumMember;
 
+// JSX nodes
+struct JsxElement;
+struct JsxSelfClosingElement;
+struct JsxFragment;
+struct JsxAttribute;
+struct JsxSpreadAttribute;
+struct JsxExpression;
+struct JsxText;
+
 struct Visitor {
     virtual ~Visitor() = default;
     virtual void visitProgram(Program* node) = 0;
@@ -157,6 +166,12 @@ struct Visitor {
     virtual void visitOmittedExpression(OmittedExpression* node) = 0;
     virtual void visitTypeAliasDeclaration(TypeAliasDeclaration* node) = 0;
     virtual void visitEnumDeclaration(EnumDeclaration* node) = 0;
+    // JSX
+    virtual void visitJsxElement(JsxElement* node) = 0;
+    virtual void visitJsxSelfClosingElement(JsxSelfClosingElement* node) = 0;
+    virtual void visitJsxFragment(JsxFragment* node) = 0;
+    virtual void visitJsxExpression(JsxExpression* node) = 0;
+    virtual void visitJsxText(JsxText* node) = 0;
 };
 
 using NodePtr = std::unique_ptr<Node>;
@@ -774,6 +789,62 @@ struct NonNullExpression : Expression {
     ExprPtr expression;
     std::string getKind() const override { return "NonNullExpression"; }
     void accept(Visitor* visitor) override { visitor->visitNonNullExpression(this); }
+};
+
+// --- JSX Expressions ---
+
+// JSX attribute: name="value" or name={expression}
+struct JsxAttribute : Node {
+    std::string name;
+    ExprPtr initializer;  // StringLiteral or JsxExpression, or null for boolean attributes
+    std::string getKind() const override { return "JsxAttribute"; }
+    void accept(Visitor* visitor) override { /* Visited via JsxElement */ }
+};
+
+// JSX spread attribute: {...expression}
+struct JsxSpreadAttribute : Node {
+    ExprPtr expression;
+    std::string getKind() const override { return "JsxSpreadAttribute"; }
+    void accept(Visitor* visitor) override { /* Visited via JsxElement */ }
+};
+
+// JSX expression container: {expression}
+struct JsxExpression : Expression {
+    ExprPtr expression;  // Can be null for empty expression {}
+    std::string getKind() const override { return "JsxExpression"; }
+    void accept(Visitor* visitor) override { visitor->visitJsxExpression(this); }
+};
+
+// JSX text content between tags
+struct JsxText : Expression {
+    std::string text;
+    bool containsOnlyTriviaWhiteSpaces = false;
+    std::string getKind() const override { return "JsxText"; }
+    void accept(Visitor* visitor) override { visitor->visitJsxText(this); }
+};
+
+// JSX element: <tag attributes>children</tag>
+struct JsxElement : Expression {
+    std::string tagName;
+    std::vector<NodePtr> attributes;  // JsxAttribute or JsxSpreadAttribute
+    std::vector<ExprPtr> children;    // JsxElement, JsxText, JsxExpression, etc.
+    std::string getKind() const override { return "JsxElement"; }
+    void accept(Visitor* visitor) override { visitor->visitJsxElement(this); }
+};
+
+// Self-closing JSX element: <tag attributes />
+struct JsxSelfClosingElement : Expression {
+    std::string tagName;
+    std::vector<NodePtr> attributes;  // JsxAttribute or JsxSpreadAttribute
+    std::string getKind() const override { return "JsxSelfClosingElement"; }
+    void accept(Visitor* visitor) override { visitor->visitJsxSelfClosingElement(this); }
+};
+
+// JSX fragment: <>children</>
+struct JsxFragment : Expression {
+    std::vector<ExprPtr> children;    // JsxElement, JsxText, JsxExpression, etc.
+    std::string getKind() const override { return "JsxFragment"; }
+    void accept(Visitor* visitor) override { visitor->visitJsxFragment(this); }
 };
 
 } // namespace ast

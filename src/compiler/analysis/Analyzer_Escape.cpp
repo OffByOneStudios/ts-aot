@@ -283,6 +283,13 @@ public:
 
     void visitBreakStatement(ast::BreakStatement* node) override {}
     void visitContinueStatement(ast::ContinueStatement* node) override {}
+
+    // JSX support - these nodes don't affect escape analysis
+    void visitJsxElement(ast::JsxElement* node) override {}
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) override {}
+    void visitJsxFragment(ast::JsxFragment* node) override {}
+    void visitJsxExpression(ast::JsxExpression* node) override {}
+    void visitJsxText(ast::JsxText* node) override {}
 };
 
 void Analyzer::performEscapeAnalysis(ast::Program* program) {
