@@ -58,13 +58,36 @@ static bool hasClassMembers(std::shared_ptr<ClassType> classType) {
     return classType->node != nullptr || classType->exprNode != nullptr;
 }
 
-// Helper to check if a class has decorators
+// Helper to check if a class has class-level decorators
 static bool hasClassDecorators(std::shared_ptr<ClassType> classType) {
     if (classType->node && !classType->node->decorators.empty()) {
         return true;
     }
     if (classType->exprNode && !classType->exprNode->decorators.empty()) {
         return true;
+    }
+    return false;
+}
+
+// Helper to check if any class methods have decorators
+static bool hasMethodDecorators(std::shared_ptr<ClassType> classType) {
+    if (classType->node) {
+        for (const auto& member : classType->node->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                if (!method->decorators.empty()) {
+                    return true;
+                }
+            }
+        }
+    }
+    if (classType->exprNode) {
+        for (const auto& member : classType->exprNode->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                if (!method->decorators.empty()) {
+                    return true;
+                }
+            }
+        }
     }
     return false;
 }
@@ -554,10 +577,11 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 5. Fifth pass: Generate static initializers
     for (const auto& classType : allClassTypes) {
-        bool hasDecorators = hasClassDecorators(classType);
-        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields, decorators={}",
-            classType->name, classType->staticBlocks.size(), classType->staticFields.size(), hasDecorators);
-        if (classType->staticBlocks.empty() && classType->staticFields.empty() && !hasDecorators) continue;
+        bool hasClassDecors = hasClassDecorators(classType);
+        bool hasMethodDecors = hasMethodDecorators(classType);
+        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields, classDecorators={}, methodDecorators={}",
+            classType->name, classType->staticBlocks.size(), classType->staticFields.size(), hasClassDecors, hasMethodDecors);
+        if (classType->staticBlocks.empty() && classType->staticFields.empty() && !hasClassDecors && !hasMethodDecors) continue;
 
         std::string initName = classType->name + "___static_init";
         SPDLOG_DEBUG("Generating static initializer: {}", initName);
@@ -609,6 +633,137 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
         for (auto* block : classType->staticBlocks) {
             visitStaticBlock(block);
+        }
+
+        // Call method decorators (before class decorators, per TypeScript spec)
+        // Method decorators are called with (target, propertyKey, descriptor)
+        ast::ClassDeclaration* classNode = classType->node;
+        if (classNode) {
+            for (const auto& member : classNode->members) {
+                auto* method = dynamic_cast<ast::MethodDefinition*>(member.get());
+                if (!method || method->decorators.empty()) continue;
+
+                SPDLOG_DEBUG("Processing {} method decorators for {}.{}",
+                    method->decorators.size(), classType->name, method->name);
+
+                // Create the target object (prototype for instance methods)
+                llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+                llvm::Value* targetObject = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+                // Create property key string (method name)
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::Value* methodNameCStr = builder->CreateGlobalStringPtr(method->name);
+                llvm::Value* methodNameStr = builder->CreateCall(createStrFt, createStrFn.getCallee(), { methodNameCStr });
+
+                // Create property descriptor with { value, writable, enumerable, configurable }
+                llvm::Value* descriptor = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+                // Use ts_map_set_cstr for setting properties with C string keys
+                llvm::FunctionType* setCstrFt = llvm::FunctionType::get(
+                    builder->getVoidTy(),
+                    { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee setCstrFn = module->getOrInsertFunction("ts_map_set_cstr", setCstrFt);
+
+                // Set 'value' - wrap the method function pointer as a native function
+                // Get the actual method function
+                std::string mangledMethodName = classType->name + "_" + method->name;
+                llvm::Function* methodFunc = module->getFunction(mangledMethodName);
+
+                // Create a TsFunction wrapper for the method using ts_value_make_native_function
+                llvm::FunctionType* makeNativeFuncFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getPtrTy(), builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee makeNativeFuncFn = module->getOrInsertFunction("ts_value_make_native_function", makeNativeFuncFt);
+
+                llvm::Value* wrappedMethod;
+                if (methodFunc) {
+                    wrappedMethod = builder->CreateCall(makeNativeFuncFt, makeNativeFuncFn.getCallee(),
+                        { methodFunc, llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+                } else {
+                    // Fallback: create null function wrapper
+                    wrappedMethod = builder->CreateCall(makeNativeFuncFt, makeNativeFuncFn.getCallee(),
+                        { llvm::ConstantPointerNull::get(builder->getPtrTy()),
+                          llvm::ConstantPointerNull::get(builder->getPtrTy()) });
+                }
+
+                llvm::Value* valueKeyPtr = builder->CreateGlobalStringPtr("value");
+                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, valueKeyPtr, wrappedMethod });
+
+                // Set 'writable' to true
+                llvm::FunctionType* makeBoolFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getInt1Ty() }, false);
+                llvm::FunctionCallee makeBoolFn = module->getOrInsertFunction("ts_value_make_bool", makeBoolFt);
+                llvm::Value* trueVal = builder->CreateCall(makeBoolFt, makeBoolFn.getCallee(),
+                    { llvm::ConstantInt::getTrue(*context) });
+                llvm::Value* writableKeyPtr = builder->CreateGlobalStringPtr("writable");
+                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, writableKeyPtr, trueVal });
+
+                // Set 'enumerable' to false
+                llvm::Value* falseVal = builder->CreateCall(makeBoolFt, makeBoolFn.getCallee(),
+                    { llvm::ConstantInt::getFalse(*context) });
+                llvm::Value* enumKeyPtr = builder->CreateGlobalStringPtr("enumerable");
+                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, enumKeyPtr, falseVal });
+
+                // Set 'configurable' to true
+                llvm::Value* configKeyPtr = builder->CreateGlobalStringPtr("configurable");
+                builder->CreateCall(setCstrFt, setCstrFn.getCallee(), { descriptor, configKeyPtr, trueVal });
+
+                // Box target and descriptor (first and third params are 'any')
+                llvm::FunctionType* boxObjectFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee boxObjectFn = module->getOrInsertFunction("ts_value_make_object", boxObjectFt);
+                llvm::Value* boxedTarget = builder->CreateCall(boxObjectFt, boxObjectFn.getCallee(), { targetObject });
+                llvm::Value* boxedDescriptor = builder->CreateCall(boxObjectFt, boxObjectFn.getCallee(), { descriptor });
+
+                // Note: methodNameStr is already a TsString* - don't box it!
+                // The decorator's propertyKey parameter is typed as 'string', not 'any'
+
+                // Call each decorator in reverse order
+                for (auto it = method->decorators.rbegin(); it != method->decorators.rend(); ++it) {
+                    const auto& decorator = *it;
+                    SPDLOG_DEBUG("  Calling method decorator: {}", decorator.name);
+
+                    if (!decorator.expression) continue;
+
+                    if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                        // Method decorator signature: (target: any, propertyKey: string, descriptor: any) -> any
+                        // Note: Monomorphizer uses "str" for string type in mangled names
+                        std::string mangledName = id->name + "_any_str_any";
+
+                        llvm::FunctionType* decoratorFT = llvm::FunctionType::get(
+                            builder->getPtrTy(),
+                            { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                            false
+                        );
+
+                        llvm::FunctionCallee decoratorFn = module->getOrInsertFunction(mangledName, decoratorFT);
+
+                        SPDLOG_DEBUG("  Calling method decorator function: {}", mangledName);
+
+                        // Call the decorator: fn(ctx, target, propertyKey, descriptor)
+                        // Note: propertyKey (methodNameStr) is raw TsString*, not boxed
+                        llvm::Value* result = builder->CreateCall(decoratorFT, decoratorFn.getCallee(),
+                            { llvm::ConstantPointerNull::get(builder->getPtrTy()),
+                              boxedTarget, methodNameStr, boxedDescriptor });
+
+                        // The result could be a new descriptor or void - for now we ignore it
+                        (void)result;
+                    }
+                    // TODO: Handle decorator factories for method decorators
+                }
+            }
         }
 
         // Call class decorators (in reverse order - innermost first)

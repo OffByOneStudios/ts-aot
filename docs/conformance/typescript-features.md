@@ -229,7 +229,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Class decorators | ✅ | Decorator called at class definition time |
-| Method decorators | ❌ | |
+| Method decorators | ✅ | Receives target, propertyKey, PropertyDescriptor |
 | Accessor decorators | ❌ | |
 | Property decorators | ❌ | |
 | Parameter decorators | ❌ | |
@@ -315,15 +315,15 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Type Narrowing | 9 | 1 | 0 | 0 |
 | Union/Intersection | 4 | 0 | 0 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
-| Decorators | 2 | 0 | 4 | 0 |
+| Decorators | 3 | 0 | 3 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
 | Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **109** | **2** | **29** | **34** |
+| **TOTAL** | **110** | **2** | **28** | **34** |
 
-**Conformance: 109/140 runtime features (78%)**
+**Conformance: 110/140 runtime features (79%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
