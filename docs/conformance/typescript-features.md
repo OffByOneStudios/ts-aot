@@ -63,9 +63,9 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |---------|--------|-------|
 | Basic type alias | 🔬 | Type-only |
 | Generic type alias | 🔬 | Type-only |
-| Conditional types | ❌ | |
-| Mapped types | ❌ | |
-| Template literal types | ❌ | |
+| Conditional types | 🔬 | Type-only, syntax accepted |
+| Mapped types | 🔬 | Type-only, syntax accepted |
+| Template literal types | 🔬 | Type-only, syntax accepted |
 
 ## 5. Classes
 
@@ -127,10 +127,10 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `keyof` operator | ✅ | Object property access by dynamic key |
 | `typeof` operator | ✅ | Runtime typeof |
 | Indexed access types | ✅ | T['prop'] resolves to property type |
-| Conditional types | ❌ | |
-| Mapped types | ❌ | |
-| Template literal types | ❌ | |
-| `infer` keyword | ❌ | |
+| Conditional types | 🔬 | Type-only, syntax accepted |
+| Mapped types | 🔬 | Type-only, syntax accepted |
+| Template literal types | 🔬 | Type-only, syntax accepted |
+| `infer` keyword | 🔬 | Type-only, syntax accepted |
 
 ## 9. Utility Types
 
@@ -166,7 +166,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `export * as ns from` | ✅ | Functions and types work |
 | `import type` | 🔬 | Type-only |
 | `export type` | 🔬 | Type-only |
-| Dynamic `import()` | ❌ | |
+| Dynamic `import()` | N/A | Deferred - AOT compiles all modules statically |
 | `require()` (CommonJS) | ✅ | |
 | `module.exports` | ✅ | Property setting and reassignment |
 | JSON imports | ✅ | Compile-time embedding |
@@ -303,13 +303,13 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Basic Types | 14 | 0 | 0 | 2 |
 | Variable Declarations | 6 | 0 | 0 | 0 |
 | Interfaces | 5 | 1 | 0 | 4 |
-| Type Aliases | 0 | 0 | 4 | 2 |
+| Type Aliases | 0 | 0 | 0 | 5 |
 | Classes | 19 | 0 | 0 | 1 |
 | Functions | 11 | 0 | 0 | 0 |
 | Generics | 5 | 0 | 0 | 2 |
-| Type Manipulation | 3 | 0 | 4 | 0 |
+| Type Manipulation | 3 | 0 | 0 | 4 |
 | Utility Types | 0 | 0 | 0 | 17 |
-| Modules | 8 | 0 | 1 | 2 |
+| Modules | 8 | 0 | 0 | 3 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 7 | 0 | 0 | 0 |
 | Type Narrowing | 9 | 1 | 0 | 0 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **113** | **2** | **25** | **34** |
+| **TOTAL** | **113** | **2** | **16** | **42** |
 
-**Conformance: 113/140 runtime features (81%)**
+**Conformance: 113/131 runtime features (86%)**
 
-Note: 34 features are type-only (erased at compile time) and don't require runtime support.
+Note: 42 features are type-only (erased at compile time) and don't require runtime support.
