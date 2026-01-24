@@ -1020,22 +1020,24 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
 
-        if (elem->expression->inferredType && elem->expression->inferredType->kind == TypeKind::Object) {
+        if (elem->expression->inferredType &&
+            (elem->expression->inferredType->kind == TypeKind::Object ||
+             elem->expression->inferredType->kind == TypeKind::Interface)) {
             visit(elem->expression.get());
             llvm::Value* obj = lastValue;
             emitNullCheckForExpression(elem->expression.get(), obj);
-            
+
             // Unbox object (might be boxed if loaded from global)
             if (obj->getType()->isPointerTy()) {
                 llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
                 obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
             }
-            
+
             visit(elem->argumentExpression.get());
             llvm::Value* key = boxValue(lastValue, elem->argumentExpression->inferredType);
             llvm::Value* boxedVal = boxValue(val, node->right->inferredType);
-            
+
             // Use inline map set operations
             emitInlineMapSet(obj, key, boxedVal);
             lastValue = val;
@@ -1330,11 +1332,15 @@ void IRGenerator::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
 
-        if (prop->expression->inferredType && (prop->expression->inferredType->kind == TypeKind::Object || prop->expression->inferredType->kind == TypeKind::Intersection)) {
+        if (prop->expression->inferredType &&
+            (prop->expression->inferredType->kind == TypeKind::Object ||
+             prop->expression->inferredType->kind == TypeKind::Intersection ||
+             prop->expression->inferredType->kind == TypeKind::Interface ||
+             prop->expression->inferredType->kind == TypeKind::Union)) {
             visit(prop->expression.get());
             llvm::Value* objPtr = lastValue;
-            
-            // ⚠️ CRITICAL: Always call ts_value_get_object for Object types.
+
+            // ⚠️ CRITICAL: Always call ts_value_get_object for Object/Interface/Union types.
             if (objPtr->getType()->isPointerTy()) {
                 llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);

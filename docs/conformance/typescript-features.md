@@ -52,7 +52,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Readonly properties | 🔬 | Type-only |
 | Excess property checks | 🔬 | Type-only |
 | Function types | ✅ | |
-| Indexable types | ⚠️ | Basic support |
+| Indexable types | ✅ | Classes and interfaces with [key: string]: T |
 | Class implementing interface | ✅ | |
 | Interface extending interface | 🔬 | Type-only |
 | Hybrid types | ⚠️ | |
@@ -89,7 +89,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `extends` (inheritance) | ✅ | |
 | `implements` | ✅ | |
 | `super` calls | ✅ | |
-| `this` type | ⚠️ | |
+| `this` type | ✅ | Method chaining with `this` return type |
 | Index signatures in classes | ✅ | Dynamic properties via TsMap |
 
 ## 6. Functions
@@ -116,7 +116,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generic classes | ✅ | Monomorphized |
 | Generic interfaces | 🔬 | Type-only |
 | Generic constraints (`extends`) | ✅ | Interface and type parameter constraints |
-| `keyof` constraint | ❌ | |
+| `keyof` constraint | ✅ | Works with generic functions |
 | Default type parameters | ✅ | Parsed and used when type args not provided |
 | Generic parameter variance | 🔬 | Type-only |
 
@@ -124,7 +124,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `keyof` operator | ❌ | |
+| `keyof` operator | ✅ | Object property access by dynamic key |
 | `typeof` operator | ✅ | Runtime typeof |
 | Indexed access types | ❌ | |
 | Conditional types | ❌ | |
@@ -202,8 +202,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `instanceof` narrowing | ✅ | Class and Array checks |
 | Control flow analysis | ✅ | typeof, truthiness, null check narrowing |
 | Type predicates (`is`) | ✅ | Returns boolean at runtime |
-| Discriminated unions | ⚠️ | Narrowing code exists; needs literal types for full support |
-| `never` type exhaustiveness | ❌ | |
+| Discriminated unions | ✅ | Switch/if on string literal property works |
+| `never` type exhaustiveness | ✅ | Works in switch with default case |
 | `asserts` keyword | ⚠️ | Syntax compiles, runtime narrowing not supported |
 
 ## 14. Union and Intersection Types
@@ -213,7 +213,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Union types (`\|`) | ✅ | typeof, Array.isArray, in narrowing |
 | Intersection types (`&`) | ✅ | Object literals merge properties |
 | Type guards | ✅ | typeof, in, Array.isArray |
-| Discriminated unions | ⚠️ | Narrowing code exists; needs literal types for full support |
+| Discriminated unions | ✅ | Switch/if on string literal property works |
 
 ## 15. Literal Types
 
@@ -302,18 +302,18 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |----------|-------------|---------|-----------------|-----------|
 | Basic Types | 14 | 0 | 0 | 2 |
 | Variable Declarations | 6 | 0 | 0 | 0 |
-| Interfaces | 4 | 2 | 0 | 4 |
+| Interfaces | 5 | 1 | 0 | 4 |
 | Type Aliases | 0 | 0 | 4 | 2 |
-| Classes | 18 | 1 | 0 | 1 |
+| Classes | 19 | 0 | 0 | 1 |
 | Functions | 11 | 0 | 0 | 0 |
-| Generics | 4 | 0 | 1 | 2 |
-| Type Manipulation | 1 | 0 | 6 | 0 |
+| Generics | 5 | 0 | 0 | 2 |
+| Type Manipulation | 2 | 0 | 5 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 |
 | Modules | 8 | 0 | 1 | 2 |
 | Namespaces | 0 | 0 | 3 | 0 |
 | Enums | 6 | 0 | 1 | 0 |
-| Type Narrowing | 7 | 2 | 1 | 0 |
-| Union/Intersection | 3 | 1 | 0 | 0 |
+| Type Narrowing | 9 | 1 | 0 | 0 |
+| Union/Intersection | 4 | 0 | 0 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 0 | 0 | 6 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
@@ -322,8 +322,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 0 | 0 | 4 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **95** | **6** | **39** | **34** |
+| **TOTAL** | **102** | **2** | **36** | **34** |
 
-**Conformance: 95/140 runtime features (68%)**
+**Conformance: 102/140 runtime features (73%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.

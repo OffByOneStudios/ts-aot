@@ -780,13 +780,17 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
 void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     static int lambdaCounter = 0;
     std::string name = "lambda_" + std::to_string(lambdaCounter++);
-    
+
     std::vector<llvm::Type*> argTypes;
     argTypes.push_back(builder->getPtrTy()); // context first
     for (auto& param : node->parameters) {
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            continue;
+        }
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
-    
+
     llvm::Type* retType = builder->getPtrTy(); // TsValue*
     
     llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
@@ -971,12 +975,18 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
         auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
+        size_t funcTypeIdx = 0;
         for (size_t i = 0; i < node->parameters.size(); ++i) {
-            if (funcType && i < funcType->paramTypes.size()) {
-                argTypes.push_back(funcType->paramTypes[i]);
+            // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+            if (node->parameters[i]->isThisParameter) {
+                continue;
+            }
+            if (funcType && funcTypeIdx < funcType->paramTypes.size()) {
+                argTypes.push_back(funcType->paramTypes[funcTypeIdx]);
             } else {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
+            ++funcTypeIdx;
         }
         // Clear async-related state before generating nested async function
         // This prevents cross-function value references when generating nested async functions
@@ -1144,21 +1154,26 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
     auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
     while (argIt != function->arg_end() && idx < node->parameters.size()) {
         auto param = node->parameters[idx].get();
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            ++idx;
+            continue;
+        }
         auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
         }
         std::shared_ptr<Type> paramType = (funcType && idx < funcType->paramTypes.size()) ? funcType->paramTypes[idx] : std::make_shared<Type>(TypeKind::Any);
-        
+
         // Mark as boxed and unbox the argument
         boxedValues.insert(&arg);
         llvm::Value* unboxedArg = unboxValue(&arg, paramType);
         generateDestructuring(unboxedArg, paramType, param->name.get());
-        
+
         ++argIt;
         ++idx;
     }
-    
+
     if (node->body) {
         SPDLOG_DEBUG("Visiting arrow function body: {} at {}", node->body->getKind(), (void*)node->body.get());
         visit(node->body.get());
@@ -1255,13 +1270,17 @@ void IRGenerator::visitArrowFunction(ast::ArrowFunction* node) {
 void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     static int funcExprCounter = 0;
     std::string name = node->name.empty() ? "func_expr_" + std::to_string(funcExprCounter++) : node->name;
-    
+
     std::vector<llvm::Type*> argTypes;
     argTypes.push_back(builder->getPtrTy()); // context first
     for (auto& param : node->parameters) {
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            continue;
+        }
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
-    
+
     llvm::Type* retType = builder->getPtrTy(); // TsValue*
     
     llvm::FunctionType* ft = llvm::FunctionType::get(retType, argTypes, false);
@@ -1446,12 +1465,18 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
         auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
+        size_t funcTypeIdx = 0;
         for (size_t i = 0; i < node->parameters.size(); ++i) {
-            if (funcType && i < funcType->paramTypes.size()) {
-                argTypes.push_back(funcType->paramTypes[i]);
+            // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+            if (node->parameters[i]->isThisParameter) {
+                continue;
+            }
+            if (funcType && funcTypeIdx < funcType->paramTypes.size()) {
+                argTypes.push_back(funcType->paramTypes[funcTypeIdx]);
             } else {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
+            ++funcTypeIdx;
         }
         // Clear async-related state before generating nested async function
         // This prevents cross-function value references when generating nested async functions
@@ -1635,6 +1660,11 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
     unsigned idx = 0;
     while (argIt != function->arg_end() && idx < node->parameters.size()) {
         auto& param = node->parameters[idx];
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            ++idx;
+            continue;
+        }
         auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);
@@ -1644,7 +1674,7 @@ void IRGenerator::visitFunctionExpression(ast::FunctionExpression* node) {
         ++argIt;
         ++idx;
     }
-    
+
     // Pre-pass: Hoist function declarations (JavaScript hoisting behavior)
     // This ensures function names are available before their declaration is visited
     hoistFunctionDeclarations(node->body, function);
@@ -1733,6 +1763,10 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
     std::vector<llvm::Type*> argTypes;
     argTypes.push_back(builder->getPtrTy()); // context first
     for (auto& param : node->parameters) {
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            continue;
+        }
         argTypes.push_back(builder->getPtrTy()); // TsValue*
     }
 
@@ -1917,12 +1951,18 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
     if (node->isAsync) {
         std::vector<std::shared_ptr<Type>> argTypes;
         auto funcType = std::static_pointer_cast<FunctionType>(node->inferredType);
+        size_t funcTypeIdx = 0;
         for (size_t i = 0; i < node->parameters.size(); ++i) {
-            if (funcType && i < funcType->paramTypes.size()) {
-                argTypes.push_back(funcType->paramTypes[i]);
+            // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+            if (node->parameters[i]->isThisParameter) {
+                continue;
+            }
+            if (funcType && funcTypeIdx < funcType->paramTypes.size()) {
+                argTypes.push_back(funcType->paramTypes[funcTypeIdx]);
             } else {
                 argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
             }
+            ++funcTypeIdx;
         }
         // Clear async-related state before generating nested async function
         // This prevents cross-function value references when generating nested async functions
@@ -2073,6 +2113,11 @@ void IRGenerator::visitMethodDefinition(ast::MethodDefinition* node) {
     unsigned idx = 0;
     while (argIt != function->arg_end() && idx < node->parameters.size()) {
         auto& param = node->parameters[idx];
+        // Skip TypeScript 'this' parameter - it's just a type annotation, not a real parameter
+        if (param->isThisParameter) {
+            ++idx;
+            continue;
+        }
         auto& arg = *argIt;
         if (auto id = dynamic_cast<ast::Identifier*>(param->name.get())) {
             arg.setName(id->name);

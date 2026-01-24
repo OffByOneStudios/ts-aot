@@ -163,6 +163,17 @@ void IRGenerator::visitSwitchStatement(ast::SwitchStatement* node) {
     llvm::Value* switchVal = lastValue;
     if (!switchVal) return;
 
+    // Unbox the switch value if it's a string from a boxed source (e.g., union type property access)
+    // This ensures string comparisons work correctly
+    if (node->expression->inferredType &&
+        (node->expression->inferredType->kind == TypeKind::String ||
+         node->expression->inferredType->kind == TypeKind::Union)) {
+        // Check if the value might be boxed
+        if (switchVal->getType()->isPointerTy() && boxedValues.count(switchVal)) {
+            switchVal = unboxValue(switchVal, std::make_shared<Type>(TypeKind::String));
+        }
+    }
+
     llvm::Function* function = builder->GetInsertBlock()->getParent();
     
     // Create blocks

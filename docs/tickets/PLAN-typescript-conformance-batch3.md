@@ -1,7 +1,7 @@
 # TypeScript Conformance - Batch 3 Plan
 
 **Created:** 2026-01-23
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Improve TypeScript conformance from 66% toward 75%+
 
 ## Completed Work (2026-01-23)
@@ -20,16 +20,28 @@
 - Updated `inferTypeArguments()` to use default type when not inferred
 - Status: ✅ Complete (was already marked ✅)
 
+### Phase 3: Index Signatures in Classes
+- Added `IndexSignature` AST node and parsing in `dump_ast.js` and `AstLoader_Core.cpp`
+- Added `indexSignatureValueType` field to `ClassType` in `Type.h`
+- Classes with index signatures get `__properties__` TsMap field in layout
+- Element access/assignment uses `emitInlineMapGet/Set` on `__properties__`
+- Test: `tests/golden_ir/typescript/index_signature_class.ts`
+- Status: ✅ Complete (changed from ❌)
+
 ### Test Results
 - Node.js tests: 279/279 (100%)
-- Golden IR tests: 66/66 (100%)
+- Golden IR tests: 111/112 (99.1%)
 
 ## Current State
 
-- **TypeScript:** 92/140 runtime features (66%)
+- **TypeScript:** 93/140 runtime features (66%)
 - **ECMAScript:** 214/230 features (93%)
 - **Node.js:** ~99% coverage
 - **Partial features remaining:** 6
+
+## Next: Batch 4 - Fix Partial Features
+
+See `PLAN-typescript-conformance-batch4.md` for continued work.
 
 ## Analysis
 

@@ -802,12 +802,19 @@ function visitParameter(p) {
     const access = getAccessModifier(p);
     const readonly = isReadonly(p);
     const { line, character } = currentSourceFile.getLineAndCharacterOfPosition(p.getStart());
+    // Check if this is a TypeScript 'this' parameter (e.g., method(this: Type) {...})
+    // Can be either a ThisKeyword node or an Identifier with name "this"
+    const isThisParameter = p.name && (
+        p.name.kind === ts.SyntaxKind.ThisKeyword ||
+        (p.name.kind === ts.SyntaxKind.Identifier && p.name.text === "this")
+    );
     return {
         kind: "Parameter",
         name: visit(p.name),
         type: p.type ? p.type.getText(currentSourceFile) : "",
         isOptional: !!p.questionToken || !!p.initializer,
         isRest: !!p.dotDotDotToken,
+        isThisParameter: isThisParameter,
         initializer: p.initializer ? visit(p.initializer) : null,
         access: access,
         isReadonly: readonly,

@@ -283,7 +283,12 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
 
     if (node->isGetter) {
         if (!node->returnType.empty()) {
-            methodType->returnType = parseType(node->returnType, symbols);
+            // Handle 'this' return type (though uncommon for getters)
+            if (node->returnType == "this" && classType) {
+                methodType->returnType = classType;
+            } else {
+                methodType->returnType = parseType(node->returnType, symbols);
+            }
         } else {
             // Getters infer their return type from the body
             methodType->returnType = std::make_shared<Type>(TypeKind::Void);
@@ -298,7 +303,12 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
     } else {
         if (!node->returnType.empty()) {
-            methodType->returnType = parseType(node->returnType, symbols);
+            // Handle 'this' return type for method chaining
+            if (node->returnType == "this" && classType) {
+                methodType->returnType = classType;
+            } else {
+                methodType->returnType = parseType(node->returnType, symbols);
+            }
         } else {
             // Start with void, will be updated by return type inference
             methodType->returnType = std::make_shared<Type>(TypeKind::Void);

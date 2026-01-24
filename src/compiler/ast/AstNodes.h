@@ -191,6 +191,7 @@ struct Parameter : Node {
     std::string type;
     bool isOptional = false;
     bool isRest = false;
+    bool isThisParameter = false;  // TypeScript 'this' parameter annotation (method(this: Type))
     NodePtr initializer = nullptr;
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isReadonly = false;

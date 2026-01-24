@@ -138,11 +138,58 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
         } else if (cls->name == "Float64Array") {
             lastType = std::make_shared<Type>(TypeKind::Double);
         } else {
+            // For classes with fields accessed by string key (keyof pattern),
+            // return the union of all property types
+            if (indexType->kind == TypeKind::String && !cls->fields.empty()) {
+                std::vector<std::shared_ptr<Type>> propTypes;
+                for (const auto& [name, type] : cls->fields) {
+                    propTypes.push_back(type);
+                }
+                if (propTypes.size() == 1) {
+                    lastType = propTypes[0];
+                } else {
+                    lastType = std::make_shared<UnionType>(propTypes);
+                }
+            } else {
+                lastType = std::make_shared<Type>(TypeKind::Any);
+            }
+        }
+    } else if (objType->kind == TypeKind::Object) {
+        // Handle object types with known fields (e.g., { name: string, age: number })
+        // When accessed with a string key (keyof pattern), return union of property types
+        auto obj = std::static_pointer_cast<ObjectType>(objType);
+        if (indexType->kind == TypeKind::String && !obj->fields.empty()) {
+            // If the index is a string literal, try to get the specific property type
+            if (auto strLit = dynamic_cast<StringLiteral*>(node->argumentExpression.get())) {
+                auto it = obj->fields.find(strLit->value);
+                if (it != obj->fields.end()) {
+                    lastType = it->second;
+                    node->inferredType = lastType;
+                    return;
+                }
+            }
+            // Otherwise, return union of all property types (keyof T pattern)
+            std::vector<std::shared_ptr<Type>> propTypes;
+            for (const auto& [name, type] : obj->fields) {
+                // Skip function types (methods) - only include data fields
+                if (type->kind != TypeKind::Function) {
+                    propTypes.push_back(type);
+                }
+            }
+            if (propTypes.empty()) {
+                lastType = std::make_shared<Type>(TypeKind::Any);
+            } else if (propTypes.size() == 1) {
+                lastType = propTypes[0];
+            } else {
+                lastType = std::make_shared<UnionType>(propTypes);
+            }
+        } else {
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
     } else {
         lastType = std::make_shared<Type>(TypeKind::Any);
     }
+    node->inferredType = lastType;
 }
 
 void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
