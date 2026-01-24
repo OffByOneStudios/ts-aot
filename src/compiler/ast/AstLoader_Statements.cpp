@@ -347,6 +347,7 @@ StmtPtr parseStatement(const json& j) {
             node->members.push_back(std::move(member));
         }
         node->isExported = j.value("isExported", false);
+        node->isDeclare = j.value("isDeclare", false);
         return node;
     }
     
