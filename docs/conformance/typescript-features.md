@@ -233,7 +233,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Accessor decorators | ❌ | |
 | Property decorators | ❌ | |
 | Parameter decorators | ❌ | |
-| Decorator factories | ❌ | |
+| Decorator factories | ✅ | @decorator(args) factory pattern supported |
 
 ## 17. Declaration Merging
 
@@ -315,15 +315,15 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Type Narrowing | 9 | 1 | 0 | 0 |
 | Union/Intersection | 4 | 0 | 0 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
-| Decorators | 1 | 0 | 5 | 0 |
+| Decorators | 2 | 0 | 4 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
 | Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **108** | **2** | **30** | **34** |
+| **TOTAL** | **109** | **2** | **29** | **34** |
 
-**Conformance: 108/140 runtime features (77%)**
+**Conformance: 109/140 runtime features (78%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
