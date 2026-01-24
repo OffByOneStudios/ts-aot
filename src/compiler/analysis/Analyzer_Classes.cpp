@@ -69,7 +69,7 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
     for (const auto& member : node->members) {
         bool isComptime = false;
         for (const auto& decorator : member->decorators) {
-            if (decorator == "ts_aot.comptime") {
+            if (decorator.name == "ts_aot.comptime") {
                 isComptime = true;
                 break;
             }

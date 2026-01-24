@@ -53,7 +53,7 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     strictMode = functionStrictMode;
 
     for (const auto& decorator : node->decorators) {
-        if (decorator == "ts_aot.comptime") {
+        if (decorator.name == "ts_aot.comptime") {
             funcType->isComptime = true;
             break;
         }

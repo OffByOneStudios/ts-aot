@@ -51,10 +51,27 @@ std::unique_ptr<TypeParameter> parseTypeParameter(const json& j) {
     return node;
 }
 
-void parseDecorators(std::vector<std::string>& decorators, const json& j) {
+void parseDecorators(std::vector<Decorator>& decorators, const json& j) {
     if (j.contains("decorators") && j["decorators"].is_array()) {
         for (const auto& d : j["decorators"]) {
-            decorators.push_back(d.get<std::string>());
+            Decorator dec;
+            // Handle both old format (string) and new format (object with name/expression)
+            if (d.is_string()) {
+                dec.name = d.get<std::string>();
+                dec.expression = nullptr;
+            } else if (d.is_object()) {
+                dec.name = d.value("name", "");
+                if (d.contains("expression")) {
+                    // Parse the expression AST
+                    auto exprNode = parseNode(d["expression"]);
+                    if (exprNode) {
+                        dec.expression = std::shared_ptr<Expression>(
+                            dynamic_cast<Expression*>(exprNode.release())
+                        );
+                    }
+                }
+            }
+            decorators.push_back(std::move(dec));
         }
     }
 }

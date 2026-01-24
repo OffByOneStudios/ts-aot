@@ -58,6 +58,28 @@ static bool hasClassMembers(std::shared_ptr<ClassType> classType) {
     return classType->node != nullptr || classType->exprNode != nullptr;
 }
 
+// Helper to check if a class has decorators
+static bool hasClassDecorators(std::shared_ptr<ClassType> classType) {
+    if (classType->node && !classType->node->decorators.empty()) {
+        return true;
+    }
+    if (classType->exprNode && !classType->exprNode->decorators.empty()) {
+        return true;
+    }
+    return false;
+}
+
+// Helper to get decorators from a class
+static const std::vector<ast::Decorator>* getClassDecorators(std::shared_ptr<ClassType> classType) {
+    if (classType->node) {
+        return &classType->node->decorators;
+    }
+    if (classType->exprNode) {
+        return &classType->exprNode->decorators;
+    }
+    return nullptr;
+}
+
 void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Specialization>& specializations) {
     std::vector<std::shared_ptr<ClassType>> allClassTypes;
     
@@ -532,9 +554,10 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
     // 5. Fifth pass: Generate static initializers
     for (const auto& classType : allClassTypes) {
-        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields", 
-            classType->name, classType->staticBlocks.size(), classType->staticFields.size());
-        if (classType->staticBlocks.empty() && classType->staticFields.empty()) continue;
+        bool hasDecorators = hasClassDecorators(classType);
+        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields, decorators={}",
+            classType->name, classType->staticBlocks.size(), classType->staticFields.size(), hasDecorators);
+        if (classType->staticBlocks.empty() && classType->staticFields.empty() && !hasDecorators) continue;
 
         std::string initName = classType->name + "___static_init";
         SPDLOG_DEBUG("Generating static initializer: {}", initName);
@@ -586,6 +609,86 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
         for (auto* block : classType->staticBlocks) {
             visitStaticBlock(block);
+        }
+
+        // Call class decorators (in reverse order - innermost first)
+        const auto* decorators = getClassDecorators(classType);
+        if (decorators && !decorators->empty()) {
+            SPDLOG_DEBUG("Generating {} class decorator calls for {}", decorators->size(), classType->name);
+
+            // Create a class descriptor object with a 'name' property
+            // This is the "target" passed to the decorator
+            llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+            llvm::Value* classDescriptor = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+            // Set the 'name' property on the descriptor using ts_map_set_cstr_string
+            // This ensures the string value has STRING_PTR type, not OBJECT_PTR
+            llvm::FunctionType* setStrFt = llvm::FunctionType::get(
+                builder->getVoidTy(),
+                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },
+                false
+            );
+            llvm::FunctionCallee setStrFn = module->getOrInsertFunction("ts_map_set_cstr_string", setStrFt);
+
+            // Create string value for the class name
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy() },
+                false
+            );
+            llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+            llvm::Value* classNameCStr = builder->CreateGlobalStringPtr(classType->name);
+            llvm::Value* classNameStr = builder->CreateCall(createStrFt, createStrFn.getCallee(), { classNameCStr });
+
+            llvm::Value* nameKeyPtr = builder->CreateGlobalStringPtr("name");
+            builder->CreateCall(setStrFt, setStrFn.getCallee(), { classDescriptor, nameKeyPtr, classNameStr });
+
+            // Box the class descriptor as a TsValue*
+            llvm::FunctionType* boxObjectFt = llvm::FunctionType::get(
+                builder->getPtrTy(),
+                { builder->getPtrTy() },
+                false
+            );
+            llvm::FunctionCallee boxObjectFn = module->getOrInsertFunction("ts_value_make_object", boxObjectFt);
+            llvm::Value* boxedDescriptor = builder->CreateCall(boxObjectFt, boxObjectFn.getCallee(), { classDescriptor });
+
+            // Call each decorator in reverse order (last decorator first, per TypeScript spec)
+            for (auto it = decorators->rbegin(); it != decorators->rend(); ++it) {
+                const auto& decorator = *it;
+                SPDLOG_DEBUG("  Calling decorator: {}", decorator.name);
+
+                if (!decorator.expression) continue;
+
+                // If it's an identifier, look up the function directly and call it
+                if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                    // Decorator functions are generated with _any suffix since they take/return any
+                    std::string mangledName = id->name + "_any";
+
+                    // Decorator function signature: (context: ptr, target: ptr) -> ptr
+                    llvm::FunctionType* decoratorFT = llvm::FunctionType::get(
+                        builder->getPtrTy(),
+                        { builder->getPtrTy(), builder->getPtrTy() },
+                        false
+                    );
+
+                    // Get or create the function declaration
+                    llvm::FunctionCallee decoratorFn = module->getOrInsertFunction(mangledName, decoratorFT);
+
+                    SPDLOG_DEBUG("  Calling decorator function: {}", mangledName);
+
+                    // Call the decorator function: fn(ctx, target)
+                    llvm::Value* result = builder->CreateCall(decoratorFT, decoratorFn.getCallee(),
+                        { llvm::ConstantPointerNull::get(builder->getPtrTy()), boxedDescriptor });
+
+                    // For now, we ignore the return value since we can't replace the class in AOT
+                    (void)result;
+                } else {
+                    // For call expressions (decorator factories), we need more complex handling
+                    // TODO: Support decorator factories like @Component({ ... })
+                    SPDLOG_WARN("  Decorator factories not yet supported: {}", decorator.name);
+                }
+            }
         }
 
         builder->CreateRetVoid();
