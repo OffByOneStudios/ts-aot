@@ -305,6 +305,19 @@ void ts_map_set_cstr(void* map, const char* key, void* value) {
     tsMap->Set(keyVal, valVal);
 }
 
+// Helper for setting string values with proper STRING_PTR type
+void ts_map_set_cstr_string(void* map, const char* key, void* stringValue) {
+    if (!map || !key) return;
+    TsMap* tsMap = (TsMap*)map;
+    TsValue keyVal;
+    keyVal.type = ValueType::STRING_PTR;
+    keyVal.ptr_val = TsString::Create(key);
+    TsValue valVal;
+    valVal.type = ValueType::STRING_PTR;
+    valVal.ptr_val = stringValue;
+    tsMap->Set(keyVal, valVal);
+}
+
 // Value-based API variants - avoid heap allocation by passing/returning TsValue by value
 // These are more efficient for hot paths where the caller can use stack-allocated TsValue
 void ts_map_set_v(void* map, TsValue key, TsValue value) {

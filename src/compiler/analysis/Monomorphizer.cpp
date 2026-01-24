@@ -447,6 +447,40 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
+    // Process Decorator Functions
+    // Decorators are applied at class initialization time, so we need to ensure
+    // decorator functions are generated even if they're not directly called
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        for (const auto& stmt : module->ast->body) {
+            if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                for (const auto& decorator : cls->decorators) {
+                    // Only handle simple identifier decorators for now
+                    if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                        ast::FunctionDeclaration* decoratorFunc = findFunction(analyzer, id->name);
+                        if (decoratorFunc) {
+                            // Check if already added
+                            std::string mangled = generateMangledName(id->name, { std::make_shared<Type>(TypeKind::Any) }, {});
+                            if (!processedSpecializations.count(mangled)) {
+                                processedSpecializations.insert(mangled);
+
+                                Specialization spec;
+                                spec.originalName = id->name;
+                                spec.specializedName = mangled;
+                                spec.argTypes = { std::make_shared<Type>(TypeKind::Any) };
+                                spec.returnType = std::make_shared<Type>(TypeKind::Any);
+                                spec.node = decoratorFunc;
+                                specializations.push_back(spec);
+
+                                SPDLOG_INFO("Added decorator function: {} -> {}", id->name, mangled);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Process Class Methods
     for (auto& [path, module] : analyzer.modules) {
         if (!module->ast) continue;

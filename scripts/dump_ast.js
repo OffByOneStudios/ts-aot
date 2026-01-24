@@ -122,6 +122,19 @@ function isGenerator(node) {
     return !!node.asteriskToken;
 }
 
+function getDecoratorName(expr) {
+    // Extract the decorator name for hasDecorator() compatibility
+    if (ts.isIdentifier(expr)) return expr.text;
+    if (ts.isCallExpression(expr)) {
+        if (ts.isIdentifier(expr.expression)) return expr.expression.text;
+        return expr.expression.getText(currentSourceFile);
+    }
+    if (ts.isPropertyAccessExpression(expr)) {
+        return expr.getText(currentSourceFile);
+    }
+    return expr.getText(currentSourceFile);
+}
+
 function getDecorators(node) {
     const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : (node.decorators);
     if (!decorators) {
@@ -130,15 +143,10 @@ function getDecorators(node) {
     }
     return decorators.map(d => {
         const expr = d.expression;
-        if (ts.isIdentifier(expr)) return expr.text;
-        if (ts.isCallExpression(expr)) {
-            if (ts.isIdentifier(expr.expression)) return expr.expression.text;
-            return expr.expression.getText(currentSourceFile);
-        }
-        if (ts.isPropertyAccessExpression(expr)) {
-            return expr.getText(currentSourceFile);
-        }
-        return expr.getText(currentSourceFile);
+        return {
+            name: getDecoratorName(expr),
+            expression: visit(expr)
+        };
     });
 }
 

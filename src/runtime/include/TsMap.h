@@ -58,6 +58,9 @@ extern "C" {
 
     // Helper for CommonJS module initialization - sets a property by C string key
     void ts_map_set_cstr(void* map, const char* key, void* value);
+
+    // Helper for setting string values with proper STRING_PTR type
+    void ts_map_set_cstr_string(void* map, const char* key, void* stringValue);
     
     void ts_map_clear(void* map);
     int64_t ts_map_size(void* map);

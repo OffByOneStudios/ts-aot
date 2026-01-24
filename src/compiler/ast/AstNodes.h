@@ -163,6 +163,12 @@ using NodePtr = std::unique_ptr<Node>;
 using StmtPtr = std::unique_ptr<Statement>;
 using ExprPtr = std::unique_ptr<Expression>;
 
+// Decorator with both name (for quick lookup) and expression (for execution)
+struct Decorator {
+    std::string name;           // e.g., "log" or "Component"
+    std::shared_ptr<Expression> expression;  // Full expression for execution
+};
+
 struct Node {
     virtual ~Node() = default;
     virtual std::string getKind() const = 0;
@@ -170,7 +176,7 @@ struct Node {
     int line = 0;
     int column = 0;
     std::string sourceFile;  // Full path to the source file this node came from
-    std::vector<std::string> decorators;
+    std::vector<Decorator> decorators;
 };
 
 struct Statement : Node {};
