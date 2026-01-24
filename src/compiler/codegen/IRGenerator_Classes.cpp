@@ -683,10 +683,70 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
 
                     // For now, we ignore the return value since we can't replace the class in AOT
                     (void)result;
+                }
+                // Handle decorator factories: @decorator(args)
+                else if (auto* call = dynamic_cast<ast::CallExpression*>(decorator.expression.get())) {
+                    if (auto* factoryId = dynamic_cast<ast::Identifier*>(call->callee.get())) {
+                        SPDLOG_DEBUG("  Processing decorator factory: {}", factoryId->name);
+
+                        // Build mangled name based on argument types
+                        std::string mangledName = factoryId->name;
+                        for (const auto& arg : call->arguments) {
+                            if (arg->inferredType) {
+                                mangledName += "_" + arg->inferredType->toString();
+                            } else {
+                                mangledName += "_any";
+                            }
+                        }
+
+                        // Factory function takes its arguments and returns a decorator function
+                        std::vector<llvm::Type*> factoryArgTypes;
+                        factoryArgTypes.push_back(builder->getPtrTy()); // context
+                        for (size_t i = 0; i < call->arguments.size(); ++i) {
+                            factoryArgTypes.push_back(builder->getPtrTy()); // each arg is boxed
+                        }
+
+                        llvm::FunctionType* factoryFT = llvm::FunctionType::get(
+                            builder->getPtrTy(), // returns decorator function
+                            factoryArgTypes,
+                            false
+                        );
+
+                        llvm::FunctionCallee factoryFn = module->getOrInsertFunction(mangledName, factoryFT);
+
+                        // Evaluate factory arguments
+                        std::vector<llvm::Value*> factoryArgs;
+                        factoryArgs.push_back(llvm::ConstantPointerNull::get(builder->getPtrTy())); // context
+
+                        for (const auto& arg : call->arguments) {
+                            visit(arg.get());
+                            llvm::Value* argVal = boxValue(lastValue, arg->inferredType);
+                            factoryArgs.push_back(argVal);
+                        }
+
+                        // Call factory to get the decorator function
+                        SPDLOG_DEBUG("  Calling factory function: {}", mangledName);
+                        llvm::Value* decoratorFnPtr = builder->CreateCall(factoryFT, factoryFn.getCallee(), factoryArgs);
+
+                        // Now call the returned decorator with the target
+                        // Use ts_call_1 to invoke the returned decorator (takes func, arg1)
+                        llvm::FunctionType* callFuncFT = llvm::FunctionType::get(
+                            builder->getPtrTy(),
+                            { builder->getPtrTy(), builder->getPtrTy() },
+                            false
+                        );
+                        llvm::FunctionCallee callFuncFn = module->getOrInsertFunction("ts_call_1", callFuncFT);
+
+                        SPDLOG_DEBUG("  Calling returned decorator with target");
+                        llvm::Value* result = builder->CreateCall(callFuncFT, callFuncFn.getCallee(),
+                            { decoratorFnPtr, boxedDescriptor });
+
+                        (void)result;
+                    } else {
+                        SPDLOG_WARN("  Decorator factory with non-identifier callee not supported: {}", decorator.name);
+                    }
                 } else {
-                    // For call expressions (decorator factories), we need more complex handling
-                    // TODO: Support decorator factories like @Component({ ... })
-                    SPDLOG_WARN("  Decorator factories not yet supported: {}", decorator.name);
+                    SPDLOG_WARN("  Unknown decorator expression type: {}", decorator.name);
                 }
             }
         }

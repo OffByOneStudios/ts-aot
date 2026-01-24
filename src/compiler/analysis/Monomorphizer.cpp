@@ -455,7 +455,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         for (const auto& stmt : module->ast->body) {
             if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
                 for (const auto& decorator : cls->decorators) {
-                    // Only handle simple identifier decorators for now
+                    // Handle simple identifier decorators: @decorator
                     if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
                         ast::FunctionDeclaration* decoratorFunc = findFunction(analyzer, id->name);
                         if (decoratorFunc) {
@@ -473,6 +473,39 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                                 specializations.push_back(spec);
 
                                 SPDLOG_INFO("Added decorator function: {} -> {}", id->name, mangled);
+                            }
+                        }
+                    }
+                    // Handle decorator factories: @decorator(args)
+                    else if (auto* call = dynamic_cast<ast::CallExpression*>(decorator.expression.get())) {
+                        // The callee is the factory function
+                        if (auto* factoryId = dynamic_cast<ast::Identifier*>(call->callee.get())) {
+                            ast::FunctionDeclaration* factoryFunc = findFunction(analyzer, factoryId->name);
+                            if (factoryFunc) {
+                                // Determine argument types from the factory call
+                                std::vector<std::shared_ptr<Type>> argTypes;
+                                for (const auto& arg : call->arguments) {
+                                    if (arg->inferredType) {
+                                        argTypes.push_back(arg->inferredType);
+                                    } else {
+                                        argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                                    }
+                                }
+
+                                std::string mangled = generateMangledName(factoryId->name, argTypes, {});
+                                if (!processedSpecializations.count(mangled)) {
+                                    processedSpecializations.insert(mangled);
+
+                                    Specialization spec;
+                                    spec.originalName = factoryId->name;
+                                    spec.specializedName = mangled;
+                                    spec.argTypes = argTypes;
+                                    spec.returnType = std::make_shared<Type>(TypeKind::Any);
+                                    spec.node = factoryFunc;
+                                    specializations.push_back(spec);
+
+                                    SPDLOG_INFO("Added decorator factory function: {} -> {}", factoryId->name, mangled);
+                                }
                             }
                         }
                     }
