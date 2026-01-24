@@ -575,6 +575,70 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         }
                     }
                 }
+
+                // Process property decorators for this class
+                for (const auto& member : cls->members) {
+                    if (auto prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                        for (const auto& decorator : prop->decorators) {
+                            // Handle simple identifier decorators: @decorator
+                            if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                                ast::FunctionDeclaration* decoratorFunc = findFunction(analyzer, id->name);
+                                if (decoratorFunc) {
+                                    // Property decorator signature: (target: any, propertyKey: string) -> void
+                                    std::vector<std::shared_ptr<Type>> argTypes = {
+                                        std::make_shared<Type>(TypeKind::Any),    // target
+                                        std::make_shared<Type>(TypeKind::String)  // propertyKey
+                                    };
+                                    std::string mangled = generateMangledName(id->name, argTypes, {});
+                                    if (!processedSpecializations.count(mangled)) {
+                                        processedSpecializations.insert(mangled);
+
+                                        Specialization spec;
+                                        spec.originalName = id->name;
+                                        spec.specializedName = mangled;
+                                        spec.argTypes = argTypes;
+                                        spec.returnType = std::make_shared<Type>(TypeKind::Void);
+                                        spec.node = decoratorFunc;
+                                        specializations.push_back(spec);
+
+                                        SPDLOG_INFO("Added property decorator function: {} -> {}", id->name, mangled);
+                                    }
+                                }
+                            }
+                            // Handle decorator factories: @decorator(args)
+                            else if (auto* call = dynamic_cast<ast::CallExpression*>(decorator.expression.get())) {
+                                if (auto* factoryId = dynamic_cast<ast::Identifier*>(call->callee.get())) {
+                                    ast::FunctionDeclaration* factoryFunc = findFunction(analyzer, factoryId->name);
+                                    if (factoryFunc) {
+                                        std::vector<std::shared_ptr<Type>> argTypes;
+                                        for (const auto& arg : call->arguments) {
+                                            if (arg->inferredType) {
+                                                argTypes.push_back(arg->inferredType);
+                                            } else {
+                                                argTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+                                            }
+                                        }
+
+                                        std::string mangled = generateMangledName(factoryId->name, argTypes, {});
+                                        if (!processedSpecializations.count(mangled)) {
+                                            processedSpecializations.insert(mangled);
+
+                                            Specialization spec;
+                                            spec.originalName = factoryId->name;
+                                            spec.specializedName = mangled;
+                                            spec.argTypes = argTypes;
+                                            spec.returnType = std::make_shared<Type>(TypeKind::Any);
+                                            spec.node = factoryFunc;
+                                            specializations.push_back(spec);
+
+                                            SPDLOG_INFO("Added property decorator factory function: {} -> {}", factoryId->name, mangled);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

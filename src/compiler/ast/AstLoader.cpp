@@ -405,6 +405,7 @@ NodePtr parseClassMember(const json& j) {
         if (j.contains("isReadonly")) {
             node->isReadonly = j["isReadonly"];
         }
+        parseDecorators(node->decorators, j);
         return node;
     } else if (kind == "MethodDefinition") {
         auto node = std::make_unique<MethodDefinition>();

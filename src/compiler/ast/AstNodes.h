@@ -384,6 +384,7 @@ struct PropertyDefinition : Node {
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isStatic = false;
     bool isReadonly = false;
+    std::vector<Decorator> decorators;  // Property decorators
     std::string getKind() const override { return "PropertyDefinition"; }
     void accept(Visitor* visitor) override { /* Visited via ClassDeclaration */ }
 };
