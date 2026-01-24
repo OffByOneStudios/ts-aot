@@ -209,6 +209,7 @@ struct Parameter : Node {
     ts::AccessModifier access = ts::AccessModifier::Public;
     bool isReadonly = false;
     bool isParameterProperty = false;
+    std::vector<Decorator> decorators;  // Parameter decorators
     std::string getKind() const override { return "Parameter"; }
     void accept(Visitor* visitor) override { /* Not visited directly */ }
 };

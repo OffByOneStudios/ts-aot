@@ -232,7 +232,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Method decorators | ✅ | Receives target, propertyKey, PropertyDescriptor |
 | Accessor decorators | ✅ | Receives target, propertyKey, PropertyDescriptor with get/set |
 | Property decorators | ✅ | Receives target and propertyKey (no descriptor) |
-| Parameter decorators | ❌ | |
+| Parameter decorators | ✅ | Receives target, propertyKey, and parameterIndex |
 | Decorator factories | ✅ | @decorator(args) factory pattern supported |
 
 ## 17. Declaration Merging
@@ -315,15 +315,15 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Type Narrowing | 9 | 1 | 0 | 0 |
 | Union/Intersection | 4 | 0 | 0 | 0 |
 | Literal Types | 1 | 0 | 0 | 3 |
-| Decorators | 5 | 0 | 1 | 0 |
+| Decorators | 6 | 0 | 0 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
 | JSX | 0 | 0 | 4 | 0 |
 | Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **112** | **2** | **26** | **34** |
+| **TOTAL** | **113** | **2** | **25** | **34** |
 
-**Conformance: 112/140 runtime features (80%)**
+**Conformance: 113/140 runtime features (81%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
