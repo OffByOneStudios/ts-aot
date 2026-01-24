@@ -105,6 +105,7 @@ std::unique_ptr<Parameter> parseParameter(const json& j) {
     if (j.contains("isParameterProperty")) {
         node->isParameterProperty = j["isParameterProperty"].get<bool>();
     }
+    parseDecorators(node->decorators, j);
     return node;
 }
 

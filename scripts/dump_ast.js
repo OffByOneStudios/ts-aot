@@ -868,6 +868,7 @@ function visitParameter(p) {
         access: access,
         isReadonly: readonly,
         isParameterProperty: !!access || readonly,
+        decorators: getDecorators(p),
         line: line + 1,
         column: character + 1,
         sourceFile: currentSourceFile.fileName

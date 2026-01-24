@@ -115,6 +115,33 @@ static bool hasPropertyDecorators(std::shared_ptr<ClassType> classType) {
     return false;
 }
 
+// Helper to check if any method parameters have decorators
+static bool hasParameterDecorators(std::shared_ptr<ClassType> classType) {
+    if (classType->node) {
+        for (const auto& member : classType->node->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                for (const auto& param : method->parameters) {
+                    if (!param->decorators.empty()) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    if (classType->exprNode) {
+        for (const auto& member : classType->exprNode->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                for (const auto& param : method->parameters) {
+                    if (!param->decorators.empty()) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 // Helper to get decorators from a class
 static const std::vector<ast::Decorator>* getClassDecorators(std::shared_ptr<ClassType> classType) {
     if (classType->node) {
@@ -603,9 +630,10 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         bool hasClassDecors = hasClassDecorators(classType);
         bool hasMethodDecors = hasMethodDecorators(classType);
         bool hasPropDecors = hasPropertyDecorators(classType);
-        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields, classDecorators={}, methodDecorators={}, propertyDecorators={}",
-            classType->name, classType->staticBlocks.size(), classType->staticFields.size(), hasClassDecors, hasMethodDecors, hasPropDecors);
-        if (classType->staticBlocks.empty() && classType->staticFields.empty() && !hasClassDecors && !hasMethodDecors && !hasPropDecors) continue;
+        bool hasParamDecors = hasParameterDecorators(classType);
+        SPDLOG_DEBUG("Checking static initializers for class {}: {} static blocks, {} static fields, classDecorators={}, methodDecorators={}, propertyDecorators={}, parameterDecorators={}",
+            classType->name, classType->staticBlocks.size(), classType->staticFields.size(), hasClassDecors, hasMethodDecors, hasPropDecors, hasParamDecors);
+        if (classType->staticBlocks.empty() && classType->staticFields.empty() && !hasClassDecors && !hasMethodDecors && !hasPropDecors && !hasParamDecors) continue;
 
         std::string initName = classType->name + "___static_init";
         SPDLOG_DEBUG("Generating static initializer: {}", initName);
@@ -659,9 +687,109 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
             visitStaticBlock(block);
         }
 
+        // Call parameter decorators (before method decorators, per TypeScript spec)
+        // Parameter decorators are called with (target, propertyKey, parameterIndex)
+        ast::ClassDeclaration* classNode = classType->node;
+        if (classNode) {
+            for (const auto& member : classNode->members) {
+                auto* method = dynamic_cast<ast::MethodDefinition*>(member.get());
+                if (!method) continue;
+
+                // Check if any parameters have decorators
+                bool hasParamDecors = false;
+                for (const auto& param : method->parameters) {
+                    if (!param->decorators.empty()) {
+                        hasParamDecors = true;
+                        break;
+                    }
+                }
+                if (!hasParamDecors) continue;
+
+                SPDLOG_DEBUG("Processing parameter decorators for {}.{}",
+                    classType->name, method->name);
+
+                // Create the target object (prototype for instance methods)
+                llvm::FunctionType* createMapFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+                llvm::FunctionCallee createMapFn = module->getOrInsertFunction("ts_map_create", createMapFt);
+                llvm::Value* targetObject = builder->CreateCall(createMapFt, createMapFn.getCallee(), {});
+
+                // Create property key string (method name)
+                llvm::FunctionType* createStrFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee createStrFn = module->getOrInsertFunction("ts_string_create", createStrFt);
+                llvm::Value* methodNameCStr = builder->CreateGlobalStringPtr(method->name);
+                llvm::Value* methodNameStr = builder->CreateCall(createStrFt, createStrFn.getCallee(), { methodNameCStr });
+
+                // Box target (first param is 'any')
+                llvm::FunctionType* boxObjectFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getPtrTy() },
+                    false
+                );
+                llvm::FunctionCallee boxObjectFn = module->getOrInsertFunction("ts_value_make_object", boxObjectFt);
+                llvm::Value* boxedTarget = builder->CreateCall(boxObjectFt, boxObjectFn.getCallee(), { targetObject });
+
+                // Function type for making boxed int values
+                llvm::FunctionType* makeIntFt = llvm::FunctionType::get(
+                    builder->getPtrTy(),
+                    { builder->getInt64Ty() },
+                    false
+                );
+                llvm::FunctionCallee makeIntFn = module->getOrInsertFunction("ts_value_make_int", makeIntFt);
+
+                // Process each parameter's decorators
+                for (size_t paramIdx = 0; paramIdx < method->parameters.size(); ++paramIdx) {
+                    const auto& param = method->parameters[paramIdx];
+                    if (param->decorators.empty()) continue;
+
+                    SPDLOG_DEBUG("  Parameter {} has {} decorators",
+                        paramIdx, param->decorators.size());
+
+                    // Create boxed parameter index
+                    llvm::Value* paramIdxVal = llvm::ConstantInt::get(builder->getInt64Ty(), paramIdx);
+                    llvm::Value* boxedParamIdx = builder->CreateCall(makeIntFt, makeIntFn.getCallee(), { paramIdxVal });
+
+                    // Call each decorator in reverse order
+                    for (auto it = param->decorators.rbegin(); it != param->decorators.rend(); ++it) {
+                        const auto& decorator = *it;
+                        SPDLOG_DEBUG("    Calling parameter decorator: {}", decorator.name);
+
+                        if (!decorator.expression) continue;
+
+                        if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                            // Parameter decorator signature: (target: any, propertyKey: string, parameterIndex: number) -> void
+                            // Note: Monomorphizer uses "str" for string and "int" for number in mangled names
+                            std::string mangledName = id->name + "_any_str_int";
+
+                            llvm::FunctionType* decoratorFT = llvm::FunctionType::get(
+                                builder->getVoidTy(),  // Parameter decorators return void
+                                { builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy(), builder->getPtrTy() },  // ctx, target, propertyKey, parameterIndex
+                                false
+                            );
+
+                            llvm::FunctionCallee decoratorFn = module->getOrInsertFunction(mangledName, decoratorFT);
+
+                            SPDLOG_DEBUG("    Calling parameter decorator function: {}", mangledName);
+
+                            // Call the decorator: fn(ctx, target, propertyKey, parameterIndex)
+                            // Note: propertyKey (methodNameStr) is raw TsString*, not boxed
+                            // Note: parameterIndex is boxed as TsValue* since number type is 'any' in the signature
+                            builder->CreateCall(decoratorFT, decoratorFn.getCallee(),
+                                { llvm::ConstantPointerNull::get(builder->getPtrTy()),
+                                  boxedTarget, methodNameStr, boxedParamIdx });
+                        }
+                        // TODO: Handle decorator factories for parameter decorators
+                    }
+                }
+            }
+        }
+
         // Call method decorators (before class decorators, per TypeScript spec)
         // Method decorators are called with (target, propertyKey, descriptor)
-        ast::ClassDeclaration* classNode = classType->node;
+        classNode = classType->node;
         if (classNode) {
             for (const auto& member : classNode->members) {
                 auto* method = dynamic_cast<ast::MethodDefinition*>(member.get());
