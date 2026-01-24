@@ -155,6 +155,7 @@ extern "C" {
 
 TsValue* ts_value_make_undefined() {
     TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+    memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
     v->type = ValueType::UNDEFINED;
     v->ptr_val = nullptr;
     return v;
@@ -162,6 +163,7 @@ TsValue* ts_value_make_undefined() {
 
 TsValue* ts_value_make_null() {
     TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+    memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
     v->type = ValueType::OBJECT_PTR; // Use OBJECT_PTR with nullptr for null
     v->ptr_val = nullptr;
     return v;
@@ -169,6 +171,7 @@ TsValue* ts_value_make_null() {
 
 TsValue* ts_value_make_int(int64_t i) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::NUMBER_INT;
         v->i_val = i;
         return v;
@@ -176,6 +179,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_double(double d) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::NUMBER_DBL;
         v->d_val = d;
         return v;
@@ -183,6 +187,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_bool(bool b) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::BOOLEAN;
         v->b_val = b;
         return v;
@@ -190,6 +195,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_string(void* s) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::STRING_PTR;
         v->ptr_val = s;
         return v;
@@ -229,6 +235,7 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::OBJECT_PTR;
         v->ptr_val = o;
         return v;
@@ -236,6 +243,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_function_object(void* fnObj) {
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::FUNCTION_PTR;
         v->ptr_val = fnObj;
         return v;
@@ -243,6 +251,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_promise(void* promise) {
         TsValue* val = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(val, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         val->type = ValueType::PROMISE_PTR;
         val->ptr_val = promise;
         return val;
@@ -250,6 +259,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_make_array(void* arr) {
         TsValue* val = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(val, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         val->type = ValueType::ARRAY_PTR;
         val->ptr_val = arr;
         return val;
@@ -327,6 +337,7 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
         TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::FUNCTION_PTR;
         v->ptr_val = func;
         return v;
@@ -338,6 +349,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Explicitly set magic using member access instead of offset calculation
         func->magic = TsFunction::MAGIC;
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::FUNCTION_PTR;
         v->ptr_val = func;
         return v;
@@ -3726,5 +3738,80 @@ TsValue* ts_value_make_int(int64_t i) {
         val.ptr_val = rawValue;
 
         return set->Delete(val);
+    }
+
+    // ============================================================
+    // JSX Runtime Support
+    // ============================================================
+
+    // Creates a JSX element object with { type, props, children } structure
+    // This mimics React.createElement's return value
+    TsValue* ts_jsx_create_element(void* tagName, void* props, void* children) {
+        // Create the element object
+        TsMap* element = TsMap::Create();
+
+        // Set 'type' property (the tag name string)
+        // IMPORTANT: Zero the TsValue struct to ensure padding bytes are 0
+        // ts_value_get_object relies on bytes 1-3 being zero to detect TsValue
+        TsValue typeKey;
+        memset(&typeKey, 0, sizeof(TsValue));
+        typeKey.type = ValueType::STRING_PTR;
+        typeKey.ptr_val = TsString::Create("type");
+
+        TsValue typeVal;
+        memset(&typeVal, 0, sizeof(TsValue));
+        if (tagName) {
+            // tagName is already a TsString*
+            typeVal.type = ValueType::STRING_PTR;
+            typeVal.ptr_val = tagName;
+        } else {
+            typeVal.type = ValueType::UNDEFINED;
+            typeVal.ptr_val = nullptr;
+        }
+        element->Set(typeKey, typeVal);
+
+        // Set 'props' property
+        TsValue propsKey;
+        memset(&propsKey, 0, sizeof(TsValue));
+        propsKey.type = ValueType::STRING_PTR;
+        propsKey.ptr_val = TsString::Create("props");
+
+        TsValue propsVal;
+        memset(&propsVal, 0, sizeof(TsValue));
+        if (props) {
+            // Unbox if needed
+            void* rawProps = ts_value_get_object((TsValue*)props);
+            if (!rawProps) rawProps = props;
+            propsVal.type = ValueType::OBJECT_PTR;
+            propsVal.ptr_val = rawProps;
+        } else {
+            // Empty props object
+            propsVal.type = ValueType::OBJECT_PTR;
+            propsVal.ptr_val = TsMap::Create();
+        }
+        element->Set(propsKey, propsVal);
+
+        // Set 'children' property (the children array)
+        TsValue childrenKey;
+        memset(&childrenKey, 0, sizeof(TsValue));
+        childrenKey.type = ValueType::STRING_PTR;
+        childrenKey.ptr_val = TsString::Create("children");
+
+        TsValue childrenVal;
+        memset(&childrenVal, 0, sizeof(TsValue));
+        if (children) {
+            // Unbox if needed
+            void* rawChildren = ts_value_get_object((TsValue*)children);
+            if (!rawChildren) rawChildren = children;
+            childrenVal.type = ValueType::ARRAY_PTR;
+            childrenVal.ptr_val = rawChildren;
+        } else {
+            // Empty children array
+            childrenVal.type = ValueType::ARRAY_PTR;
+            childrenVal.ptr_val = TsArray::Create();
+        }
+        element->Set(childrenKey, childrenVal);
+
+        return ts_value_make_object(element);
     }
 }

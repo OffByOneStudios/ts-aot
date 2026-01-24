@@ -308,8 +308,70 @@ ExprPtr parseExpression(const json& j) {
         auto node = std::make_unique<SuperExpression>();
         setLocation(node.get(), j);
         return node;
+    } else if (kind == "JsxElement") {
+        auto node = std::make_unique<JsxElement>();
+        setLocation(node.get(), j);
+        // Extract tagName and attributes from openingElement
+        if (j.contains("openingElement") && j["openingElement"].is_object()) {
+            const auto& opening = j["openingElement"];
+            node->tagName = opening.value("tagName", "");
+            if (opening.contains("attributes") && opening["attributes"].is_array()) {
+                for (const auto& attr : opening["attributes"]) {
+                    node->attributes.push_back(parseNode(attr));
+                }
+            }
+        } else {
+            // Fallback: try direct properties
+            node->tagName = j.value("tagName", "");
+            if (j.contains("attributes") && j["attributes"].is_array()) {
+                for (const auto& attr : j["attributes"]) {
+                    node->attributes.push_back(parseNode(attr));
+                }
+            }
+        }
+        if (j.contains("children") && j["children"].is_array()) {
+            for (const auto& child : j["children"]) {
+                if (!child.is_null()) {
+                    node->children.push_back(parseExpression(child));
+                }
+            }
+        }
+        return node;
+    } else if (kind == "JsxSelfClosingElement") {
+        auto node = std::make_unique<JsxSelfClosingElement>();
+        setLocation(node.get(), j);
+        node->tagName = j.value("tagName", "");
+        if (j.contains("attributes") && j["attributes"].is_array()) {
+            for (const auto& attr : j["attributes"]) {
+                node->attributes.push_back(parseNode(attr));
+            }
+        }
+        return node;
+    } else if (kind == "JsxFragment") {
+        auto node = std::make_unique<JsxFragment>();
+        setLocation(node.get(), j);
+        if (j.contains("children") && j["children"].is_array()) {
+            for (const auto& child : j["children"]) {
+                if (!child.is_null()) {
+                    node->children.push_back(parseExpression(child));
+                }
+            }
+        }
+        return node;
+    } else if (kind == "JsxExpression") {
+        auto node = std::make_unique<JsxExpression>();
+        setLocation(node.get(), j);
+        if (j.contains("expression") && !j["expression"].is_null()) {
+            node->expression = parseExpression(j["expression"]);
+        }
+        return node;
+    } else if (kind == "JsxText") {
+        auto node = std::make_unique<JsxText>();
+        setLocation(node.get(), j);
+        node->text = j.value("text", "");
+        return node;
     }
-    
+
     throw std::runtime_error("Unknown expression kind: " + kind);
 }
 

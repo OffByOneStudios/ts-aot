@@ -263,6 +263,13 @@ private:
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node);
     void visitEnumDeclaration(ast::EnumDeclaration* node);
 
+    // JSX support
+    void visitJsxElement(ast::JsxElement* node) override;
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) override;
+    void visitJsxFragment(ast::JsxFragment* node) override;
+    void visitJsxExpression(ast::JsxExpression* node) override;
+    void visitJsxText(ast::JsxText* node) override;
+
     void visit(ast::Node* node);
 
     // JSON module support

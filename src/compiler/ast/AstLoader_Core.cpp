@@ -168,6 +168,21 @@ NodePtr parseNode(const json& j) {
         auto node = std::make_unique<OmittedExpression>();
         setLocation(node.get(), j);
         return node;
+    } else if (kind == "JsxAttribute") {
+        auto node = std::make_unique<JsxAttribute>();
+        setLocation(node.get(), j);
+        node->name = j.value("name", "");
+        if (j.contains("initializer") && !j["initializer"].is_null()) {
+            node->initializer = parseExpression(j["initializer"]);
+        }
+        return node;
+    } else if (kind == "JsxSpreadAttribute") {
+        auto node = std::make_unique<JsxSpreadAttribute>();
+        setLocation(node.get(), j);
+        if (j.contains("expression") && !j["expression"].is_null()) {
+            node->expression = parseExpression(j["expression"]);
+        }
+        return node;
     } else if (kind == "BlockStatement") {
         return parseStatement(j);
     }

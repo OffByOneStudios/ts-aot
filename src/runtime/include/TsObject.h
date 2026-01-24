@@ -203,6 +203,9 @@ extern "C" {
     bool ts_weakset_has(void* weakset, void* value);
     bool ts_weakset_delete(void* weakset, void* value);
 
+    // JSX Runtime Support
+    TsValue* ts_jsx_create_element(void* tagName, void* props, void* children);
+
     void ts_runtime_init();
     extern TsValue* Object;
     extern TsValue* Array;

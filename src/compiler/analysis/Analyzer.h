@@ -214,6 +214,13 @@ private:
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) override;
     void visitEnumDeclaration(ast::EnumDeclaration* node) override;
 
+    // JSX support
+    void visitJsxElement(ast::JsxElement* node) override;
+    void visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) override;
+    void visitJsxFragment(ast::JsxFragment* node) override;
+    void visitJsxExpression(ast::JsxExpression* node) override;
+    void visitJsxText(ast::JsxText* node) override;
+
     void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type);
 
     std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
