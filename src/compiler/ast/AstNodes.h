@@ -495,6 +495,7 @@ struct EnumDeclaration : Statement {
     std::string name;
     std::vector<EnumMember> members;
     bool isExported = false;
+    bool isDeclare = false;  // For ambient enums (declare enum)
 
     std::string getKind() const override { return "EnumDeclaration"; }
     void accept(Visitor* v) override { v->visitEnumDeclaration(this); }

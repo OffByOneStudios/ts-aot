@@ -110,6 +110,14 @@ function isAsync(node) {
     return false;
 }
 
+function isDeclare(node) {
+    if (!node.modifiers) return false;
+    for (const mod of node.modifiers) {
+        if (mod.kind === ts.SyntaxKind.DeclareKeyword) return true;
+    }
+    return false;
+}
+
 function isGenerator(node) {
     return !!node.asteriskToken;
 }
@@ -787,7 +795,8 @@ function visitInternal(node) {
                     name: m.name.getText(currentSourceFile),
                     initializer: m.initializer ? visit(m.initializer) : null
                 })),
-                isExported: isExported(node)
+                isExported: isExported(node),
+                isDeclare: isDeclare(node)
             };
         case ts.SyntaxKind.EmptyStatement:
             // No-op statement; omit from AST
