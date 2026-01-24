@@ -180,8 +180,15 @@ struct Expression : Node {
 
 // --- Statements ---
 
+// Triple-slash directive reference (/// <reference ... />)
+struct TripleSlashReference {
+    std::string type;  // "path", "types", or "lib"
+    std::string path;  // The referenced path
+};
+
 struct Program : Node {
     std::vector<StmtPtr> body;
+    std::vector<TripleSlashReference> tripleSlashReferences;
     std::string getKind() const override { return "Program"; }
     void accept(Visitor* visitor) override { visitor->visitProgram(this); }
 };

@@ -278,6 +278,16 @@ std::unique_ptr<Program> loadAst(const std::string& jsonPath) {
         }
     };
     
+    // Load triple-slash references
+    if (j.contains("tripleSlashReferences")) {
+        for (const auto& ref : j["tripleSlashReferences"]) {
+            TripleSlashReference tsRef;
+            tsRef.type = ref.value("type", "");
+            tsRef.path = ref.value("path", "");
+            program->tripleSlashReferences.push_back(tsRef);
+        }
+    }
+
     if (j.contains("body")) {
         for (const auto& stmt : j["body"]) {
             flattenAndAdd(parseStatement(stmt));
@@ -287,7 +297,7 @@ std::unique_ptr<Program> loadAst(const std::string& jsonPath) {
             flattenAndAdd(parseStatement(stmt));
         }
     }
-    
+
     return program;
 }
 

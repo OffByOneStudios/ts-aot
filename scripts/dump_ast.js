@@ -7,8 +7,40 @@ function printAST(sourceFile) {
     currentSourceFile = sourceFile;
     const result = {
         kind: "Program",
-        body: []
+        body: [],
+        tripleSlashReferences: []
     };
+
+    // Extract triple-slash directives
+    // /// <reference path="..." />
+    if (sourceFile.referencedFiles) {
+        for (const ref of sourceFile.referencedFiles) {
+            result.tripleSlashReferences.push({
+                type: "path",
+                path: ref.fileName
+            });
+        }
+    }
+
+    // /// <reference types="..." />
+    if (sourceFile.typeReferenceDirectives) {
+        for (const ref of sourceFile.typeReferenceDirectives) {
+            result.tripleSlashReferences.push({
+                type: "types",
+                path: ref.fileName
+            });
+        }
+    }
+
+    // /// <reference lib="..." />
+    if (sourceFile.libReferenceDirectives) {
+        for (const ref of sourceFile.libReferenceDirectives) {
+            result.tripleSlashReferences.push({
+                type: "lib",
+                path: ref.fileName
+            });
+        }
+    }
 
     ts.forEachChild(sourceFile, (node) => {
         const stmt = visit(node);

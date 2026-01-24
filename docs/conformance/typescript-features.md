@@ -280,9 +280,9 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `/// <reference path="..." />` | ❌ | |
-| `/// <reference types="..." />` | ❌ | |
-| `/// <reference lib="..." />` | ❌ | |
+| `/// <reference path="..." />` | ✅ | Parsed and stored in AST |
+| `/// <reference types="..." />` | ✅ | Parsed and stored in AST |
+| `/// <reference lib="..." />` | ✅ | Parsed and stored in AST |
 | `/// <reference no-default-lib="true" />` | ❌ | |
 
 ## 22. Type Assertions
@@ -320,10 +320,10 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | JSX | 0 | 0 | 4 | 0 |
 | Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
-| Triple-Slash | 0 | 0 | 4 | 0 |
+| Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **102** | **2** | **36** | **34** |
+| **TOTAL** | **105** | **2** | **33** | **34** |
 
-**Conformance: 102/140 runtime features (73%)**
+**Conformance: 105/140 runtime features (75%)**
 
 Note: 34 features are type-only (erased at compile time) and don't require runtime support.
