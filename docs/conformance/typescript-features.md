@@ -251,10 +251,10 @@ This document tracks ts-aot's conformance with TypeScript language features.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| JSX elements | ❌ | |
-| JSX expressions | ❌ | |
-| JSX fragments | ❌ | |
-| JSX type checking | ❌ | |
+| JSX elements | ✅ | Self-closing and regular elements with props |
+| JSX expressions | ✅ | Embedded {expression} syntax in children |
+| JSX fragments | ✅ | <>...</> syntax |
+| JSX type checking | 🔬 | Type-only, intrinsic element validation |
 
 ## 19. Iterators and Generators
 
@@ -317,13 +317,13 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Literal Types | 1 | 0 | 0 | 3 |
 | Decorators | 6 | 0 | 0 | 0 |
 | Declaration Merging | 0 | 0 | 6 | 1 |
-| JSX | 0 | 0 | 4 | 0 |
+| JSX | 3 | 0 | 0 | 1 |
 | Iterators/Generators | 8 | 0 | 0 | 0 |
 | Mixins | 0 | 0 | 2 | 0 |
 | Triple-Slash | 3 | 0 | 1 | 0 |
 | Type Assertions | 4 | 0 | 0 | 0 |
-| **TOTAL** | **113** | **2** | **16** | **42** |
+| **TOTAL** | **116** | **2** | **12** | **43** |
 
-**Conformance: 113/131 runtime features (86%)**
+**Conformance: 116/130 runtime features (89%)**
 
 Note: 42 features are type-only (erased at compile time) and don't require runtime support.
