@@ -140,6 +140,16 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     }
 
     visitProgram(module->ast.get());
+
+    // Save all module-level symbols before exiting scope.
+    // This allows us to restore them when re-analyzing function bodies during monomorphization.
+    for (const auto& [name, sym] : symbols.getCurrentScopeSymbols()) {
+        module->moduleSymbols->define(name, sym->type);
+    }
+    for (const auto& [name, type] : symbols.getCurrentScopeTypes()) {
+        module->moduleSymbols->defineType(name, type);
+    }
+
     symbols.exitScope();
     
     module->analyzed = true;

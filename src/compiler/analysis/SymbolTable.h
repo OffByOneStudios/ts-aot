@@ -47,6 +47,12 @@ public:
     // Get all symbols defined in the global scope
     const std::unordered_map<std::string, std::shared_ptr<Symbol>>& getGlobalSymbols() const;
 
+    // Get all symbols defined in the current (innermost) scope
+    const std::unordered_map<std::string, std::shared_ptr<Symbol>>& getCurrentScopeSymbols() const;
+
+    // Get all types defined in the current (innermost) scope
+    const std::unordered_map<std::string, std::shared_ptr<Type>>& getCurrentScopeTypes() const;
+
     // Define a type in the global scope.
     bool defineGlobalType(const std::string& name, std::shared_ptr<Type> type);
 

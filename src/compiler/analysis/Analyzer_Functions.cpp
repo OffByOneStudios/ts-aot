@@ -563,6 +563,23 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
 
     symbols.enterScope();
 
+    // Restore all module-level symbols (including non-exported ones like local const variables).
+    // These were saved during analyzeModule() before the module scope was exited.
+    // This is necessary because the Monomorphizer calls analyzeFunctionBody after the module
+    // scope has been exited, but function bodies may reference module-level symbols.
+    if (currentModule && currentModule->moduleSymbols) {
+        for (auto& [name, sym] : currentModule->moduleSymbols->getGlobalSymbols()) {
+            if (!symbols.lookup(name)) {
+                symbols.define(name, sym->type);
+            }
+        }
+        for (auto& [name, type] : currentModule->moduleSymbols->getGlobalTypes()) {
+            if (!symbols.lookupType(name)) {
+                symbols.defineType(name, type);
+            }
+        }
+    }
+
     // Hoist declarations in the function body (var/function hoisting semantics).
     for (auto& stmt : node->body) {
         if (auto var = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {

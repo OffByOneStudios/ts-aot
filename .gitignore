@@ -18,7 +18,10 @@ vcpkg/
 # Node.js
 node_modules/
 package-lock.json
+
+# AST intermediate files (generated during compilation)
 *.ast.json
+**/*.ast.json
 
 # Python
 __pycache__/

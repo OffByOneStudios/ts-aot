@@ -122,7 +122,9 @@ void Analyzer::visitProgram(ast::Program* node) {
 
 void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
     auto module = loadModule(node->moduleSpecifier);
-    if (!module) return;
+    if (!module) {
+        return;
+    }
 
     // Import symbols
     if (!node->defaultImport.empty()) {
