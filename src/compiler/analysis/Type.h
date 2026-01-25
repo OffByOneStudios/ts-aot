@@ -232,7 +232,20 @@ struct InterfaceType : public Type {
     std::map<std::string, std::vector<std::shared_ptr<FunctionType>>> methodOverloads;
     std::vector<std::shared_ptr<Type>> typeArguments;
 
+    // Call signatures for hybrid types (callable interfaces)
+    std::vector<std::shared_ptr<FunctionType>> callSignatures;
+    std::vector<std::shared_ptr<FunctionType>> constructSignatures;
+
     InterfaceType(std::string n) : Type(TypeKind::Interface), name(n) {}
+
+    // Check if this interface is callable (has call signatures)
+    bool isCallable() const { return !callSignatures.empty(); }
+    bool isConstructable() const { return !constructSignatures.empty(); }
+
+    // Get the primary call signature (for single-signature cases)
+    std::shared_ptr<FunctionType> getCallSignature() const {
+        return callSignatures.empty() ? nullptr : callSignatures[0];
+    }
 
     bool isAssignableTo(std::shared_ptr<Type> other) override;
 

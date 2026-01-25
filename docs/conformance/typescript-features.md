@@ -56,7 +56,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Indexable types | ✅ | Classes and interfaces with [key: string]: T |
 | Class implementing interface | ✅ | |
 | Interface extending interface | 🔬 | Type-only |
-| Hybrid types | ⚠️ | |
+| Hybrid types | ✅ | Callable interfaces with call signatures |
 
 ## 4. Type Aliases
 
@@ -303,7 +303,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 |----------|-------------|---------|-----------------|-----------|-----|
 | Basic Types | 14 | 0 | 0 | 2 | 0 |
 | Variable Declarations | 6 | 0 | 0 | 0 | 0 |
-| Interfaces | 5 | 1 | 0 | 4 | 0 |
+| Interfaces | 6 | 0 | 0 | 4 | 0 |
 | Type Aliases | 0 | 0 | 0 | 5 | 0 |
 | Classes | 19 | 0 | 0 | 1 | 0 |
 | Functions | 11 | 0 | 0 | 0 | 0 |
@@ -323,8 +323,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 0 | 0 | 2 |
 | Triple-Slash | 3 | 0 | 0 | 0 | 1 |
 | Type Assertions | 4 | 0 | 0 | 0 | 0 |
-| **TOTAL** | **116** | **2** | **0** | **43** | **12** |
+| **TOTAL** | **117** | **1** | **0** | **43** | **12** |
 
-**Conformance: 116/118 runtime features (98%)**
+**Conformance: 117/118 runtime features (99%)**
 
 Note: 43 features are type-only (erased at compile time) and 12 features are N/A (legacy patterns or incompatible with AOT).

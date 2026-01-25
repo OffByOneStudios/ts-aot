@@ -15,6 +15,8 @@ namespace ast {
     NodePtr parseNode(const nlohmann::json& j);
     std::unique_ptr<Parameter> parseParameter(const nlohmann::json& j);
     std::unique_ptr<TypeParameter> parseTypeParameter(const nlohmann::json& j);
+    std::unique_ptr<CallSignature> parseCallSignature(const nlohmann::json& j);
+    std::unique_ptr<ConstructSignature> parseConstructSignature(const nlohmann::json& j);
     void parseDecorators(std::vector<Decorator>& decorators, const nlohmann::json& j);
     void setLocation(Node* node, const nlohmann::json& j);
 

@@ -272,6 +272,37 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
         }
     }
 
+    // Handle callable interfaces (hybrid types) - interfaces with call signatures
+    // Treat like a function call using ts_call_N
+    if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Interface) {
+        auto inter = std::static_pointer_cast<InterfaceType>(node->callee->inferredType);
+        if (inter->isCallable()) {
+            visit(node->callee.get());
+            llvm::Value* callee = boxValue(lastValue, node->callee->inferredType);
+
+            std::vector<llvm::Value*> args;
+            args.push_back(callee);
+
+            std::vector<llvm::Type*> paramTypes;
+            paramTypes.push_back(builder->getPtrTy()); // func
+
+            for (auto& arg : node->arguments) {
+                visit(arg.get());
+                args.push_back(boxValue(lastValue, arg->inferredType));
+                paramTypes.push_back(builder->getPtrTy());
+            }
+
+            std::string fnName = "ts_call_" + std::to_string(node->arguments.size());
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder->getPtrTy(), paramTypes, false);
+            llvm::FunctionCallee fn = getRuntimeFunction(fnName, ft);
+
+            lastValue = createCall(ft, fn.getCallee(), args);
+            boxedValues.insert(lastValue);
+            lastValue = unboxValue(lastValue, node->inferredType);
+            return;
+        }
+    }
+
     if (node->callee->inferredType && node->callee->inferredType->kind == TypeKind::Any) {
         // If this callee ultimately resolves to a named function specialization, prefer
         // a direct call (stable ABI, avoids ts_call_N wrappers).

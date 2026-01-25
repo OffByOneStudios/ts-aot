@@ -348,6 +348,22 @@ function visitInternal(node) {
                 valueType: node.type ? node.type.getText(currentSourceFile) : "any",
                 isReadonly: isReadonly(node)
             };
+        case ts.SyntaxKind.CallSignature:
+            // (): returnType - makes interface callable
+            return {
+                kind: "CallSignature",
+                typeParameters: getTypeParameters(node),
+                parameters: node.parameters.map(visitParameter),
+                returnType: node.type ? node.type.getText(currentSourceFile) : ""
+            };
+        case ts.SyntaxKind.ConstructSignature:
+            // new(): returnType - makes interface constructable
+            return {
+                kind: "ConstructSignature",
+                typeParameters: getTypeParameters(node),
+                parameters: node.parameters.map(visitParameter),
+                returnType: node.type ? node.type.getText(currentSourceFile) : ""
+            };
         case ts.SyntaxKind.MethodDeclaration:
         case ts.SyntaxKind.MethodSignature:
         case ts.SyntaxKind.GetAccessor:

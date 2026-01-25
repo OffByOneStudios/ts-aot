@@ -453,6 +453,20 @@ struct ClassDeclaration : Statement {
     void accept(Visitor* visitor) override { visitor->visitClassDeclaration(this); }
 };
 
+// Call signature for hybrid types: interface Foo { (): number; }
+struct CallSignature {
+    std::vector<std::unique_ptr<TypeParameter>> typeParameters;
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    std::string returnType;
+};
+
+// Construct signature for hybrid types: interface Foo { new(): Foo; }
+struct ConstructSignature {
+    std::vector<std::unique_ptr<TypeParameter>> typeParameters;
+    std::vector<std::unique_ptr<Parameter>> parameters;
+    std::string returnType;
+};
+
 struct InterfaceDeclaration : Statement {
     std::string name;
     bool isExported = false;
@@ -460,6 +474,8 @@ struct InterfaceDeclaration : Statement {
     std::vector<std::string> baseInterfaces;
     std::vector<std::unique_ptr<TypeParameter>> typeParameters;
     std::vector<NodePtr> members; // PropertyDefinition or MethodDefinition
+    std::vector<std::unique_ptr<CallSignature>> callSignatures;  // Hybrid type call signatures
+    std::vector<std::unique_ptr<ConstructSignature>> constructSignatures;  // Hybrid type construct signatures
     std::string getKind() const override { return "InterfaceDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitInterfaceDeclaration(this); }
 };

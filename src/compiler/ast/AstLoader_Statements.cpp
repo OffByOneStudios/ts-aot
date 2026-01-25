@@ -64,7 +64,14 @@ StmtPtr parseStatement(const json& j) {
             }
         }
         for (const auto& member : j["members"]) {
-            node->members.push_back(parseClassMember(member));
+            std::string memberKind = member["kind"].get<std::string>();
+            if (memberKind == "CallSignature") {
+                node->callSignatures.push_back(parseCallSignature(member));
+            } else if (memberKind == "ConstructSignature") {
+                node->constructSignatures.push_back(parseConstructSignature(member));
+            } else {
+                node->members.push_back(parseClassMember(member));
+            }
         }
         return node;
     } else if (kind == "FunctionDeclaration") {
