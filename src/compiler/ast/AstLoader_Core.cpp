@@ -109,6 +109,42 @@ std::unique_ptr<Parameter> parseParameter(const json& j) {
     return node;
 }
 
+std::unique_ptr<CallSignature> parseCallSignature(const json& j) {
+    auto sig = std::make_unique<CallSignature>();
+    if (j.contains("typeParameters")) {
+        for (const auto& tp : j["typeParameters"]) {
+            sig->typeParameters.push_back(parseTypeParameter(tp));
+        }
+    }
+    if (j.contains("parameters")) {
+        for (const auto& param : j["parameters"]) {
+            sig->parameters.push_back(parseParameter(param));
+        }
+    }
+    if (j.contains("returnType") && !j["returnType"].is_null()) {
+        sig->returnType = j["returnType"].get<std::string>();
+    }
+    return sig;
+}
+
+std::unique_ptr<ConstructSignature> parseConstructSignature(const json& j) {
+    auto sig = std::make_unique<ConstructSignature>();
+    if (j.contains("typeParameters")) {
+        for (const auto& tp : j["typeParameters"]) {
+            sig->typeParameters.push_back(parseTypeParameter(tp));
+        }
+    }
+    if (j.contains("parameters")) {
+        for (const auto& param : j["parameters"]) {
+            sig->parameters.push_back(parseParameter(param));
+        }
+    }
+    if (j.contains("returnType") && !j["returnType"].is_null()) {
+        sig->returnType = j["returnType"].get<std::string>();
+    }
+    return sig;
+}
+
 NodePtr parseNode(const json& j) {
     if (j.is_null()) return nullptr;
     if (j.is_string()) {

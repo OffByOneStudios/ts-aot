@@ -590,6 +590,19 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    // Handle callable interfaces (hybrid types) - interfaces with call signatures
+    if (calleeType->kind == TypeKind::Interface) {
+        auto inter = std::static_pointer_cast<InterfaceType>(calleeType);
+        if (inter->isCallable()) {
+            auto callSig = inter->getCallSignature();
+            if (callSig) {
+                lastType = callSig->returnType ? callSig->returnType : std::make_shared<Type>(TypeKind::Void);
+                node->inferredType = lastType;
+                return;
+            }
+        }
+    }
+
     if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
         calleeName = id->name;
     } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {

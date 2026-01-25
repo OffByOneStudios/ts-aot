@@ -384,6 +384,35 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
             interfaceType->methodOverloads[method->name].push_back(methodType);
         }
     }
+
+    // Process call signatures for hybrid types
+    for (const auto& callSig : node->callSignatures) {
+        auto funcType = std::make_shared<FunctionType>();
+        if (!callSig->returnType.empty()) {
+            funcType->returnType = parseType(callSig->returnType, symbols);
+        } else {
+            funcType->returnType = std::make_shared<Type>(TypeKind::Void);
+        }
+        for (const auto& param : callSig->parameters) {
+            funcType->paramTypes.push_back(parseType(param->type, symbols));
+        }
+        interfaceType->callSignatures.push_back(funcType);
+    }
+
+    // Process construct signatures for hybrid types
+    for (const auto& constructSig : node->constructSignatures) {
+        auto funcType = std::make_shared<FunctionType>();
+        if (!constructSig->returnType.empty()) {
+            funcType->returnType = parseType(constructSig->returnType, symbols);
+        } else {
+            funcType->returnType = interfaceType;  // Default to the interface type itself
+        }
+        for (const auto& param : constructSig->parameters) {
+            funcType->paramTypes.push_back(parseType(param->type, symbols));
+        }
+        interfaceType->constructSignatures.push_back(funcType);
+    }
+
     symbols.exitScope();
 }
 

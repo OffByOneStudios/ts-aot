@@ -54,13 +54,13 @@ cmake --build build --target ts-aot --config Release
 # Build runtime
 cmake --build build --target tsruntime --config Release
 
-# Compile and run test
-build/src/compiler/Release/ts-aot.exe examples/test.ts -o examples/test.exe
-./examples/test.exe
+# Compile and run test (use tmp/ for ad-hoc testing, NOT examples/)
+build/src/compiler/Release/ts-aot.exe tmp/test.ts -o tmp/test.exe
+./tmp/test.exe
 
 # Debug type inference
-build/src/compiler/Release/ts-aot.exe examples/test.ts --dump-types
+build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-types
 
 # Debug generated IR
-build/src/compiler/Release/ts-aot.exe examples/test.ts --dump-ir
+build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-ir
 ```

@@ -3,9 +3,24 @@ paths: examples/**/*.ts
 priority: medium
 ---
 
-# TypeScript Test File Conventions
+# TypeScript File Conventions
 
-Guidelines for writing TypeScript test files in the `examples/` directory.
+Guidelines for writing TypeScript files in this project.
+
+## CRITICAL: File Location Rules
+
+**⛔ NEVER create test files or debug scripts in `examples/`**
+
+| File Type | Location | Purpose |
+|-----------|----------|---------|
+| Temporary tests | `tmp/` | Ad-hoc testing, debugging, reproduction scripts |
+| Debug scripts | `tmp/` | Crash investigation, minimal reproductions |
+| Benchmarks | `examples/benchmarks/` | Performance comparison suite |
+| Production templates | `examples/production/` | Real-world application patterns |
+| Conformance tests | `tests/node/` | Node.js API conformance tests |
+| Golden IR tests | `tests/golden_ir/` | Compiler regression tests |
+
+The `examples/` directory is **reserved** for polished, production-ready code that demonstrates ts-aot capabilities. It is NOT a scratch pad for testing.
 
 ## Entry Point
 
@@ -277,37 +292,46 @@ See `tests/golden_ir/` for examples.
 ## File Organization
 
 ```
-examples/
-├── simple/              # Basic feature tests
-│   ├── hello.ts
-│   ├── math.ts
-│   └── loops.ts
-├── arrays/              # Array method tests
-├── objects/             # Object feature tests
-├── classes/             # Class tests
-├── async/               # Promise/async tests
-├── node/                # Node.js API tests
-│   ├── http_server.ts
-│   ├── file_read.ts
-│   └── tcp_client.ts
-└── module_test/         # Module import tests
+examples/                    # Production-ready examples ONLY
+├── benchmarks/             # Performance benchmarks
+│   ├── harness/           # Benchmark utilities
+│   ├── startup/           # Startup time benchmarks
+│   ├── compute/           # CPU-intensive benchmarks
+│   ├── io/                # I/O benchmarks
+│   └── memory/            # Memory allocation benchmarks
+└── production/            # Production-ready templates
+    ├── api-server/        # REST API server
+    ├── cli-app/           # Command-line application
+    ├── worker/            # Background job processor
+    └── data-processor/    # ETL data pipeline
+
+tmp/                        # Temporary files (gitignored)
+├── test.ts                # Ad-hoc test files
+├── debug_*.ts             # Debug scripts
+└── repro_*.ts             # Bug reproductions
+
+tests/                      # Formal test suites
+├── node/                  # Node.js API conformance tests
+└── golden_ir/             # Compiler regression tests
 ```
+
+**Remember:** When debugging or testing, use `tmp/` - NEVER `examples/`.
 
 ## Debugging Tips
 
 **Dump inferred types:**
 ```bash
-build/src/compiler/Release/ts-aot.exe examples/test.ts --dump-types
+build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-types
 ```
 
 **Dump generated IR:**
 ```bash
-build/src/compiler/Release/ts-aot.exe examples/test.ts --dump-ir
+build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-ir
 ```
 
 **Analyze crashes:**
 ```powershell
-.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
+.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath tmp\test.exe
 ```
 
 ## Performance Considerations

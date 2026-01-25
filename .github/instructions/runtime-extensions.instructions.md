@@ -257,6 +257,6 @@ TsValue* ts_object_get_property(void* obj, void* key) {
 
 1. Build runtime: `cmake --build build --target tsruntime --config Release`
 2. Build compiler: `cmake --build build --target ts-aot --config Release`
-3. Create a test file in `examples/`
-4. Compile: `build/src/compiler/Release/ts-aot.exe examples/test.ts -o examples/test.exe`
-5. Run: `.\examples\test.exe`
+3. Create a test file in `tmp/`
+4. Compile: `build/src/compiler/Release/ts-aot.exe tmp/test.ts -o tmp/test.exe`
+5. Run: `.\tmp\test.exe`

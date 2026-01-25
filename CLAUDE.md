@@ -63,7 +63,10 @@ src/
 ├── runtime/           # Target runtime (linked into generated code)
 │   ├── include/       # Runtime headers
 │   └── src/           # Runtime implementation
-examples/              # Test programs
+examples/              # Production-ready examples and benchmarks ONLY
+├── benchmarks/        # Performance comparison suite
+└── production/        # Real-world application templates
+tmp/                   # Temporary test/debug files (use this for ad-hoc testing!)
 tests/
 ├── node/             # Node.js API tests (.ts and .js)
 └── golden_ir/        # Golden IR regression tests
@@ -75,6 +78,20 @@ docs/
 │   └── archive/      # Completed tickets
 └── archive/          # Archived phase documentation
 ```
+
+## ⛔ CRITICAL: File Location Rules
+
+**NEVER create test files or debug scripts in `examples/`**
+
+| File Type | Correct Location |
+|-----------|------------------|
+| Temporary tests, debug scripts | `tmp/` |
+| Bug reproductions | `tmp/` |
+| Benchmarks | `examples/benchmarks/` |
+| Production templates | `examples/production/` |
+| Conformance tests | `tests/node/` or `tests/golden_ir/` |
+
+The `examples/` directory is reserved for polished, production-ready code only.
 
 ## Core Development Workflow
 
@@ -101,7 +118,7 @@ See @.github/instructions/conformance-workflow.instructions.md for detailed step
 4. **Implement:** Write code following technical constraints
 5. **Build:** `cmake --build build --config Release` (ALWAYS build ALL targets)
 6. **Verify:**
-   - Run compiler: `build/src/compiler/Release/ts-aot.exe examples/test.ts -o examples/test.exe`
+   - Run compiler: `build/src/compiler/Release/ts-aot.exe tmp/test.ts -o tmp/test.exe`
    - Debug crashes: Use `/auto-debug` skill
    - Check types: Use `--dump-types` flag
    - Run tests: `python tests/node/run_tests.py` and `python tests/golden_ir/runner.py`
