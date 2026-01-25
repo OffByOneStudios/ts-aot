@@ -111,6 +111,10 @@ public:
     // Module resolution for JSON imports (public for codegen access)
     ResolvedModule resolveModule(const std::string& specifier);
 
+    // Get/set current file path (for module resolution context in codegen)
+    const std::string& getCurrentFilePath() const { return currentFilePath; }
+    void setCurrentFilePath(const std::string& path) { currentFilePath = path; }
+
 private:
     SymbolTable symbols;
     std::shared_ptr<Type> lastType; // Result of the last visited expression
