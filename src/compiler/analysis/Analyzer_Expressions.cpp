@@ -88,8 +88,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         } else if (prop->name == "normalize") {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
-        } else if (prop->name == "sort") {
-             lastType = std::make_shared<Type>(TypeKind::Void);
+        } else if (prop->name == "sort" || prop->name == "reverse") {
+             // sort() and reverse() return the same array (for chaining)
+             visit(prop->expression.get());
+             // lastType now holds the array type
              return;
         } else if (prop->name == "slice") {
              visit(prop->expression.get());

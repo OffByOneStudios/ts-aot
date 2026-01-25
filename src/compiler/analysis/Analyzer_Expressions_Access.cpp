@@ -279,9 +279,10 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             unshiftFn->returnType = std::make_shared<Type>(TypeKind::Void);
             lastType = unshiftFn;
             return;
-        } else if (node->name == "sort") {
+        } else if (node->name == "sort" || node->name == "reverse") {
+            // sort() and reverse() return the same array (for chaining)
             auto sortFn = std::make_shared<FunctionType>();
-            sortFn->returnType = std::make_shared<Type>(TypeKind::Void);
+            sortFn->returnType = objType;
             lastType = sortFn;
             return;
         } else if (node->name == "indexOf") {
