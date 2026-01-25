@@ -901,7 +901,17 @@ llvm::Value* IRGenerator::generateJsonValue(const nlohmann::json& j) {
 void IRGenerator::visitImportDeclaration(ast::ImportDeclaration* node) {
     // Check if this is a JSON module import
     if (analyzer) {
+        // Set the correct file context for module resolution
+        auto oldFilePath = analyzer->getCurrentFilePath();
+        if (!currentModulePath.empty()) {
+            analyzer->setCurrentFilePath(currentModulePath);
+        }
+
         ResolvedModule resolved = analyzer->resolveModule(node->moduleSpecifier);
+
+        // Restore original context
+        analyzer->setCurrentFilePath(oldFilePath);
+
         if (resolved.isValid() && resolved.type == ModuleType::JSON) {
             // Find the module with JSON content
             auto it = analyzer->modules.find(resolved.path);

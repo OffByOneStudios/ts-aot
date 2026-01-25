@@ -46,6 +46,7 @@ private:
     std::shared_ptr<Type> currentReturnType;
     Analyzer* analyzer = nullptr;
     std::string currentSourceFile;
+    std::string currentModulePath;  // Path of the module currently being generated (for resolveModule context)
     std::string optLevel = "0";
     std::string runtimeBitcodePath;
     bool verbose = false;

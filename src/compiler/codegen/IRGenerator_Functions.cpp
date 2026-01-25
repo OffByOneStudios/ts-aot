@@ -518,6 +518,11 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                     std::string initName = "__module_init_" + std::to_string(std::hash<std::string>{}(path));
                     // The specializedName has a type suffix like "_any", so check if it starts with initName
                     if (spec.specializedName.starts_with(initName) && mod->ast) {
+                        // Set the current module path for correct import resolution
+                        currentModulePath = path;
+                        auto oldFilePath = analyzer->getCurrentFilePath();
+                        analyzer->setCurrentFilePath(path);
+
                         // Process ImportDeclarations for JSON modules
                         for (auto& stmt : mod->ast->body) {
                             if (auto importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get())) {
@@ -543,6 +548,8 @@ void IRGenerator::generateBodies(const std::vector<Specialization>& specializati
                                 }
                             }
                         }
+                        // Restore the original file path
+                        analyzer->setCurrentFilePath(oldFilePath);
                         break;
                     }
                 }

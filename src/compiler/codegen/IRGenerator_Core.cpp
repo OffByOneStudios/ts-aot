@@ -45,6 +45,7 @@ void IRGenerator::generate(ast::Program* program, const std::vector<Specializati
     this->specializations = specializations;
     this->analyzer = &analyzer;
     this->currentSourceFile = sourceFile;
+    this->currentModulePath = std::filesystem::absolute(sourceFile).string();  // Default to main module
     concreteTypes.clear();
     lastConcreteType = nullptr;
 
