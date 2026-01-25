@@ -190,20 +190,77 @@ ts-aot examples/path/to/example.ts -o example.exe
 ts-aot examples/path/to/example.ts -o example.exe -g
 ```
 
-## Expected Performance Characteristics
+## Benchmark Results
+
+Benchmarks run on Windows x64. Times in milliseconds (lower is better).
+
+### Cold Start
+
+| Runtime | Time (avg) | Speedup |
+|---------|------------|---------|
+| ts-aot  | 16ms       | **2.0x** |
+| Node.js | 31ms       | 1.0x    |
+
+ts-aot starts **2x faster** than Node.js for minimal programs.
+
+### Compute: Fibonacci
+
+| Benchmark | ts-aot | Node.js | Winner |
+|-----------|--------|---------|--------|
+| Recursive fib(35) | 36ms | 60ms | **ts-aot 1.7x** |
+| Iterative fib(1000) x10000 | 8ms | 7ms | Node.js 1.1x |
+
+ts-aot excels at recursive function calls.
+
+### Array Operations (n=100,000)
+
+| Operation | ts-aot | Node.js | Winner |
+|-----------|--------|---------|--------|
+| push | 1ms | 3ms | **ts-aot 3x** |
+| map | 8ms | 1ms | Node.js 8x |
+| filter | 15ms | 1ms | Node.js 15x |
+| reduce | 3ms | 1ms | Node.js 3x |
+
+V8's array optimizations outperform ts-aot on map/filter/reduce.
+
+### String Operations (n=10,000)
+
+| Operation | ts-aot | Node.js | Winner |
+|-----------|--------|---------|--------|
+| concat | 105ms | 0ms | Node.js |
+| template literals | 15ms | 1ms | Node.js 15x |
+| string methods x10 | 65ms | 3ms | Node.js 22x |
+
+V8's string rope optimization gives Node.js a significant advantage.
+
+### Summary
+
+| Category | ts-aot Advantage |
+|----------|------------------|
+| **Cold Start** | 2x faster |
+| **Recursive Compute** | 1.7x faster |
+| **Array/String Ops** | Node.js faster (JIT optimizations) |
+
+**Best use cases for ts-aot:**
+- CLI tools and scripts (startup-dominated)
+- Serverless functions (cold start matters)
+- CPU-bound recursive algorithms
+- Applications requiring predictable performance
+
+## Performance Characteristics
 
 ### AOT Advantages
 
-1. **Cold Start**: 10-50x faster startup (no JIT warmup)
+1. **Cold Start**: 2x faster startup (no JIT warmup)
 2. **Short-lived Processes**: CLIs, lambdas, scripts
 3. **Predictable Performance**: No JIT tier compilation
-4. **Memory Footprint**: Often smaller than Node.js
+4. **Recursive Computation**: No trampoline overhead
 
-### Where Node.js May Be Faster
+### Where Node.js Is Faster
 
-1. **Long-running Compute**: JIT can optimize hot paths
-2. **Highly Dynamic Code**: Heavy use of `any` types
-3. **Very Large Applications**: Complex optimization takes time
+1. **Array Operations**: V8's optimized array internals
+2. **String Operations**: V8's rope and inline caching
+3. **Long-running Compute**: JIT can specialize hot paths
 
 ### Best Use Cases for ts-aot
 
