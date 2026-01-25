@@ -20,11 +20,15 @@ struct Module {
     bool analyzed = false;
     bool isAsync = false;
     bool isJsonModule = false;
-    
+
     // For JSON modules: the parsed JSON content
     std::optional<nlohmann::json> jsonContent;
 
-    Module() : exports(std::make_shared<SymbolTable>()) {}
+    // All module-level symbols (including non-exported ones).
+    // Used to restore scope when re-analyzing function bodies during monomorphization.
+    std::shared_ptr<SymbolTable> moduleSymbols;
+
+    Module() : exports(std::make_shared<SymbolTable>()), moduleSymbols(std::make_shared<SymbolTable>()) {}
 };
 
 } // namespace ts

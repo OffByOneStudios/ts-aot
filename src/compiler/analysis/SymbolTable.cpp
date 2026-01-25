@@ -59,6 +59,14 @@ const std::unordered_map<std::string, std::shared_ptr<Symbol>>& SymbolTable::get
     return scopes.front();
 }
 
+const std::unordered_map<std::string, std::shared_ptr<Symbol>>& SymbolTable::getCurrentScopeSymbols() const {
+    return scopes.back();
+}
+
+const std::unordered_map<std::string, std::shared_ptr<Type>>& SymbolTable::getCurrentScopeTypes() const {
+    return typeScopes.back();
+}
+
 bool SymbolTable::defineGlobalType(const std::string& name, std::shared_ptr<Type> type) {
     if (typeScopes.empty()) return false;
     SPDLOG_DEBUG("Defining global type: {}", name);

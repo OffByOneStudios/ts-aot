@@ -70,7 +70,6 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
         } else if (type) {
             lastType = type;
         } else {
-            SPDLOG_ERROR("Failed to find identifier: {}", node->name);
             reportError("Undefined variable " + node->name);
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
