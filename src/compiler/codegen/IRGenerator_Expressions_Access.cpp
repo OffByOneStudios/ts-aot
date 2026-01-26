@@ -1094,6 +1094,14 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         }
         
         if (node->expression->inferredType->kind == TypeKind::String) {
+            // ⚠️ CRITICAL: Always call ts_value_get_object for String types.
+            // The string might be boxed (e.g., captured in a closure via cell variable) but not tracked
+            // in boxedValues. ts_value_get_object is idempotent for raw pointers.
+            if (obj->getType()->isPointerTy()) {
+                llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+                llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
+                obj = createCall(getObjFt, getObjFn.getCallee(), { obj });
+            }
             llvm::StructType* tsStringType = llvm::StructType::getTypeByName(*context, "TsString");
             llvm::Value* lengthPtr = builder->CreateStructGEP(tsStringType, obj, 1);
             llvm::LoadInst* length = builder->CreateLoad(llvm::Type::getInt32Ty(*context), lengthPtr);

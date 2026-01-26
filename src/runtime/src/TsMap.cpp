@@ -502,7 +502,9 @@ static TsValue __ts_value_from_scalars(uint8_t type, int64_t value) {
 // Returns: bucket index (>= 0) if found, -1 if not found
 // Also sets *out_map to the TsMap* where the key was found (needed for prototype chain)
 int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val) {
-    if (!map) return -1;
+    if (!map) {
+        return -1;
+    }
 
     // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
@@ -626,7 +628,12 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
     std::advance(it, actualBucketIdx);
 
     *out_type = (uint8_t)it->second.type;
-    *out_value = it->second.i_val;
+    // For NUMBER_DBL, the value is in d_val, not i_val - need to bit-cast
+    if (it->second.type == ValueType::NUMBER_DBL) {
+        std::memcpy(out_value, &it->second.d_val, sizeof(double));
+    } else {
+        *out_value = it->second.i_val;
+    }
 }
 
 // Set value at key (insert or update)

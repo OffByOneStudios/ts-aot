@@ -433,7 +433,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 v->type == ValueType::PROMISE_PTR ||
                 v->type == ValueType::FUNCTION_PTR ||
                 v->type == ValueType::BIGINT_PTR ||
-                v->type == ValueType::SYMBOL_PTR) {
+                v->type == ValueType::SYMBOL_PTR ||
+                v->type == ValueType::STRING_PTR) {  // Also extract STRING_PTR for string values
                 return v->ptr_val;
             }
             // It's a TsValue but not an object type (e.g., int, bool, undefined)
@@ -448,8 +449,8 @@ TsValue* ts_value_make_int(int64_t i) {
             magic == 0x53455453) { // TsSet::MAGIC
             return v;
         }
-        if (magic == 0x53545247) { // TsString::MAGIC - not an object
-            return nullptr;
+        if (magic == 0x53545247) { // TsString::MAGIC - return the string pointer
+            return v;  // TsString* is already "unboxed", return as-is
         }
 
         // Check offset 8 for objects with different layout
@@ -2451,7 +2452,9 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         void* rawObj = ts_value_get_object(obj);
-        if (!rawObj) return ts_value_make_undefined();
+        if (!rawObj) {
+            return ts_value_make_undefined();
+        }
 
         // Check magic at offset 0 first (TsArray has magic at offset 0)
         // Note: ARRAY_PTR is handled early above, but this catches raw array pointers

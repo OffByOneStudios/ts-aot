@@ -420,14 +420,16 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
              }
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
+             node->inferredType = lastType;
              return;
         }
-        
+
         // Check for Math methods
         if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
             if (obj->name == "Math") {
                 if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round" || prop->name == "clz32" || prop->name == "imul") {
                     lastType = std::make_shared<Type>(TypeKind::Int);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random" ||
                            prop->name == "log10" || prop->name == "log2" || prop->name == "log1p" ||
@@ -436,27 +438,33 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                            prop->name == "atanh" || prop->name == "cbrt" || prop->name == "hypot" ||
                            prop->name == "trunc" || prop->name == "fround") {
                     lastType = std::make_shared<Type>(TypeKind::Double);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "JSON") {
                 if (prop->name == "parse") {
                     lastType = std::make_shared<Type>(TypeKind::Any);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "stringify") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "process") {
                 if (prop->name == "cwd") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "exit") {
                     lastType = std::make_shared<Type>(TypeKind::Void);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "crypto") {
                 if (prop->name == "md5") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "Object") {

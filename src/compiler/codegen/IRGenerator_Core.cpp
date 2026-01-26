@@ -2,6 +2,7 @@
 #include <fmt/core.h>
 #include <filesystem>
 #include <set>
+#include <iostream>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 
@@ -1251,7 +1252,13 @@ void IRGenerator::collectVariables(ast::Node* node, std::vector<VariableInfo>& v
 
     if (auto decl = dynamic_cast<ast::VariableDeclaration*>(node)) {
         if (auto id = dynamic_cast<ast::Identifier*>(decl->name.get())) {
-            vars.push_back({id->name, decl->resolvedType, getLLVMType(decl->resolvedType)});
+            auto llvmType = getLLVMType(decl->resolvedType);
+            llvm::errs() << "DBG collectVariables: " << id->name
+                         << " -> type=" << (decl->resolvedType ? decl->resolvedType->toString() : "null")
+                         << ", kind=" << (decl->resolvedType ? (int)decl->resolvedType->kind : -1)
+                         << ", llvmType=" << (llvmType ? (llvmType->isPointerTy() ? "ptr" : (llvmType->isIntegerTy() ? "int" : "other")) : "null")
+                         << "\n";
+            vars.push_back({id->name, decl->resolvedType, llvmType});
         } else if (auto obp = dynamic_cast<ast::ObjectBindingPattern*>(decl->name.get())) {
             for (auto& elem : obp->elements) {
                 if (auto bindingElem = dynamic_cast<ast::BindingElement*>(elem.get())) {
@@ -2493,10 +2500,11 @@ llvm::Value* IRGenerator::unboxValue(llvm::Value* val, std::shared_ptr<Type> typ
     // If it's not a pointer, it's already unboxed (primitive)
     if (!val->getType()->isPointerTy()) return val;
 
-    // For Object/Array/Map/Set/Tuple/BigInt/Symbol types, ALWAYS unbox
+    // For Object/Interface/Class/Array/Map/Set/Tuple/BigInt/Symbol types, ALWAYS unbox
     // These can be loaded from globals/allocas that store boxed values
     // ts_value_get_object is safe to call even if already unboxed
     if (type->kind == TypeKind::Object || type->kind == TypeKind::Intersection ||
+        type->kind == TypeKind::Interface || type->kind == TypeKind::Class ||
         type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::SetType ||
         type->kind == TypeKind::Tuple || type->kind == TypeKind::BigInt || type->kind == TypeKind::Symbol) {
         llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
@@ -3007,8 +3015,9 @@ void IRGenerator::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     
     // Pre-pass: Hoist function declarations (JavaScript hoisting behavior)
     hoistFunctionDeclarations(node->body, function);
-    
+
     // Pre-pass: Hoist variable declarations for closure capture
+    llvm::errs() << "DBG: About to call hoistVariableDeclarations for " << node->name << " with " << node->body.size() << " statements\n";
     hoistVariableDeclarations(node->body, function);
     
     // Visit function body

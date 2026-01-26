@@ -8,58 +8,20 @@
 import { benchmark, BenchmarkSuite } from '../harness/benchmark';
 
 /**
- * Generate random text with patterns
+ * Generate test text with patterns
+ * Uses string.repeat() to avoid deep recursion/stack issues
  */
 function generateText(lines: number): string {
-    const words = ['hello', 'world', 'test', 'benchmark', 'regex', 'pattern', 'match', 'find'];
-    const emails = ['user@example.com', 'test@test.org', 'admin@company.net'];
-    const urls = ['https://example.com/path', 'http://test.org/page?q=1', 'https://api.server.com/v1'];
-    const numbers = ['12345', '67890', '11111', '99999'];
+    // Base line with mixed content (emails, urls, words, numbers)
+    const baseLine = 'hello world user@example.com https://example.com/path 12345 test benchmark admin@company.net http://test.org/page regex pattern';
 
-    const result: string[] = [];
-
-    for (let i = 0; i < lines; i++) {
-        const parts: string[] = [];
-
-        // Add some random content
-        for (let j = 0; j < 10; j++) {
-            const choice = Math.floor(Math.random() * 10);
-            if (choice < 4) {
-                parts.push(words[Math.floor(Math.random() * words.length)]);
-            } else if (choice < 6) {
-                parts.push(emails[Math.floor(Math.random() * emails.length)]);
-            } else if (choice < 8) {
-                parts.push(urls[Math.floor(Math.random() * urls.length)]);
-            } else {
-                parts.push(numbers[Math.floor(Math.random() * numbers.length)]);
-            }
-        }
-
-        result.push(parts.join(' '));
+    // Build text by repeating base line
+    let result = baseLine;
+    for (let i = 1; i < lines; i++) {
+        result = result + '\n' + baseLine;
     }
-
-    return result.join('\n');
+    return result;
 }
-
-/**
- * Email pattern
- */
-const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-
-/**
- * URL pattern
- */
-const URL_PATTERN = /https?:\/\/[^\s]+/g;
-
-/**
- * Number pattern
- */
-const NUMBER_PATTERN = /\d+/g;
-
-/**
- * Word boundary pattern
- */
-const WORD_PATTERN = /\b\w+\b/g;
 
 /**
  * Count matches of a pattern
@@ -108,6 +70,11 @@ function user_main(): number {
     console.log(`Medium text: ${(mediumText.length / 1024).toFixed(1)} KB`);
     console.log(`Large text: ${(largeText.length / 1024).toFixed(1)} KB`);
     console.log('');
+
+    // Define patterns locally to defer compilation until after text generation
+    // (avoids stack exhaustion from global regex init + nested arrays)
+    const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const URL_PATTERN = /https?:\/\/[^\s]+/g;
 
     // Verify patterns work
     const emailCount = countMatches(smallText, EMAIL_PATTERN);

@@ -26,6 +26,7 @@ static TsValue json_to_ts(const json& j) {
     }
     if (j.is_string()) {
         TsValue v;
+        std::memset(&v, 0, sizeof(TsValue));  // Zero-initialize including padding
         v.type = ValueType::STRING_PTR;
         v.ptr_val = TsString::Create(j.get<std::string>().c_str());
         return v;
@@ -36,11 +37,15 @@ static TsValue json_to_ts(const json& j) {
             TsValue val = json_to_ts(element);
             int64_t raw = 0;
             if (val.type == ValueType::NUMBER_INT) raw = val.i_val;
-            else if (val.type == ValueType::NUMBER_DBL) raw = val.i_val;
+            else if (val.type == ValueType::NUMBER_DBL) {
+                // Bit-cast double to int64_t for storage in array
+                std::memcpy(&raw, &val.d_val, sizeof(double));
+            }
             else raw = (int64_t)val.ptr_val;
             arr->Push(raw);
         }
         TsValue v;
+        std::memset(&v, 0, sizeof(TsValue));  // Zero-initialize including padding
         v.type = ValueType::ARRAY_PTR;
         v.ptr_val = arr;
         return v;
@@ -51,6 +56,7 @@ static TsValue json_to_ts(const json& j) {
             map->Set(TsString::Create(it.key().c_str()), json_to_ts(it.value()));
         }
         TsValue v;
+        std::memset(&v, 0, sizeof(TsValue));  // Zero-initialize including padding
         v.type = ValueType::OBJECT_PTR;
         v.ptr_val = map;
         return v;
@@ -173,8 +179,11 @@ extern "C" {
         try {
             nlohmann::json j = nlohmann::json::parse(s->ToUtf8());
             TsValue val = json_to_ts(j);
-            
+
             TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
+            // Zero-initialize to ensure padding bytes are zero
+            // This is required for ts_value_get_object's TsValue detection heuristic
+            std::memset(res, 0, sizeof(TsValue));
             *res = val;
             return res;
         } catch (...) {

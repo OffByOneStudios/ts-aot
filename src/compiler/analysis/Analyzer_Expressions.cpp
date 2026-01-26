@@ -57,99 +57,126 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
         if (prop->name == "charCodeAt") {
              lastType = std::make_shared<Type>(TypeKind::Int);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "charAt") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "split") {
              lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::String));
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "trim") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "substring") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "startsWith") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "includes") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "indexOf" || prop->name == "lastIndexOf") {
              lastType = std::make_shared<Type>(TypeKind::Int);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "toLowerCase") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "toUpperCase") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "normalize") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "sort" || prop->name == "reverse") {
              // sort() and reverse() return the same array (for chaining)
              visit(prop->expression.get());
              // lastType now holds the array type
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "slice") {
              visit(prop->expression.get());
              // lastType is now the type of the array, which is what slice returns
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "fill") {
              visit(prop->expression.get());
              // fill() returns the modified array
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "join") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "set") {
              lastType = std::make_shared<Type>(TypeKind::Void);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "get") {
              lastType = std::make_shared<Type>(TypeKind::Any);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "has") {
              lastType = std::make_shared<Type>(TypeKind::Boolean);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "toString") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         } else if (prop->name == "toFixed") {
              lastType = std::make_shared<Type>(TypeKind::String);
+             node->inferredType = lastType;
              return;
         }
-        
+
         // Check for Math methods
         if (auto obj = dynamic_cast<Identifier*>(prop->expression.get())) {
             if (obj->name == "Math") {
                 if (prop->name == "min" || prop->name == "max" || prop->name == "abs" || prop->name == "floor" || prop->name == "ceil" || prop->name == "round") {
                     lastType = std::make_shared<Type>(TypeKind::Int);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "sqrt" || prop->name == "pow" || prop->name == "random") {
                     lastType = std::make_shared<Type>(TypeKind::Double);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "JSON") {
                 if (prop->name == "parse") {
                     lastType = std::make_shared<Type>(TypeKind::Any);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "stringify") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "process") {
                 if (prop->name == "cwd") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 } else if (prop->name == "exit") {
                     lastType = std::make_shared<Type>(TypeKind::Void);
+                    node->inferredType = lastType;
                     return;
                 }
             } else if (obj->name == "crypto") {
                 if (prop->name == "md5") {
                     lastType = std::make_shared<Type>(TypeKind::String);
+                    node->inferredType = lastType;
                     return;
                 }
             }
