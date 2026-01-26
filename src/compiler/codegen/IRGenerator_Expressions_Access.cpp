@@ -1923,6 +1923,39 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
             }
             return;
         }
+
+        // Fallback for ClassTypes without struct layout (interfaces, anonymous objects from for...of loops)
+        // Use dynamic property access if we have field type information
+        if (classType->fields.count(fieldName)) {
+            SPDLOG_DEBUG("Dynamic access for ClassType without layout: {}.{}", className, fieldName);
+            visit(node->expression.get());
+            llvm::Value* obj = lastValue;
+            emitNullCheckForExpression(node->expression.get(), obj);
+
+            // NOTE: Do NOT unbox here. ts_object_get_dynamic expects a TsValue* (boxed)
+            // and handles unboxing internally. Premature unboxing causes the raw pointer
+            // to be misinterpreted as TsValue*, breaking property access.
+
+            // Use dynamic property access
+            llvm::Value* keyStr = builder->CreateGlobalStringPtr(node->name);
+            llvm::FunctionType* createStrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
+            llvm::FunctionCallee createStrFn = getRuntimeFunction("ts_string_create", createStrFt);
+            llvm::Value* key = createCall(createStrFt, createStrFn.getCallee(), { keyStr });
+            key = boxValue(key, std::make_shared<Type>(TypeKind::String));
+
+            llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
+            llvm::FunctionCallee getFn = getRuntimeFunction("ts_object_get_dynamic", getFt);
+
+            lastValue = createCall(getFt, getFn.getCallee(), { obj, key });
+            boxedValues.insert(lastValue);
+
+            // Unbox based on known field type
+            std::shared_ptr<Type> fieldType = classType->fields[fieldName];
+            if (fieldType->kind != TypeKind::Any && fieldType->kind != TypeKind::Object) {
+                lastValue = unboxValue(lastValue, fieldType);
+            }
+            return;
+        }
     }
 
     if (node->expression->inferredType &&

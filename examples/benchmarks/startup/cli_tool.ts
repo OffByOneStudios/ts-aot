@@ -33,8 +33,8 @@ function parseArgs(argv: string[]): ParsedArgs {
         args: []
     };
 
-    // Skip first two args (node/exe path and script path)
-    for (let i = 2; i < argv.length; i++) {
+    // Skip first arg (exe path) - ts-aot only has exe path at argv[0]
+    for (let i = 1; i < argv.length; i++) {
         const arg = argv[i];
 
         if (arg === '--help' || arg === '-h') {

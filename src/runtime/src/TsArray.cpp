@@ -1284,17 +1284,79 @@ extern "C" {
             return;
         }
 
-        // For non-specialized arrays, the stored value is a TsValue* pointer
-        // We need to dereference it to get the actual type and value
+        // For non-specialized arrays, the stored value might be:
+        // 1. A TsValue* pointer (boxed value) - need to dereference
+        // 2. A raw object pointer (TsMap*, TsArray*, etc.) - ts_array_push stores raw ptrs
+        // 3. A raw primitive value (int, double bits) - for rest parameters
         if (raw_val == 0) {
             *out_type = (uint8_t)ValueType::UNDEFINED;
             *out_value = 0;
             return;
         }
 
-        TsValue* stored = (TsValue*)raw_val;
-        *out_type = (uint8_t)stored->type;
-        *out_value = stored->i_val;  // Union - works for any type
+        // SAFETY CHECK: If raw_val is too small to be a valid pointer, it's a raw primitive
+        // Valid heap pointers on Windows/Linux 64-bit are typically > 0x10000
+        if ((uint64_t)raw_val < 0x10000) {
+            // Definitely a raw integer, not a pointer
+            *out_type = (uint8_t)ValueType::NUMBER_INT;
+            *out_value = raw_val;
+            return;
+        }
+
+        // Check if raw_val looks like a TsValue* (type field <= 10 AND padding bytes are 0)
+        // vs a raw object pointer (vtable pointer in first 8 bytes)
+        TsValue* maybeBoxed = (TsValue*)raw_val;
+        uint8_t typeField = *(uint8_t*)maybeBoxed;
+        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+
+        if (typeField <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+            // It's a proper TsValue* - extract type and value
+            *out_type = (uint8_t)maybeBoxed->type;
+            *out_value = maybeBoxed->i_val;
+            return;
+        }
+
+        // Not a TsValue* - it's a raw object pointer stored by ts_array_push
+        // Check if it's a known object type by magic number
+        uint32_t magic0 = *(uint32_t*)raw_val;
+        uint32_t magic16 = *(uint32_t*)((char*)raw_val + 16);
+
+        // Check magic at offset 0 (TsArray, TsMap without vtable)
+        if (magic0 == 0x41525259 || // TsArray::MAGIC
+            magic0 == 0x4D415053 || // TsMap::MAGIC
+            magic0 == 0x53455453 || // TsSet::MAGIC
+            magic0 == 0x524D4154) { // TsRegExpMatchArray::MAGIC
+            *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            *out_value = raw_val;
+            return;
+        }
+
+        // Check magic at offset 16 (TsObject-derived classes with vtable)
+        if (magic16 == 0x4D415053 || // TsMap::MAGIC
+            magic16 == 0x53455453 || // TsSet::MAGIC
+            magic16 == 0x41525259 || // TsArray::MAGIC
+            magic16 == 0x46554E43 || // TsFunction::MAGIC
+            magic16 == 0x42554646 || // TsBuffer::MAGIC
+            magic16 == 0x534F434B || // TsSocket::MAGIC
+            magic16 == 0x45564E54) { // TsEventEmitter::MAGIC
+            *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            *out_value = raw_val;
+            return;
+        }
+
+        // Check for TsString (magic at offset 0)
+        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
+            *out_type = (uint8_t)ValueType::STRING_PTR;
+            *out_value = raw_val;
+            return;
+        }
+
+        // Fallback: treat as raw integer value
+        // This handles cases where non-specialized arrays store raw numbers
+        *out_type = (uint8_t)ValueType::NUMBER_INT;
+        *out_value = raw_val;
     }
     
     // Set array element from separate type/value
