@@ -851,7 +851,14 @@ bool IRGenerator::tryGenerateMemberCall(ast::CallExpression* node) {
             args.push_back(val);
             argIdx++;
         }
-        
+
+        // JavaScript allows calling methods with fewer arguments than parameters.
+        // Pad missing optional parameters with null values.
+        while (args.size() < ft->getNumParams()) {
+            llvm::Type* missingTy = ft->getParamType(static_cast<unsigned>(args.size()));
+            args.push_back(llvm::Constant::getNullValue(missingTy));
+        }
+
         lastValue = createCall(ft, funcPtr, args);
         return true;
     }

@@ -440,10 +440,16 @@ TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
 
     int32_t len = s.length();
     if (targetLength <= len) return this;
-    
+
+    // Default to space if padString is null (per JS spec)
     icu::UnicodeString pad;
-    if (padString->isSmall) pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
-    else pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+    if (!padString) {
+        pad = " ";
+    } else if (padString->isSmall) {
+        pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
+    } else {
+        pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+    }
 
     if (pad.length() == 0) return this;
     
@@ -469,10 +475,16 @@ TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
 
     int32_t len = s.length();
     if (targetLength <= len) return this;
-    
+
+    // Default to space if padString is null (per JS spec)
     icu::UnicodeString pad;
-    if (padString->isSmall) pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
-    else pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+    if (!padString) {
+        pad = " ";
+    } else if (padString->isSmall) {
+        pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
+    } else {
+        pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+    }
 
     if (pad.length() == 0) return this;
     
