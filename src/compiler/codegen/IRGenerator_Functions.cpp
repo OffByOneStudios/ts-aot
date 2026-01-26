@@ -2368,10 +2368,20 @@ void IRGenerator::hoistFunctionDeclarations(const std::vector<ast::StmtPtr>& stm
 // Without this, a nested function that references a var declared AFTER it (textually)
 // would fail to capture it because namedValues wouldn't contain it yet.
 void IRGenerator::hoistVariableDeclarations(const std::vector<ast::StmtPtr>& stmts, llvm::Function* enclosingFn) {
+    SPDLOG_INFO("hoistVariableDeclarations: function={}, stmts={}", enclosingFn->getName().str(), stmts.size());
+
     // Collect all variables declared in this scope
     std::vector<VariableInfo> vars;
     for (auto& stmt : stmts) {
         collectVariables(stmt.get(), vars);
+    }
+
+    SPDLOG_INFO("hoistVariableDeclarations: collected {} vars", vars.size());
+    for (auto& v : vars) {
+        SPDLOG_INFO("  var: {}, type={}, llvmType={}",
+            v.name,
+            v.type ? v.type->toString() : "null",
+            v.llvmType ? (v.llvmType->isPointerTy() ? "ptr" : (v.llvmType->isIntegerTy() ? "int" : "other")) : "null");
     }
     
     // Create allocas for each variable (hoisting to function entry block)

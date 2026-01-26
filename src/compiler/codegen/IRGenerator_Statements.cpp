@@ -718,12 +718,27 @@ void IRGenerator::visitBlockStatement(ast::BlockStatement* node) {
 
 void IRGenerator::visitVariableDeclaration(ast::VariableDeclaration* node) {
     llvm::Function* function = builder->GetInsertBlock()->getParent();
-    
+
+    // Clear lastValue before visiting to detect missing initializers
+    lastValue = nullptr;
+
     // Determine type from initializer
     visit(node->initializer.get());
     llvm::Value* initVal = lastValue;
-    
+
     if (!initVal) {
+        // Variable declared without initializer - create alloca with correct type
+        // but don't initialize it (it will be assigned later)
+        if (node->resolvedType) {
+            auto id = dynamic_cast<ast::Identifier*>(node->name.get());
+            if (id && !namedValues.count(id->name)) {
+                llvm::Type* llvmType = getLLVMType(node->resolvedType);
+                llvm::AllocaInst* alloca = createEntryBlockAlloca(function, id->name, llvmType);
+                namedValues[id->name] = alloca;
+                variableTypes[id->name] = node->resolvedType;
+                SPDLOG_DEBUG("Created uninitialized variable {} with type {}", id->name, node->resolvedType->toString());
+            }
+        }
         return;
     }
 

@@ -502,6 +502,8 @@ Analyzer::Analyzer() {
     auto indicesElementType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
     regexpMatchArrayClass->fields["indices"] = std::make_shared<ArrayType>(indicesElementType);
     symbols.defineType("RegExpMatchArray", regexpMatchArrayClass);
+    // TypeScript uses RegExpExecArray as the return type of exec()
+    symbols.defineType("RegExpExecArray", regexpMatchArrayClass);
 
     // Register RegExp class
     auto regexpClass = std::make_shared<ClassType>("RegExp");

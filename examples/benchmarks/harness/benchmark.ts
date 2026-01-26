@@ -62,29 +62,45 @@ export function benchmark(
     fn: () => void,
     options?: BenchmarkOptions
 ): BenchmarkResult {
-    const opts = { ...defaultOptions, ...options };
+    // Manual merge to avoid object spread crash with multiple sources
+    // Use explicit if checks because && short-circuit has issues
+    // IMPORTANT: Type annotations needed for proper double handling
+    let iterations: number = defaultOptions.iterations;
+    let warmup: number = defaultOptions.warmup;
+    let collectMemory: boolean = defaultOptions.collectMemory;
+    let minTime: number = defaultOptions.minTime;
 
-    // Warmup phase
-    for (let i = 0; i < opts.warmup; i++) {
+    if (options !== undefined) {
+        if (options.iterations !== undefined) iterations = options.iterations;
+        if (options.warmup !== undefined) warmup = options.warmup;
+        if (options.collectMemory !== undefined) collectMemory = options.collectMemory;
+        if (options.minTime !== undefined) minTime = options.minTime;
+    }
+
+    // Warmup phase - use variables directly instead of creating opts object
+    // Object shorthand property syntax has issues
+    for (let i = 0; i < warmup; i++) {
         fn();
     }
 
     // Measurement phase
     const measurements: number[] = [];
-    let totalTime = 0;
-    let actualIterations = 0;
+    // IMPORTANT: Use `: number` type annotation for variables that accumulate doubles
+    // Without it, `let x = 0` is treated as integer and truncates fractional parts
+    let totalTime: number = 0;
+    let actualIterations: number = 0;
 
-    // Run at least opts.iterations times or until minTime is reached
-    while (actualIterations < opts.iterations || totalTime < opts.minTime) {
-        const start = now();
+    // Run at least iterations times or until minTime is reached
+    while (actualIterations < iterations || totalTime < minTime) {
+        const start: number = now();
         fn();
-        const elapsed = now() - start;
+        const elapsed: number = now() - start;
         measurements.push(elapsed);
-        totalTime += elapsed;
-        actualIterations++;
+        totalTime = totalTime + elapsed;
+        actualIterations = actualIterations + 1;
 
         // Safety limit to prevent infinite loops
-        if (actualIterations >= opts.iterations * 10) break;
+        if (actualIterations >= iterations * 10) break;
     }
 
     // Calculate statistics
@@ -92,7 +108,7 @@ export function benchmark(
 
     // Collect memory if requested
     let memory: BenchmarkResult['memory'] | undefined;
-    if (opts.collectMemory) {
+    if (collectMemory) {
         const mem = getMemoryUsage();
         memory = {
             heapUsed: mem.heapUsed,
@@ -121,33 +137,46 @@ export async function benchmarkAsync(
     fn: () => Promise<void>,
     options?: BenchmarkOptions
 ): Promise<BenchmarkResult> {
-    const opts = { ...defaultOptions, ...options };
+    // Manual merge to avoid object spread crash with multiple sources
+    // Use explicit if checks because && short-circuit has issues
+    let iterations = defaultOptions.iterations;
+    let warmup = defaultOptions.warmup;
+    let collectMemory = defaultOptions.collectMemory;
+    let minTime = defaultOptions.minTime;
 
-    // Warmup phase
-    for (let i = 0; i < opts.warmup; i++) {
+    if (options !== undefined) {
+        if (options.iterations !== undefined) iterations = options.iterations;
+        if (options.warmup !== undefined) warmup = options.warmup;
+        if (options.collectMemory !== undefined) collectMemory = options.collectMemory;
+        if (options.minTime !== undefined) minTime = options.minTime;
+    }
+
+    // Warmup phase - use variables directly instead of creating opts object
+    for (let i = 0; i < warmup; i++) {
         await fn();
     }
 
     // Measurement phase
     const measurements: number[] = [];
-    let totalTime = 0;
-    let actualIterations = 0;
+    // IMPORTANT: Use `: number` type annotation for variables that accumulate doubles
+    let totalTime: number = 0;
+    let actualIterations: number = 0;
 
-    while (actualIterations < opts.iterations || totalTime < opts.minTime) {
-        const start = now();
+    while (actualIterations < iterations || totalTime < minTime) {
+        const start: number = now();
         await fn();
-        const elapsed = now() - start;
+        const elapsed: number = now() - start;
         measurements.push(elapsed);
-        totalTime += elapsed;
-        actualIterations++;
+        totalTime = totalTime + elapsed;
+        actualIterations = actualIterations + 1;
 
-        if (actualIterations >= opts.iterations * 10) break;
+        if (actualIterations >= iterations * 10) break;
     }
 
     const stats = calculateStats(measurements);
 
     let memory: BenchmarkResult['memory'] | undefined;
-    if (opts.collectMemory) {
+    if (collectMemory) {
         const mem = getMemoryUsage();
         memory = {
             heapUsed: mem.heapUsed,
@@ -225,7 +254,8 @@ export class BenchmarkSuite {
      * Add a benchmark to the suite
      */
     add(name: string, fn: () => void, options?: BenchmarkOptions): this {
-        this.benchmarks.push({ name, fn, options });
+        // Use explicit property names instead of shorthand syntax
+        this.benchmarks.push({ name: name, fn: fn, options: options });
         return this;
     }
 
@@ -261,8 +291,11 @@ export class BenchmarkSuite {
     printSummary(): void {
         console.log(`\n=== Summary: ${this.name} ===\n`);
 
-        // Header
-        const nameWidth = Math.max(...this.results.map(r => r.name.length), 10);
+        // Header - calculate max name width (avoid spread+value pattern)
+        let nameWidth = 10;
+        for (const r of this.results) {
+            if (r.name.length > nameWidth) nameWidth = r.name.length;
+        }
         const header = `| ${'Name'.padEnd(nameWidth)} | ${'Avg'.padStart(12)} | ${'P95'.padStart(12)} | ${'Ops/sec'.padStart(12)} |`;
         const separator = '|' + '-'.repeat(nameWidth + 2) + '|' + '-'.repeat(14) + '|' + '-'.repeat(14) + '|' + '-'.repeat(14) + '|';
 

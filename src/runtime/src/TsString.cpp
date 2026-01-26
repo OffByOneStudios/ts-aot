@@ -1207,7 +1207,9 @@ extern "C" {
     }
 
     void* ts_string_from_value(TsValue* val) {
-        if (!val) return TsString::GetInterned("undefined");
+        if (!val) {
+            return TsString::GetInterned("undefined");
+        }
 
         // Check for raw TsString first by checking its magic
         uint32_t magic = *(uint32_t*)val;
