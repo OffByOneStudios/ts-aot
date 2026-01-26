@@ -1805,7 +1805,19 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                 llvm::Value* arg1 = lastValue;
                 visit(node->arguments[1].get());
                 llvm::Value* arg2 = lastValue;
-                
+
+                // Unbox if arguments are boxed pointers (e.g., from arithmetic on boxed values)
+                if (arg1->getType()->isPointerTy()) {
+                    auto ft = llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false);
+                    auto fn = module->getOrInsertFunction("ts_value_get_int", ft);
+                    arg1 = createCall(ft, fn.getCallee(), {arg1});
+                }
+                if (arg2->getType()->isPointerTy()) {
+                    auto ft = llvm::FunctionType::get(builder->getInt64Ty(), {builder->getPtrTy()}, false);
+                    auto fn = module->getOrInsertFunction("ts_value_get_int", ft);
+                    arg2 = createCall(ft, fn.getCallee(), {arg2});
+                }
+
                 std::string funcName = (prop->name == "min") ? "ts_math_min" : "ts_math_max";
                 llvm::FunctionType* mathFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                         { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context) }, false);
