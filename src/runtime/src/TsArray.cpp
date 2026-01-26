@@ -247,7 +247,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         ts_call_3(cbVal, v, idx, arr);
@@ -260,11 +260,11 @@ void* TsArray::Map(void* callback, void* thisArg) {
 
     TsArray* result = TsArray::Create(length);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        
+
         // Always store the TsValue* pointer - let the print code handle type inspection
         result->Push((int64_t)res);
     }
@@ -277,12 +277,13 @@ void* TsArray::Filter(void* callback, void* thisArg) {
 
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        
+
         if (res->type == ValueType::BOOLEAN && res->b_val) {
+            // Push the raw element value (works for both int64 and double bit patterns)
             result->Push(((int64_t*)elements)[i]);
         }
     }
@@ -296,12 +297,12 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = 0;
     if (!accumulator && length > 0) {
-        accumulator = (((int64_t*)elements)[0] > 0xFFFFFFFF || ((int64_t*)elements)[0] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[0]) : ts_value_make_int(((int64_t*)elements)[0]);
+        accumulator = GetElementBoxed(0);
         startIdx = 1;
     }
 
     for (size_t i = startIdx; i < length; ++i) {
-        TsValue* v = (((int64_t*)elements)[i] > 0xFFFFFFFF || ((int64_t*)elements)[i] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i]) : ts_value_make_int(((int64_t*)elements)[i]);
+        TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
@@ -316,12 +317,12 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = length;
     if (!accumulator && length > 0) {
-        accumulator = (((int64_t*)elements)[length - 1] > 0xFFFFFFFF || ((int64_t*)elements)[length - 1] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[length - 1]) : ts_value_make_int(((int64_t*)elements)[length - 1]);
+        accumulator = GetElementBoxed(length - 1);
         startIdx = length - 1;
     }
 
     for (size_t i = startIdx; i > 0; --i) {
-        TsValue* v = (((int64_t*)elements)[i - 1] > 0xFFFFFFFF || ((int64_t*)elements)[i - 1] < 0) ? ts_value_make_object((void*)((int64_t*)elements)[i - 1]) : ts_value_make_int(((int64_t*)elements)[i - 1]);
+        TsValue* v = GetElementBoxed(i - 1);
         TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(this);
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
@@ -633,8 +634,23 @@ void* TsArray::Slice(int64_t start, int64_t end) {
 
     size_t newLength = end - start;
     TsArray* result = TsArray::Create(newLength);
-    for (size_t i = 0; i < newLength; ++i) {
-        result->Push(((int64_t*)elements)[start + i]);
+
+    // Preserve specialized array type
+    if (isSpecialized) {
+        result->isSpecialized = true;
+        result->isDouble = isDouble;
+
+        // For specialized arrays, copy raw bytes and adjust length manually
+        // Both int64_t and double are 8 bytes
+        for (size_t i = 0; i < newLength; ++i) {
+            // Access as int64_t (raw bits) for both int and double specialized arrays
+            int64_t rawBits = ((int64_t*)elements)[start + i];
+            result->Push(rawBits);
+        }
+    } else {
+        for (size_t i = 0; i < newLength; ++i) {
+            result->Push(((int64_t*)elements)[start + i]);
+        }
     }
     return result;
 }
@@ -727,7 +743,67 @@ extern "C" {
     }
 
     void ts_array_push(void* arr, void* value) {
-        ((TsArray*)arr)->Push((int64_t)value);
+        TsArray* array = (TsArray*)arr;
+        int64_t bits = (int64_t)value;
+
+        // For specialized double arrays, handle the value appropriately
+        if (array->IsDouble()) {
+            // The value arrives as i64 bits via inttoptr. It could be:
+            // 1. Raw double bits (from bitcast double -> i64 -> inttoptr)
+            // 2. Raw integer value (from inttoptr i64 directly)
+            //
+            // Heuristic: If interpreting the bits as a double gives a tiny
+            // denormal value (< 1e-100), it's probably an integer that needs
+            // conversion. Real doubles rarely have such small magnitudes.
+            double asDouble;
+            memcpy(&asDouble, &bits, sizeof(asDouble));
+
+            // Check for denormal/tiny values that are likely integers
+            // Also check for zero (which is a valid double but also int 0)
+            double absMag = asDouble < 0 ? -asDouble : asDouble;
+            if (absMag < 1e-100 && bits != 0) {
+                // Likely an integer - convert to double
+                double dval = (double)bits;
+                memcpy(&bits, &dval, sizeof(bits));
+            }
+            // Otherwise, bits are already valid double bits - use as-is
+            array->Push(bits);
+            return;
+        }
+
+        // For non-double specialized arrays or generic arrays,
+        // check if value is a boxed TsValue* and unbox it
+        TsValue* maybeBoxed = (TsValue*)value;
+        if (maybeBoxed && (uintptr_t)value > 0x10000) {
+            uint8_t typeVal = (uint8_t)maybeBoxed->type;
+            if (typeVal <= 10) {  // Valid ValueType range (0-10)
+                // It's a boxed TsValue* - extract the actual value
+                if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                    array->Push(maybeBoxed->i_val);
+                    return;
+                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                    int64_t dbits;
+                    memcpy(&dbits, &maybeBoxed->d_val, sizeof(dbits));
+                    array->Push(dbits);
+                    return;
+                } else if (maybeBoxed->type == ValueType::OBJECT_PTR ||
+                           maybeBoxed->type == ValueType::STRING_PTR ||
+                           maybeBoxed->type == ValueType::ARRAY_PTR ||
+                           maybeBoxed->type == ValueType::FUNCTION_PTR ||
+                           maybeBoxed->type == ValueType::PROMISE_PTR ||
+                           maybeBoxed->type == ValueType::BIGINT_PTR ||
+                           maybeBoxed->type == ValueType::SYMBOL_PTR) {
+                    array->Push((int64_t)maybeBoxed->ptr_val);
+                    return;
+                } else if (maybeBoxed->type == ValueType::BOOLEAN) {
+                    array->Push(maybeBoxed->b_val ? 1 : 0);
+                    return;
+                }
+            }
+        }
+
+        // Not boxed or unknown type - store as-is
+        array->Push(bits);
     }
 
     void* ts_array_pop(void* arr) {

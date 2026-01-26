@@ -206,8 +206,15 @@ void IRGenerator::visitTemplateExpression(ast::TemplateExpression* node) {
             exprVal = createCall(fromDoubleFt, fromDoubleFn.getCallee(), { exprVal });
             nonNullValues.insert(exprVal);
         } else {
-            // Handle boxed values or other types by unboxing to string
-            exprVal = unboxValue(exprVal, std::make_shared<Type>(TypeKind::String));
+            // String-typed expressions (from padEnd, padStart, etc.) are already raw TsString*
+            // Only unbox if NOT already a string type
+            if (span.expression->inferredType &&
+                span.expression->inferredType->kind == TypeKind::String) {
+                // Already a raw TsString* - use directly, no unboxing needed
+            } else {
+                // Handle boxed values or other types by unboxing to string
+                exprVal = unboxValue(exprVal, std::make_shared<Type>(TypeKind::String));
+            }
         }
         
         currentStr = createCall(concatFt, concatFn.getCallee(), { currentStr, exprVal });
