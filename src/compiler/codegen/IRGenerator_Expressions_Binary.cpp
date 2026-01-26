@@ -368,6 +368,26 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         }
     }
 
+    // Handle case where only one operand is a pointer (boxed) and we're doing a comparison
+    // This happens when comparing boxed value to a literal like: bytesRead > 0
+    if (node->op == "<" || node->op == "<=" || node->op == ">" || node->op == ">=") {
+        if (leftIsPtr && !rightIsPtr) {
+            // Left is boxed, right is literal - unbox left to match right's type
+            auto targetType = std::make_shared<Type>(TypeKind::Double);
+            if (right->getType()->isIntegerTy(64)) {
+                targetType = std::make_shared<Type>(TypeKind::Int);
+            }
+            left = unboxValue(left, targetType);
+        } else if (!leftIsPtr && rightIsPtr) {
+            // Right is boxed, left is literal - unbox right to match left's type
+            auto targetType = std::make_shared<Type>(TypeKind::Double);
+            if (left->getType()->isIntegerTy(64)) {
+                targetType = std::make_shared<Type>(TypeKind::Int);
+            }
+            right = unboxValue(right, targetType);
+        }
+    }
+
     bool leftIsDouble = left->getType()->isDoubleTy();
     bool rightIsDouble = right->getType()->isDoubleTy();
     bool isDouble = leftIsDouble || rightIsDouble;
