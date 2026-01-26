@@ -59,7 +59,7 @@ function copyFileChunked(src: string, dest: string, chunkSize: number = 64 * 102
     const fdDest = fs.openSync(dest, 'w');
     const buffer = Buffer.alloc(chunkSize);
 
-    let bytesRead: number;
+    let bytesRead = 0;
     while ((bytesRead = fs.readSync(fdSrc, buffer, 0, chunkSize, null)) > 0) {
         fs.writeSync(fdDest, buffer, 0, bytesRead);
     }
