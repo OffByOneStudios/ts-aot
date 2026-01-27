@@ -6,605 +6,642 @@
 
 ## Executive Summary
 
-This epic covers the major optimizations needed to bring ts-aot compiled executables to performance parity with Node.js/V8. The optimizations are ordered by impact-to-effort ratio.
+This epic covers the architectural changes and optimizations needed to bring ts-aot compiled executables to performance parity with Node.js/V8.
 
-## Current Baseline
-
-| Benchmark | ts-aot | Node.js | Ratio |
-|-----------|--------|---------|-------|
-| fib_recursive(35) | TBD | TBD | TBD |
-| json_parse (250KB) | TBD | TBD | TBD |
-| sorting (100k) | TBD | TBD | TBD |
-| regex match | TBD | TBD | TBD |
-
-*Baseline measurements to be collected before optimization work begins.*
+**Key Insight:** Most meaningful optimizations require an intermediate representation (HIR) between AST and LLVM IR. Building HIR first creates a solid foundation and eliminates classes of bugs we currently fight.
 
 ---
 
-## Optimization 1: Hidden Classes / Shapes
+## Phase 0: High-Level IR (Foundation)
 
-### Overview
+### Why HIR First
 
-Replace dynamic hash-map based property access with fixed-layout objects. When object shape is known at compile time, property access becomes a direct memory offset load instead of a hash table lookup.
+Current architecture problems:
+- Type information lost through LLVM allocas
+- Cross-module symbols confused during codegen
+- Method body re-analysis causes regressions
+- Single-pass design makes analysis fragile
+- Hard to test transformations in isolation
 
-**Expected Impact:** 5-10x speedup for property-heavy code
-**Effort:** High (4-6 weeks)
+HIR provides:
+- Explicit types on every value (SSA form)
+- Clear phase separation (parse → HIR → optimize → LLVM)
+- Debuggable intermediate states (`--dump-hir`)
+- Testable transformations (HIR → HIR)
+- Foundation for all subsequent optimizations
 
-### Background
+### HIR Design
 
-V8 uses "Hidden Classes" (also called "Shapes" or "Maps" in other engines) to optimize property access:
+```
+Module
+├── Functions[]
+│   ├── name: string
+│   ├── params: (name, type)[]
+│   ├── returnType: Type
+│   ├── blocks: BasicBlock[]
+│   └── metadata: { isAsync, isGenerator, ... }
+│
+├── Classes[]
+│   ├── name: string
+│   ├── shape: Shape  // property layout
+│   ├── methods: Function[]
+│   └── vtable: VTableEntry[]
+│
+└── Globals[]
+    ├── name: string
+    ├── type: Type
+    └── initializer: Instruction[]
 
-```javascript
-const obj = { x: 1, y: 2 };  // Shape: { x: offset 0, y: offset 8 }
-obj.x;  // Direct load from offset 0, not hash lookup
+BasicBlock
+├── label: string
+├── params: (name, type)[]  // phi nodes as block params
+├── instructions: Instruction[]
+└── terminator: Branch | Return | Switch | Unreachable
+
+Instruction (SSA)
+├── result: Value  // %0, %1, etc. (or void)
+├── type: Type     // ALWAYS present
+└── op: Operation
 ```
 
-Currently, ts-aot uses `TsMap` (hash table) for ALL object property access, even when the shape is statically known.
+### Instruction Set
+
+```
+// Arithmetic (typed - no implicit conversions)
+%r = add.i64 %a, %b          // integer add
+%r = add.f64 %a, %b          // float add
+%r = add.i64.checked %a, %b  // overflow → branch to handler
+
+// Memory
+%r = alloc T                  // allocate type T
+%r = load T, %ptr             // load with explicit type
+     store %val, %ptr         // store value to pointer
+
+// Control flow
+     br %target               // unconditional branch
+     condbr %cond, %then, %else
+     ret %val
+     switch %val, %default, [cases...]
+
+// Objects (high-level, not lowered yet)
+%r = new_object Shape         // create object with known shape
+%r = new_object_dynamic       // create dynamic object (TsMap)
+%r = get_prop.static %obj, "name", T   // static property (offset known)
+%r = get_prop.dynamic %obj, %key       // dynamic property (hash lookup)
+     set_prop.static %obj, "name", %val
+     set_prop.dynamic %obj, %key, %val
+
+// Arrays (high-level)
+%r = new_array.typed T, %len  // typed array (unboxed elements)
+%r = new_array.boxed %len     // boxed array (TsValue* elements)
+%r = get_elem %arr, %idx
+     set_elem %arr, %idx, %val
+
+// Calls
+%r = call @func(%args...)
+%r = call_method %obj, "method", (%args...)
+%r = call_virtual %obj, vtable_idx, (%args...)
+
+// Type operations
+%r = box.int %val             // int64 → TsValue*
+%r = box.float %val           // f64 → TsValue*
+%r = unbox.int %val           // TsValue* → int64
+%r = unbox.float %val         // TsValue* → f64
+%r = typecheck %val, T        // runtime type check → bool
+```
 
 ### Milestones
 
-#### M1.1: Shape Analysis Infrastructure
-**Goal:** Build compile-time shape inference
+#### M0.1: HIR Data Structures
+**Goal:** Define HIR types in C++
 
-**Action Items:**
-- [ ] Create `Shape` class to represent object layouts
-  - Fields: property name → offset mapping
-  - Parent shape pointer (for prototype chain)
-  - Transition map for shape evolution
-- [ ] Add shape inference pass in Analyzer
-  - Track object literal shapes
-  - Track class instance shapes
-  - Detect shape-stable vs shape-unstable objects
-- [ ] Add `--dump-shapes` flag for debugging
-
-**Files to Edit:**
-- `src/compiler/analysis/Shape.h` (new)
-- `src/compiler/analysis/Shape.cpp` (new)
-- `src/compiler/analysis/Analyzer.h` - Add shape tracking
-- `src/compiler/analysis/Analyzer_Expressions.cpp` - Object literal analysis
-- `src/compiler/analysis/Analyzer_Classes.cpp` - Class shape analysis
+**Files to Create:**
+- `src/compiler/hir/HIR.h` - Core types (Module, Function, Block, Instruction)
+- `src/compiler/hir/HIRTypes.h` - Type representation
+- `src/compiler/hir/HIRBuilder.h` - Builder API for constructing HIR
+- `src/compiler/hir/HIRPrinter.h` - Text format for `--dump-hir`
 
 **Tests:**
-- `tests/golden_ir/typescript/shapes/basic_object_shape.ts`
-- `tests/golden_ir/typescript/shapes/class_instance_shape.ts`
-- `tests/golden_ir/typescript/shapes/nested_object_shape.ts`
+- `tests/unit/hir/hir_types_test.cpp`
+- `tests/unit/hir/hir_builder_test.cpp`
 
-#### M1.2: Fixed-Layout Object Codegen
-**Goal:** Generate LLVM structs for known shapes
+#### M0.2: AST → HIR Lowering
+**Goal:** Convert analyzed AST to HIR
 
-**Action Items:**
-- [ ] Create `TsFixedObject` runtime class
-  - Fixed memory layout based on shape
-  - Fallback to TsMap for dynamic properties
-- [ ] Modify IRGenerator to emit struct types for known shapes
-- [ ] Generate direct GEP instructions for property access
-- [ ] Handle property access on shape-stable objects
+**Files to Create:**
+- `src/compiler/hir/ASTToHIR.h`
+- `src/compiler/hir/ASTToHIR.cpp`
 
-**Files to Edit:**
-- `src/runtime/include/TsFixedObject.h` (new)
-- `src/runtime/src/TsFixedObject.cpp` (new)
-- `src/compiler/codegen/IRGenerator_Expressions_Access.cpp`
-- `src/compiler/codegen/IRGenerator_Expressions.cpp` - Object literal codegen
+**Key Transformations:**
+- Control flow → basic blocks with explicit branches
+- Expressions → SSA values
+- Type annotations → explicit types on every value
+- Destructuring → explicit temporaries
+- Spread → explicit loops
 
 **Tests:**
-- `tests/golden_ir/typescript/shapes/fixed_object_access.ts`
-- `tests/golden_ir/typescript/shapes/fixed_object_method.ts`
-- `tests/integration/shapes/shape_benchmark.ts`
+- `tests/golden_hir/basic/` - Basic statements and expressions
+- `tests/golden_hir/control_flow/` - If, while, for, switch
+- `tests/golden_hir/functions/` - Calls, closures, async
 
-#### M1.3: Inline Caching for Polymorphic Access
-**Goal:** Handle cases where shape is not statically known
+#### M0.3: HIR → LLVM Lowering
+**Goal:** Generate LLVM IR from HIR (replaces current IRGenerator)
 
-**Action Items:**
-- [ ] Implement monomorphic inline cache
-  - Cache last-seen shape + offset
-  - Fast path: shape match → direct access
-  - Slow path: hash lookup + cache update
-- [ ] Implement polymorphic inline cache (PIC)
-  - Support 2-4 shapes per call site
-  - Megamorphic fallback to hash table
+**Files to Create:**
+- `src/compiler/hir/HIRToLLVM.h`
+- `src/compiler/hir/HIRToLLVM.cpp`
 
-**Files to Edit:**
-- `src/runtime/include/TsInlineCache.h` (new)
-- `src/runtime/src/TsInlineCache.cpp` (new)
-- `src/compiler/codegen/IRGenerator_Expressions_Access.cpp`
+**Key Changes:**
+- Much simpler than current IRGenerator (HIR already simplified)
+- Type information explicit (no inference during codegen)
+- Boxing/unboxing explicit in HIR
 
 **Tests:**
-- `tests/golden_ir/typescript/shapes/inline_cache_mono.ts`
-- `tests/golden_ir/typescript/shapes/inline_cache_poly.ts`
-- `tests/integration/shapes/polymorphic_access.ts`
+- Run all existing golden_ir tests through new pipeline
+- Must be regression-free before proceeding
 
-#### M1.4: Prototype Chain Optimization
-**Goal:** Fast prototype property lookup
+#### M0.4: Pipeline Integration
+**Goal:** New pipeline: AST → Analyze → HIR → LLVM
+
+**Files to Modify:**
+- `src/compiler/main.cpp` - Add `--use-hir` flag initially
+- `src/compiler/Driver.cpp` - Orchestrate pipeline
+
+**Flags:**
+- `--dump-hir` - Print HIR before optimization
+- `--dump-hir-opt` - Print HIR after optimization
+- `--use-hir` - Use new pipeline (for gradual rollout)
+
+**Tests:**
+- All existing tests must pass with `--use-hir`
+- Performance benchmarks to verify no regression
+
+---
+
+## Phase 1: Unboxed Arrays
+
+**Prerequisite:** Phase 0 (HIR)
+**Expected Impact:** 2-5x speedup for array-heavy code
+**Effort:** 2-3 weeks after HIR
+
+### Safety Requirements
+
+**Preconditions for Optimization:**
+- Array has explicit element type annotation (`number[]`, `string[]`)
+- Element type is primitive or class (not `any`, not union with primitives)
+- Array is never assigned to `any[]` or wider type
+- No spread from unknown source
+
+**Bailout Triggers:**
+- Assignment to `any` typed variable
+- Passed to function expecting `any[]`
+- Used with `...` from untyped source
+
+**Conservative Default:**
+- Only optimize arrays with explicit type AND no widening detected
+- Unknown → use boxed array (current behavior)
+
+### Implementation on HIR
+
+```
+// Before optimization (HIR):
+%arr = new_array.boxed 3
+%v0 = box.float 1.0
+set_elem %arr, 0, %v0
+%v1 = box.float 2.0
+set_elem %arr, 1, %v1
+
+// After optimization (HIR):
+%arr = new_array.typed f64, 3
+set_elem.typed %arr, 0, 1.0
+set_elem.typed %arr, 1, 2.0
+```
+
+### Milestones
+
+#### M1.1: Array Type Analysis (in Analyzer)
 
 **Action Items:**
-- [ ] Shape-based prototype chain traversal
-- [ ] Cache prototype chain lookups
-- [ ] Handle `__proto__` mutations (invalidate caches)
+- [ ] Track `isHomogeneous` flag on ArrayType
+- [ ] Track `elementTypeStable` through mutations
+- [ ] Detect widening assignments
+- [ ] Mark arrays as "optimizable" or "must be boxed"
 
-**Files to Edit:**
-- `src/runtime/src/TsObject.cpp`
+**Files:**
+- `src/compiler/analysis/Type.h` - Add tracking flags
+- `src/compiler/analysis/Analyzer_Expressions.cpp` - Array analysis
+
+**Tests:**
+- `tests/golden_hir/arrays/homogeneous_detection.ts`
+- `tests/golden_hir/arrays/widening_detection.ts`
+
+#### M1.2: Specialized Array Runtime
+
+**Action Items:**
+- [ ] `TsNumberArray` - contiguous f64 storage
+- [ ] `TsIntArray` - contiguous i64 storage
+- [ ] All array methods for each type
+
+**Files:**
+- `src/runtime/include/TsNumberArray.h`
+- `src/runtime/src/TsNumberArray.cpp`
+
+**Tests:**
+- `tests/golden_ir/arrays/number_array_methods.ts`
+
+#### M1.3: HIR Optimization Pass
+
+**Action Items:**
+- [ ] Create `OptimizeArrays` HIR pass
+- [ ] Transform `new_array.boxed` → `new_array.typed` when safe
+- [ ] Transform `box`/`set_elem` → `set_elem.typed`
+
+**Files:**
+- `src/compiler/hir/passes/OptimizeArrays.cpp`
+
+**Tests:**
+- `tests/unit/hir/optimize_arrays_test.cpp`
+
+#### M1.4: LLVM Lowering for Typed Arrays
+
+**Action Items:**
+- [ ] Lower `new_array.typed` to specialized allocation
+- [ ] Lower `set_elem.typed` to direct store
+
+**Files:**
+- `src/compiler/hir/HIRToLLVM.cpp`
+
+---
+
+## Phase 2: SMI (Small Integer) Optimization
+
+**Prerequisite:** Phase 0 (HIR)
+**Expected Impact:** 2-3x speedup for integer-heavy code
+**Effort:** 2-3 weeks after HIR
+
+### Safety Requirements
+
+**Preconditions:**
+- Value is known to be integer (not float)
+- Arithmetic won't overflow (or we check)
+
+**Guards (runtime):**
+- Overflow check on add/sub/mul
+- Fallback to float on overflow
+
+**Bailout:**
+- Division always produces float
+- Overflow → convert to float
+
+### Implementation on HIR
+
+```
+// Integer arithmetic in HIR:
+%r = add.i64.checked %a, %b, overflow: %slow_path
+
+block %slow_path:
+    %af = cast.i64_to_f64 %a
+    %bf = cast.i64_to_f64 %b
+    %rf = add.f64 %af, %bf
+    br %continue(%rf)
+```
+
+### Milestones
+
+#### M2.1: Integer Type Tracking
+
+**Action Items:**
+- [ ] Distinguish `TypeKind::Int` vs `TypeKind::Double` consistently
+- [ ] Integer literals → Int, float literals → Double
+- [ ] Track through arithmetic operations
+
+**Files:**
+- `src/compiler/analysis/Analyzer_Expressions.cpp`
+
+#### M2.2: Checked Arithmetic in HIR
+
+**Action Items:**
+- [ ] Add `add.i64.checked`, `sub.i64.checked`, etc.
+- [ ] Generate overflow branch in HIR
+
+**Files:**
+- `src/compiler/hir/HIR.h`
+- `src/compiler/hir/ASTToHIR.cpp`
+
+#### M2.3: LLVM Lowering with Overflow
+
+**Action Items:**
+- [ ] Use `llvm.sadd.with.overflow` intrinsics
+- [ ] Generate branch to float fallback
+
+**Files:**
+- `src/compiler/hir/HIRToLLVM.cpp`
+
+---
+
+## Phase 3: Hidden Classes / Shapes
+
+**Prerequisite:** Phase 0 (HIR)
+**Expected Impact:** 5-10x for property-heavy code
+**Effort:** 4-6 weeks after HIR
+
+### Safety Requirements
+
+**Preconditions for Fixed Shape:**
+- Object created from class (not literal with dynamic properties)
+- No `delete` on object
+- No dynamic property assignment (`obj[expr] = val` where expr is not literal)
+- No prototype mutation
+
+**Detection of Shape Mutation:**
+```typescript
+// UNSAFE - must use dynamic shape:
+delete obj.x;                    // property deletion
+obj[key] = val;                  // dynamic key (unless key is const string)
+Object.defineProperty(obj, ...); // descriptor manipulation
+obj.__proto__ = something;       // prototype mutation
+```
+
+**Bailout:**
+- If any mutation detected, fall back to TsMap
+- Conservative: only optimize explicit `class` instances initially
+
+### Implementation on HIR
+
+```
+// Class with known shape:
+%obj = new_object Shape{x:0, y:8}  // offsets known
+set_prop.static %obj, "x", %val    // direct store to offset 0
+
+// Object with unknown/mutable shape:
+%obj = new_object_dynamic
+set_prop.dynamic %obj, "x", %val   // hash table lookup
+```
+
+### Milestones
+
+#### M3.1: Shape Representation
+
+**Action Items:**
+- [ ] Create `Shape` class (property → offset map)
+- [ ] Compute shapes for all class definitions
+- [ ] Track shape stability through program
+
+**Files:**
+- `src/compiler/analysis/Shape.h`
+- `src/compiler/analysis/Shape.cpp`
+
+#### M3.2: Fixed Object Runtime
+
+**Action Items:**
+- [ ] `TsFixedObject` with inline storage
+- [ ] Fallback to TsMap for overflow properties
+
+**Files:**
+- `src/runtime/include/TsFixedObject.h`
 - `src/runtime/src/TsFixedObject.cpp`
 
-**Tests:**
-- `tests/golden_ir/typescript/shapes/prototype_lookup.ts`
-- `tests/golden_ir/typescript/shapes/prototype_mutation.ts`
+#### M3.3: Property Access Optimization Pass
+
+**Action Items:**
+- [ ] HIR pass to convert dynamic → static access
+- [ ] Shape propagation analysis
+
+**Files:**
+- `src/compiler/hir/passes/OptimizePropertyAccess.cpp`
 
 ---
 
-## Optimization 2: Unboxed Arrays
+## Phase 4: Method Inline Caching
 
-### Overview
+**Prerequisite:** Phase 3 (Shapes)
+**Expected Impact:** 2-3x for method-heavy code
+**Effort:** 1-2 weeks after Shapes
 
-When array element type is known and homogeneous, store elements directly without TsValue boxing. A `number[]` becomes a contiguous array of doubles, not an array of TsValue pointers.
+### Safety Requirements
 
-**Expected Impact:** 2-5x speedup for array-heavy code
-**Effort:** Medium (2-3 weeks)
+**Guard:** Check shape matches cached shape before using cached method.
 
-### Background
-
-Current implementation:
-```cpp
-// number[] currently stored as:
-TsArray {
-    std::vector<TsValue*> elements;  // Each element is boxed
-}
 ```
-
-Optimized implementation:
-```cpp
-// number[] should be:
-TsTypedArray<double> {
-    double* data;
-    size_t length;
-}
-```
-
-### Milestones
-
-#### M2.1: Array Type Specialization in Analyzer
-**Goal:** Track array element types precisely
-
-**Action Items:**
-- [ ] Enhance ArrayType to track element homogeneity
-- [ ] Add `isHomogeneous` flag to ArrayType
-- [ ] Track element type through array operations (push, map, filter)
-- [ ] Detect mixed arrays that need boxing
-
-**Files to Edit:**
-- `src/compiler/analysis/Type.h` - Enhance ArrayType
-- `src/compiler/analysis/Analyzer_Expressions.cpp` - Array literal analysis
-- `src/compiler/analysis/Analyzer_Expressions_Calls.cpp` - Array method return types
-
-**Tests:**
-- `tests/golden_ir/typescript/arrays/homogeneous_number_array.ts`
-- `tests/golden_ir/typescript/arrays/homogeneous_string_array.ts`
-- `tests/golden_ir/typescript/arrays/mixed_array_detection.ts`
-
-#### M2.2: Specialized Array Runtime Classes
-**Goal:** Create unboxed array implementations
-
-**Action Items:**
-- [ ] Create `TsNumberArray` - contiguous double storage
-- [ ] Create `TsIntArray` - contiguous int64 storage (for index arrays)
-- [ ] Create `TsStringArray` - contiguous TsString* storage
-- [ ] Implement all array methods for each specialized type
-
-**Files to Edit:**
-- `src/runtime/include/TsNumberArray.h` (new)
-- `src/runtime/src/TsNumberArray.cpp` (new)
-- `src/runtime/include/TsIntArray.h` (new)
-- `src/runtime/src/TsIntArray.cpp` (new)
-- `src/runtime/include/TsStringArray.h` (new)
-- `src/runtime/src/TsStringArray.cpp` (new)
-
-**Tests:**
-- `tests/golden_ir/typescript/arrays/number_array_ops.ts`
-- `tests/golden_ir/typescript/arrays/string_array_ops.ts`
-- `tests/integration/arrays/array_benchmark.ts`
-
-#### M2.3: Specialized Array Codegen
-**Goal:** Generate code for specialized arrays
-
-**Action Items:**
-- [ ] Detect homogeneous arrays in IRGenerator
-- [ ] Generate specialized array construction calls
-- [ ] Generate direct element access (no unboxing)
-- [ ] Handle array method calls on specialized arrays
-
-**Files to Edit:**
-- `src/compiler/codegen/IRGenerator_Expressions.cpp` - Array literal codegen
-- `src/compiler/codegen/IRGenerator_Expressions_Access.cpp` - Element access
-- `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_Array.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/arrays/specialized_push.ts`
-- `tests/golden_ir/typescript/arrays/specialized_map.ts`
-- `tests/golden_ir/typescript/arrays/specialized_reduce.ts`
-
-#### M2.4: Array Transition Handling
-**Goal:** Handle arrays that change from homogeneous to mixed
-
-**Action Items:**
-- [ ] Detect type-widening operations
-- [ ] Implement array migration (specialized → boxed)
-- [ ] Optimize common case: array stays homogeneous
-
-**Files to Edit:**
-- `src/runtime/src/TsNumberArray.cpp`
-- `src/runtime/src/TsArray.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/arrays/array_transition.ts`
-- `tests/integration/arrays/mixed_push.ts`
-
----
-
-## Optimization 3: SMI (Small Integer) Optimization
-
-### Overview
-
-Use tagged pointers to represent small integers inline, avoiding heap allocation. If the lowest bit is 1, the value is a 63-bit signed integer. If 0, it's a pointer.
-
-**Expected Impact:** 2-3x speedup for integer-heavy code
-**Effort:** Medium (2-3 weeks)
-
-### Background
-
-Current: All numbers are boxed as `double` or `TsValue*`
-Optimized: Integers -2^62 to 2^62-1 stored inline with tag bit
-
-```cpp
-// Tagged pointer representation
-union TsTaggedValue {
-    int64_t smi;      // If (value & 1) == 1, this is (integer << 1) | 1
-    TsValue* boxed;   // If (value & 1) == 0, this is a pointer
+// Inline cache structure:
+struct MethodCache {
+    Shape* cachedShape;
+    void* cachedMethod;
 };
+
+// Generated code:
+if (obj->shape == cache.cachedShape) {
+    // Fast path: call cached method directly
+    cache.cachedMethod(obj, args...);
+} else {
+    // Slow path: lookup and update cache
+    cache.cachedShape = obj->shape;
+    cache.cachedMethod = lookup(obj->shape, "methodName");
+    cache.cachedMethod(obj, args...);
+}
 ```
 
 ### Milestones
 
-#### M3.1: Tagged Value Infrastructure
-**Goal:** Create tagged value representation
+#### M4.1: Cache Infrastructure
+
+**Files:**
+- `src/runtime/include/TsInlineCache.h`
+- `src/runtime/src/TsInlineCache.cpp`
+
+#### M4.2: HIR Method Call Lowering
 
 **Action Items:**
-- [ ] Define `TsTaggedValue` type
-- [ ] Create inline helper functions:
-  - `ts_is_smi(value)` - Check if SMI
-  - `ts_smi_to_int(value)` - Extract integer
-  - `ts_int_to_smi(value)` - Create SMI
-  - `ts_untag(value)` - Get pointer if not SMI
-- [ ] Update TsValue to work with tagged values
+- [ ] `call_method` → inline cache check + call
 
-**Files to Edit:**
-- `src/runtime/include/TsTaggedValue.h` (new)
-- `src/runtime/include/TsValue.h` - Add tagging support
-- `src/runtime/src/TsValue.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/smi/smi_basic.ts`
-- `tests/golden_ir/typescript/smi/smi_overflow.ts`
-
-#### M3.2: SMI-Aware Arithmetic
-**Goal:** Fast integer arithmetic without boxing
-
-**Action Items:**
-- [ ] Generate SMI fast paths for +, -, *, /, %
-- [ ] Check for overflow → fallback to double
-- [ ] Optimize loop counters as SMI
-
-**Files to Edit:**
-- `src/compiler/codegen/IRGenerator_Expressions_Binary.cpp`
-- `src/compiler/codegen/IRGenerator_Statements.cpp` - Loop codegen
-
-**Tests:**
-- `tests/golden_ir/typescript/smi/smi_arithmetic.ts`
-- `tests/golden_ir/typescript/smi/smi_loop_counter.ts`
-- `tests/integration/smi/smi_benchmark.ts`
-
-#### M3.3: SMI-Aware Comparisons
-**Goal:** Fast integer comparisons
-
-**Action Items:**
-- [ ] Generate SMI fast paths for <, >, <=, >=, ==, !=
-- [ ] No boxing needed for SMI vs SMI comparison
-- [ ] Mixed SMI/double comparison handling
-
-**Files to Edit:**
-- `src/compiler/codegen/IRGenerator_Expressions_Binary.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/smi/smi_comparison.ts`
-- `tests/golden_ir/typescript/smi/smi_mixed_comparison.ts`
-
-#### M3.4: SMI Array Indices
-**Goal:** Optimize array indexing with SMI
-
-**Action Items:**
-- [ ] Array indices are always SMI (or throw RangeError)
-- [ ] Direct index extraction without unboxing
-- [ ] Bounds check with SMI
-
-**Files to Edit:**
-- `src/compiler/codegen/IRGenerator_Expressions_Access.cpp`
-- `src/runtime/src/TsArray.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/smi/smi_array_index.ts`
+**Files:**
+- `src/compiler/hir/HIRToLLVM.cpp`
 
 ---
 
-## Optimization 4: Inline Caching for Method Calls
+## Phase 5: Escape Analysis
 
-### Overview
+**Prerequisite:** Phase 0 (HIR with CFG)
+**Expected Impact:** Reduced GC pressure
+**Effort:** 2-3 weeks
 
-Cache method lookup results at call sites. After first lookup, subsequent calls skip the hash table lookup entirely.
+### Safety Requirements
 
-**Expected Impact:** 2-3x speedup for method-heavy code
-**Effort:** Low-Medium (1-2 weeks)
+**Preconditions for Stack Allocation:**
+- Object does not escape defining function
+- "Escape" means: returned, stored to global, stored to heap object, captured by closure, thrown
 
-### Milestones
+**Conservative Analysis:**
+- If ANY path might escape, treat as escaping
+- Closures: assume captured variables escape
+- Async: assume all locals escape (may be resumed later)
 
-#### M4.1: Monomorphic Method Cache
-**Goal:** Cache single method per call site
+### Implementation on HIR
 
-**Action Items:**
-- [ ] Create `MethodCache` structure
-  - Cached shape/class pointer
-  - Cached method pointer
-- [ ] Generate cache check + fast path
-- [ ] Fallback to slow lookup on cache miss
-
-**Files to Edit:**
-- `src/runtime/include/TsMethodCache.h` (new)
-- `src/runtime/src/TsMethodCache.cpp` (new)
-- `src/compiler/codegen/IRGenerator_Expressions_Calls.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/inline_cache/method_cache_mono.ts`
-- `tests/integration/inline_cache/method_benchmark.ts`
-
-#### M4.2: Polymorphic Method Cache
-**Goal:** Support 2-4 receiver types per call site
-
-**Action Items:**
-- [ ] Extend cache to support multiple entries
-- [ ] Linear search through entries (small N is fast)
-- [ ] Megamorphic fallback for highly polymorphic sites
-
-**Files to Edit:**
-- `src/runtime/src/TsMethodCache.cpp`
-- `src/compiler/codegen/IRGenerator_Expressions_Calls.cpp`
-
-**Tests:**
-- `tests/golden_ir/typescript/inline_cache/method_cache_poly.ts`
-- `tests/integration/inline_cache/polymorphic_methods.ts`
-
----
-
-## Optimization 5: Escape Analysis + Stack Allocation
-
-### Overview
-
-Objects that don't escape their defining function can be allocated on the stack instead of the heap, avoiding GC overhead entirely.
-
-**Expected Impact:** Variable, reduces GC pressure significantly
-**Effort:** Medium (2-3 weeks)
+```
+// Analysis marks allocations:
+%obj = new_object Shape  ; escape=false → stack allocate
+%arr = new_array 10      ; escape=true → heap allocate
+```
 
 ### Milestones
 
 #### M5.1: Escape Analysis Pass
-**Goal:** Identify non-escaping allocations
 
 **Action Items:**
-- [ ] Create escape analysis pass
-- [ ] Track object references through:
-  - Function parameters
-  - Return values
-  - Closure captures
-  - Global assignments
-- [ ] Mark objects as "definitely escapes" or "may not escape"
+- [ ] Build CFG from HIR blocks
+- [ ] Forward data flow analysis for escape
+- [ ] Mark allocations with escape info
 
-**Files to Edit:**
-- `src/compiler/analysis/EscapeAnalysis.h` (new)
-- `src/compiler/analysis/EscapeAnalysis.cpp` (new)
-- `src/compiler/analysis/Analyzer.h`
+**Files:**
+- `src/compiler/hir/analysis/EscapeAnalysis.cpp`
 
-**Tests:**
-- `tests/golden_ir/typescript/escape/no_escape_local.ts`
-- `tests/golden_ir/typescript/escape/escape_return.ts`
-- `tests/golden_ir/typescript/escape/escape_closure.ts`
-
-#### M5.2: Stack Allocation Codegen
-**Goal:** Generate alloca for non-escaping objects
+#### M5.2: Stack Allocation in LLVM Lowering
 
 **Action Items:**
-- [ ] Use LLVM alloca for non-escaping objects
-- [ ] Ensure proper lifetime (no use-after-free)
-- [ ] Handle nested non-escaping objects
+- [ ] Non-escaping `new_object` → `alloca`
+- [ ] Ensure lifetime correctness
 
-**Files to Edit:**
-- `src/compiler/codegen/IRGenerator_Expressions.cpp`
-- `src/compiler/codegen/IRGenerator.h` - Track escape info
-
-**Tests:**
-- `tests/golden_ir/typescript/escape/stack_alloc_object.ts`
-- `tests/golden_ir/typescript/escape/stack_alloc_array.ts`
-- `tests/integration/escape/escape_benchmark.ts`
+**Files:**
+- `src/compiler/hir/HIRToLLVM.cpp`
 
 ---
 
-## Optimization 6: String Interning
+## Phase 6: String Interning
 
-### Overview
+**Prerequisite:** Phase 0 (HIR)
+**Expected Impact:** 1.5-2x for string comparisons
+**Effort:** 1 week
 
-Deduplicate identical strings at runtime. Enables pointer comparison instead of content comparison for equality checks.
+### Safety Requirements
 
-**Expected Impact:** 1.5-2x for string-heavy code
-**Effort:** Low (1 week)
+**Invariant:** Interned strings can use pointer equality.
+
+**Implementation:**
+- All string literals interned at compile time
+- Runtime interning optional for computed strings
+- Equality: if both interned, compare pointers
 
 ### Milestones
 
-#### M6.1: String Intern Table
-**Goal:** Global intern table for strings
+#### M6.1: Compile-Time Interning
 
-**Action Items:**
-- [ ] Create `TsStringInternTable` singleton
-- [ ] Intern all string literals at compile time
-- [ ] Optional runtime interning for computed strings
-- [ ] Use pointer comparison for interned strings
+**Files:**
+- `src/compiler/hir/HIRToLLVM.cpp` - Intern string constants
 
-**Files to Edit:**
-- `src/runtime/include/TsStringIntern.h` (new)
-- `src/runtime/src/TsStringIntern.cpp` (new)
-- `src/runtime/src/TsString.cpp`
-- `src/compiler/codegen/IRGenerator_Expressions.cpp` - String literal codegen
+#### M6.2: Runtime Intern Table
 
-**Tests:**
-- `tests/golden_ir/typescript/strings/string_intern.ts`
-- `tests/golden_ir/typescript/strings/string_equality.ts`
-- `tests/integration/strings/string_benchmark.ts`
+**Files:**
+- `src/runtime/include/TsStringIntern.h`
+- `src/runtime/src/TsStringIntern.cpp`
 
 ---
 
-## Optimization 7: Custom Generational GC
+## Phase 7: Custom Generational GC (Future)
 
-### Overview
+**Prerequisite:** All above phases stable
+**Expected Impact:** Better latency, throughput
+**Effort:** 8-12 weeks
 
-Replace Boehm GC with a custom generational garbage collector optimized for JavaScript allocation patterns (many short-lived objects).
-
-**Expected Impact:** Reduced pause times, better throughput
-**Effort:** Very High (8-12 weeks)
-
-### Milestones
-
-#### M7.1: Nursery (Young Generation)
-**Goal:** Fast bump-pointer allocation for new objects
-
-**Action Items:**
-- [ ] Create nursery memory region (e.g., 4MB)
-- [ ] Bump-pointer allocation
-- [ ] Write barrier for old→young pointers
-- [ ] Minor GC: copy surviving objects to old gen
-
-**Files to Edit:**
-- `src/runtime/include/TsGC.h` (new)
-- `src/runtime/src/TsGC.cpp` (new)
-- `src/runtime/include/GC.h` - Replace Boehm interface
-- `src/runtime/src/Memory.cpp`
-
-**Tests:**
-- `tests/integration/gc/nursery_alloc.ts`
-- `tests/integration/gc/minor_gc.ts`
-
-#### M7.2: Old Generation
-**Goal:** Mark-sweep for long-lived objects
-
-**Action Items:**
-- [ ] Old generation heap management
-- [ ] Mark phase: trace from roots
-- [ ] Sweep phase: reclaim unmarked objects
-- [ ] Major GC triggering heuristics
-
-**Files to Edit:**
-- `src/runtime/src/TsGC.cpp`
-
-**Tests:**
-- `tests/integration/gc/major_gc.ts`
-- `tests/integration/gc/gc_stress.ts`
-
-#### M7.3: Incremental/Concurrent Collection
-**Goal:** Reduce pause times
-
-**Action Items:**
-- [ ] Incremental marking
-- [ ] Concurrent sweep
-- [ ] Tri-color marking with write barriers
-
-**Files to Edit:**
-- `src/runtime/src/TsGC.cpp`
-
-**Tests:**
-- `tests/integration/gc/incremental_gc.ts`
-- `tests/integration/gc/pause_time.ts`
+**Deferred:** This is a major undertaking. Focus on Phases 0-6 first.
 
 ---
 
-## Regression Prevention
+## Testing Strategy
 
-### Benchmark Suite
-
-All optimizations must maintain correctness. Run these before and after each optimization:
-
-```powershell
-# Correctness tests
-python tests/golden_ir/runner.py .
-python tests/node/run_tests.py
-
-# Performance benchmarks
-build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/fibonacci.ts -o tmp/fib.exe
-tmp/fib.exe
-
-build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/json_parse.ts -o tmp/json.exe
-tmp/json.exe
-
-build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/sorting.ts -o tmp/sort.exe
-tmp/sort.exe
-
-build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/regex.ts -o tmp/regex.exe
-tmp/regex.exe
+### Unit Tests (per phase)
+```
+tests/unit/hir/           # HIR data structure tests
+tests/unit/passes/        # Individual optimization pass tests
 ```
 
-### Performance Tracking
-
-Create `benchmarks/results/` directory to track performance over time:
-
+### Golden HIR Tests
 ```
-benchmarks/results/
-├── baseline.json          # Initial measurements
-├── opt1_shapes.json       # After hidden classes
-├── opt2_arrays.json       # After unboxed arrays
-└── ...
+tests/golden_hir/         # AST → HIR transformation tests
+                          # Check HIR text output matches expected
 ```
 
-### CI Integration
+### Integration Tests
+```
+tests/golden_ir/          # Full pipeline: TS → exe → output
+                          # Must all pass before/after each phase
+```
 
-Add performance regression detection to CI:
-- Fail if any benchmark regresses by >10%
-- Warn if any benchmark regresses by >5%
+### Benchmark Regression
+```
+benchmarks/baseline.json  # Captured before optimization work
+benchmarks/current.json   # Current performance
+
+# CI check: fail if >10% regression
+```
 
 ---
 
 ## Implementation Order
 
-Based on impact/effort analysis:
+| Phase | Weeks | Cumulative Benefit |
+|-------|-------|-------------------|
+| 0. HIR Foundation | 4-6 | Stability, debuggability |
+| 1. Unboxed Arrays | 2-3 | 2-3x array code |
+| 2. SMI Integers | 2-3 | 3-5x numeric code |
+| 3. Hidden Classes | 4-6 | 5-10x property access |
+| 4. Inline Cache | 1-2 | 2-3x method calls |
+| 5. Escape Analysis | 2-3 | Reduced GC |
+| 6. String Interning | 1 | Faster comparisons |
 
-| Phase | Optimization | Weeks | Cumulative Speedup |
-|-------|--------------|-------|-------------------|
-| 1 | Unboxed Arrays (M2) | 2-3 | 2-3x |
-| 2 | SMI Optimization (M3) | 2-3 | 3-5x |
-| 3 | Hidden Classes (M1) | 4-6 | 5-10x |
-| 4 | Method Inline Cache (M4) | 1-2 | 6-12x |
-| 5 | Escape Analysis (M5) | 2-3 | Variable |
-| 6 | String Interning (M6) | 1 | +10-20% |
-| 7 | Custom GC (M7) | 8-12 | Better latency |
-
-**Recommended start:** Optimization 2 (Unboxed Arrays) - highest bang for buck, moderate complexity.
+**Total: 16-24 weeks for full optimization suite**
 
 ---
 
 ## Success Criteria
 
-- [ ] All compute benchmarks within 2x of Node.js
-- [ ] No correctness regressions (all tests pass)
-- [ ] Startup time remains under 10ms
-- [ ] Memory usage within 1.5x of Node.js
+- [ ] All golden_ir tests pass at each phase
+- [ ] No performance regression >5% on any benchmark
+- [ ] Compute benchmarks within 2x of Node.js
+- [ ] `--dump-hir` provides debuggable output
+- [ ] Each optimization can be disabled via flag
+
+---
+
+## Appendix: Current vs Proposed Pipeline
+
+### Current (Fragile)
+```
+dump_ast.js → JSON → AST → Analyzer ──────────────> IRGenerator → LLVM
+                           │                              │
+                           └── types, symbols,            │
+                               modules, all               │
+                               interleaved ───────────────┘
+```
+
+### Proposed (Robust)
+```
+dump_ast.js → JSON → AST → Analyzer → HIR Builder → HIR
+                           │                         │
+                           └── types, symbols,       │
+                               modules resolved      │
+                                                     ▼
+                              ┌──────────────────────┴──────────────────────┐
+                              │                                              │
+                              ▼                                              ▼
+                         --dump-hir                                    Optimization
+                                                                       Passes
+                                                                          │
+                                                                          ▼
+                                                                    Optimized HIR
+                                                                          │
+                                                                          ▼
+                                                                   HIRToLLVM
+                                                                          │
+                                                                          ▼
+                                                                      LLVM IR
+```
 
 ---
 
 ## References
 
-- [V8 Hidden Classes](https://v8.dev/blog/fast-properties)
-- [V8 Elements Kinds](https://v8.dev/blog/elements-kinds)
-- [V8 Inline Caches](https://mrale.ph/blog/2015/01/11/whats-up-with-monomorphism.html)
-- [SpiderMonkey Shapes](https://spidermonkey.dev/docs/Hidden_Classes)
-- [JavaScriptCore Structure](https://webkit.org/blog/7846/concurrent-javascript-it-can-work/)
+- [MLIR: Multi-Level IR](https://mlir.llvm.org/) - Inspiration for HIR design
+- [Cranelift IR](https://github.com/bytecodealliance/wasmtime/tree/main/cranelift) - Another HIR example
+- [V8 TurboFan IR](https://v8.dev/docs/turbofan) - JS-specific IR
+- [Sea of Nodes](https://darksi.de/d.sea-of-nodes/) - Alternative IR design
