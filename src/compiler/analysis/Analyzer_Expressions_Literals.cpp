@@ -170,7 +170,8 @@ void Analyzer::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node
     // StringLiteral case: no additional args beyond strings array
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->tag.get())) {
-        functionUsages[id->name].push_back({argTypes, {}});
+        std::string modPath = currentModule ? currentModule->path : "";
+        functionUsages[id->name].push_back({argTypes, {}, modPath});
     }
 
     lastType = std::make_shared<Type>(TypeKind::String);

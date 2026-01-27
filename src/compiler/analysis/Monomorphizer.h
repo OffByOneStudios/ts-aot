@@ -35,7 +35,7 @@ private:
     std::vector<std::unique_ptr<ast::FunctionDeclaration>> syntheticFunctions;
     std::vector<Specialization> specializations;
     
-    ast::FunctionDeclaration* findFunction(Analyzer& analyzer, const std::string& name);
+    ast::FunctionDeclaration* findFunction(Analyzer& analyzer, const std::string& name, const std::string& modulePath = "");
     ast::ClassDeclaration* findClass(Analyzer& analyzer, const std::string& name);
 };
 

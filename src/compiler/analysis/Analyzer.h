@@ -15,6 +15,7 @@ namespace ts {
 struct CallSignature {
     std::vector<std::shared_ptr<Type>> argTypes;
     std::vector<std::shared_ptr<Type>> typeArguments;
+    std::string modulePath;  // Module where this call was made (for disambiguating same-named functions)
 };
 
 class Analyzer : public ast::Visitor {
