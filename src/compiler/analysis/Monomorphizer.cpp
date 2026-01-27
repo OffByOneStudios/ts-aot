@@ -395,20 +395,24 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         auto currentUsages = analyzer.getFunctionUsages(); // Copy the map to avoid iterator invalidation
 
         for (const auto& [name, calls] : currentUsages) {
-            ast::FunctionDeclaration* funcNode = findFunction(analyzer, name);
-            if (!funcNode) continue;
-
             for (const auto& call : calls) {
+                // Find function in the module where the call was made (handles same-named functions)
+                ast::FunctionDeclaration* funcNode = findFunction(analyzer, name, call.modulePath);
+                if (!funcNode) continue;
+
+                // Include module path in the specialization key to distinguish same-named functions
+                // in different modules with the same argument types
                 std::string mangled = generateMangledName(name, call.argTypes, call.typeArguments);
-                if (processedSpecializations.count(mangled)) continue;
-                
-                processedSpecializations.insert(mangled);
+                std::string specKey = call.modulePath.empty() ? mangled : (call.modulePath + "::" + mangled);
+                if (processedSpecializations.count(specKey)) continue;
+
+                processedSpecializations.insert(specKey);
                 changed = true;
 
                 Specialization spec;
                 spec.originalName = name;
                 spec.specializedName = mangled;
-                
+
                 if (spec.specializedName == "main") {
                     spec.specializedName = "__ts_main";
                 }
@@ -416,10 +420,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 spec.argTypes = call.argTypes;
                 spec.typeArguments = call.typeArguments;
                 spec.node = funcNode;
-                
+
                 // Infer return type - this might record NEW usages in analyzer.functionUsages
                 spec.returnType = analyzer.analyzeFunctionBody(funcNode, call.argTypes, call.typeArguments);
-                
+
                 specializations.push_back(spec);
             }
         }
@@ -974,15 +978,49 @@ std::string Monomorphizer::generateMangledName(const std::string& originalName, 
     return name;
 }
 
-ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const std::string& name) {
+ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const std::string& name, const std::string& modulePath) {
     // For function overloads, multiple FunctionDeclarations exist with the same name:
     // - Overload signatures: have empty body
     // - Implementation: has the actual body
     // We need to return the implementation (the one with a body), not the signature.
+    //
+    // When modulePath is provided, we first search that module specifically to handle
+    // the case where different modules have functions with the same name.
+
     ast::FunctionDeclaration* firstMatch = nullptr;
 
+    // If modulePath is provided, search that module FIRST
+    if (!modulePath.empty()) {
+        auto it = analyzer.modules.find(modulePath);
+        if (it != analyzer.modules.end() && it->second->ast) {
+            for (auto& stmt : it->second->ast->body) {
+                if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    if (func->name == name) {
+                        // Prefer the function with a body (the implementation)
+                        if (!func->body.empty()) {
+                            return func;
+                        }
+                        // Keep track of the first match in case no implementation is found
+                        if (!firstMatch) {
+                            firstMatch = func;
+                        }
+                    }
+                }
+            }
+        }
+        // If we found a match in the specified module (even without body), prefer it
+        if (firstMatch) {
+            return firstMatch;
+        }
+    }
+
+    // Fall back to searching all modules (for backward compatibility and cases where
+    // modulePath is empty, like user_main and main)
     for (auto& [path, module] : analyzer.modules) {
         if (!module->ast) continue;
+        // Skip the already-searched module if modulePath was provided
+        if (!modulePath.empty() && path == modulePath) continue;
+
         for (auto& stmt : module->ast->body) {
             if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
                 if (func->name == name) {

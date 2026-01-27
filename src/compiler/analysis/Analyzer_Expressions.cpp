@@ -274,11 +274,12 @@ void Analyzer::visitCallExpression(CallExpression* node) {
             lastType = func->returnType;
         }
         
+        std::string modPath = currentModule ? currentModule->path : "";
         if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
-            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments});
+            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath});
         } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
-                functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments});
+                functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments, modPath});
             }
         }
         return;
@@ -318,9 +319,10 @@ void Analyzer::visitCallExpression(CallExpression* node) {
     }
 
     if (!calleeName.empty()) {
-        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments});
+        std::string modPath = currentModule ? currentModule->path : "";
+        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments, modPath});
     }
-    
+
     // For now, assume calls return Any unless we know better
     lastType = std::make_shared<Type>(TypeKind::Any);
 }

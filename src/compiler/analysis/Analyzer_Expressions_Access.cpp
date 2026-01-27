@@ -57,7 +57,8 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
             }
             // Record function usage (empty paramTypes is valid for zero-arg functions)
             if (hasValidParams) {
-                functionUsages[node->name].push_back({funcType->paramTypes, {}});
+                std::string modPath = currentModule ? currentModule->path : "";
+                functionUsages[node->name].push_back({funcType->paramTypes, {}, modPath});
             }
         }
     } else {
