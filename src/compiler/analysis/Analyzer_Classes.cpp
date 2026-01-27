@@ -8,12 +8,15 @@ namespace ts {
 using namespace ast;
 
 void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
+    // Track all ClassDeclarations for codegen (including local classes inside functions)
+    classDeclarations.push_back(node);
+
     auto classType = std::make_shared<ClassType>(node->name);
     classType->originalName = node->name;
     classType->isAbstract = node->isAbstract;
     classType->isStruct = node->isStruct;
     classType->node = node;
-    
+
     auto existing = symbols.lookupType(node->name);
     if (!existing || existing->kind != TypeKind::Class) {
         symbols.defineType(node->name, classType);
@@ -28,6 +31,9 @@ void Analyzer::visitClassDeclaration(ast::ClassDeclaration* node) {
         classType->isStruct = node->isStruct;
         classType->isAbstract = node->isAbstract;
     }
+
+    // Store the resolved ClassType on the AST node for codegen access (especially for local classes)
+    node->resolvedType = classType;
 
     symbols.enterScope();
     // Register type parameters
@@ -505,9 +511,53 @@ std::shared_ptr<ClassType> Analyzer::analyzeClassBody(ast::ClassDeclaration* nod
 
 std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments) {
     auto oldClass = currentClass;
+    auto oldModule = currentModule;
     currentClass = classType;
+
+    // Find the module containing this method's class and set currentModule appropriately.
+    // This is necessary because the Monomorphizer calls analyzeMethodBody after the module
+    // scope has been exited, but the method body may reference module-level symbols (imports).
+    auto setContextForMethod = [&]() {
+        for (auto& [path, module] : modules) {
+            if (!module || !module->ast) continue;
+            for (auto& stmt : module->ast->body) {
+                // Check class declarations (exported classes have isExported=true flag)
+                if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                    // Check if this class contains our method
+                    for (auto& member : cls->members) {
+                        if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                            if (method == node) {
+                                currentModule = module;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    setContextForMethod();
+
     symbols.enterScope();
-    
+
+    // Restore all module-level symbols (including non-exported ones like imported functions).
+    // These were saved during analyzeModule() before the module scope was exited.
+    // This is necessary because the Monomorphizer calls analyzeMethodBody after the module
+    // scope has been exited, but method bodies may reference module-level symbols (imports).
+    if (currentModule && currentModule->moduleSymbols) {
+        for (auto& [name, sym] : currentModule->moduleSymbols->getGlobalSymbols()) {
+            if (!symbols.lookup(name)) {
+                symbols.define(name, sym->type);
+            }
+        }
+        for (auto& [name, type] : currentModule->moduleSymbols->getGlobalTypes()) {
+            if (!symbols.lookupType(name)) {
+                symbols.defineType(name, type);
+            }
+        }
+    }
+
     // Define 'this'
     symbols.define("this", classType);
 
@@ -572,6 +622,7 @@ std::shared_ptr<Type> Analyzer::analyzeMethodBody(ast::MethodDefinition* node, s
     
     symbols.exitScope();
     currentClass = oldClass;
+    currentModule = oldModule;
     return inferredReturnType;
 }
 
