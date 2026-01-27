@@ -74,16 +74,17 @@ function user_main(): number {
     }, { iterations: 3, warmup: 1, minTime: 5000 });
 
     // Iterative benchmark - baseline comparison
-    suite.add('fib_iterative(10000)', () => {
-        const result = fibIterative(10000);
+    // fib(90) = 2880067194370816120, near int64 max
+    suite.add('fib_iterative(90)', () => {
+        const result = fibIterative(90);
         if (result < 0) console.log('unreachable');
-    }, { iterations: 1000, warmup: 100 });
+    }, { iterations: 10000, warmup: 1000 });
 
     // Memoized benchmark - tests Map operations
-    suite.add('fib_memoized(10000)', () => {
-        const result = fibMemoized(10000, new Map());
+    suite.add('fib_memoized(90)', () => {
+        const result = fibMemoized(90, new Map());
         if (result < 0) console.log('unreachable');
-    }, { iterations: 100, warmup: 10 });
+    }, { iterations: 1000, warmup: 100 });
 
     suite.run();
     suite.printSummary();
