@@ -289,10 +289,10 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Track array element types (via inferResultType for GetElem)
 
 ### 5.3 ConstantFoldingPass
-- [ ] Fold arithmetic on constants
-- [ ] Fold string concatenation
-- [ ] Fold boolean operations
-- [ ] Fold comparisons
+- [x] Fold arithmetic on constants (int and float)
+- [x] Fold string concatenation
+- [x] Fold boolean operations (&&, ||, !)
+- [x] Fold comparisons (==, !=, <, <=, >, >=)
 
 ### 5.4 DeadCodeEliminationPass
 - [ ] Remove unused instructions
@@ -351,6 +351,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - `src/compiler/hir/passes/BuiltinResolutionPass.cpp`
 - `src/compiler/hir/passes/TypePropagationPass.h`
 - `src/compiler/hir/passes/TypePropagationPass.cpp`
+- `src/compiler/hir/passes/ConstantFoldingPass.h`
+- `src/compiler/hir/passes/ConstantFoldingPass.cpp`
 
 ---
 
@@ -362,11 +364,20 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 2: Resolution Passes | 75% |
 | Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
-| Phase 5: Optimization Passes | 20% |
+| Phase 5: Optimization Passes | 35% |
 
-**Overall: ~88% Complete**
+**Overall: ~90% Complete**
 
 ### Recent Progress (2026-01-28)
+- **ConstantFoldingPass implemented:**
+  - Integer arithmetic folding (add, sub, mul, div, mod)
+  - Float arithmetic folding (add, sub, mul, div)
+  - Boolean operation folding (and, or, not)
+  - Comparison folding (eq, ne, lt, le, gt, ge for int and float)
+  - String concatenation folding
+  - Type cast folding (int-to-float, float-to-int, bool-to-int)
+  - Safe handling of division/modulo by zero (returns Unknown)
+  - Tracks constants through SSA graph for chained operations
 - **TypePropagationPass implemented:**
   - Forward type propagation for constants, arithmetic, boxing/unboxing
   - Phi node type merging (join of incoming types)
@@ -412,8 +423,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **ConstantFoldingPass** - Optimize compile-time constant expressions
-2. **DeadCodeEliminationPass** - Remove unused instructions and blocks
+1. **DeadCodeEliminationPass** - Remove unused instructions and blocks
+2. **InliningPass** - Inline small functions and lambda callbacks
 3. **Async/await** - Required for async I/O patterns
 4. **Getters/setters** - OOP pattern for computed properties
 5. **Private fields (#field)** - Modern class encapsulation
