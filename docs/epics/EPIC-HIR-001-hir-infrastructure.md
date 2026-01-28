@@ -129,7 +129,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Rest parameters
 - [x] Arrow functions
 - [x] Function expressions
-- [x] Closures / captured variables (HIR infrastructure; LLVM lowering stubbed)
+- [x] Closures / captured variables (full implementation with mutable captures and nested closures)
 - [ ] Async functions (stub exists)
 - [ ] Generator functions (stub exists)
 - [ ] Async generators
@@ -244,6 +244,13 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] LoadGlobal
 - [x] LoadFunction
 
+### 4.14 Closures
+- [x] MakeClosure (creates TsClosure with captured values)
+- [x] LoadCapture (loads from closure context)
+- [x] StoreCapture (stores to mutable capture cell)
+- [x] Hidden __closure parameter for functions with captures
+- [x] Capture propagation for nested closures
+
 ### 4.12 Control Flow
 - [x] Branch
 - [x] CondBranch
@@ -342,18 +349,25 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 75% |
-| Phase 3: ASTToHIR Coverage | 70% |
-| Phase 4: HIRToLLVM Coverage | 90% |
+| Phase 3: ASTToHIR Coverage | 75% |
+| Phase 4: HIRToLLVM Coverage | 95% |
 | Phase 5: Optimization Passes | 0% |
 
-**Overall: ~70% Complete**
+**Overall: ~75% Complete**
+
+### Recent Progress (2026-01-28)
+- Full closure implementation with mutable captures and nested closure propagation
+- TsClosure runtime struct with heap-allocated capture cells (TsCell)
+- MakeClosure, LoadCapture, StoreCapture HIR opcodes fully lowered to LLVM
+- CallIndirect passes closure context correctly
+- All closure tests passing (basic, mutable counter, nested closures)
 
 ---
 
 ## Next Steps (Priority Order)
 
-1. **Full closure semantics** - LLVM lowering needs heap-allocated captures
-2. **Classes** - Required for OOP, npm packages
-3. **Try/catch/finally** - Required for error handling
-4. **TypePropagationPass** - Enables better downstream optimization
-5. **Destructuring** - Common ES6+ pattern
+1. **Classes** - Required for OOP, npm packages
+2. **Try/catch/finally** - Required for error handling
+3. **TypePropagationPass** - Enables better downstream optimization
+4. **Destructuring** - Common ES6+ pattern
+5. **Async/await** - Required for async I/O patterns

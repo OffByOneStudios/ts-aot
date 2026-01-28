@@ -873,9 +873,12 @@ public:
 
     // Create a closure object from a function and captured values
     // Returns a closure object pointer that can be called indirectly
+    // funcType: The function type (with return type info) - used for CallIndirect type inference
     std::shared_ptr<HIRValue> createMakeClosure(const std::string& funcName,
-                                                 const std::vector<std::shared_ptr<HIRValue>>& captures) {
-        auto result = createValue(HIRType::makePtr());
+                                                 const std::vector<std::shared_ptr<HIRValue>>& captures,
+                                                 std::shared_ptr<HIRType> funcType = nullptr) {
+        // Use function type if provided, otherwise fall back to generic pointer
+        auto result = createValue(funcType ? funcType : HIRType::makePtr());
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::MakeClosure);
         inst->result = result;
         inst->operands.push_back(funcName);

@@ -255,8 +255,23 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
         case ts::TypeKind::Object:
         case ts::TypeKind::Class:
             return HIRType::makeObject();
-        case ts::TypeKind::Function:
-            return HIRType::makePtr();  // Function pointers
+        case ts::TypeKind::Function: {
+            // Preserve function type information for closures
+            auto funcType = std::dynamic_pointer_cast<ts::FunctionType>(type);
+            if (funcType) {
+                auto hirFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+                for (const auto& paramType : funcType->paramTypes) {
+                    hirFuncType->paramTypes.push_back(convertType(paramType));
+                }
+                if (funcType->returnType) {
+                    hirFuncType->returnType = convertType(funcType->returnType);
+                } else {
+                    hirFuncType->returnType = HIRType::makeAny();
+                }
+                return hirFuncType;
+            }
+            return HIRType::makePtr();  // Fallback to generic pointer
+        }
         default:
             return HIRType::makeAny();
     }
@@ -909,12 +924,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         if (info) {
             // It's a local variable - load the function pointer and call indirectly
             std::shared_ptr<HIRValue> funcPtr;
+            std::shared_ptr<HIRType> funcType;
             if (info->isAlloca && info->elemType) {
                 funcPtr = builder_.createLoad(info->elemType, info->value);
+                funcType = info->elemType;
             } else {
                 funcPtr = info->value;
+                funcType = info->value->type;
             }
-            lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
+            // Get return type from function type if available
+            std::shared_ptr<HIRType> resultType = HIRType::makeAny();
+            if (funcType && funcType->kind == HIRTypeKind::Function && funcType->returnType) {
+                resultType = funcType->returnType;
+            }
+            lastValue_ = builder_.createCallIndirect(funcPtr, args, resultType);
             return;
         }
         // Not a local variable - direct function call
@@ -1171,11 +1194,29 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     func->isAsync = node->isAsync;
     func->isGenerator = false;  // Arrow functions can't be generators
 
-    // Handle parameters
-    for (auto& param : node->parameters) {
-        auto paramType = param->type.empty()
-            ? HIRType::makeAny()
-            : convertTypeFromString(param->type);
+    // Get function type info from inferred type if available
+    std::shared_ptr<ts::FunctionType> tsFuncType = nullptr;
+    if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
+        tsFuncType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
+    }
+
+    // Handle parameters - use inferred types from function type if available
+    for (size_t i = 0; i < node->parameters.size(); ++i) {
+        auto& param = node->parameters[i];
+        std::shared_ptr<HIRType> paramType;
+
+        // First try explicit type annotation
+        if (!param->type.empty()) {
+            paramType = convertTypeFromString(param->type);
+        }
+        // Then try inferred type from function signature
+        else if (tsFuncType && i < tsFuncType->paramTypes.size() && tsFuncType->paramTypes[i]) {
+            paramType = convertType(tsFuncType->paramTypes[i]);
+        }
+        // Finally fall back to Any
+        else {
+            paramType = HIRType::makeAny();
+        }
 
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
@@ -1186,13 +1227,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         func->params.push_back({paramName, paramType});
     }
 
-    // Determine return type from node's inferred type or default to Any
+    // Determine return type from inferred type or default to Any
     std::shared_ptr<HIRType> returnType = HIRType::makeAny();
-    if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
-        auto funcType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
-        if (funcType->returnType) {
-            returnType = convertType(funcType->returnType);
-        }
+    if (tsFuncType && tsFuncType->returnType) {
+        returnType = convertType(tsFuncType->returnType);
     }
     func->returnType = returnType;
 
@@ -1244,6 +1282,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     }
     bool hasClosure = !pendingCaptures_.empty();
 
+    // Save the captures list for later use (after we restore context)
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
+
     popScope();
 
     // Restore saved context
@@ -1260,24 +1301,65 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Add function to module
     module_->functions.push_back(std::move(func));
 
+    // Build function type for the closure (used for type inference at call sites)
+    auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+    for (const auto& [paramName, paramType] : funcPtr->params) {
+        closureFuncType->paramTypes.push_back(paramType);
+    }
+    closureFuncType->returnType = funcPtr->returnType;
+
     // Return either a closure or plain function pointer
     if (hasClosure && savedFunc) {
         // Create a closure with captured values
         std::vector<std::shared_ptr<HIRValue>> captureValues;
-        for (const auto& cap : funcPtr->captures) {
-            // Load the captured value from the outer scope
-            auto* info = lookupVariableInfo(cap.first);
-            if (info) {
-                std::shared_ptr<HIRValue> val;
-                if (info->isAlloca && info->elemType) {
-                    val = builder_.createLoad(info->elemType, info->value);
-                } else {
-                    val = info->value;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            const auto& capType = cap.second;
+
+            // Check if this variable requires capture propagation (i.e., it's from
+            // an outer function's scope, not the current function's scope)
+            size_t scopeIndex = 0;
+            bool needsCapturePropagation = isCapturedVariable(capName, &scopeIndex);
+
+            if (needsCapturePropagation) {
+                // Variable is in an outer function's scope - we need to propagate
+                // the capture through the current function.
+                // Register this capture for the current function too
+                registerCapture(capName, capType, scopeIndex);
+                currentFunction_->hasClosure = true;
+                // Also add to the function's captures list directly since it was
+                // already finalized before we detected the propagation need
+                bool alreadyInCaptures = false;
+                for (const auto& existingCap : currentFunction_->captures) {
+                    if (existingCap.first == capName) {
+                        alreadyInCaptures = true;
+                        break;
+                    }
                 }
+                if (!alreadyInCaptures) {
+                    currentFunction_->captures.push_back({capName, capType});
+                }
+                // Use LoadCapture to get the value
+                auto val = builder_.createLoadCapture(capName, capType);
                 captureValues.push_back(val);
+            } else {
+                // Variable is directly accessible in the current function's scope
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    std::shared_ptr<HIRValue> val;
+                    if (info->isAlloca && info->elemType) {
+                        val = builder_.createLoad(info->elemType, info->value);
+                    } else {
+                        val = info->value;
+                    }
+                    captureValues.push_back(val);
+                } else {
+                    // Variable not found - shouldn't happen, but emit a placeholder
+                    captureValues.push_back(builder_.createConstNull());
+                }
             }
         }
-        lastValue_ = builder_.createMakeClosure(funcName, captureValues);
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
     } else {
         // Plain function pointer
         lastValue_ = builder_.createLoadFunction(funcName);
@@ -1373,6 +1455,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     }
     bool hasClosure = !pendingCaptures_.empty();
 
+    // Save the captures list for later use (after we restore context)
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
+
     popScope();
 
     // Restore saved context
@@ -1389,24 +1474,65 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // Add function to module
     module_->functions.push_back(std::move(func));
 
+    // Build function type for the closure (used for type inference at call sites)
+    auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+    for (const auto& [paramName, paramType] : funcPtr->params) {
+        closureFuncType->paramTypes.push_back(paramType);
+    }
+    closureFuncType->returnType = funcPtr->returnType;
+
     // Return either a closure or plain function pointer
     if (hasClosure && savedFunc) {
         // Create a closure with captured values
         std::vector<std::shared_ptr<HIRValue>> captureValues;
-        for (const auto& cap : funcPtr->captures) {
-            // Load the captured value from the outer scope
-            auto* info = lookupVariableInfo(cap.first);
-            if (info) {
-                std::shared_ptr<HIRValue> val;
-                if (info->isAlloca && info->elemType) {
-                    val = builder_.createLoad(info->elemType, info->value);
-                } else {
-                    val = info->value;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            const auto& capType = cap.second;
+
+            // Check if this variable requires capture propagation (i.e., it's from
+            // an outer function's scope, not the current function's scope)
+            size_t scopeIndex = 0;
+            bool needsCapturePropagation = isCapturedVariable(capName, &scopeIndex);
+
+            if (needsCapturePropagation) {
+                // Variable is in an outer function's scope - we need to propagate
+                // the capture through the current function.
+                // Register this capture for the current function too
+                registerCapture(capName, capType, scopeIndex);
+                currentFunction_->hasClosure = true;
+                // Also add to the function's captures list directly since it was
+                // already finalized before we detected the propagation need
+                bool alreadyInCaptures = false;
+                for (const auto& existingCap : currentFunction_->captures) {
+                    if (existingCap.first == capName) {
+                        alreadyInCaptures = true;
+                        break;
+                    }
                 }
+                if (!alreadyInCaptures) {
+                    currentFunction_->captures.push_back({capName, capType});
+                }
+                // Use LoadCapture to get the value
+                auto val = builder_.createLoadCapture(capName, capType);
                 captureValues.push_back(val);
+            } else {
+                // Variable is directly accessible in the current function's scope
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    std::shared_ptr<HIRValue> val;
+                    if (info->isAlloca && info->elemType) {
+                        val = builder_.createLoad(info->elemType, info->value);
+                    } else {
+                        val = info->value;
+                    }
+                    captureValues.push_back(val);
+                } else {
+                    // Variable not found - shouldn't happen, but emit a placeholder
+                    captureValues.push_back(builder_.createConstNull());
+                }
             }
         }
-        lastValue_ = builder_.createMakeClosure(funcName, captureValues);
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
     } else {
         // Plain function pointer
         lastValue_ = builder_.createLoadFunction(funcName);
