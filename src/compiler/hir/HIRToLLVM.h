@@ -242,6 +242,13 @@ private:
     void lowerSelect(HIRInstruction* inst);
     void lowerCopy(HIRInstruction* inst);
 
+    // Exception handling
+    void lowerSetupTry(HIRInstruction* inst);
+    void lowerThrow(HIRInstruction* inst);
+    void lowerGetException(HIRInstruction* inst);
+    void lowerClearException(HIRInstruction* inst);
+    void lowerPopHandler(HIRInstruction* inst);
+
     //==========================================================================
     // Runtime Function Helpers
     //==========================================================================

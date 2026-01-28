@@ -85,6 +85,23 @@ private:
     };
     std::stack<SwitchContext> switchStack_;
 
+    // Class context - tracks when we're inside a class body
+    HIRClass* currentClass_ = nullptr;
+
+    // Static property globals - maps "ClassName_static_propName" to (globalPtr, type)
+    std::map<std::string, std::pair<std::shared_ptr<HIRValue>, std::shared_ptr<HIRType>>> staticPropertyGlobals_;
+
+    // Deferred static property initializations (to be emitted at the start of user_main)
+    struct StaticPropInit {
+        std::shared_ptr<HIRValue> globalPtr;
+        std::shared_ptr<HIRType> propType;
+        ast::Expression* initExpr;  // Raw pointer, valid until lowering completes
+    };
+    std::vector<StaticPropInit> deferredStaticInits_;
+
+    // Emit deferred static initializations
+    void emitDeferredStaticInits();
+
     //==========================================================================
     // Visitor Implementation - Statements
     //==========================================================================
@@ -234,7 +251,7 @@ private:
     void emitBranchIfNeeded(HIRBlock* target);
 
     // Check if current block has a terminator
-    bool hasTerminator() const;
+    bool hasTerminator();
 
     //==========================================================================
     // Result Storage

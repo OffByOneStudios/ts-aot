@@ -226,6 +226,13 @@ static const char* opcodeToString(HIROpcode op) {
         // Misc
         case HIROpcode::Select: return "select";
         case HIROpcode::Copy: return "copy";
+
+        // Exception handling
+        case HIROpcode::SetupTry: return "setup_try";
+        case HIROpcode::Throw: return "throw";
+        case HIROpcode::GetException: return "get_exception";
+        case HIROpcode::ClearException: return "clear_exception";
+        case HIROpcode::PopHandler: return "pop_handler";
     }
     return "unknown";
 }

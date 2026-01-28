@@ -160,15 +160,17 @@ void ASTToHIR::emitBranchIfNeeded(HIRBlock* target) {
     }
 }
 
-bool ASTToHIR::hasTerminator() const {
-    if (!currentBlock_ || currentBlock_->instructions.empty()) {
+bool ASTToHIR::hasTerminator() {
+    HIRBlock* block = builder_.getInsertBlock();
+    if (!block || block->instructions.empty()) {
         return false;
     }
-    auto& last = currentBlock_->instructions.back();
+    auto& last = block->instructions.back();
     // Check if last instruction is a terminator
     auto op = last->opcode;
     return op == HIROpcode::Branch || op == HIROpcode::CondBranch ||
-           op == HIROpcode::Return || op == HIROpcode::ReturnVoid;
+           op == HIROpcode::Return || op == HIROpcode::ReturnVoid ||
+           op == HIROpcode::Throw || op == HIROpcode::Unreachable;
 }
 
 //==============================================================================
@@ -735,21 +737,143 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
 }
 
 void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
-    // Simplified try: just lower the try block
-    // TODO: Proper exception handling
-    // tryBlock is a vector<StmtPtr>
+    // Create basic blocks for exception handling control flow
+    // Use createBlock (with unique numbering) to handle nested try statements
+    auto tryBB = createBlock("try");
+    auto catchBB = node->catchClause ? createBlock("catch") : nullptr;
+    auto finallyBB = !node->finallyBlock.empty() ? createBlock("finally") : nullptr;
+    auto mergeBB = createBlock("try.merge");
+
+    // When there's finally but no catch, we need an intermediate block to store the exception
+    HIRBlock* exceptionStoreBB = nullptr;
+    if (finallyBB && !catchBB) {
+        exceptionStoreBB = createBlock("try.store_exception");
+    }
+
+    // Determine where to go after try/catch
+    HIRBlock* afterTryDest = finallyBB ? finallyBB : mergeBB;
+    HIRBlock* afterCatchDest = finallyBB ? finallyBB : mergeBB;
+
+    // Determine where to go on exception
+    HIRBlock* exceptionDest = catchBB ? catchBB : (exceptionStoreBB ? exceptionStoreBB : afterTryDest);
+
+    // Create alloca for pending exception (for finally rethrow)
+    std::shared_ptr<HIRValue> pendingExc = nullptr;
+    if (finallyBB) {
+        pendingExc = builder_.createAlloca(HIRType::makeAny());
+        builder_.createStore(builder_.createConstNull(), pendingExc);
+    }
+
+    // Setup try: push handler and call setjmp
+    // Returns true if we're coming from an exception, false on normal entry
+    auto isException = builder_.createSetupTry(exceptionDest);
+    builder_.createCondBranch(isException, exceptionDest, tryBB);
+
+    // --- Try Block ---
+    builder_.setInsertPoint(tryBB);
+    currentBlock_ = tryBB;
+
     for (auto& stmt : node->tryBlock) {
+        if (hasTerminator()) break;  // Stop if block already terminated (e.g., by throw)
         lowerStatement(stmt.get());
     }
+
+    // Pop exception handler and branch to finally/merge
+    if (currentBlock_->getTerminator() == nullptr) {
+        builder_.createPopHandler();
+        builder_.createBranch(afterTryDest);
+    }
+
+    // --- Catch Block ---
+    if (catchBB && node->catchClause) {
+        builder_.setInsertPoint(catchBB);
+        currentBlock_ = catchBB;
+
+        // Get and clear the exception
+        auto exception = builder_.createGetException();
+        builder_.createClearException();
+
+        // Bind exception to catch variable if present
+        if (node->catchClause->variable) {
+            // The variable could be an Identifier or a binding pattern
+            if (auto* id = dynamic_cast<ast::Identifier*>(node->catchClause->variable.get())) {
+                defineVariable(id->name, exception);
+            }
+            // TODO: Handle destructuring in catch clause
+        }
+
+        // Execute catch block statements
+        for (auto& stmt : node->catchClause->block) {
+            if (hasTerminator()) break;  // Stop if block already terminated
+            lowerStatement(stmt.get());
+        }
+
+        // Branch to finally/merge
+        if (currentBlock_->getTerminator() == nullptr) {
+            builder_.createBranch(afterCatchDest);
+        }
+    }
+
+    // --- Exception Store Block (for try-finally without catch) ---
+    if (exceptionStoreBB) {
+        builder_.setInsertPoint(exceptionStoreBB);
+        currentBlock_ = exceptionStoreBB;
+
+        // Get the exception and store it for later rethrow
+        auto exception = builder_.createGetException();
+        builder_.createStore(exception, pendingExc);
+        builder_.createBranch(finallyBB);
+    }
+
+    // --- Finally Block ---
+    if (finallyBB) {
+        builder_.setInsertPoint(finallyBB);
+        currentBlock_ = finallyBB;
+
+        // Execute finally block statements
+        for (auto& stmt : node->finallyBlock) {
+            if (hasTerminator()) break;  // Stop if block already terminated
+            lowerStatement(stmt.get());
+        }
+
+        // Check for pending exception to rethrow
+        if (currentBlock_->getTerminator() == nullptr) {
+            if (pendingExc) {
+                auto exc = builder_.createLoad(HIRType::makeAny(), pendingExc);
+                auto isNull = builder_.createCmpEqPtr(exc, builder_.createConstNull());
+
+                auto rethrowBB = createBlock("try.rethrow");
+                builder_.createCondBranch(isNull, mergeBB, rethrowBB);
+
+                builder_.setInsertPoint(rethrowBB);
+                currentBlock_ = rethrowBB;
+                builder_.createThrow(exc);
+            } else {
+                builder_.createBranch(mergeBB);
+            }
+        }
+    }
+
+    // --- Merge Block ---
+    builder_.setInsertPoint(mergeBB);
+    currentBlock_ = mergeBB;
 }
 
 void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
     // Lower the throw expression
+    std::shared_ptr<HIRValue> exception;
     if (node->expression) {
-        lowerExpression(node->expression.get());
+        exception = lowerExpression(node->expression.get());
+        // Box the value if needed (throw can accept any value)
+        if (exception->type && exception->type->kind != HIRTypeKind::Any) {
+            exception = builder_.createBoxObject(exception);
+        }
+    } else {
+        // throw; without expression - rethrow current exception
+        exception = builder_.createGetException();
     }
-    // TODO: Proper throw handling
-    builder_.createUnreachable();
+
+    builder_.createThrow(exception);
 }
 
 void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
