@@ -41,7 +41,9 @@ int main(int argc, char** argv) {
             ("debug-runtime", "Link against debug version of runtime (auto-detected if compiler is debug build)", cxxopts::value<bool>()->default_value("false"))
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
+            ("dump-hir", "Dump HIR before LLVM lowering", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
+            ("use-hir", "Use HIR pipeline instead of direct IRGenerator", cxxopts::value<bool>()->default_value("false"))
             ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"))
             ("log-level", "Set log level (trace, debug, info, warn, error, off)", cxxopts::value<std::string>()->default_value("warning"))
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
@@ -133,7 +135,9 @@ int main(int argc, char** argv) {
         
         driverOpts.debugAst = result["debug-ast"].as<bool>();
         driverOpts.dumpIR = result["dump-ir"].as<bool>();
+        driverOpts.dumpHir = result["dump-hir"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
+        driverOpts.useHir = result["use-hir"].as<bool>();
         driverOpts.smallIcu = result["small-icu"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
         

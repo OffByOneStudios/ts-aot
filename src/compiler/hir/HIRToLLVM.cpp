@@ -1,0 +1,1439 @@
+//==============================================================================
+// HIRToLLVM.cpp - Lower HIR to LLVM IR
+//==============================================================================
+
+#include "HIRToLLVM.h"
+
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Intrinsics.h>
+
+#include <spdlog/spdlog.h>
+#include <stdexcept>
+
+namespace ts::hir {
+
+//==============================================================================
+// Constructor
+//==============================================================================
+
+HIRToLLVM::HIRToLLVM(llvm::LLVMContext& ctx)
+    : context_(ctx)
+    , builder_(std::make_unique<llvm::IRBuilder<>>(ctx))
+{
+}
+
+//==============================================================================
+// Main Entry Point
+//==============================================================================
+
+std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::string& moduleName) {
+    module_ = std::make_unique<llvm::Module>(moduleName, context_);
+
+    // Initialize TsValue type
+    initTsValueType();
+
+    // Lower all functions
+    for (auto& fn : hirModule->functions) {
+        lowerFunction(fn.get());
+    }
+
+    // Create main entry point
+    createMainFunction();
+
+    return std::move(module_);
+}
+
+void HIRToLLVM::createMainFunction() {
+    // Look for user_main function
+    llvm::Function* userMain = module_->getFunction("user_main");
+    if (!userMain) {
+        SPDLOG_WARN("No user_main function found, skipping main entry point generation");
+        return;
+    }
+
+    // Declare ts_main: int ts_main(int argc, char** argv, TsValue* (*user_main)(void*))
+    std::vector<llvm::Type*> tsMainArgs = {
+        llvm::Type::getInt32Ty(context_),    // argc
+        builder_->getPtrTy(),                 // argv
+        builder_->getPtrTy()                  // user_main function pointer
+    };
+    llvm::FunctionType* tsMainFt = llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(context_), tsMainArgs, false);
+    llvm::FunctionCallee tsMain = module_->getOrInsertFunction("ts_main", tsMainFt);
+
+    // Define main: int main(int argc, char** argv)
+    std::vector<llvm::Type*> mainArgs = {
+        llvm::Type::getInt32Ty(context_),    // argc
+        builder_->getPtrTy()                  // argv
+    };
+    llvm::FunctionType* mainFt = llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(context_), mainArgs, false);
+    llvm::Function* mainFn = llvm::Function::Create(
+        mainFt, llvm::Function::ExternalLinkage, "main", module_.get());
+
+    // Create entry block
+    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", mainFn);
+    builder_->SetInsertPoint(entryBB);
+
+    // Get main arguments
+    llvm::Value* argc = mainFn->getArg(0);
+    llvm::Value* argv = mainFn->getArg(1);
+
+    // Call ts_main(argc, argv, user_main)
+    llvm::Value* result = builder_->CreateCall(
+        tsMainFt, tsMain.getCallee(),
+        { argc, argv, userMain }
+    );
+
+    // Return the result
+    builder_->CreateRet(result);
+}
+
+//==============================================================================
+// Type System
+//==============================================================================
+
+void HIRToLLVM::initTsValueType() {
+    // TsValue struct: { i8 type, [7 x i8] padding, i64 value }
+    // This matches the runtime's TsValue structure
+    tsValueType_ = llvm::StructType::create(context_, "TsValue");
+    tsValueType_->setBody({
+        builder_->getInt8Ty(),                                  // type field
+        llvm::ArrayType::get(builder_->getInt8Ty(), 7),        // padding
+        builder_->getInt64Ty()                                  // union (i64 for int, bitcast for ptr/double)
+    });
+}
+
+llvm::Type* HIRToLLVM::getLLVMType(const std::shared_ptr<HIRType>& type) {
+    if (!type) return builder_->getPtrTy();
+    return getLLVMType(type->kind);
+}
+
+llvm::Type* HIRToLLVM::getLLVMType(HIRTypeKind kind) {
+    switch (kind) {
+        case HIRTypeKind::Void:    return builder_->getVoidTy();
+        case HIRTypeKind::Bool:    return builder_->getInt1Ty();
+        case HIRTypeKind::Int64:   return builder_->getInt64Ty();
+        case HIRTypeKind::Float64: return builder_->getDoubleTy();
+        case HIRTypeKind::String:  return builder_->getPtrTy();  // TsString*
+        case HIRTypeKind::Object:  return builder_->getPtrTy();  // TsObject*
+        case HIRTypeKind::Array:   return builder_->getPtrTy();  // TsArray*
+        case HIRTypeKind::Function: return builder_->getPtrTy(); // Function pointer
+        case HIRTypeKind::Class:   return builder_->getPtrTy();  // Class instance
+        case HIRTypeKind::Any:     return builder_->getPtrTy();  // TsValue*
+        case HIRTypeKind::Ptr:     return builder_->getPtrTy();  // Raw pointer
+        default: return builder_->getPtrTy();
+    }
+}
+
+//==============================================================================
+// Value Mapping
+//==============================================================================
+
+llvm::Value* HIRToLLVM::getValue(const std::shared_ptr<HIRValue>& hirValue) {
+    if (!hirValue) return nullptr;
+    auto it = valueMap_.find(hirValue->id);
+    if (it != valueMap_.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue) {
+    if (hirValue) {
+        valueMap_[hirValue->id] = llvmValue;
+    }
+}
+
+llvm::BasicBlock* HIRToLLVM::getBlock(HIRBlock* hirBlock) {
+    if (!hirBlock) return nullptr;
+    auto it = blockMap_.find(hirBlock->label);
+    if (it != blockMap_.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+//==============================================================================
+// Function Lowering
+//==============================================================================
+
+void HIRToLLVM::lowerFunction(HIRFunction* fn) {
+    // Build function type
+    llvm::Type* returnType = getLLVMType(fn->returnType);
+    std::vector<llvm::Type*> paramTypes;
+    for (auto& param : fn->params) {
+        paramTypes.push_back(getLLVMType(param.second));
+    }
+
+    llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+    llvm::Function* llvmFunc = llvm::Function::Create(
+        funcType,
+        llvm::Function::ExternalLinkage,
+        fn->mangledName,
+        module_.get()
+    );
+
+    // Set current function
+    currentFunction_ = llvmFunc;
+    currentHIRFunction_ = fn;
+    valueMap_.clear();
+    blockMap_.clear();
+
+    // Create LLVM basic blocks first (for forward references)
+    for (auto& block : fn->blocks) {
+        llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, llvmFunc);
+        blockMap_[block->label] = bb;
+    }
+
+    // Map function parameters to values
+    auto argIt = llvmFunc->arg_begin();
+    for (size_t i = 0; i < fn->params.size(); ++i, ++argIt) {
+        argIt->setName(fn->params[i].first);
+        // Create a value mapping for the parameter
+        // Parameters are represented as values with IDs starting from 0
+        valueMap_[static_cast<uint32_t>(i)] = &*argIt;
+    }
+
+    // Lower each block
+    for (auto& block : fn->blocks) {
+        lowerBlock(block.get());
+    }
+
+    currentFunction_ = nullptr;
+    currentHIRFunction_ = nullptr;
+}
+
+void HIRToLLVM::lowerBlock(HIRBlock* block) {
+    llvm::BasicBlock* bb = getBlock(block);
+    if (!bb) return;
+
+    builder_->SetInsertPoint(bb);
+
+    // Lower each instruction
+    for (auto& inst : block->instructions) {
+        lowerInstruction(inst.get());
+    }
+}
+
+void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
+    switch (inst->opcode) {
+        // Constants
+        case HIROpcode::ConstInt:       lowerConstInt(inst); break;
+        case HIROpcode::ConstFloat:     lowerConstFloat(inst); break;
+        case HIROpcode::ConstBool:      lowerConstBool(inst); break;
+        case HIROpcode::ConstString:    lowerConstString(inst); break;
+        case HIROpcode::ConstNull:      lowerConstNull(inst); break;
+        case HIROpcode::ConstUndefined: lowerConstUndefined(inst); break;
+
+        // Integer arithmetic
+        case HIROpcode::AddI64: lowerAddI64(inst); break;
+        case HIROpcode::SubI64: lowerSubI64(inst); break;
+        case HIROpcode::MulI64: lowerMulI64(inst); break;
+        case HIROpcode::DivI64: lowerDivI64(inst); break;
+        case HIROpcode::ModI64: lowerModI64(inst); break;
+        case HIROpcode::NegI64: lowerNegI64(inst); break;
+
+        // Float arithmetic
+        case HIROpcode::AddF64: lowerAddF64(inst); break;
+        case HIROpcode::SubF64: lowerSubF64(inst); break;
+        case HIROpcode::MulF64: lowerMulF64(inst); break;
+        case HIROpcode::DivF64: lowerDivF64(inst); break;
+        case HIROpcode::ModF64: lowerModF64(inst); break;
+        case HIROpcode::NegF64: lowerNegF64(inst); break;
+
+        // Bitwise
+        case HIROpcode::AndI64:  lowerAndI64(inst); break;
+        case HIROpcode::OrI64:   lowerOrI64(inst); break;
+        case HIROpcode::XorI64:  lowerXorI64(inst); break;
+        case HIROpcode::ShlI64:  lowerShlI64(inst); break;
+        case HIROpcode::ShrI64:  lowerShrI64(inst); break;
+        case HIROpcode::UShrI64: lowerUShrI64(inst); break;
+        case HIROpcode::NotI64:  lowerNotI64(inst); break;
+
+        // Integer comparisons
+        case HIROpcode::CmpEqI64: lowerCmpEqI64(inst); break;
+        case HIROpcode::CmpNeI64: lowerCmpNeI64(inst); break;
+        case HIROpcode::CmpLtI64: lowerCmpLtI64(inst); break;
+        case HIROpcode::CmpLeI64: lowerCmpLeI64(inst); break;
+        case HIROpcode::CmpGtI64: lowerCmpGtI64(inst); break;
+        case HIROpcode::CmpGeI64: lowerCmpGeI64(inst); break;
+
+        // Float comparisons
+        case HIROpcode::CmpEqF64: lowerCmpEqF64(inst); break;
+        case HIROpcode::CmpNeF64: lowerCmpNeF64(inst); break;
+        case HIROpcode::CmpLtF64: lowerCmpLtF64(inst); break;
+        case HIROpcode::CmpLeF64: lowerCmpLeF64(inst); break;
+        case HIROpcode::CmpGtF64: lowerCmpGtF64(inst); break;
+        case HIROpcode::CmpGeF64: lowerCmpGeF64(inst); break;
+
+        // Pointer comparisons
+        case HIROpcode::CmpEqPtr: lowerCmpEqPtr(inst); break;
+        case HIROpcode::CmpNePtr: lowerCmpNePtr(inst); break;
+
+        // Boolean operations
+        case HIROpcode::LogicalAnd: lowerLogicalAnd(inst); break;
+        case HIROpcode::LogicalOr:  lowerLogicalOr(inst); break;
+        case HIROpcode::LogicalNot: lowerLogicalNot(inst); break;
+
+        // Type conversions
+        case HIROpcode::CastI64ToF64:  lowerCastI64ToF64(inst); break;
+        case HIROpcode::CastF64ToI64:  lowerCastF64ToI64(inst); break;
+        case HIROpcode::CastBoolToI64: lowerCastBoolToI64(inst); break;
+
+        // Boxing
+        case HIROpcode::BoxInt:    lowerBoxInt(inst); break;
+        case HIROpcode::BoxFloat:  lowerBoxFloat(inst); break;
+        case HIROpcode::BoxBool:   lowerBoxBool(inst); break;
+        case HIROpcode::BoxString: lowerBoxString(inst); break;
+        case HIROpcode::BoxObject: lowerBoxObject(inst); break;
+
+        // Unboxing
+        case HIROpcode::UnboxInt:    lowerUnboxInt(inst); break;
+        case HIROpcode::UnboxFloat:  lowerUnboxFloat(inst); break;
+        case HIROpcode::UnboxBool:   lowerUnboxBool(inst); break;
+        case HIROpcode::UnboxString: lowerUnboxString(inst); break;
+        case HIROpcode::UnboxObject: lowerUnboxObject(inst); break;
+
+        // Type checking
+        case HIROpcode::TypeCheck:  lowerTypeCheck(inst); break;
+        case HIROpcode::TypeOf:     lowerTypeOf(inst); break;
+        case HIROpcode::InstanceOf: lowerInstanceOf(inst); break;
+
+        // GC operations
+        case HIROpcode::GCAlloc:       lowerGCAlloc(inst); break;
+        case HIROpcode::GCAllocArray:  lowerGCAllocArray(inst); break;
+        case HIROpcode::GCStore:       lowerGCStore(inst); break;
+        case HIROpcode::GCLoad:        lowerGCLoad(inst); break;
+        case HIROpcode::Safepoint:     lowerSafepoint(inst); break;
+        case HIROpcode::SafepointPoll: lowerSafepointPoll(inst); break;
+
+        // Memory operations
+        case HIROpcode::Alloca:        lowerAlloca(inst); break;
+        case HIROpcode::Load:          lowerLoad(inst); break;
+        case HIROpcode::Store:         lowerStore(inst); break;
+        case HIROpcode::GetElementPtr: lowerGetElementPtr(inst); break;
+
+        // Object operations
+        case HIROpcode::NewObject:        lowerNewObject(inst); break;
+        case HIROpcode::NewObjectDynamic: lowerNewObjectDynamic(inst); break;
+        case HIROpcode::GetPropStatic:    lowerGetPropStatic(inst); break;
+        case HIROpcode::GetPropDynamic:   lowerGetPropDynamic(inst); break;
+        case HIROpcode::SetPropStatic:    lowerSetPropStatic(inst); break;
+        case HIROpcode::SetPropDynamic:   lowerSetPropDynamic(inst); break;
+        case HIROpcode::HasProp:          lowerHasProp(inst); break;
+        case HIROpcode::DeleteProp:       lowerDeleteProp(inst); break;
+
+        // Array operations
+        case HIROpcode::NewArrayBoxed:  lowerNewArrayBoxed(inst); break;
+        case HIROpcode::NewArrayTyped:  lowerNewArrayTyped(inst); break;
+        case HIROpcode::GetElem:        lowerGetElem(inst); break;
+        case HIROpcode::SetElem:        lowerSetElem(inst); break;
+        case HIROpcode::GetElemTyped:   lowerGetElemTyped(inst); break;
+        case HIROpcode::SetElemTyped:   lowerSetElemTyped(inst); break;
+        case HIROpcode::ArrayLength:    lowerArrayLength(inst); break;
+        case HIROpcode::ArrayPush:      lowerArrayPush(inst); break;
+
+        // Calls
+        case HIROpcode::Call:         lowerCall(inst); break;
+        case HIROpcode::CallMethod:   lowerCallMethod(inst); break;
+        case HIROpcode::CallVirtual:  lowerCallVirtual(inst); break;
+        case HIROpcode::CallIndirect: lowerCallIndirect(inst); break;
+
+        // Control flow
+        case HIROpcode::Branch:      lowerBranch(inst); break;
+        case HIROpcode::CondBranch:  lowerCondBranch(inst); break;
+        case HIROpcode::Switch:      lowerSwitch(inst); break;
+        case HIROpcode::Return:      lowerReturn(inst); break;
+        case HIROpcode::ReturnVoid:  lowerReturnVoid(inst); break;
+        case HIROpcode::Unreachable: lowerUnreachable(inst); break;
+
+        // Phi and Select
+        case HIROpcode::Phi:    lowerPhi(inst); break;
+        case HIROpcode::Select: lowerSelect(inst); break;
+        case HIROpcode::Copy:   lowerCopy(inst); break;
+
+        // Checked arithmetic (not yet implemented)
+        case HIROpcode::AddI64Checked:
+        case HIROpcode::SubI64Checked:
+        case HIROpcode::MulI64Checked:
+            SPDLOG_WARN("Checked arithmetic not yet implemented, using unchecked");
+            // Fall through to unchecked versions
+            break;
+
+        default:
+            SPDLOG_ERROR("Unknown HIR opcode: {}", static_cast<int>(inst->opcode));
+            break;
+    }
+}
+
+//==============================================================================
+// Constant Instructions
+//==============================================================================
+
+void HIRToLLVM::lowerConstInt(HIRInstruction* inst) {
+    int64_t value = getOperandInt(inst->operands[0]);
+    llvm::Value* result = llvm::ConstantInt::get(builder_->getInt64Ty(), value);
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstFloat(HIRInstruction* inst) {
+    double value = std::get<double>(inst->operands[0]);
+    llvm::Value* result = llvm::ConstantFP::get(builder_->getDoubleTy(), value);
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstBool(HIRInstruction* inst) {
+    bool value = std::get<bool>(inst->operands[0]);
+    llvm::Value* result = llvm::ConstantInt::get(builder_->getInt1Ty(), value ? 1 : 0);
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstString(HIRInstruction* inst) {
+    std::string value = getOperandString(inst->operands[0]);
+
+    // Create global string constant
+    llvm::Value* strPtr = createGlobalString(value);
+
+    // Call ts_string_create to create TsString*
+    auto fn = getTsStringCreate();
+    llvm::Value* result = builder_->CreateCall(fn, {strPtr});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstNull(HIRInstruction* inst) {
+    llvm::Value* result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstUndefined(HIRInstruction* inst) {
+    // Create undefined value as null pointer (or call ts_undefined_value)
+    llvm::Value* result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Integer Arithmetic
+//==============================================================================
+
+void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateAdd(lhs, rhs, "add");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerSubI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateSub(lhs, rhs, "sub");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerMulI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateMul(lhs, rhs, "mul");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerDivI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateSDiv(lhs, rhs, "div");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerModI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateSRem(lhs, rhs, "mod");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerNegI64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateNeg(val, "neg");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Float Arithmetic
+//==============================================================================
+
+void HIRToLLVM::lowerAddF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFAdd(lhs, rhs, "fadd");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerSubF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFSub(lhs, rhs, "fsub");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerMulF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFMul(lhs, rhs, "fmul");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerDivF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFDiv(lhs, rhs, "fdiv");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerModF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFRem(lhs, rhs, "fmod");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerNegF64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateFNeg(val, "fneg");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Bitwise Operations
+//==============================================================================
+
+void HIRToLLVM::lowerAndI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateAnd(lhs, rhs, "and");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerOrI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateOr(lhs, rhs, "or");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerXorI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateXor(lhs, rhs, "xor");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerShlI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateShl(lhs, rhs, "shl");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerShrI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateAShr(lhs, rhs, "ashr");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerUShrI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateLShr(lhs, rhs, "lshr");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerNotI64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateNot(val, "not");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Integer Comparisons
+//==============================================================================
+
+void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "eq");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ne");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpLtI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpSLT(lhs, rhs, "lt");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpLeI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpSLE(lhs, rhs, "le");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpGtI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpSGT(lhs, rhs, "gt");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpGeI64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpSGE(lhs, rhs, "ge");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Float Comparisons
+//==============================================================================
+
+void HIRToLLVM::lowerCmpEqF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpOEQ(lhs, rhs, "feq");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpNeF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpONE(lhs, rhs, "fne");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpLtF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpOLT(lhs, rhs, "flt");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpLeF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpOLE(lhs, rhs, "fle");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpGtF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpOGT(lhs, rhs, "fgt");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpGeF64(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateFCmpOGE(lhs, rhs, "fge");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Pointer Comparisons
+//==============================================================================
+
+void HIRToLLVM::lowerCmpEqPtr(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "ptreq");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCmpNePtr(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ptrne");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Boolean Operations
+//==============================================================================
+
+void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateAnd(lhs, rhs, "land");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateOr(lhs, rhs, "lor");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerLogicalNot(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateNot(val, "lnot");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Type Conversions
+//==============================================================================
+
+void HIRToLLVM::lowerCastI64ToF64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "i2f");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCastF64ToI64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateFPToSI(val, builder_->getInt64Ty(), "f2i");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCastBoolToI64(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* result = builder_->CreateZExt(val, builder_->getInt64Ty(), "b2i");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Boxing Operations
+//==============================================================================
+
+void HIRToLLVM::lowerBoxInt(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueMakeInt();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerBoxFloat(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueMakeDouble();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerBoxBool(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueMakeBool();
+    // Extend bool to i32 for calling convention
+    llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+    llvm::Value* result = builder_->CreateCall(fn, {extended});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerBoxString(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueMakeString();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueMakeObject();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Unboxing Operations
+//==============================================================================
+
+void HIRToLLVM::lowerUnboxInt(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueGetInt();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerUnboxFloat(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueGetDouble();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerUnboxBool(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueGetBool();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    // Truncate to i1
+    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerUnboxString(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueGetString();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerUnboxObject(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsValueGetObject();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Type Checking
+//==============================================================================
+
+void HIRToLLVM::lowerTypeCheck(HIRInstruction* inst) {
+    // TODO: Implement type checking
+    // For now, return true
+    llvm::Value* result = llvm::ConstantInt::getTrue(context_);
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerTypeOf(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    auto fn = getTsTypeOf();
+    llvm::Value* result = builder_->CreateCall(fn, {val});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerInstanceOf(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* ctor = getOperandValue(inst->operands[1]);
+    auto fn = getTsInstanceOf();
+    llvm::Value* result = builder_->CreateCall(fn, {val, ctor});
+    // Truncate to i1
+    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// GC Operations (Boehm GC Stubs)
+//==============================================================================
+
+void HIRToLLVM::lowerGCAlloc(HIRInstruction* inst) {
+    // Get size from operand
+    llvm::Value* size = getOperandValue(inst->operands[0]);
+
+    // Call ts_alloc
+    auto fn = getTsAlloc();
+    llvm::Value* result = builder_->CreateCall(fn, {size});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerGCAllocArray(HIRInstruction* inst) {
+    // For now, just use ts_alloc with computed size
+    llvm::Value* elemSize = getOperandValue(inst->operands[0]);
+    llvm::Value* length = getOperandValue(inst->operands[1]);
+    llvm::Value* totalSize = builder_->CreateMul(elemSize, length, "arrsize");
+
+    auto fn = getTsAlloc();
+    llvm::Value* result = builder_->CreateCall(fn, {totalSize});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerGCStore(HIRInstruction* inst) {
+    // With Boehm GC, no write barrier needed - just a plain store
+    llvm::Value* ptr = getOperandValue(inst->operands[0]);
+    llvm::Value* val = getOperandValue(inst->operands[1]);
+    builder_->CreateStore(val, ptr);
+}
+
+void HIRToLLVM::lowerGCLoad(HIRInstruction* inst) {
+    // With Boehm GC, no read barrier needed - just a plain load
+    auto type = getOperandType(inst->operands[0]);
+    llvm::Type* llvmType = getLLVMType(type);
+    llvm::Value* ptr = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateLoad(llvmType, ptr, "gcload");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerSafepoint(HIRInstruction* inst) {
+    // With Boehm GC, safepoints are no-ops
+    // Future: could call GC_safe_point() for cooperative collection
+}
+
+void HIRToLLVM::lowerSafepointPoll(HIRInstruction* inst) {
+    // With Boehm GC, safepoint polls are no-ops
+}
+
+//==============================================================================
+// Memory Operations
+//==============================================================================
+
+void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
+    auto type = getOperandType(inst->operands[0]);
+    llvm::Type* llvmType = getLLVMType(type);
+
+    // Emit alloca at the entry block for better optimization
+    llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+    llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+    builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+
+    llvm::AllocaInst* alloca = builder_->CreateAlloca(llvmType, nullptr, "local");
+    setValue(inst->result, alloca);
+}
+
+void HIRToLLVM::lowerLoad(HIRInstruction* inst) {
+    auto type = getOperandType(inst->operands[0]);
+    llvm::Type* llvmType = getLLVMType(type);
+    llvm::Value* ptr = getOperandValue(inst->operands[1]);
+    llvm::Value* result = builder_->CreateLoad(llvmType, ptr, "load");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerStore(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* ptr = getOperandValue(inst->operands[1]);
+    builder_->CreateStore(val, ptr);
+}
+
+void HIRToLLVM::lowerGetElementPtr(HIRInstruction* inst) {
+    // This is a simplified GEP - for arrays only
+    llvm::Value* ptr = getOperandValue(inst->operands[0]);
+    llvm::Value* idx = getOperandValue(inst->operands[1]);
+
+    // Use byte-level GEP
+    llvm::Value* result = builder_->CreateGEP(builder_->getInt8Ty(), ptr, idx, "gep");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Object Operations
+//==============================================================================
+
+void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
+    auto fn = getTsObjectCreate();
+    llvm::Value* result = builder_->CreateCall(fn, {});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerNewObjectDynamic(HIRInstruction* inst) {
+    // Same as NewObject for now
+    lowerNewObject(inst);
+}
+
+void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    std::string propName = getOperandString(inst->operands[1]);
+
+    // Create property key string
+    llvm::Value* key = createGlobalString(propName);
+    auto strFn = getTsStringCreate();
+    llvm::Value* keyStr = builder_->CreateCall(strFn, {key});
+
+    // Box the key
+    auto boxFn = getTsValueMakeString();
+    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {keyStr});
+
+    auto fn = getTsObjectGetProperty();
+    llvm::Value* result = builder_->CreateCall(fn, {obj, keyBoxed});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* key = getOperandValue(inst->operands[1]);
+
+    auto fn = getTsObjectGetProperty();
+    llvm::Value* result = builder_->CreateCall(fn, {obj, key});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    std::string propName = getOperandString(inst->operands[1]);
+    llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // Create property key string
+    llvm::Value* key = createGlobalString(propName);
+    auto strFn = getTsStringCreate();
+    llvm::Value* keyStr = builder_->CreateCall(strFn, {key});
+
+    // Box the key
+    auto boxFn = getTsValueMakeString();
+    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {keyStr});
+
+    auto fn = getTsObjectSetProperty();
+    builder_->CreateCall(fn, {obj, keyBoxed, val});
+}
+
+void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* key = getOperandValue(inst->operands[1]);
+    llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    auto fn = getTsObjectSetProperty();
+    builder_->CreateCall(fn, {obj, key, val});
+}
+
+void HIRToLLVM::lowerHasProp(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* key = getOperandValue(inst->operands[1]);
+
+    auto fn = getTsObjectHasProperty();
+    llvm::Value* result = builder_->CreateCall(fn, {obj, key});
+    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerDeleteProp(HIRInstruction* inst) {
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* key = getOperandValue(inst->operands[1]);
+
+    auto fn = getTsObjectDeleteProperty();
+    llvm::Value* result = builder_->CreateCall(fn, {obj, key});
+    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Array Operations
+//==============================================================================
+
+void HIRToLLVM::lowerNewArrayBoxed(HIRInstruction* inst) {
+    llvm::Value* len = getOperandValue(inst->operands[0]);
+    auto fn = getTsArrayCreate();
+    llvm::Value* result = builder_->CreateCall(fn, {len});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerNewArrayTyped(HIRInstruction* inst) {
+    // For now, same as boxed array
+    lowerNewArrayBoxed(inst);
+}
+
+void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
+    llvm::Value* arr = getOperandValue(inst->operands[0]);
+    llvm::Value* idx = getOperandValue(inst->operands[1]);
+
+    auto fn = getTsArrayGet();
+    llvm::Value* result = builder_->CreateCall(fn, {arr, idx});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
+    llvm::Value* arr = getOperandValue(inst->operands[0]);
+    llvm::Value* idx = getOperandValue(inst->operands[1]);
+    llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    auto fn = getTsArraySet();
+    builder_->CreateCall(fn, {arr, idx, val});
+}
+
+void HIRToLLVM::lowerGetElemTyped(HIRInstruction* inst) {
+    // For now, same as boxed get
+    lowerGetElem(inst);
+}
+
+void HIRToLLVM::lowerSetElemTyped(HIRInstruction* inst) {
+    // For now, same as boxed set
+    lowerSetElem(inst);
+}
+
+void HIRToLLVM::lowerArrayLength(HIRInstruction* inst) {
+    llvm::Value* arr = getOperandValue(inst->operands[0]);
+
+    auto fn = getTsArrayLength();
+    llvm::Value* result = builder_->CreateCall(fn, {arr});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
+    llvm::Value* arr = getOperandValue(inst->operands[0]);
+    llvm::Value* val = getOperandValue(inst->operands[1]);
+
+    auto fn = getTsArrayPush();
+    llvm::Value* result = builder_->CreateCall(fn, {arr, val});
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// Call Operations
+//==============================================================================
+
+void HIRToLLVM::lowerCall(HIRInstruction* inst) {
+    std::string funcName = getOperandString(inst->operands[0]);
+
+    // Look up function
+    llvm::Function* fn = module_->getFunction(funcName);
+    if (!fn) {
+        // Declare as external if not found
+        // Use generic signature for now: ptr(ptr, ptr, ...)
+        std::vector<llvm::Type*> paramTypes;
+        for (size_t i = 1; i < inst->operands.size(); ++i) {
+            paramTypes.push_back(builder_->getPtrTy());
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+        fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+    }
+
+    // Gather arguments
+    std::vector<llvm::Value*> args;
+    for (size_t i = 1; i < inst->operands.size(); ++i) {
+        args.push_back(getOperandValue(inst->operands[i]));
+    }
+
+    llvm::Value* result = builder_->CreateCall(fn, args);
+    if (inst->result) {
+        setValue(inst->result, result);
+    }
+}
+
+void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
+    // operands[0] = object, operands[1] = methodName, operands[2..] = args
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    std::string methodName = getOperandString(inst->operands[1]);
+
+    // Handle console.log / console.error / console.warn / console.info / console.debug
+    if (methodName == "log" || methodName == "error" || methodName == "warn" ||
+        methodName == "info" || methodName == "debug") {
+
+        // Get the arguments (starting at index 2)
+        for (size_t i = 2; i < inst->operands.size(); ++i) {
+            llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+            // Determine the right runtime function based on LLVM argument type
+            std::string funcName = (methodName == "error" || methodName == "warn")
+                ? "ts_console_error" : "ts_console_log";
+            llvm::Type* paramType = builder_->getPtrTy();
+
+            llvm::Type* argType = arg->getType();
+            if (argType->isIntegerTy(64)) {
+                funcName = (methodName == "error" || methodName == "warn")
+                    ? "ts_console_error_int" : "ts_console_log_int";
+                paramType = builder_->getInt64Ty();
+            } else if (argType->isDoubleTy()) {
+                funcName = (methodName == "error" || methodName == "warn")
+                    ? "ts_console_error_double" : "ts_console_log_double";
+                paramType = builder_->getDoubleTy();
+            } else if (argType->isIntegerTy(1)) {
+                funcName = (methodName == "error" || methodName == "warn")
+                    ? "ts_console_error_bool" : "ts_console_log_bool";
+                paramType = builder_->getInt1Ty();
+            } else if (argType->isPointerTy()) {
+                // For pointers, use the generic value function
+                funcName = (methodName == "error" || methodName == "warn")
+                    ? "ts_console_error_value" : "ts_console_log_value";
+            }
+
+            // Emit the call
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getVoidTy(), { paramType }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+            builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
+
+        // console.log returns undefined
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Generic method call - not yet implemented
+    SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);
+
+    // Return null for now
+    if (inst->result) {
+        setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+    }
+}
+
+void HIRToLLVM::lowerCallVirtual(HIRInstruction* inst) {
+    // TODO: Implement vtable dispatch
+    SPDLOG_WARN("CallVirtual not yet implemented");
+    if (inst->result) {
+        setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+    }
+}
+
+void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
+    llvm::Value* fnPtr = getOperandValue(inst->operands[0]);
+
+    // Gather arguments
+    std::vector<llvm::Value*> args;
+    for (size_t i = 1; i < inst->operands.size(); ++i) {
+        args.push_back(getOperandValue(inst->operands[i]));
+    }
+
+    // Create function type for indirect call
+    std::vector<llvm::Type*> paramTypes(args.size(), builder_->getPtrTy());
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+
+    llvm::Value* result = builder_->CreateCall(ft, fnPtr, args);
+    if (inst->result) {
+        setValue(inst->result, result);
+    }
+}
+
+//==============================================================================
+// Control Flow
+//==============================================================================
+
+void HIRToLLVM::lowerBranch(HIRInstruction* inst) {
+    HIRBlock* target = getOperandBlock(inst->operands[0]);
+    llvm::BasicBlock* targetBB = getBlock(target);
+    builder_->CreateBr(targetBB);
+}
+
+void HIRToLLVM::lowerCondBranch(HIRInstruction* inst) {
+    llvm::Value* cond = getOperandValue(inst->operands[0]);
+    HIRBlock* thenBlock = getOperandBlock(inst->operands[1]);
+    HIRBlock* elseBlock = getOperandBlock(inst->operands[2]);
+
+    llvm::BasicBlock* thenBB = getBlock(thenBlock);
+    llvm::BasicBlock* elseBB = getBlock(elseBlock);
+
+    builder_->CreateCondBr(cond, thenBB, elseBB);
+}
+
+void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    llvm::BasicBlock* defaultBB = getBlock(inst->switchDefault);
+    if (!defaultBB) {
+        // Create unreachable block as default
+        defaultBB = llvm::BasicBlock::Create(context_, "switch.default", currentFunction_);
+        builder_->SetInsertPoint(defaultBB);
+        builder_->CreateUnreachable();
+        builder_->SetInsertPoint(getBlock(currentHIRFunction_->blocks.back().get()));
+    }
+
+    llvm::SwitchInst* switchInst = builder_->CreateSwitch(val, defaultBB, inst->switchCases.size());
+
+    for (auto& [caseVal, caseBlock] : inst->switchCases) {
+        llvm::BasicBlock* caseBB = getBlock(caseBlock);
+        if (caseBB) {
+            switchInst->addCase(
+                llvm::ConstantInt::get(builder_->getInt64Ty(), caseVal),
+                caseBB
+            );
+        }
+    }
+}
+
+void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    builder_->CreateRet(val);
+}
+
+void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
+    builder_->CreateRetVoid();
+}
+
+void HIRToLLVM::lowerUnreachable(HIRInstruction* inst) {
+    builder_->CreateUnreachable();
+}
+
+//==============================================================================
+// Phi and Select
+//==============================================================================
+
+void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
+    llvm::Type* type = getLLVMType(inst->result->type);
+    llvm::PHINode* phi = builder_->CreatePHI(type, inst->phiIncoming.size(), "phi");
+
+    for (auto& [val, block] : inst->phiIncoming) {
+        llvm::Value* llvmVal = getValue(val);
+        llvm::BasicBlock* llvmBlock = getBlock(block);
+        if (llvmVal && llvmBlock) {
+            phi->addIncoming(llvmVal, llvmBlock);
+        }
+    }
+
+    setValue(inst->result, phi);
+}
+
+void HIRToLLVM::lowerSelect(HIRInstruction* inst) {
+    llvm::Value* cond = getOperandValue(inst->operands[0]);
+    llvm::Value* trueVal = getOperandValue(inst->operands[1]);
+    llvm::Value* falseVal = getOperandValue(inst->operands[2]);
+
+    llvm::Value* result = builder_->CreateSelect(cond, trueVal, falseVal, "select");
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerCopy(HIRInstruction* inst) {
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+    setValue(inst->result, val);
+}
+
+//==============================================================================
+// Runtime Function Helpers
+//==============================================================================
+
+llvm::FunctionCallee HIRToLLVM::getOrDeclareRuntimeFunction(
+    const std::string& name,
+    llvm::Type* returnType,
+    llvm::ArrayRef<llvm::Type*> paramTypes,
+    bool isVarArg
+) {
+    llvm::FunctionType* ft = llvm::FunctionType::get(returnType, paramTypes, isVarArg);
+    return module_->getOrInsertFunction(name, ft);
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsAlloc() {
+    return getOrDeclareRuntimeFunction("ts_alloc", builder_->getPtrTy(), {builder_->getInt64Ty()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsStringCreate() {
+    return getOrDeclareRuntimeFunction("ts_string_create", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeInt() {
+    return getOrDeclareRuntimeFunction("ts_value_make_int", builder_->getPtrTy(), {builder_->getInt64Ty()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeDouble() {
+    return getOrDeclareRuntimeFunction("ts_value_make_double", builder_->getPtrTy(), {builder_->getDoubleTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeBool() {
+    return getOrDeclareRuntimeFunction("ts_value_make_bool", builder_->getPtrTy(), {builder_->getInt32Ty()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeString() {
+    return getOrDeclareRuntimeFunction("ts_value_make_string", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeObject() {
+    return getOrDeclareRuntimeFunction("ts_value_make_object", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueGetInt() {
+    return getOrDeclareRuntimeFunction("ts_value_get_int", builder_->getInt64Ty(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueGetDouble() {
+    return getOrDeclareRuntimeFunction("ts_value_get_double", builder_->getDoubleTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueGetBool() {
+    return getOrDeclareRuntimeFunction("ts_value_get_bool", builder_->getInt32Ty(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueGetString() {
+    return getOrDeclareRuntimeFunction("ts_value_get_string", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsValueGetObject() {
+    return getOrDeclareRuntimeFunction("ts_value_get_object", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsArrayCreate() {
+    return getOrDeclareRuntimeFunction("ts_array_create", builder_->getPtrTy(), {builder_->getInt64Ty()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsArrayGet() {
+    return getOrDeclareRuntimeFunction("ts_array_get", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getInt64Ty()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsArraySet() {
+    return getOrDeclareRuntimeFunction("ts_array_set", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsArrayLength() {
+    return getOrDeclareRuntimeFunction("ts_array_length", builder_->getInt64Ty(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsArrayPush() {
+    return getOrDeclareRuntimeFunction("ts_array_push", builder_->getInt64Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsObjectCreate() {
+    return getOrDeclareRuntimeFunction("ts_object_create", builder_->getPtrTy(), {});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsObjectGetProperty() {
+    return getOrDeclareRuntimeFunction("ts_object_get_property", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsObjectSetProperty() {
+    return getOrDeclareRuntimeFunction("ts_object_set_property", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsObjectHasProperty() {
+    return getOrDeclareRuntimeFunction("ts_object_has_property", builder_->getInt32Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsObjectDeleteProperty() {
+    return getOrDeclareRuntimeFunction("ts_object_delete_property", builder_->getInt32Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsTypeOf() {
+    return getOrDeclareRuntimeFunction("ts_typeof", builder_->getPtrTy(), {builder_->getPtrTy()});
+}
+
+llvm::FunctionCallee HIRToLLVM::getTsInstanceOf() {
+    return getOrDeclareRuntimeFunction("ts_instanceof", builder_->getInt32Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
+//==============================================================================
+// Helper Methods
+//==============================================================================
+
+llvm::Value* HIRToLLVM::getOperandValue(const HIROperand& operand) {
+    if (auto* val = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+        return getValue(*val);
+    }
+    if (auto* i = std::get_if<int64_t>(&operand)) {
+        return llvm::ConstantInt::get(builder_->getInt64Ty(), *i);
+    }
+    if (auto* d = std::get_if<double>(&operand)) {
+        return llvm::ConstantFP::get(builder_->getDoubleTy(), *d);
+    }
+    if (auto* b = std::get_if<bool>(&operand)) {
+        return llvm::ConstantInt::get(builder_->getInt1Ty(), *b ? 1 : 0);
+    }
+    return nullptr;
+}
+
+int64_t HIRToLLVM::getOperandInt(const HIROperand& operand) {
+    if (auto* i = std::get_if<int64_t>(&operand)) {
+        return *i;
+    }
+    return 0;
+}
+
+std::string HIRToLLVM::getOperandString(const HIROperand& operand) {
+    if (auto* s = std::get_if<std::string>(&operand)) {
+        return *s;
+    }
+    return "";
+}
+
+HIRBlock* HIRToLLVM::getOperandBlock(const HIROperand& operand) {
+    if (auto* b = std::get_if<HIRBlock*>(&operand)) {
+        return *b;
+    }
+    return nullptr;
+}
+
+std::shared_ptr<HIRType> HIRToLLVM::getOperandType(const HIROperand& operand) {
+    if (auto* t = std::get_if<std::shared_ptr<HIRType>>(&operand)) {
+        return *t;
+    }
+    return nullptr;
+}
+
+llvm::Value* HIRToLLVM::createGlobalString(const std::string& str) {
+    // Create a global string constant
+    return builder_->CreateGlobalStringPtr(str);
+}
+
+} // namespace ts::hir

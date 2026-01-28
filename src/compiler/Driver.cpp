@@ -5,6 +5,9 @@
 #include "codegen/IRGenerator.h"
 #include "codegen/CodeGenerator.h"
 #include "codegen/LinkerDriver.h"
+#include "hir/ASTToHIR.h"
+#include "hir/HIRPrinter.h"
+#include "hir/HIRToLLVM.h"
 #include <fmt/core.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -115,22 +118,62 @@ int Driver::run() {
         }
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
-        
-        if (options.verbose) {
-            SPDLOG_INFO("Generating IR...");
-        }
-        ts::IRGenerator irGen;
-        irGen.setVerbose(options.verbose);
-        irGen.setOptLevel(options.optLevel);
-        if (!options.runtimeBitcode.empty()) {
-            irGen.setRuntimeBitcode(options.runtimeBitcode);
-        }
-        irGen.setDebug(options.debug);
-        irGen.setDebugRuntime(options.debugRuntime);
-        irGen.generate(program.get(), monomorphizer.getSpecializations(), analyzer, tsFile);
-        
-        if (options.dumpIR) {
-            irGen.dumpIR();
+
+        // Choose between HIR pipeline and traditional IRGenerator
+        llvm::Module* modulePtr = nullptr;
+        std::unique_ptr<llvm::Module> hirOwnedModule;  // Only used for HIR pipeline
+        std::unique_ptr<ts::IRGenerator> irGen;        // Only used for traditional pipeline
+
+        if (options.useHir) {
+            // HIR Pipeline: AST -> HIR -> LLVM IR
+            if (options.verbose) {
+                SPDLOG_INFO("Using HIR pipeline...");
+                SPDLOG_INFO("Lowering AST to HIR...");
+            }
+
+            std::string moduleName = std::filesystem::path(tsFile).stem().string();
+            hir::ASTToHIR astToHir;
+            auto hirModule = astToHir.lower(program.get(), moduleName);
+
+            if (options.dumpHir) {
+                SPDLOG_INFO("=== HIR Dump ===");
+                hir::HIRPrinter printer(std::cout);
+                printer.print(*hirModule);
+            }
+
+            if (options.verbose) {
+                SPDLOG_INFO("Lowering HIR to LLVM IR...");
+            }
+
+            // Create LLVM context for HIR pipeline (owned by this scope)
+            static llvm::LLVMContext hirContext;
+            hir::HIRToLLVM hirToLlvm(hirContext);
+            hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
+            modulePtr = hirOwnedModule.get();
+
+            if (options.dumpIR) {
+                modulePtr->print(llvm::outs(), nullptr);
+            }
+        } else {
+            // Traditional Pipeline: AST -> LLVM IR directly
+            if (options.verbose) {
+                SPDLOG_INFO("Generating IR...");
+            }
+            irGen = std::make_unique<ts::IRGenerator>();
+            irGen->setVerbose(options.verbose);
+            irGen->setOptLevel(options.optLevel);
+            if (!options.runtimeBitcode.empty()) {
+                irGen->setRuntimeBitcode(options.runtimeBitcode);
+            }
+            irGen->setDebug(options.debug);
+            irGen->setDebugRuntime(options.debugRuntime);
+            irGen->generate(program.get(), monomorphizer.getSpecializations(), analyzer, tsFile);
+
+            if (options.dumpIR) {
+                irGen->dumpIR();
+            }
+
+            modulePtr = irGen->getModule();
         }
 
         std::string objFile;
@@ -145,7 +188,7 @@ int Driver::run() {
         if (options.verbose) {
             SPDLOG_INFO("Emitting object code to {}...", objFile);
         }
-        ts::CodeGenerator codeGen(irGen.getModule());
+        ts::CodeGenerator codeGen(modulePtr);
         if (!codeGen.emitObjectFile(objFile, options.optLevel)) {
             return 1;
         }
