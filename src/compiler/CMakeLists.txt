@@ -149,6 +149,12 @@ add_library(tscompiler_lib STATIC
     hir/ASTToHIR.cpp
     hir/HIRPrinter.cpp
     hir/HIRToLLVM.cpp
+    hir/BuiltinRegistry.cpp
+    hir/passes/HIRPass.cpp
+    hir/passes/PassManager.cpp
+    hir/passes/MethodResolutionPass.cpp
+    hir/passes/BuiltinResolutionPass.cpp
+    hir/passes/TypePropagationPass.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 

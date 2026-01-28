@@ -283,10 +283,10 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [ ] AliasAnalysis
 
 ### 5.2 TypePropagationPass
-- [ ] Propagate types through SSA graph
-- [ ] Handle phi nodes
-- [ ] Narrow types based on guards (typeof, instanceof)
-- [ ] Track array element types
+- [x] Propagate types through SSA graph
+- [x] Handle phi nodes (merge types at merge points)
+- [x] Narrow types based on guards (typeof, instanceof) - basic framework
+- [x] Track array element types (via inferResultType for GetElem)
 
 ### 5.3 ConstantFoldingPass
 - [ ] Fold arithmetic on constants
@@ -349,6 +349,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - `src/compiler/hir/passes/MethodResolutionPass.cpp`
 - `src/compiler/hir/passes/BuiltinResolutionPass.h`
 - `src/compiler/hir/passes/BuiltinResolutionPass.cpp`
+- `src/compiler/hir/passes/TypePropagationPass.h`
+- `src/compiler/hir/passes/TypePropagationPass.cpp`
 
 ---
 
@@ -360,11 +362,17 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 2: Resolution Passes | 75% |
 | Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
-| Phase 5: Optimization Passes | 0% |
+| Phase 5: Optimization Passes | 20% |
 
-**Overall: ~85% Complete**
+**Overall: ~88% Complete**
 
 ### Recent Progress (2026-01-28)
+- **TypePropagationPass implemented:**
+  - Forward type propagation for constants, arithmetic, boxing/unboxing
+  - Phi node type merging (join of incoming types)
+  - Type narrowing framework for typeof/instanceof guards
+  - Array element type tracking
+  - Iterative fixpoint algorithm for convergence
 - **Destructuring patterns fully implemented:**
   - Object destructuring: `const { a, b } = obj`
   - Property renaming: `const { a: x, b: y } = obj`
@@ -404,8 +412,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **TypePropagationPass** - Enables better downstream optimization
-2. **Async/await** - Required for async I/O patterns
-3. **Getters/setters** - OOP pattern for computed properties
-4. **Private fields (#field)** - Modern class encapsulation
-5. **Spread elements** - Common ES6+ pattern
+1. **ConstantFoldingPass** - Optimize compile-time constant expressions
+2. **DeadCodeEliminationPass** - Remove unused instructions and blocks
+3. **Async/await** - Required for async I/O patterns
+4. **Getters/setters** - OOP pattern for computed properties
+5. **Private fields (#field)** - Modern class encapsulation
