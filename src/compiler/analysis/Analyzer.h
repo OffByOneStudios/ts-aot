@@ -103,6 +103,9 @@ public:
     std::vector<ast::Expression*> expressions;
     std::vector<std::shared_ptr<Symbol>> topLevelVariables;
 
+    // Track all class declarations for codegen (including local classes inside functions)
+    std::vector<ast::ClassDeclaration*> classDeclarations;
+
     // Synthetic functions (e.g., module init) are not part of any module AST body.
     // Track ownership so we can apply the correct module context during body analysis.
     std::map<std::string, std::string> syntheticFunctionOwners;

@@ -73,5 +73,3 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
     
     add_custom_target(tsruntime_bc DEPENDS ${RUNTIME_BC_OUTPUT})
 endif()
-
-add_executable(raytracer_cpp examples/raytracer.cpp)
