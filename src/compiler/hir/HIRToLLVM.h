@@ -70,9 +70,15 @@ private:
     // Map HIR blocks to LLVM blocks
     std::map<std::string, llvm::BasicBlock*> blockMap_;
 
+    // Map global variable names to LLVM globals (for consistent lookup)
+    std::map<std::string, llvm::GlobalVariable*> globalMap_;
+
     // Get or create LLVM value for HIR value
     llvm::Value* getValue(const std::shared_ptr<HIRValue>& hirValue);
     void setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue);
+
+    // Get or create a global variable
+    llvm::GlobalVariable* getOrCreateGlobal(const std::string& name, std::shared_ptr<HIRType> type);
 
     // Get LLVM block for HIR block
     llvm::BasicBlock* getBlock(HIRBlock* hirBlock);
