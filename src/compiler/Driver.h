@@ -14,6 +14,7 @@ struct DriverOptions {
     std::string optLevel = "0";
     bool debugAst = false;
     bool dumpIR = false;
+    bool dumpHir = false;      // Dump HIR before LLVM lowering
     bool dumpTypes = false;
     bool compileOnly = false;
     bool debug = false;
@@ -21,6 +22,7 @@ struct DriverOptions {
     bool runAfterLink = false;
     bool smallIcu = false;
     bool verbose = false;
+    bool useHir = false;        // Use HIR pipeline instead of direct IRGenerator
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };
