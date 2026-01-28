@@ -172,6 +172,7 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::SafepointPoll: return "safepoint.poll";
 
         // Memory
+        case HIROpcode::Alloca: return "alloca";
         case HIROpcode::Load: return "load";
         case HIROpcode::Store: return "store";
         case HIROpcode::GetElementPtr: return "gep";
@@ -205,6 +206,11 @@ static const char* opcodeToString(HIROpcode op) {
         // Globals
         case HIROpcode::LoadGlobal: return "load_global";
         case HIROpcode::LoadFunction: return "load_function";
+
+        // Closures
+        case HIROpcode::MakeClosure: return "make_closure";
+        case HIROpcode::LoadCapture: return "load_capture";
+        case HIROpcode::StoreCapture: return "store_capture";
 
         // Control flow
         case HIROpcode::Branch: return "br";

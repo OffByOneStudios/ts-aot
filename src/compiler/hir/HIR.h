@@ -236,6 +236,11 @@ enum class HIROpcode {
     LoadGlobal,         // %r = load_global "name" (console, Math, JSON, etc.)
     LoadFunction,       // %r = load_function "name" (get function pointer)
 
+    // Closures
+    MakeClosure,        // %r = make_closure @funcName, (%v1, %v2, ...) (create closure object)
+    LoadCapture,        // %r = load_capture "varName" (load captured variable from closure env)
+    StoreCapture,       // store_capture "varName", %val (store to captured variable in closure env)
+
     // Control flow (terminators)
     Branch,             // br %target
     CondBranch,         // condbr %cond, %then, %else
@@ -341,11 +346,16 @@ struct HIRFunction {
     // Local variable allocations (for debugging)
     std::map<std::string, std::shared_ptr<HIRType>> locals;
 
+    // Captured variables from enclosing scope (for closures)
+    // Each capture has a name and type
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> captures;
+
     // Metadata
     bool isAsync = false;
     bool isGenerator = false;
     bool isExported = false;
     bool isExtern = false;              // External function (no body)
+    bool hasClosure = false;            // True if this function captures variables
 
     // Value counter for SSA naming
     uint32_t nextValueId = 0;

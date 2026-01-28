@@ -348,6 +348,11 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::LoadGlobal:   lowerLoadGlobal(inst); break;
         case HIROpcode::LoadFunction: lowerLoadFunction(inst); break;
 
+        // Closures
+        case HIROpcode::MakeClosure:   lowerMakeClosure(inst); break;
+        case HIROpcode::LoadCapture:   lowerLoadCapture(inst); break;
+        case HIROpcode::StoreCapture:  lowerStoreCapture(inst); break;
+
         // Control flow
         case HIROpcode::Branch:      lowerBranch(inst); break;
         case HIROpcode::CondBranch:  lowerCondBranch(inst); break;
@@ -1229,9 +1234,26 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* val = getOperandValue(inst->operands[1]);
 
+    // ts_array_push expects (ptr, ptr), so we need to box the value if it's not a pointer
+    if (!val->getType()->isPointerTy()) {
+        if (val->getType()->isIntegerTy(64)) {
+            auto boxFn = getTsValueMakeInt();
+            val = builder_->CreateCall(boxFn, {val});
+        } else if (val->getType()->isDoubleTy()) {
+            auto boxFn = getTsValueMakeDouble();
+            val = builder_->CreateCall(boxFn, {val});
+        } else if (val->getType()->isIntegerTy(1)) {
+            auto boxFn = getTsValueMakeBool();
+            llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+            val = builder_->CreateCall(boxFn, {extended});
+        }
+    }
+
     auto fn = getTsArrayPush();
     llvm::Value* result = builder_->CreateCall(fn, {arr, val});
-    setValue(inst->result, result);
+    if (inst->result) {
+        setValue(inst->result, result);
+    }
 }
 
 //==============================================================================
@@ -1241,7 +1263,51 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
-    // Look up function
+    // Handle console functions specially - they need type-specific dispatch
+    if (funcName == "ts_console_log" || funcName == "ts_console_error" ||
+        funcName == "ts_console_warn" || funcName == "ts_console_info" ||
+        funcName == "ts_console_debug") {
+
+        bool isError = (funcName == "ts_console_error" || funcName == "ts_console_warn");
+
+        // Handle each argument
+        for (size_t i = 1; i < inst->operands.size(); ++i) {
+            llvm::Value* arg = getOperandValue(inst->operands[i]);
+            llvm::Type* argType = arg->getType();
+
+            std::string actualFuncName;
+            llvm::Type* paramType = builder_->getPtrTy();
+
+            if (argType->isIntegerTy(64)) {
+                actualFuncName = isError ? "ts_console_error_int" : "ts_console_log_int";
+                paramType = builder_->getInt64Ty();
+            } else if (argType->isDoubleTy()) {
+                actualFuncName = isError ? "ts_console_error_double" : "ts_console_log_double";
+                paramType = builder_->getDoubleTy();
+            } else if (argType->isIntegerTy(1)) {
+                actualFuncName = isError ? "ts_console_error_bool" : "ts_console_log_bool";
+                paramType = builder_->getInt1Ty();
+            } else if (argType->isPointerTy()) {
+                actualFuncName = isError ? "ts_console_error_value" : "ts_console_log_value";
+            } else {
+                SPDLOG_WARN("Unknown argument type for console function");
+                actualFuncName = isError ? "ts_console_error_value" : "ts_console_log_value";
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getVoidTy(), { paramType }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction(actualFuncName, ft);
+            builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
+
+        // console functions return undefined
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
         // Declare as external if not found
@@ -1440,6 +1506,84 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
             setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
         }
     }
+}
+
+//==============================================================================
+// Closures
+//==============================================================================
+
+void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
+    // MakeClosure creates a closure object with function pointer and captured values
+    // Operand 0: function name
+    // Operand 1+: captured values
+    //
+    // TODO: Full closure implementation would:
+    // 1. Allocate closure struct (func ptr + captures array)
+    // 2. Store function pointer
+    // 3. Store each captured value
+    // 4. Return pointer to closure
+    //
+    // For now, just return the function pointer
+    std::string funcName = getOperandString(inst->operands[0]);
+    llvm::Function* fn = module_->getFunction(funcName);
+
+    if (fn) {
+        if (inst->result) {
+            setValue(inst->result, fn);
+        }
+    } else {
+        SPDLOG_WARN("MakeClosure: function '{}' not found", funcName);
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+    }
+}
+
+void HIRToLLVM::lowerLoadCapture(HIRInstruction* inst) {
+    // LoadCapture loads a captured variable from the closure environment
+    // Operand 0: variable name
+    //
+    // TODO: Full closure implementation would:
+    // 1. Get closure environment pointer (passed as hidden parameter)
+    // 2. Compute offset for this capture in the captures array
+    // 3. Load the value from the environment
+    //
+    // For now, log a warning and return a default value of the correct type
+    std::string varName = getOperandString(inst->operands[0]);
+    SPDLOG_WARN("LoadCapture: closure captures not fully implemented - variable '{}'", varName);
+
+    if (inst->result) {
+        // Return a default value based on the result type
+        llvm::Type* resultType = getLLVMType(inst->result->type);
+        llvm::Value* result;
+
+        if (resultType == builder_->getInt64Ty()) {
+            result = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+        } else if (resultType == builder_->getDoubleTy()) {
+            result = llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
+        } else if (resultType == builder_->getInt1Ty()) {
+            result = llvm::ConstantInt::get(builder_->getInt1Ty(), 0);
+        } else {
+            // For pointer types (objects, strings, etc), return null
+            result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        }
+        setValue(inst->result, result);
+    }
+}
+
+void HIRToLLVM::lowerStoreCapture(HIRInstruction* inst) {
+    // StoreCapture stores a value to a captured variable in the closure environment
+    // Operand 0: variable name
+    // Operand 1: value to store
+    //
+    // TODO: Full closure implementation would:
+    // 1. Get closure environment pointer (passed as hidden parameter)
+    // 2. Compute offset for this capture in the captures array
+    // 3. Store the value to the environment
+    //
+    // For now, log a warning
+    std::string varName = getOperandString(inst->operands[0]);
+    SPDLOG_WARN("StoreCapture: closure captures not fully implemented - variable '{}'", varName);
 }
 
 //==============================================================================
