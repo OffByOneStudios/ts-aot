@@ -8,6 +8,10 @@
 #include "hir/ASTToHIR.h"
 #include "hir/HIRPrinter.h"
 #include "hir/HIRToLLVM.h"
+#include "hir/passes/PassManager.h"
+#include "hir/passes/TypePropagationPass.h"
+#include "hir/passes/MethodResolutionPass.h"
+#include "hir/passes/BuiltinResolutionPass.h"
 #include <fmt/core.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -136,7 +140,29 @@ int Driver::run() {
             auto hirModule = astToHir.lower(program.get(), moduleName);
 
             if (options.dumpHir) {
-                SPDLOG_INFO("=== HIR Dump ===");
+                SPDLOG_INFO("=== HIR Dump (before passes) ===");
+                hir::HIRPrinter printer(std::cout);
+                printer.print(*hirModule);
+            }
+
+            // Run HIR optimization passes
+            if (options.verbose) {
+                SPDLOG_INFO("Running HIR passes...");
+            }
+
+            hir::PassManager passManager;
+            passManager.addPass(std::make_unique<hir::TypePropagationPass>());
+            passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
+            passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
+
+            auto passResult = passManager.run(*hirModule);
+            if (!passResult.success()) {
+                SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
+                return 1;
+            }
+
+            if (options.dumpHir && passResult.changed) {
+                SPDLOG_INFO("=== HIR Dump (after passes) ===");
                 hir::HIRPrinter printer(std::cout);
                 printer.print(*hirModule);
             }
