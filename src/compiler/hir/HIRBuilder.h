@@ -197,6 +197,11 @@ public:
         emit(std::move(inst));
     }
 
+    // Check if a value is undefined (calls ts_value_is_undefined runtime function)
+    std::shared_ptr<HIRValue> createIsUndefined(std::shared_ptr<HIRValue> val) {
+        return createCall("ts_value_is_undefined", {val}, HIRType::makeBool());
+    }
+
     //==========================================================================
     // Integer arithmetic
     //==========================================================================

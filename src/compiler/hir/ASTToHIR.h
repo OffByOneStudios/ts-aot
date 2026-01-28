@@ -195,6 +195,36 @@ private:
     void lowerStatement(ast::Statement* stmt);
 
     //==========================================================================
+    // Destructuring Helpers
+    //==========================================================================
+
+    // Lower object destructuring pattern: const { a, b } = obj
+    void lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
+                                   std::shared_ptr<HIRValue> sourceValue);
+
+    // Lower array destructuring pattern: const [a, b] = arr
+    void lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
+                                  std::shared_ptr<HIRValue> sourceValue);
+
+    // Lower a single binding element (for object patterns)
+    void lowerBindingElement(ast::BindingElement* binding,
+                             std::shared_ptr<HIRValue> sourceValue,
+                             bool isObjectPattern);
+
+    // Lower a binding element by array index
+    void lowerBindingElementByIndex(ast::BindingElement* binding,
+                                    std::shared_ptr<HIRValue> sourceValue,
+                                    int64_t index);
+
+    // Lower rest element: ...rest
+    void lowerRestElement(ast::BindingElement* binding,
+                          std::shared_ptr<HIRValue> sourceValue,
+                          int64_t startIndex);
+
+    // Box a value to Any/ptr type if needed for select instructions
+    std::shared_ptr<HIRValue> boxValueIfNeeded(std::shared_ptr<HIRValue> value);
+
+    //==========================================================================
     // Type Conversion
     //==========================================================================
 

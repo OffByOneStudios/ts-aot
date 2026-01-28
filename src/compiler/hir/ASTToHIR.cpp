@@ -173,6 +173,34 @@ bool ASTToHIR::hasTerminator() {
            op == HIROpcode::Throw || op == HIROpcode::Unreachable;
 }
 
+std::shared_ptr<HIRValue> ASTToHIR::boxValueIfNeeded(std::shared_ptr<HIRValue> value) {
+    // If value is already Any/ptr type, no boxing needed
+    if (!value->type || value->type->kind == HIRTypeKind::Any ||
+        value->type->kind == HIRTypeKind::Ptr) {
+        return value;
+    }
+
+    // Box based on value type
+    switch (value->type->kind) {
+        case HIRTypeKind::Int64:
+            return builder_.createBoxInt(value);
+        case HIRTypeKind::Float64:
+            return builder_.createBoxFloat(value);
+        case HIRTypeKind::Bool:
+            return builder_.createBoxBool(value);
+        case HIRTypeKind::String:
+            return builder_.createBoxString(value);
+        case HIRTypeKind::Object:
+        case HIRTypeKind::Array:
+        case HIRTypeKind::Function:
+        case HIRTypeKind::Class:
+            return builder_.createBoxObject(value);
+        default:
+            // Already a ptr-like type, return as is
+            return value;
+    }
+}
+
 //==============================================================================
 // Type Conversion
 //==============================================================================
@@ -395,38 +423,160 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
     // VariableDeclaration has name (NodePtr) and initializer (ExprPtr)
     // name can be Identifier, ObjectBindingPattern, or ArrayBindingPattern
 
-    std::string varName;
-    if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
-        varName = ident->name;
-    } else {
-        // Binding pattern - for now, use a placeholder name
-        varName = "_binding" + std::to_string(blockCounter_);
-    }
-
-    // Get variable type from initializer or inferred type
-    std::shared_ptr<HIRType> varType = HIRType::makeAny();
-    if (node->initializer && node->initializer->inferredType) {
-        varType = convertType(node->initializer->inferredType);
-    } else if (!node->type.empty()) {
-        varType = convertTypeFromString(node->type);
-    }
-
-    // Create alloca for the variable (stack slot)
-    auto allocaPtr = builder_.createAlloca(varType, varName);
-
-    // Lower and store initial value
+    // Lower the initializer first (if any)
     std::shared_ptr<HIRValue> initValue;
     if (node->initializer) {
         initValue = lowerExpression(node->initializer.get());
     } else {
-        // Default to undefined
         initValue = builder_.createConstUndefined();
     }
 
-    builder_.createStore(initValue, allocaPtr, varType);
+    // Handle the binding pattern
+    if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
+        // Simple identifier - create variable directly
+        std::shared_ptr<HIRType> varType = HIRType::makeAny();
+        if (node->initializer && node->initializer->inferredType) {
+            varType = convertType(node->initializer->inferredType);
+        } else if (!node->type.empty()) {
+            varType = convertTypeFromString(node->type);
+        }
 
-    // Register as alloca-based variable
-    defineVariableAlloca(varName, allocaPtr, varType);
+        auto allocaPtr = builder_.createAlloca(varType, ident->name);
+        builder_.createStore(initValue, allocaPtr, varType);
+        defineVariableAlloca(ident->name, allocaPtr, varType);
+    } else if (auto* objPattern = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
+        // Object destructuring: const { a, b } = obj
+        lowerObjectBindingPattern(objPattern, initValue);
+    } else if (auto* arrPattern = dynamic_cast<ast::ArrayBindingPattern*>(node->name.get())) {
+        // Array destructuring: const [a, b] = arr
+        lowerArrayBindingPattern(arrPattern, initValue);
+    }
+}
+
+void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
+                                          std::shared_ptr<HIRValue> sourceValue) {
+    for (auto& elem : pattern->elements) {
+        if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
+            lowerBindingElement(binding, sourceValue, true /* isObjectPattern */);
+        }
+    }
+}
+
+void ASTToHIR::lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
+                                         std::shared_ptr<HIRValue> sourceValue) {
+    int64_t index = 0;
+    for (auto& elem : pattern->elements) {
+        if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
+            if (binding->isSpread) {
+                // Rest element: ...rest - get remaining elements
+                lowerRestElement(binding, sourceValue, index);
+            } else {
+                // Regular element - extract by index
+                lowerBindingElementByIndex(binding, sourceValue, index);
+            }
+            index++;
+        } else if (dynamic_cast<ast::OmittedExpression*>(elem.get())) {
+            // Hole in array pattern: [a, , b] - skip this index
+            index++;
+        }
+    }
+}
+
+void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
+                                    std::shared_ptr<HIRValue> sourceValue,
+                                    bool isObjectPattern) {
+    // Determine the property name to extract
+    std::string propName;
+    if (!binding->propertyName.empty()) {
+        // { propName: varName } - use explicit property name
+        propName = binding->propertyName;
+    } else if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+        // { varName } - shorthand, property name is same as variable name
+        propName = ident->name;
+    }
+
+    // Get the property value from source object
+    auto propNameValue = builder_.createConstString(propName);
+    auto extractedValue = builder_.createGetPropDynamic(sourceValue, propNameValue);
+
+    // Handle default value if present
+    if (binding->initializer) {
+        // Check if extracted value is undefined using runtime function
+        auto isUndefined = builder_.createIsUndefined(extractedValue);
+        auto defaultValue = lowerExpression(binding->initializer.get());
+
+        // Box the default value to match extractedValue type (Any/ptr)
+        defaultValue = boxValueIfNeeded(defaultValue);
+
+        // Select: isUndefined ? defaultValue : extractedValue
+        extractedValue = builder_.createSelect(isUndefined, defaultValue, extractedValue);
+    }
+
+    // Bind to variable(s)
+    if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+        // Simple variable binding
+        auto varType = HIRType::makeAny();
+        auto allocaPtr = builder_.createAlloca(varType, ident->name);
+        builder_.createStore(extractedValue, allocaPtr, varType);
+        defineVariableAlloca(ident->name, allocaPtr, varType);
+    } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
+        // Nested object destructuring: { a: { b, c } }
+        lowerObjectBindingPattern(nestedObj, extractedValue);
+    } else if (auto* nestedArr = dynamic_cast<ast::ArrayBindingPattern*>(binding->name.get())) {
+        // Nested array destructuring: { a: [b, c] }
+        lowerArrayBindingPattern(nestedArr, extractedValue);
+    }
+}
+
+void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
+                                           std::shared_ptr<HIRValue> sourceValue,
+                                           int64_t index) {
+    // Get the element at index from source array
+    // Force result type to Any so the value stays boxed (won't be unboxed in HIRToLLVM)
+    auto indexValue = builder_.createConstInt(index);
+    auto extractedValue = builder_.createGetElem(sourceValue, indexValue, HIRType::makeAny());
+
+    // Handle default value if present
+    if (binding->initializer) {
+        // Check if extracted value is undefined using runtime function
+        auto isUndefined = builder_.createIsUndefined(extractedValue);
+        auto defaultValue = lowerExpression(binding->initializer.get());
+
+        // Box the default value to match extractedValue (Any/ptr)
+        defaultValue = boxValueIfNeeded(defaultValue);
+
+        // Select: isUndefined ? defaultValue : extractedValue
+        extractedValue = builder_.createSelect(isUndefined, defaultValue, extractedValue);
+    }
+
+    // Bind to variable(s)
+    if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+        auto varType = HIRType::makeAny();
+        auto allocaPtr = builder_.createAlloca(varType, ident->name);
+        builder_.createStore(extractedValue, allocaPtr, varType);
+        defineVariableAlloca(ident->name, allocaPtr, varType);
+    } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
+        lowerObjectBindingPattern(nestedObj, extractedValue);
+    } else if (auto* nestedArr = dynamic_cast<ast::ArrayBindingPattern*>(binding->name.get())) {
+        lowerArrayBindingPattern(nestedArr, extractedValue);
+    }
+}
+
+void ASTToHIR::lowerRestElement(ast::BindingElement* binding,
+                                 std::shared_ptr<HIRValue> sourceValue,
+                                 int64_t startIndex) {
+    // Create a new array with remaining elements using array.slice(startIndex)
+    auto startIndexValue = builder_.createConstInt(startIndex);
+    std::vector<std::shared_ptr<HIRValue>> sliceArgs = { startIndexValue };
+    auto restValue = builder_.createCallMethod(sourceValue, "slice", sliceArgs, HIRType::makeAny());
+
+    // Bind to variable
+    if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+        auto varType = HIRType::makeAny();
+        auto allocaPtr = builder_.createAlloca(varType, ident->name);
+        builder_.createStore(restValue, allocaPtr, varType);
+        defineVariableAlloca(ident->name, allocaPtr, varType);
+    }
 }
 
 void ASTToHIR::visitExpressionStatement(ast::ExpressionStatement* node) {
