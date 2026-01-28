@@ -848,15 +848,26 @@ void ASTToHIR::visitParenthesizedExpression(ast::ParenthesizedExpression* node) 
 }
 
 void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
+    // Try to infer element type from the array's inferred type
+    std::shared_ptr<HIRType> elemType = HIRType::makeAny();
+    if (node->inferredType && node->inferredType->kind == ts::TypeKind::Array) {
+        auto arrayType = std::static_pointer_cast<ts::ArrayType>(node->inferredType);
+        if (arrayType->elementType) {
+            elemType = convertType(arrayType->elementType);
+        }
+    }
+
     auto lenVal = builder_.createConstInt(static_cast<int64_t>(node->elements.size()));
-    lastValue_ = builder_.createNewArrayBoxed(lenVal);
+    auto arr = builder_.createNewArrayBoxed(lenVal, elemType);
 
     int64_t idx = 0;
     for (auto& elem : node->elements) {
         auto elemVal = lowerExpression(elem.get());
         auto idxVal = builder_.createConstInt(idx++);
-        builder_.createSetElem(lastValue_, idxVal, elemVal);
+        builder_.createSetElem(arr, idxVal, elemVal);
     }
+
+    lastValue_ = arr;
 }
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
@@ -871,34 +882,51 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 }
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
-    lastValue_ = builder_.createNewObjectDynamic();
+    auto obj = builder_.createNewObjectDynamic();
 
     for (auto& prop : node->properties) {
+        // Save the object before visiting property (which may overwrite lastValue_)
+        lastValue_ = obj;
         prop->accept(this);
     }
+
+    // Ensure lastValue_ is the object after all properties are set
+    lastValue_ = obj;
 }
 
 void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
+    // Save the object before lowerExpression overwrites lastValue_
+    auto obj = lastValue_;
+
     auto val = lowerExpression(node->initializer.get());
 
     // PropertyAssignment has name (string) directly
     std::string propName = node->name;
 
-    if (!propName.empty() && lastValue_) {
-        builder_.createSetPropStatic(lastValue_, propName, val);
+    if (!propName.empty() && obj) {
+        builder_.createSetPropStatic(obj, propName, val);
     }
+
+    // Restore lastValue_ to the object for any subsequent properties
+    lastValue_ = obj;
 }
 
 void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) {
+    // Save the object before any potential modification to lastValue_
+    auto obj = lastValue_;
+
     auto val = lookupVariable(node->name);
     if (!val) {
         val = createValue(HIRType::makeAny());
         builder_.createConstUndefined(val);
     }
 
-    if (lastValue_) {
-        builder_.createSetPropStatic(lastValue_, node->name, val);
+    if (obj) {
+        builder_.createSetPropStatic(obj, node->name, val);
     }
+
+    // Restore lastValue_ to the object for any subsequent properties
+    lastValue_ = obj;
 }
 
 void ASTToHIR::visitComputedPropertyName(ast::ComputedPropertyName* node) {

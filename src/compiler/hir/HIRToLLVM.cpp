@@ -935,6 +935,13 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     std::string propName = getOperandString(inst->operands[1]);
 
+    // Box the object if it's not already a pointer-sized boxed value
+    // ts_object_get_dynamic expects TsValue*, not raw TsMap*
+    if (obj->getType()->isPointerTy()) {
+        auto boxObjFn = getTsValueMakeObject();
+        obj = builder_->CreateCall(boxObjFn, {obj});
+    }
+
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
     auto strFn = getTsStringCreate();
@@ -946,6 +953,25 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
 
     auto fn = getTsObjectGetProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, keyBoxed});
+
+    // Unbox if the expected result type is a primitive
+    if (inst->result && inst->result->type) {
+        auto type = inst->result->type;
+        if (type->kind == HIRTypeKind::Int64) {
+            auto unboxFn = getTsValueGetInt();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Float64) {
+            auto unboxFn = getTsValueGetDouble();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Bool) {
+            auto unboxFn = getTsValueGetBool();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::String) {
+            auto unboxFn = getTsValueGetString();
+            result = builder_->CreateCall(unboxFn, {result});
+        }
+    }
+
     setValue(inst->result, result);
 }
 
@@ -953,8 +979,33 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     llvm::Value* key = getOperandValue(inst->operands[1]);
 
+    // Box the object if it's not already boxed
+    if (obj->getType()->isPointerTy()) {
+        auto boxObjFn = getTsValueMakeObject();
+        obj = builder_->CreateCall(boxObjFn, {obj});
+    }
+
     auto fn = getTsObjectGetProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, key});
+
+    // Unbox if the expected result type is a primitive
+    if (inst->result && inst->result->type) {
+        auto type = inst->result->type;
+        if (type->kind == HIRTypeKind::Int64) {
+            auto unboxFn = getTsValueGetInt();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Float64) {
+            auto unboxFn = getTsValueGetDouble();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Bool) {
+            auto unboxFn = getTsValueGetBool();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::String) {
+            auto unboxFn = getTsValueGetString();
+            result = builder_->CreateCall(unboxFn, {result});
+        }
+    }
+
     setValue(inst->result, result);
 }
 
@@ -962,6 +1013,12 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     std::string propName = getOperandString(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
+    if (obj->getType()->isPointerTy()) {
+        auto boxObjFn = getTsValueMakeObject();
+        obj = builder_->CreateCall(boxObjFn, {obj});
+    }
 
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
@@ -972,6 +1029,20 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     auto boxFn = getTsValueMakeString();
     llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {keyStr});
 
+    // Box the value if it's a primitive type (not a pointer)
+    if (!val->getType()->isPointerTy()) {
+        if (val->getType()->isIntegerTy(64)) {
+            auto fn = getTsValueMakeInt();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isDoubleTy()) {
+            auto fn = getTsValueMakeDouble();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isIntegerTy(1)) {
+            auto fn = getTsValueMakeBool();
+            val = builder_->CreateCall(fn, {val});
+        }
+    }
+
     auto fn = getTsObjectSetProperty();
     builder_->CreateCall(fn, {obj, keyBoxed, val});
 }
@@ -980,6 +1051,26 @@ void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     llvm::Value* key = getOperandValue(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
+    if (obj->getType()->isPointerTy()) {
+        auto boxObjFn = getTsValueMakeObject();
+        obj = builder_->CreateCall(boxObjFn, {obj});
+    }
+
+    // Box the value if it's a primitive type (not a pointer)
+    if (!val->getType()->isPointerTy()) {
+        if (val->getType()->isIntegerTy(64)) {
+            auto fn = getTsValueMakeInt();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isDoubleTy()) {
+            auto fn = getTsValueMakeDouble();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isIntegerTy(1)) {
+            auto fn = getTsValueMakeBool();
+            val = builder_->CreateCall(fn, {val});
+        }
+    }
 
     auto fn = getTsObjectSetProperty();
     builder_->CreateCall(fn, {obj, key, val});
@@ -1027,6 +1118,23 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
 
     auto fn = getTsArrayGet();
     llvm::Value* result = builder_->CreateCall(fn, {arr, idx});
+
+    // If the expected result type is a primitive, unbox the value
+    if (inst->result && inst->result->type) {
+        auto& type = inst->result->type;
+        if (type->kind == HIRTypeKind::Int64) {
+            auto unboxFn = getTsValueGetInt();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Float64) {
+            auto unboxFn = getTsValueGetDouble();
+            result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Bool) {
+            auto unboxFn = getTsValueGetBool();
+            result = builder_->CreateCall(unboxFn, {result});
+        }
+        // For Any, String, Object - leave as pointer
+    }
+
     setValue(inst->result, result);
 }
 
@@ -1034,6 +1142,28 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // ts_array_set expects (ptr, i64, ptr) - need to box value if not a pointer
+    if (!val->getType()->isPointerTy()) {
+        if (val->getType()->isIntegerTy(64)) {
+            // Box integer
+            auto fn = getTsValueMakeInt();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isDoubleTy()) {
+            // Box double
+            auto fn = getTsValueMakeDouble();
+            val = builder_->CreateCall(fn, {val});
+        } else if (val->getType()->isIntegerTy(1)) {
+            // Box boolean (convert i1 to i32 first)
+            llvm::Value* i32Val = builder_->CreateZExt(val, builder_->getInt32Ty());
+            auto fn = getTsValueMakeBool();
+            val = builder_->CreateCall(fn, {i32Val});
+        } else {
+            // For other types, try to cast to ptr (may fail)
+            SPDLOG_WARN("lowerSetElem: unexpected value type, attempting pointer cast");
+            val = builder_->CreateIntToPtr(val, builder_->getPtrTy());
+        }
+    }
 
     auto fn = getTsArraySet();
     builder_->CreateCall(fn, {arr, idx, val});
@@ -1429,15 +1559,15 @@ llvm::FunctionCallee HIRToLLVM::getTsValueGetObject() {
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsArrayCreate() {
-    return getOrDeclareRuntimeFunction("ts_array_create", builder_->getPtrTy(), {builder_->getInt64Ty()});
+    return getOrDeclareRuntimeFunction("ts_array_create_sized", builder_->getPtrTy(), {builder_->getInt64Ty()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsArrayGet() {
-    return getOrDeclareRuntimeFunction("ts_array_get", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getInt64Ty()});
+    return getOrDeclareRuntimeFunction("ts_array_get_unchecked", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getInt64Ty()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsArraySet() {
-    return getOrDeclareRuntimeFunction("ts_array_set", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy()});
+    return getOrDeclareRuntimeFunction("ts_array_set_unchecked", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsArrayLength() {
@@ -1449,15 +1579,18 @@ llvm::FunctionCallee HIRToLLVM::getTsArrayPush() {
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectCreate() {
-    return getOrDeclareRuntimeFunction("ts_object_create", builder_->getPtrTy(), {});
+    // ts_map_create() returns a TsMap* (plain object)
+    return getOrDeclareRuntimeFunction("ts_map_create", builder_->getPtrTy(), {});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectGetProperty() {
-    return getOrDeclareRuntimeFunction("ts_object_get_property", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()});
+    // ts_object_get_dynamic(TsValue* obj, TsValue* key) -> TsValue*
+    return getOrDeclareRuntimeFunction("ts_object_get_dynamic", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectSetProperty() {
-    return getOrDeclareRuntimeFunction("ts_object_set_property", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy()});
+    // ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) -> void
+    return getOrDeclareRuntimeFunction("ts_object_set_dynamic", builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectHasProperty() {
