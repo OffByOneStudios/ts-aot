@@ -207,6 +207,10 @@ private:
     void lowerCallVirtual(HIRInstruction* inst);
     void lowerCallIndirect(HIRInstruction* inst);
 
+    // Globals
+    void lowerLoadGlobal(HIRInstruction* inst);
+    void lowerLoadFunction(HIRInstruction* inst);
+
     // Control flow
     void lowerBranch(HIRInstruction* inst);
     void lowerCondBranch(HIRInstruction* inst);

@@ -784,6 +784,32 @@ public:
     }
 
     //==========================================================================
+    // Globals
+    //==========================================================================
+
+    // Load a global object (console, Math, JSON, Object, Array, etc.)
+    std::shared_ptr<HIRValue> createLoadGlobal(const std::string& name) {
+        auto result = createValue(HIRType::makeObject());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadGlobal);
+        inst->result = result;
+        inst->operands.push_back(name);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Load a function pointer by name
+    std::shared_ptr<HIRValue> createLoadFunction(const std::string& name,
+                                                   std::shared_ptr<HIRType> funcType = nullptr) {
+        auto type = funcType ? funcType : HIRType::makePtr();
+        auto result = createValue(type);
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadFunction);
+        inst->result = result;
+        inst->operands.push_back(name);
+        emit(std::move(inst));
+        return result;
+    }
+
+    //==========================================================================
     // Control flow (terminators)
     //==========================================================================
 

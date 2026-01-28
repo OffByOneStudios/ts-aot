@@ -199,6 +199,10 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::CallVirtual: return "call_virtual";
         case HIROpcode::CallIndirect: return "call_indirect";
 
+        // Globals
+        case HIROpcode::LoadGlobal: return "load_global";
+        case HIROpcode::LoadFunction: return "load_function";
+
         // Control flow
         case HIROpcode::Branch: return "br";
         case HIROpcode::CondBranch: return "condbr";

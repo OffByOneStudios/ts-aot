@@ -1,4 +1,7 @@
 #include "ASTToHIR.h"
+#include <cmath>
+#include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -915,12 +918,42 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 }
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
+    // First check for local/parameter variables
     lastValue_ = lookupVariable(node->name);
-    if (!lastValue_) {
-        // Unknown variable - create undefined
-        lastValue_ = createValue(HIRType::makeAny());
-        builder_.createConstUndefined(lastValue_);
+    if (lastValue_) {
+        return;
     }
+
+    // Check for known global objects
+    static const std::set<std::string> knownGlobals = {
+        "console", "Math", "JSON", "Object", "Array", "String", "Number",
+        "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
+        "process", "global", "globalThis", "undefined", "NaN", "Infinity"
+    };
+
+    if (knownGlobals.count(node->name)) {
+        // Handle special constants
+        if (node->name == "undefined") {
+            lastValue_ = builder_.createConstUndefined();
+            return;
+        }
+        if (node->name == "NaN") {
+            lastValue_ = builder_.createConstFloat(std::nan(""));
+            return;
+        }
+        if (node->name == "Infinity") {
+            lastValue_ = builder_.createConstFloat(std::numeric_limits<double>::infinity());
+            return;
+        }
+
+        // Emit LoadGlobal for global objects
+        lastValue_ = builder_.createLoadGlobal(node->name);
+        return;
+    }
+
+    // Unknown variable - create undefined
+    lastValue_ = createValue(HIRType::makeAny());
+    builder_.createConstUndefined(lastValue_);
 }
 
 void ASTToHIR::visitSuperExpression(ast::SuperExpression* node) {

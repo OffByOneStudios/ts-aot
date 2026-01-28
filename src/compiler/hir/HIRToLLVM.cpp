@@ -341,6 +341,10 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::CallVirtual:  lowerCallVirtual(inst); break;
         case HIROpcode::CallIndirect: lowerCallIndirect(inst); break;
 
+        // Globals
+        case HIROpcode::LoadGlobal:   lowerLoadGlobal(inst); break;
+        case HIROpcode::LoadFunction: lowerLoadFunction(inst); break;
+
         // Control flow
         case HIROpcode::Branch:      lowerBranch(inst); break;
         case HIROpcode::CondBranch:  lowerCondBranch(inst); break;
@@ -1178,6 +1182,95 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
     llvm::Value* result = builder_->CreateCall(ft, fnPtr, args);
     if (inst->result) {
         setValue(inst->result, result);
+    }
+}
+
+//==============================================================================
+// Globals
+//==============================================================================
+
+void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
+    std::string globalName = getOperandString(inst->operands[0]);
+
+    // For known globals, we return a sentinel pointer that the runtime recognizes
+    // or call a runtime function to get the global object
+    llvm::Value* result = nullptr;
+
+    // For now, we use runtime functions for each global
+    // These return a pointer to the global object
+    std::string funcName = "ts_get_global_" + globalName;
+
+    // Check for known globals and use specific runtime functions
+    if (globalName == "console") {
+        funcName = "ts_get_global_console";
+    } else if (globalName == "Math") {
+        funcName = "ts_get_global_Math";
+    } else if (globalName == "JSON") {
+        funcName = "ts_get_global_JSON";
+    } else if (globalName == "Object") {
+        funcName = "ts_get_global_Object";
+    } else if (globalName == "Array") {
+        funcName = "ts_get_global_Array";
+    } else if (globalName == "String") {
+        funcName = "ts_get_global_String";
+    } else if (globalName == "Number") {
+        funcName = "ts_get_global_Number";
+    } else if (globalName == "Boolean") {
+        funcName = "ts_get_global_Boolean";
+    } else if (globalName == "Date") {
+        funcName = "ts_get_global_Date";
+    } else if (globalName == "RegExp") {
+        funcName = "ts_get_global_RegExp";
+    } else if (globalName == "Promise") {
+        funcName = "ts_get_global_Promise";
+    } else if (globalName == "Error") {
+        funcName = "ts_get_global_Error";
+    } else if (globalName == "Buffer") {
+        funcName = "ts_get_global_Buffer";
+    } else if (globalName == "process") {
+        funcName = "ts_get_global_process";
+    } else if (globalName == "global" || globalName == "globalThis") {
+        funcName = "ts_get_global_globalThis";
+    } else {
+        // Generic global lookup
+        funcName = "ts_get_global";
+        // For generic globals, pass the name as an argument
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* nameStr = createGlobalString(globalName);
+        result = builder_->CreateCall(ft, fn.getCallee(), { nameStr });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // For known globals, call the specific function (no args)
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), false);
+    llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+    result = builder_->CreateCall(ft, fn.getCallee());
+
+    if (inst->result) {
+        setValue(inst->result, result);
+    }
+}
+
+void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
+    std::string funcName = getOperandString(inst->operands[0]);
+
+    // Look up the function in the LLVM module
+    llvm::Function* fn = module_->getFunction(funcName);
+    if (fn) {
+        if (inst->result) {
+            setValue(inst->result, fn);
+        }
+    } else {
+        // Function not found - create a null pointer
+        SPDLOG_WARN("LoadFunction: function '{}' not found", funcName);
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
     }
 }
 
