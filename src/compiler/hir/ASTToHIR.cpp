@@ -182,9 +182,8 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
 
     // Handle basic TypeScript type names
     if (typeStr == "number") {
-        // In TypeScript, 'number' can be int or float. For now, treat as int64
-        // when it appears in function return types (most common case)
-        return HIRType::makeInt64();
+        // In TypeScript, 'number' is always IEEE 754 double-precision float
+        return HIRType::makeFloat64();
     } else if (typeStr == "string") {
         return HIRType::makeString();
     } else if (typeStr == "boolean") {
@@ -278,6 +277,18 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
 }
 
 //==============================================================================
+// Deferred Static Initialization
+//==============================================================================
+
+void ASTToHIR::emitDeferredStaticInits() {
+    for (auto& init : deferredStaticInits_) {
+        auto initVal = lowerExpression(init.initExpr);
+        builder_.createStore(initVal, init.globalPtr, init.propType);
+    }
+    deferredStaticInits_.clear();  // Only emit once
+}
+
+//==============================================================================
 // Statement Lowering
 //==============================================================================
 
@@ -348,6 +359,11 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Update function's value counter to start after parameters
     // This ensures new values created in the function body don't reuse parameter IDs
     func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // If this is user_main, emit deferred static property initializations
+    if (node->name == "user_main") {
+        emitDeferredStaticInits();
+    }
 
     // Lower function body
     for (auto& stmt : node->body) {
@@ -883,6 +899,27 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Handle property access assignment
     auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get());
     if (propAccess) {
+        // Check for static property assignment: ClassName.propertyName = value
+        auto* classNameIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+        if (classNameIdent) {
+            for (auto& cls : module_->classes) {
+                if (cls->name == classNameIdent->name) {
+                    // Check if this is a static property
+                    std::string globalName = cls->name + "_static_" + propAccess->name;
+                    auto it = staticPropertyGlobals_.find(globalName);
+                    if (it != staticPropertyGlobals_.end()) {
+                        // Store to the static property global
+                        auto globalPtr = it->second.first;
+                        auto propType = it->second.second;
+                        builder_.createStore(rhs, globalPtr, propType);
+                        lastValue_ = rhs;
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+
         auto obj = lowerExpression(propAccess->expression.get());
         builder_.createSetPropStatic(obj, propAccess->name, rhs);
         lastValue_ = rhs;
@@ -908,9 +945,114 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         args.push_back(lowerExpression(arg.get()));
     }
 
+    // Handle super() call - calls parent class constructor
+    auto* superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get());
+    if (superExpr && currentClass_ && currentClass_->baseClass && currentClass_->baseClass->constructor) {
+        // Call parent constructor with [this, ...args]
+        std::vector<std::shared_ptr<HIRValue>> ctorArgs;
+        auto thisVal = lookupVariable("this");
+        if (thisVal) {
+            ctorArgs.push_back(thisVal);
+        } else {
+            ctorArgs.push_back(builder_.createConstNull());
+        }
+        for (auto& arg : args) {
+            ctorArgs.push_back(arg);
+        }
+        builder_.createCall(currentClass_->baseClass->constructor->name, ctorArgs, HIRType::makeVoid());
+        lastValue_ = builder_.createConstUndefined();
+        return;
+    }
+
     // Handle method call
     auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (propAccess) {
+        // Check if we can use a direct call for method invocation
+
+        // Case 1: Method call on 'this' - we know the class statically
+        auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+        if (thisIdent && thisIdent->name == "this" && currentClass_) {
+            // Look up the method in the current class
+            auto it = currentClass_->methods.find(propAccess->name);
+            if (it != currentClass_->methods.end()) {
+                HIRFunction* method = it->second;
+                // Build args: [this, ...args]
+                std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                auto thisVal = lookupVariable("this");
+                if (thisVal) {
+                    methodArgs.push_back(thisVal);
+                } else {
+                    methodArgs.push_back(builder_.createConstNull());
+                }
+                for (auto& arg : args) {
+                    methodArgs.push_back(arg);
+                }
+                // Direct call to the method function
+                lastValue_ = builder_.createCall(method->name, methodArgs, method->returnType);
+                return;
+            }
+        }
+
+        // Case 2: Check if object has a known class type from inference
+        std::string className;
+        if (propAccess->expression->inferredType) {
+            auto& type = propAccess->expression->inferredType;
+            if (type->kind == ts::TypeKind::Class) {
+                auto classType = std::dynamic_pointer_cast<ts::ClassType>(type);
+                if (classType) {
+                    className = classType->name;
+                }
+            }
+        }
+
+        if (!className.empty()) {
+            // Look up the class and search up the inheritance chain
+            for (auto& cls : module_->classes) {
+                if (cls->name == className) {
+                    // Search in this class and all base classes
+                    HIRClass* searchClass = cls.get();
+                    while (searchClass) {
+                        auto it = searchClass->methods.find(propAccess->name);
+                        if (it != searchClass->methods.end()) {
+                            HIRFunction* method = it->second;
+                            // Build args: [obj, ...args]
+                            auto obj = lowerExpression(propAccess->expression.get());
+                            std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                            methodArgs.push_back(obj);
+                            for (auto& arg : args) {
+                                methodArgs.push_back(arg);
+                            }
+                            lastValue_ = builder_.createCall(method->name, methodArgs, method->returnType);
+                            return;
+                        }
+                        // Move to base class
+                        searchClass = searchClass->baseClass;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Case 3: Static method call - ClassName.methodName(...)
+        auto* classNameIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+        if (classNameIdent) {
+            // Check if this is a class name
+            for (auto& cls : module_->classes) {
+                if (cls->name == classNameIdent->name) {
+                    // Check for static method
+                    auto it = cls->staticMethods.find(propAccess->name);
+                    if (it != cls->staticMethods.end()) {
+                        HIRFunction* method = it->second;
+                        // Static methods don't need 'this' parameter
+                        lastValue_ = builder_.createCall(method->name, args, method->returnType);
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Fallback: Dynamic method call
         auto obj = lowerExpression(propAccess->expression.get());
         lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
         return;
@@ -951,17 +1093,42 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 }
 
 void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
+    // Lower constructor arguments
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
         args.push_back(lowerExpression(arg.get()));
     }
 
-    // Get constructor name
+    // Get constructor/class name
     auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
     std::string className = ident ? ident->name : "Object";
 
     // Create new object
-    lastValue_ = builder_.createNewObjectDynamic();
+    auto newObj = builder_.createNewObjectDynamic();
+
+    // Look up the class and call its constructor if it exists
+    HIRClass* hirClass = nullptr;
+    for (auto& cls : module_->classes) {
+        if (cls->name == className) {
+            hirClass = cls.get();
+            break;
+        }
+    }
+
+    if (hirClass && hirClass->constructor) {
+        // Build constructor call args: [this, ...args]
+        std::vector<std::shared_ptr<HIRValue>> ctorArgs;
+        ctorArgs.push_back(newObj);  // 'this' is the new object
+        for (auto& arg : args) {
+            ctorArgs.push_back(arg);
+        }
+
+        // Call the constructor
+        builder_.createCall(hirClass->constructor->name, ctorArgs, HIRType::makeVoid());
+    }
+
+    // The result is the new object
+    lastValue_ = newObj;
 }
 
 void ASTToHIR::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
@@ -1000,8 +1167,44 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 }
 
 void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    // Check for static property access: ClassName.propertyName
+    auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (classNameIdent) {
+        for (auto& cls : module_->classes) {
+            if (cls->name == classNameIdent->name) {
+                // Check if this is a static property
+                std::string globalName = cls->name + "_static_" + node->name;
+                auto it = staticPropertyGlobals_.find(globalName);
+                if (it != staticPropertyGlobals_.end()) {
+                    // Load from the static property global
+                    auto globalPtr = it->second.first;
+                    auto propType = it->second.second;
+                    lastValue_ = builder_.createLoad(propType, globalPtr);
+                    return;
+                }
+                break;
+            }
+        }
+    }
+
     auto obj = lowerExpression(node->expression.get());
-    lastValue_ = builder_.createGetPropStatic(obj, node->name, HIRType::makeAny());
+
+    // Determine the property type - check if this is 'this' access in a class context
+    std::shared_ptr<HIRType> propType = HIRType::makeAny();
+
+    if (currentClass_) {
+        // Check if the expression is 'this'
+        auto* thisIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
+        if (thisIdent && thisIdent->name == "this" && currentClass_->shape) {
+            // Look up the property type from the class shape
+            auto typeIt = currentClass_->shape->propertyTypes.find(node->name);
+            if (typeIt != currentClass_->shape->propertyTypes.end()) {
+                propType = typeIt->second;
+            }
+        }
+    }
+
+    lastValue_ = builder_.createGetPropStatic(obj, node->name, propType);
 }
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
@@ -1069,6 +1272,18 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 }
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
+    // Handle 'this' keyword specially
+    if (node->name == "this") {
+        // Look up 'this' in the variable scope - it's set as a parameter in method bodies
+        lastValue_ = lookupVariable("this");
+        if (lastValue_) {
+            return;
+        }
+        // If not found, return null (e.g., in static context)
+        lastValue_ = builder_.createConstNull();
+        return;
+    }
+
     // Check if this is a captured variable from an outer function
     size_t scopeIndex = 0;
     if (currentFunction_ && isCapturedVariable(node->name, &scopeIndex)) {
@@ -1140,12 +1355,8 @@ void ASTToHIR::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node
 }
 
 void ASTToHIR::visitNumericLiteral(ast::NumericLiteral* node) {
-    // Check if it's an integer
-    if (node->value == static_cast<int64_t>(node->value)) {
-        lastValue_ = builder_.createConstInt(static_cast<int64_t>(node->value));
-    } else {
-        lastValue_ = builder_.createConstFloat(node->value);
-    }
+    // In TypeScript/JavaScript, all numbers are IEEE 754 double-precision floats
+    lastValue_ = builder_.createConstFloat(node->value);
 }
 
 void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
@@ -1636,15 +1847,184 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
 }
 
 void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
-    // TODO: Proper class lowering
-    // For now, create a class in the module
+    // Create HIR class
     auto* hirClass = builder_.createClass(node->name);
     if (!hirClass) return;
 
-    // Add fields and methods
-    for (auto& member : node->members) {
-        // TODO: Process class members
+    // Track the current class for 'this' handling
+    HIRClass* savedClass = currentClass_;
+    currentClass_ = hirClass;
+
+    // Handle inheritance - look up base class
+    if (!node->baseClass.empty()) {
+        for (auto& cls : module_->classes) {
+            if (cls->name == node->baseClass) {
+                hirClass->baseClass = cls.get();
+                break;
+            }
+        }
     }
+
+    // Create class shape (layout of instance properties)
+    auto shape = std::make_shared<HIRShape>();
+    shape->className = node->name;
+
+    // First pass: collect properties for the shape
+    uint32_t propertyOffset = 0;
+
+    // If we have a base class, copy its properties first
+    if (hirClass->baseClass && hirClass->baseClass->shape) {
+        auto baseShape = hirClass->baseClass->shape;
+        shape->parent = baseShape.get();
+        // Copy base class properties
+        for (const auto& [name, offset] : baseShape->propertyOffsets) {
+            shape->propertyOffsets[name] = offset;
+        }
+        for (const auto& [name, type] : baseShape->propertyTypes) {
+            shape->propertyTypes[name] = type;
+        }
+        propertyOffset = baseShape->size;  // Start our properties after base class properties
+    }
+
+    // Add this class's own properties
+    for (auto& memberPtr : node->members) {
+        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+            if (!propDef->isStatic) {
+                auto propType = propDef->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(propDef->type);
+                shape->propertyOffsets[propDef->name] = propertyOffset;
+                shape->propertyTypes[propDef->name] = propType;
+                propertyOffset++;
+            }
+        }
+    }
+    shape->size = propertyOffset;
+    hirClass->shape = shape;
+
+    // Static property pass: create globals for static properties
+    for (auto& memberPtr : node->members) {
+        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+            if (propDef->isStatic) {
+                auto propType = propDef->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(propDef->type);
+                std::string globalName = node->name + "_static_" + propDef->name;
+
+                // Create global variable for the static property
+                auto globalPtr = builder_.createGlobal(globalName, propType);
+                staticPropertyGlobals_[globalName] = {globalPtr, propType};
+
+                // Defer initialization to user_main
+                if (propDef->initializer) {
+                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get()});
+                }
+            }
+        }
+    }
+
+    // Second pass: create methods
+    for (auto& memberPtr : node->members) {
+        if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            // Generate a unique function name for the method
+            std::string methodFuncName;
+            if (methodDef->name == "constructor") {
+                methodFuncName = node->name + "_constructor";
+            } else if (methodDef->isStatic) {
+                methodFuncName = node->name + "_static_" + methodDef->name;
+            } else {
+                methodFuncName = node->name + "_" + methodDef->name;
+            }
+
+            // Create HIR function for this method
+            auto func = std::make_unique<HIRFunction>(methodFuncName);
+            func->isAsync = methodDef->isAsync;
+            func->isGenerator = methodDef->isGenerator;
+
+            // For instance methods (and constructor), 'this' is the first parameter
+            if (!methodDef->isStatic) {
+                func->params.push_back({"this", HIRType::makeObject()});
+            }
+
+            // Add explicit parameters
+            for (auto& param : methodDef->parameters) {
+                auto paramType = param->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(param->type);
+
+                std::string paramName;
+                if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                    paramName = ident->name;
+                } else {
+                    paramName = "param" + std::to_string(func->params.size());
+                }
+                func->params.push_back({paramName, paramType});
+            }
+
+            // Set return type
+            func->returnType = methodDef->returnType.empty()
+                ? HIRType::makeAny()
+                : convertTypeFromString(methodDef->returnType);
+
+            // Save current function and create entry block
+            HIRFunction* savedFunc = currentFunction_;
+            currentFunction_ = func.get();
+
+            // Create entry block
+            auto entryBlock = func->createBlock("entry");
+            builder_.setInsertPoint(entryBlock);
+            currentBlock_ = entryBlock;
+
+            // Enter function scope
+            pushFunctionScope(func.get());
+
+            // Register parameters in scope
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                const auto& [paramName, paramType] = func->params[i];
+                auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+                defineVariable(paramName, paramValue);
+            }
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // Lower method body
+            for (auto& stmt : methodDef->body) {
+                lowerStatement(stmt.get());
+            }
+
+            // Add implicit return if no terminator
+            if (!hasTerminator()) {
+                builder_.createReturnVoid();
+            }
+
+            popScope();
+
+            // Restore saved function
+            currentFunction_ = savedFunc;
+            if (savedFunc) {
+                auto* savedBlock = savedFunc->getEntryBlock();
+                builder_.setInsertPoint(savedBlock);
+                currentBlock_ = savedBlock;
+            }
+
+            // Register method in the class
+            HIRFunction* funcPtr = func.get();
+            if (methodDef->name == "constructor") {
+                hirClass->constructor = funcPtr;
+            } else if (methodDef->isStatic) {
+                hirClass->staticMethods[methodDef->name] = funcPtr;
+            } else {
+                hirClass->methods[methodDef->name] = funcPtr;
+                // Add to vtable for virtual dispatch
+                hirClass->vtable.push_back({methodDef->name, funcPtr});
+            }
+
+            // Add function to module
+            module_->functions.push_back(std::move(func));
+        }
+    }
+
+    // Restore class context
+    currentClass_ = savedClass;
 }
 
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {

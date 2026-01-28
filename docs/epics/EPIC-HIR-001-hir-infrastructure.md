@@ -135,17 +135,17 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [ ] Async generators
 
 ### 3.4 Classes
-- [ ] Class declarations (stub exists)
+- [x] Class declarations
 - [ ] Class expressions (stub exists)
-- [ ] Constructor
-- [ ] Instance methods
-- [ ] Static methods
-- [ ] Instance properties
-- [ ] Static properties
+- [x] Constructor
+- [x] Instance methods
+- [x] Static methods
+- [x] Instance properties
+- [x] Static properties
 - [ ] Getters/setters
 - [ ] Private fields (#field)
-- [ ] Inheritance (extends)
-- [ ] Super calls (stub exists)
+- [x] Inheritance (extends)
+- [x] Super calls
 - [ ] Static blocks
 
 ### 3.5 Types and Patterns
@@ -349,25 +349,35 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 75% |
-| Phase 3: ASTToHIR Coverage | 75% |
+| Phase 3: ASTToHIR Coverage | 80% |
 | Phase 4: HIRToLLVM Coverage | 95% |
 | Phase 5: Optimization Passes | 0% |
 
-**Overall: ~75% Complete**
+**Overall: ~80% Complete**
 
 ### Recent Progress (2026-01-28)
+- **Classes fully implemented:**
+  - Class declarations with constructors
+  - Instance methods and properties (via shape-based object layout)
+  - Static methods and properties (via global variables)
+  - Inheritance with `extends` keyword
+  - `super()` constructor calls with argument passing
+  - Inherited method resolution (searches base class chain)
+  - Property inheritance via shape copying from base class
+  - String/number/bool property boxing in SetPropStatic/SetPropDynamic
+  - String concatenation type coercion (int/double/bool → string)
 - Full closure implementation with mutable captures and nested closure propagation
 - TsClosure runtime struct with heap-allocated capture cells (TsCell)
 - MakeClosure, LoadCapture, StoreCapture HIR opcodes fully lowered to LLVM
 - CallIndirect passes closure context correctly
-- All closure tests passing (basic, mutable counter, nested closures)
+- All closure and class tests passing
 
 ---
 
 ## Next Steps (Priority Order)
 
-1. **Classes** - Required for OOP, npm packages
-2. **Try/catch/finally** - Required for error handling
+1. **Try/catch/finally** - Required for error handling
+2. **Destructuring** - Common ES6+ pattern
 3. **TypePropagationPass** - Enables better downstream optimization
-4. **Destructuring** - Common ES6+ pattern
-5. **Async/await** - Required for async I/O patterns
+4. **Async/await** - Required for async I/O patterns
+5. **Getters/setters** - OOP pattern for computed properties
