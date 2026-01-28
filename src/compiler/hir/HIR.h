@@ -229,6 +229,10 @@ enum class HIROpcode {
     CallVirtual,        // %r = call_virtual %obj, <vtable_idx>, (%args...)
     CallIndirect,       // %r = call_indirect %fn_ptr, (%args...)
 
+    // Globals
+    LoadGlobal,         // %r = load_global "name" (console, Math, JSON, etc.)
+    LoadFunction,       // %r = load_function "name" (get function pointer)
+
     // Control flow (terminators)
     Branch,             // br %target
     CondBranch,         // condbr %cond, %then, %else
