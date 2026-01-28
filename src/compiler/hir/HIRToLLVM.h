@@ -44,6 +44,10 @@ private:
     llvm::Function* currentFunction_ = nullptr;
     HIRFunction* currentHIRFunction_ = nullptr;
 
+    // For closures: hidden first parameter that holds the TsClosure*
+    // This is set when lowering a function with captures
+    llvm::Value* closureParam_ = nullptr;
+
     //==========================================================================
     // Type Mapping
     //==========================================================================

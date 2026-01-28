@@ -106,6 +106,7 @@ add_library(tsruntime STATIC
     src/TsHttp.cpp
     src/TsError.cpp
     src/TsCell.cpp
+    src/TsClosure.cpp
     src/TsProxy.cpp
     src/TsReflect.cpp
     src/TsOS.cpp

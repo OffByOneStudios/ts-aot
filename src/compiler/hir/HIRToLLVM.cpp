@@ -163,6 +163,13 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     // Build function type
     llvm::Type* returnType = getLLVMType(fn->returnType);
     std::vector<llvm::Type*> paramTypes;
+
+    // If this function has captures, add a hidden first parameter for the closure context
+    bool hasCaptureParams = !fn->captures.empty();
+    if (hasCaptureParams) {
+        paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
+    }
+
     for (auto& param : fn->params) {
         paramTypes.push_back(getLLVMType(param.second));
     }
@@ -180,6 +187,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     currentHIRFunction_ = fn;
     valueMap_.clear();
     blockMap_.clear();
+    closureParam_ = nullptr;
 
     // Create LLVM basic blocks first (for forward references)
     for (auto& block : fn->blocks) {
@@ -189,6 +197,14 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
     // Map function parameters to values
     auto argIt = llvmFunc->arg_begin();
+
+    // If we have captures, the first argument is the closure context
+    if (hasCaptureParams) {
+        argIt->setName("__closure");
+        closureParam_ = &*argIt;
+        ++argIt;
+    }
+
     for (size_t i = 0; i < fn->params.size(); ++i, ++argIt) {
         argIt->setName(fn->params[i].first);
         // Create a value mapping for the parameter
@@ -203,6 +219,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
     currentFunction_ = nullptr;
     currentHIRFunction_ = nullptr;
+    closureParam_ = nullptr;
 }
 
 void HIRToLLVM::lowerBlock(HIRBlock* block) {
@@ -477,6 +494,15 @@ void HIRToLLVM::lowerNegI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerAddF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Convert operands to double if they're integers
+    if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFAdd(lhs, rhs, "fadd");
     setValue(inst->result, result);
 }
@@ -484,6 +510,14 @@ void HIRToLLVM::lowerAddF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerSubF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFSub(lhs, rhs, "fsub");
     setValue(inst->result, result);
 }
@@ -491,6 +525,14 @@ void HIRToLLVM::lowerSubF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerMulF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFMul(lhs, rhs, "fmul");
     setValue(inst->result, result);
 }
@@ -498,6 +540,14 @@ void HIRToLLVM::lowerMulF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerDivF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFDiv(lhs, rhs, "fdiv");
     setValue(inst->result, result);
 }
@@ -505,12 +555,25 @@ void HIRToLLVM::lowerDivF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerModF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFRem(lhs, rhs, "fmod");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerNegF64(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    if (val->getType()->isIntegerTy()) {
+        val = builder_->CreateSIToFP(val, builder_->getDoubleTy());
+    }
+
     llvm::Value* result = builder_->CreateFNeg(val, "fneg");
     setValue(inst->result, result);
 }
@@ -1401,19 +1464,55 @@ void HIRToLLVM::lowerCallVirtual(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
-    llvm::Value* fnPtr = getOperandValue(inst->operands[0]);
+    // CallIndirect is used to call closures or function pointers
+    // For closures (TsClosure*):
+    //   1. Extract the function pointer using ts_closure_get_func
+    //   2. Pass the closure as the first argument
+    //
+    // Operand 0: closure/function pointer
+    // Operand 1+: regular arguments
 
-    // Gather arguments
-    std::vector<llvm::Value*> args;
+    llvm::Value* closureOrFnPtr = getOperandValue(inst->operands[0]);
+
+    // Gather regular arguments
+    std::vector<llvm::Value*> regularArgs;
     for (size_t i = 1; i < inst->operands.size(); ++i) {
-        args.push_back(getOperandValue(inst->operands[i]));
+        regularArgs.push_back(getOperandValue(inst->operands[i]));
     }
 
-    // Create function type for indirect call
-    std::vector<llvm::Type*> paramTypes(args.size(), builder_->getPtrTy());
-    llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+    // ts_closure_get_func(TsClosure* closure) -> void*
+    auto getClosureFuncFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getClosureFunc = module_->getOrInsertFunction("ts_closure_get_func", getClosureFuncFt);
 
-    llvm::Value* result = builder_->CreateCall(ft, fnPtr, args);
+    // Extract the actual function pointer from the closure
+    llvm::Value* funcPtr = builder_->CreateCall(getClosureFuncFt, getClosureFunc.getCallee(), { closureOrFnPtr });
+
+    // Build argument list: closure first, then regular arguments
+    std::vector<llvm::Value*> allArgs;
+    allArgs.push_back(closureOrFnPtr);  // Closure context as first argument
+    allArgs.insert(allArgs.end(), regularArgs.begin(), regularArgs.end());
+
+    // Create function type for the call
+    // First argument (closure context) is always a pointer
+    // Other arguments use the actual LLVM types of the arguments
+    std::vector<llvm::Type*> paramTypes;
+    for (auto& arg : allArgs) {
+        paramTypes.push_back(arg->getType());
+    }
+
+    // Determine return type from the instruction's result type
+    llvm::Type* returnType = builder_->getVoidTy();
+    if (inst->result && inst->result->type) {
+        returnType = getLLVMType(inst->result->type);
+    }
+
+    llvm::FunctionType* ft = llvm::FunctionType::get(returnType, paramTypes, false);
+
+    llvm::Value* result = builder_->CreateCall(ft, funcPtr, allArgs);
     if (inst->result) {
         setValue(inst->result, result);
     }
@@ -1515,27 +1614,98 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
 void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     // MakeClosure creates a closure object with function pointer and captured values
     // Operand 0: function name
-    // Operand 1+: captured values
+    // Operand 1+: captured values (to be stored in TsCells)
     //
-    // TODO: Full closure implementation would:
-    // 1. Allocate closure struct (func ptr + captures array)
-    // 2. Store function pointer
-    // 3. Store each captured value
-    // 4. Return pointer to closure
-    //
-    // For now, just return the function pointer
+    // Runtime: TsClosure = { func_ptr, num_captures, TsCell** cells }
+
     std::string funcName = getOperandString(inst->operands[0]);
     llvm::Function* fn = module_->getFunction(funcName);
 
-    if (fn) {
-        if (inst->result) {
-            setValue(inst->result, fn);
-        }
-    } else {
+    if (!fn) {
         SPDLOG_WARN("MakeClosure: function '{}' not found", funcName);
         if (inst->result) {
             setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
         }
+        return;
+    }
+
+    size_t numCaptures = inst->operands.size() - 1;
+
+    // Declare runtime functions
+    // ts_closure_create(void* funcPtr, int64_t numCaptures) -> TsClosure*
+    auto closureCreateFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto closureCreate = module_->getOrInsertFunction("ts_closure_create", closureCreateFt);
+
+    // ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initialValue) -> void
+    auto initCaptureFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy() },
+        false
+    );
+    auto initCapture = module_->getOrInsertFunction("ts_closure_init_capture", initCaptureFt);
+
+    // ts_value_make_int(int64_t) -> TsValue*
+    auto makeIntFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getInt64Ty() },
+        false
+    );
+    auto makeInt = module_->getOrInsertFunction("ts_value_make_int", makeIntFt);
+
+    // ts_value_make_double(double) -> TsValue*
+    auto makeDoubleFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getDoubleTy() },
+        false
+    );
+    auto makeDouble = module_->getOrInsertFunction("ts_value_make_double", makeDoubleFt);
+
+    // ts_value_make_object(void*) -> TsValue*
+    auto makeObjectFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto makeObject = module_->getOrInsertFunction("ts_value_make_object", makeObjectFt);
+
+    // Create the closure: ts_closure_create(funcPtr, numCaptures)
+    llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
+    llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { fn, numCapturesVal });
+
+    // Initialize each capture cell with its value
+    for (size_t i = 0; i < numCaptures; ++i) {
+        llvm::Value* capturedValue = getOperandValue(inst->operands[i + 1]);
+        llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), i);
+
+        // Get the type of the captured value to box it properly
+        auto* hirValue = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[i + 1]);
+        llvm::Value* boxedValue = nullptr;
+
+        if (hirValue && (*hirValue)->type) {
+            HIRTypeKind kind = (*hirValue)->type->kind;
+            if (kind == HIRTypeKind::Int64) {
+                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
+            } else if (kind == HIRTypeKind::Float64) {
+                boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
+            } else {
+                // For pointers/objects, box as object
+                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+            }
+        } else {
+            // Default: box as object (ptr)
+            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+        }
+
+        // Initialize the capture: ts_closure_init_capture(closure, index, boxedValue)
+        builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { closure, indexVal, boxedValue });
+    }
+
+    if (inst->result) {
+        setValue(inst->result, closure);
     }
 }
 
@@ -1543,30 +1713,103 @@ void HIRToLLVM::lowerLoadCapture(HIRInstruction* inst) {
     // LoadCapture loads a captured variable from the closure environment
     // Operand 0: variable name
     //
-    // TODO: Full closure implementation would:
-    // 1. Get closure environment pointer (passed as hidden parameter)
-    // 2. Compute offset for this capture in the captures array
-    // 3. Load the value from the environment
-    //
-    // For now, log a warning and return a default value of the correct type
+    // The closure is passed as a hidden first parameter (closureParam_)
+    // We look up the index of the variable in currentHIRFunction_->captures
+    // Then get the cell at that index and extract the value
+
     std::string varName = getOperandString(inst->operands[0]);
-    SPDLOG_WARN("LoadCapture: closure captures not fully implemented - variable '{}'", varName);
+
+    if (!closureParam_) {
+        SPDLOG_ERROR("LoadCapture '{}': no closure parameter available", varName);
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Find the index of this capture in the function's captures list
+    int64_t captureIndex = -1;
+    for (size_t i = 0; i < currentHIRFunction_->captures.size(); ++i) {
+        if (currentHIRFunction_->captures[i].first == varName) {
+            captureIndex = static_cast<int64_t>(i);
+            break;
+        }
+    }
+
+    if (captureIndex < 0) {
+        SPDLOG_ERROR("LoadCapture: variable '{}' not found in captures list", varName);
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Declare runtime functions
+    // ts_closure_get_cell(TsClosure* closure, int64_t index) -> TsCell*
+    auto getCellFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
+
+    // ts_cell_get(TsCell* cell) -> TsValue*
+    auto cellGetFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto cellGet = module_->getOrInsertFunction("ts_cell_get", cellGetFt);
+
+    // ts_value_get_int(TsValue*) -> int64_t
+    auto getIntFt = llvm::FunctionType::get(
+        builder_->getInt64Ty(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getInt = module_->getOrInsertFunction("ts_value_get_int", getIntFt);
+
+    // ts_value_get_double(TsValue*) -> double
+    auto getDoubleFt = llvm::FunctionType::get(
+        builder_->getDoubleTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getDouble = module_->getOrInsertFunction("ts_value_get_double", getDoubleFt);
+
+    // ts_value_get_object(TsValue*) -> void*
+    auto getObjectFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getObject = module_->getOrInsertFunction("ts_value_get_object", getObjectFt);
+
+    // Get the cell: cell = ts_closure_get_cell(closure, index)
+    llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
+    llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closureParam_, indexVal });
+
+    // Get the boxed value from the cell: boxedValue = ts_cell_get(cell)
+    llvm::Value* boxedValue = builder_->CreateCall(cellGetFt, cellGet.getCallee(), { cell });
+
+    // Unbox based on the expected type
+    llvm::Value* result = nullptr;
+    if (inst->result && inst->result->type) {
+        HIRTypeKind kind = inst->result->type->kind;
+        if (kind == HIRTypeKind::Int64) {
+            result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Float64) {
+            result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else {
+            // For pointers/objects, use ts_value_get_object
+            result = builder_->CreateCall(getObjectFt, getObject.getCallee(), { boxedValue });
+        }
+    } else {
+        // Default: return the boxed value as-is
+        result = boxedValue;
+    }
 
     if (inst->result) {
-        // Return a default value based on the result type
-        llvm::Type* resultType = getLLVMType(inst->result->type);
-        llvm::Value* result;
-
-        if (resultType == builder_->getInt64Ty()) {
-            result = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
-        } else if (resultType == builder_->getDoubleTy()) {
-            result = llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
-        } else if (resultType == builder_->getInt1Ty()) {
-            result = llvm::ConstantInt::get(builder_->getInt1Ty(), 0);
-        } else {
-            // For pointer types (objects, strings, etc), return null
-            result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-        }
         setValue(inst->result, result);
     }
 }
@@ -1576,14 +1819,98 @@ void HIRToLLVM::lowerStoreCapture(HIRInstruction* inst) {
     // Operand 0: variable name
     // Operand 1: value to store
     //
-    // TODO: Full closure implementation would:
-    // 1. Get closure environment pointer (passed as hidden parameter)
-    // 2. Compute offset for this capture in the captures array
-    // 3. Store the value to the environment
-    //
-    // For now, log a warning
+    // The closure is passed as a hidden first parameter (closureParam_)
+    // We look up the index of the variable in currentHIRFunction_->captures
+    // Then get the cell at that index and store the value
+
     std::string varName = getOperandString(inst->operands[0]);
-    SPDLOG_WARN("StoreCapture: closure captures not fully implemented - variable '{}'", varName);
+    llvm::Value* valueToStore = getOperandValue(inst->operands[1]);
+
+    if (!closureParam_) {
+        SPDLOG_ERROR("StoreCapture '{}': no closure parameter available", varName);
+        return;
+    }
+
+    // Find the index of this capture in the function's captures list
+    int64_t captureIndex = -1;
+    std::shared_ptr<HIRType> captureType = nullptr;
+    for (size_t i = 0; i < currentHIRFunction_->captures.size(); ++i) {
+        if (currentHIRFunction_->captures[i].first == varName) {
+            captureIndex = static_cast<int64_t>(i);
+            captureType = currentHIRFunction_->captures[i].second;
+            break;
+        }
+    }
+
+    if (captureIndex < 0) {
+        SPDLOG_ERROR("StoreCapture: variable '{}' not found in captures list", varName);
+        return;
+    }
+
+    // Declare runtime functions
+    // ts_closure_get_cell(TsClosure* closure, int64_t index) -> TsCell*
+    auto getCellFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
+
+    // ts_cell_set(TsCell* cell, TsValue* value) -> void
+    auto cellSetFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy(), builder_->getPtrTy() },
+        false
+    );
+    auto cellSet = module_->getOrInsertFunction("ts_cell_set", cellSetFt);
+
+    // ts_value_make_int(int64_t) -> TsValue*
+    auto makeIntFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getInt64Ty() },
+        false
+    );
+    auto makeInt = module_->getOrInsertFunction("ts_value_make_int", makeIntFt);
+
+    // ts_value_make_double(double) -> TsValue*
+    auto makeDoubleFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getDoubleTy() },
+        false
+    );
+    auto makeDouble = module_->getOrInsertFunction("ts_value_make_double", makeDoubleFt);
+
+    // ts_value_make_object(void*) -> TsValue*
+    auto makeObjectFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto makeObject = module_->getOrInsertFunction("ts_value_make_object", makeObjectFt);
+
+    // Get the cell: cell = ts_closure_get_cell(closure, index)
+    llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
+    llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closureParam_, indexVal });
+
+    // Box the value based on its type
+    llvm::Value* boxedValue = nullptr;
+    if (captureType) {
+        HIRTypeKind kind = captureType->kind;
+        if (kind == HIRTypeKind::Int64) {
+            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { valueToStore });
+        } else if (kind == HIRTypeKind::Float64) {
+            boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { valueToStore });
+        } else {
+            // For pointers/objects, box as object
+            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+        }
+    } else {
+        // Default: box as object (ptr)
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+    }
+
+    // Store the value in the cell: ts_cell_set(cell, boxedValue)
+    builder_->CreateCall(cellSetFt, cellSet.getCallee(), { cell, boxedValue });
 }
 
 //==============================================================================
@@ -1634,6 +1961,28 @@ void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    // Get the function's declared return type
+    llvm::Type* expectedRetType = currentFunction_->getReturnType();
+
+    // Convert value to expected return type if needed
+    if (val->getType() != expectedRetType) {
+        if (val->getType()->isIntegerTy() && expectedRetType->isDoubleTy()) {
+            // Int to Double
+            val = builder_->CreateSIToFP(val, expectedRetType);
+        } else if (val->getType()->isDoubleTy() && expectedRetType->isIntegerTy()) {
+            // Double to Int
+            val = builder_->CreateFPToSI(val, expectedRetType);
+        } else if (val->getType()->isPointerTy() && expectedRetType->isIntegerTy()) {
+            // Ptr to Int (for Any/Object → Int conversion)
+            val = builder_->CreatePtrToInt(val, expectedRetType);
+        } else if (val->getType()->isIntegerTy() && expectedRetType->isPointerTy()) {
+            // Int to Ptr (for Int → Any/Object conversion)
+            val = builder_->CreateIntToPtr(val, expectedRetType);
+        }
+        // If types still don't match after conversion attempts, LLVM will error
+    }
+
     builder_->CreateRet(val);
 }
 
