@@ -81,6 +81,9 @@ ir_output.txt
 !tests/**/*.json
 !examples/**/*.json
 
+# Re-exclude .ast.json files (generated, should never be committed)
+**/*.ast.json
+
 # VS Code
 .vscode/
 *.code-workspace
