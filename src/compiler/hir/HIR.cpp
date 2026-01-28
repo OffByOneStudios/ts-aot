@@ -97,6 +97,9 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::ModF64: return "mod.f64";
         case HIROpcode::NegF64: return "neg.f64";
 
+        // String operations
+        case HIROpcode::StringConcat: return "string.concat";
+
         // Checked arithmetic
         case HIROpcode::AddI64Checked: return "add.i64.checked";
         case HIROpcode::SubI64Checked: return "sub.i64.checked";

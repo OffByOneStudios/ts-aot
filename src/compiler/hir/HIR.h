@@ -129,6 +129,9 @@ enum class HIROpcode {
     ModF64,             // %r = mod.f64 %a, %b
     NegF64,             // %r = neg.f64 %a
 
+    // String operations
+    StringConcat,       // %r = string.concat %a, %b
+
     // Checked arithmetic (overflow → branch)
     AddI64Checked,      // %r = add.i64.checked %a, %b, overflow: %block
     SubI64Checked,      // %r = sub.i64.checked %a, %b, overflow: %block

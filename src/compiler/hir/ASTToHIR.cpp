@@ -186,10 +186,9 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
         case ts::TypeKind::Boolean:
             return HIRType::makeBool();
         case ts::TypeKind::Int:
-        case ts::TypeKind::Double:
-            // TypeScript 'number' (Int or Double) is unified to Int64 for now
-            // This simplifies the HIR prototype - all number operations are i64
             return HIRType::makeInt64();
+        case ts::TypeKind::Double:
+            return HIRType::makeFloat64();
         case ts::TypeKind::String:
             return HIRType::makeString();
         case ts::TypeKind::Any:
@@ -341,7 +340,7 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         initValue = builder_.createConstUndefined();
     }
 
-    builder_.createStore(initValue, allocaPtr);
+    builder_.createStore(initValue, allocaPtr, varType);
 
     // Register as alloca-based variable
     defineVariableAlloca(varName, allocaPtr, varType);
@@ -700,28 +699,52 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
     const std::string& op = node->op;
 
+    // Helper to check if an operand is a string type
+    auto isString = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
+        if (val && val->type && val->type->kind == HIRTypeKind::String) return true;
+        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::String) return true;
+        return false;
+    };
+
+    // Helper to check if an operand is Float64 type
+    auto isFloat64 = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
+        if (val && val->type && val->type->kind == HIRTypeKind::Float64) return true;
+        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::Double) return true;
+        return false;
+    };
+
+    // Determine if we should use Float64 operations (if either operand is Float64)
+    bool useFloat = isFloat64(lhs, node->left.get()) || isFloat64(rhs, node->right.get());
+
     if (op == "+") {
-        lastValue_ = builder_.createAddI64(lhs, rhs);
+        // Check if either operand is a string - if so, use string concatenation
+        if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
+            lastValue_ = builder_.createStringConcat(lhs, rhs);
+        } else if (useFloat) {
+            lastValue_ = builder_.createAddF64(lhs, rhs);
+        } else {
+            lastValue_ = builder_.createAddI64(lhs, rhs);
+        }
     } else if (op == "-") {
-        lastValue_ = builder_.createSubI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createSubF64(lhs, rhs) : builder_.createSubI64(lhs, rhs);
     } else if (op == "*") {
-        lastValue_ = builder_.createMulI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createMulF64(lhs, rhs) : builder_.createMulI64(lhs, rhs);
     } else if (op == "/") {
-        lastValue_ = builder_.createDivI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createDivF64(lhs, rhs) : builder_.createDivI64(lhs, rhs);
     } else if (op == "%") {
-        lastValue_ = builder_.createModI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createModF64(lhs, rhs) : builder_.createModI64(lhs, rhs);
     } else if (op == "<") {
-        lastValue_ = builder_.createCmpLtI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpLtF64(lhs, rhs) : builder_.createCmpLtI64(lhs, rhs);
     } else if (op == "<=") {
-        lastValue_ = builder_.createCmpLeI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpLeF64(lhs, rhs) : builder_.createCmpLeI64(lhs, rhs);
     } else if (op == ">") {
-        lastValue_ = builder_.createCmpGtI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpGtF64(lhs, rhs) : builder_.createCmpGtI64(lhs, rhs);
     } else if (op == ">=") {
-        lastValue_ = builder_.createCmpGeI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
     } else if (op == "==" || op == "===") {
-        lastValue_ = builder_.createCmpEqI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
     } else if (op == "!=" || op == "!==") {
-        lastValue_ = builder_.createCmpNeI64(lhs, rhs);
+        lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
     } else if (op == "&&") {
         lastValue_ = builder_.createLogicalAnd(lhs, rhs);
     } else if (op == "||") {
@@ -760,13 +783,13 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Look up variable info to see if it's an alloca
         auto* info = lookupVariableInfo(ident->name);
         if (info && info->isAlloca) {
-            // Emit store to the alloca
-            builder_.createStore(rhs, info->value);
+            // Emit store to the alloca, with type info for coercion
+            builder_.createStore(rhs, info->value, info->elemType);
         } else if (info) {
             // Direct value - promote to alloca for mutability
             // Create new alloca and store
             auto allocaPtr = builder_.createAlloca(rhs->type, ident->name);
-            builder_.createStore(rhs, allocaPtr);
+            builder_.createStore(rhs, allocaPtr, rhs->type);
             // Update variable info to be alloca-based
             info->value = allocaPtr;
             info->elemType = rhs->type;
@@ -1110,7 +1133,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         if (ident) {
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
-                builder_.createStore(result, info->value);
+                builder_.createStore(result, info->value, info->elemType);
             } else {
                 defineVariable(ident->name, result);
             }
@@ -1141,7 +1164,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         if (ident) {
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
-                builder_.createStore(result, info->value);
+                builder_.createStore(result, info->value, info->elemType);
             } else {
                 defineVariable(ident->name, result);
             }
