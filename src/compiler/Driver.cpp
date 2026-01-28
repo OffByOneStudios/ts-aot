@@ -10,6 +10,7 @@
 #include "hir/HIRToLLVM.h"
 #include "hir/passes/PassManager.h"
 #include "hir/passes/TypePropagationPass.h"
+#include "hir/passes/ConstantFoldingPass.h"
 #include "hir/passes/MethodResolutionPass.h"
 #include "hir/passes/BuiltinResolutionPass.h"
 #include <fmt/core.h>
@@ -152,6 +153,7 @@ int Driver::run() {
 
             hir::PassManager passManager;
             passManager.addPass(std::make_unique<hir::TypePropagationPass>());
+            passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
             passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
             passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
 

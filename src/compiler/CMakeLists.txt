@@ -155,6 +155,7 @@ add_library(tscompiler_lib STATIC
     hir/passes/MethodResolutionPass.cpp
     hir/passes/BuiltinResolutionPass.cpp
     hir/passes/TypePropagationPass.cpp
+    hir/passes/ConstantFoldingPass.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 
