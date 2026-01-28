@@ -90,8 +90,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Switch statements
 - [x] Break/continue
 - [x] Return statements
-- [ ] Try/catch/finally (stub exists)
-- [ ] Throw statements (stub exists)
+- [x] Try/catch/finally (setjmp/longjmp based)
+- [x] Throw statements
 - [ ] Labeled statements
 - [ ] With statements (deprecated, low priority)
 - [ ] Debugger statements
@@ -258,7 +258,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Return, ReturnVoid
 - [x] Unreachable
 
-### 4.13 SSA
+### 4.13 Exception Handling
+- [x] SetupTry (push handler + setjmp)
+- [x] PopHandler
+- [x] Throw (set exception + longjmp)
+- [x] GetException
+- [x] ClearException
+
+### 4.14 SSA
 - [x] Phi
 - [x] Select
 - [x] Copy
@@ -349,13 +356,21 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 75% |
-| Phase 3: ASTToHIR Coverage | 80% |
-| Phase 4: HIRToLLVM Coverage | 95% |
+| Phase 3: ASTToHIR Coverage | 85% |
+| Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 0% |
 
 **Overall: ~80% Complete**
 
 ### Recent Progress (2026-01-28)
+- **Exception handling fully implemented:**
+  - Try/catch/finally statements with all combinations
+  - Throw statements (direct and from function calls)
+  - setjmp/longjmp based implementation at runtime
+  - SetupTry, PopHandler, Throw, GetException, ClearException HIR opcodes
+  - Try-finally without catch (exception stored, finally runs, then rethrow)
+  - Nested try statements with unique block naming
+  - Unreachable code detection after throw
 - **Classes fully implemented:**
   - Class declarations with constructors
   - Instance methods and properties (via shape-based object layout)
@@ -370,14 +385,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - TsClosure runtime struct with heap-allocated capture cells (TsCell)
 - MakeClosure, LoadCapture, StoreCapture HIR opcodes fully lowered to LLVM
 - CallIndirect passes closure context correctly
-- All closure and class tests passing
+- All closure, class, and exception tests passing
 
 ---
 
 ## Next Steps (Priority Order)
 
-1. **Try/catch/finally** - Required for error handling
-2. **Destructuring** - Common ES6+ pattern
-3. **TypePropagationPass** - Enables better downstream optimization
-4. **Async/await** - Required for async I/O patterns
-5. **Getters/setters** - OOP pattern for computed properties
+1. **Destructuring** - Common ES6+ pattern
+2. **TypePropagationPass** - Enables better downstream optimization
+3. **Async/await** - Required for async I/O patterns
+4. **Getters/setters** - OOP pattern for computed properties
+5. **Private fields (#field)** - Modern class encapsulation

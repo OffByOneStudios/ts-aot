@@ -92,10 +92,16 @@ struct HIRValue {
     std::shared_ptr<HIRType> type;  // Type is ALWAYS present
     std::string name;               // Optional debug name
 
+    // For global variables
+    bool isGlobal = false;
+    std::string globalName;
+    std::shared_ptr<HIRType> globalType;
+
     HIRValue(uint32_t i, std::shared_ptr<HIRType> t, const std::string& n = "")
         : id(i), type(t), name(n) {}
 
     std::string toString() const {
+        if (isGlobal && !globalName.empty()) return "@" + globalName;
         if (!name.empty()) return "%" + name;
         return "%" + std::to_string(id);
     }
@@ -255,6 +261,13 @@ enum class HIROpcode {
     // Miscellaneous
     Select,             // %r = select %cond, %true_val, %false_val
     Copy,               // %r = copy %val (for debugging/clarity)
+
+    // Exception handling
+    SetupTry,           // %r = setup_try %catchBlock (push handler, call setjmp, returns bool: true=exception, false=normal)
+    Throw,              // throw %exception (call ts_throw, does not return)
+    GetException,       // %r = get_exception (get current exception from ts_get_exception)
+    ClearException,     // clear_exception (call ts_set_exception(nullptr))
+    PopHandler,         // pop_handler (call ts_pop_exception_handler)
 };
 
 // Instruction operand
@@ -291,7 +304,8 @@ struct HIRInstruction {
                opcode == HIROpcode::Switch ||
                opcode == HIROpcode::Return ||
                opcode == HIROpcode::ReturnVoid ||
-               opcode == HIROpcode::Unreachable;
+               opcode == HIROpcode::Unreachable ||
+               opcode == HIROpcode::Throw;
     }
 
     std::string toString() const;

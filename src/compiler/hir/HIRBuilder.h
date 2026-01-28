@@ -52,6 +52,21 @@ public:
         return module_->createShape(className);
     }
 
+    // Create a global variable and return a value representing its address
+    std::shared_ptr<HIRValue> createGlobal(const std::string& name, std::shared_ptr<HIRType> type) {
+        module_->globals[name] = type;
+        // Create a value that represents the global's address (pointer to its type)
+        auto globalRef = std::make_shared<HIRValue>(
+            nextGlobalId_++,
+            HIRType::makePtr(),  // Global address is a pointer
+            "@" + name
+        );
+        globalRef->isGlobal = true;
+        globalRef->globalName = name;
+        globalRef->globalType = type;
+        return globalRef;
+    }
+
     //==========================================================================
     // Insert point management
     //==========================================================================
@@ -999,10 +1014,55 @@ public:
         return result;
     }
 
+    //==========================================================================
+    // Exception handling
+    //==========================================================================
+
+    // SetupTry: Push exception handler and call setjmp
+    // Returns a bool value: true if returning from exception (catch path), false if normal entry
+    // The catchBlock parameter indicates where to branch on exception
+    std::shared_ptr<HIRValue> createSetupTry(HIRBlock* catchBlock) {
+        auto result = createValue(HIRType::makeBool());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::SetupTry);
+        inst->result = result;
+        inst->operands.push_back(catchBlock);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Throw: Throws an exception (does not return - is a terminator)
+    void createThrow(std::shared_ptr<HIRValue> exception) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::Throw);
+        inst->operands.push_back(exception);
+        emit(std::move(inst));
+    }
+
+    // GetException: Get the current exception value
+    std::shared_ptr<HIRValue> createGetException() {
+        auto result = createValue(HIRType::makeAny());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::GetException);
+        inst->result = result;
+        emit(std::move(inst));
+        return result;
+    }
+
+    // ClearException: Clear the current exception (set to nullptr)
+    void createClearException() {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::ClearException);
+        emit(std::move(inst));
+    }
+
+    // PopHandler: Pop the current exception handler
+    void createPopHandler() {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::PopHandler);
+        emit(std::move(inst));
+    }
+
 private:
     HIRModule* module_;
     HIRFunction* currentFunction_ = nullptr;
     HIRBlock* currentBlock_ = nullptr;
+    uint32_t nextGlobalId_ = 0;
 
     void emit(std::unique_ptr<HIRInstruction> inst) {
         if (currentBlock_) {

@@ -418,6 +418,13 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::Select: lowerSelect(inst); break;
         case HIROpcode::Copy:   lowerCopy(inst); break;
 
+        // Exception handling
+        case HIROpcode::SetupTry:       lowerSetupTry(inst); break;
+        case HIROpcode::Throw:          lowerThrow(inst); break;
+        case HIROpcode::GetException:   lowerGetException(inst); break;
+        case HIROpcode::ClearException: lowerClearException(inst); break;
+        case HIROpcode::PopHandler:     lowerPopHandler(inst); break;
+
         // Checked arithmetic (not yet implemented)
         case HIROpcode::AddI64Checked:
         case HIROpcode::SubI64Checked:
@@ -2202,6 +2209,77 @@ void HIRToLLVM::lowerSelect(HIRInstruction* inst) {
 void HIRToLLVM::lowerCopy(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
     setValue(inst->result, val);
+}
+
+//==============================================================================
+// Exception Handling
+//==============================================================================
+
+void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
+    // SetupTry: push exception handler, call setjmp, return result
+    // Returns bool: true = exception path, false = normal entry
+
+    // Get the catch block target
+    HIRBlock* catchBlock = std::get<HIRBlock*>(inst->operands[0]);
+
+    // Call ts_push_exception_handler() - returns jmp_buf pointer
+    auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
+        builder_->getPtrTy(), {});
+    llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
+
+    // Call _setjmp(jmp_buf, frame_ptr) - Windows signature
+    // Returns 0 on normal entry, non-zero when returning from longjmp
+    auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+        builder_->getInt32Ty(),
+        {builder_->getPtrTy(), builder_->getPtrTy()});
+    llvm::Value* framePtr = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf, framePtr});
+
+    // Convert result to bool: true if non-zero (exception path)
+    llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+
+    setValue(inst->result, isException);
+}
+
+void HIRToLLVM::lowerThrow(HIRInstruction* inst) {
+    // Throw: call ts_throw with the exception value
+    // ts_throw does not return (calls longjmp)
+
+    llvm::Value* exception = getOperandValue(inst->operands[0]);
+
+    auto throwFn = getOrDeclareRuntimeFunction("ts_throw",
+        builder_->getVoidTy(), {builder_->getPtrTy()});
+    builder_->CreateCall(throwFn, {exception});
+
+    // ts_throw doesn't return, mark as unreachable
+    builder_->CreateUnreachable();
+}
+
+void HIRToLLVM::lowerGetException(HIRInstruction* inst) {
+    // GetException: call ts_get_exception to get current exception value
+
+    auto getFn = getOrDeclareRuntimeFunction("ts_get_exception",
+        builder_->getPtrTy(), {});
+    llvm::Value* exception = builder_->CreateCall(getFn, {});
+
+    setValue(inst->result, exception);
+}
+
+void HIRToLLVM::lowerClearException(HIRInstruction* inst) {
+    // ClearException: call ts_set_exception(nullptr)
+
+    auto setFn = getOrDeclareRuntimeFunction("ts_set_exception",
+        builder_->getVoidTy(), {builder_->getPtrTy()});
+    builder_->CreateCall(setFn, {llvm::ConstantPointerNull::get(builder_->getPtrTy())});
+}
+
+void HIRToLLVM::lowerPopHandler(HIRInstruction* inst) {
+    // PopHandler: call ts_pop_exception_handler
+
+    auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+        builder_->getVoidTy(), {});
+    builder_->CreateCall(popFn, {});
 }
 
 //==============================================================================
