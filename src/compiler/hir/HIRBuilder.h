@@ -656,8 +656,10 @@ public:
     // Arrays
     //==========================================================================
 
-    std::shared_ptr<HIRValue> createNewArrayBoxed(std::shared_ptr<HIRValue> len) {
-        auto result = createValue(HIRType::makeArray(HIRType::makeAny(), false));
+    std::shared_ptr<HIRValue> createNewArrayBoxed(std::shared_ptr<HIRValue> len,
+                                                    std::shared_ptr<HIRType> elemType = nullptr) {
+        if (!elemType) elemType = HIRType::makeAny();
+        auto result = createValue(HIRType::makeArray(elemType, false));
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::NewArrayBoxed);
         inst->result = result;
         inst->operands.push_back(len);
@@ -675,8 +677,17 @@ public:
         return result;
     }
 
-    std::shared_ptr<HIRValue> createGetElem(std::shared_ptr<HIRValue> arr, std::shared_ptr<HIRValue> idx) {
-        auto result = createValue(HIRType::makeAny());
+    std::shared_ptr<HIRValue> createGetElem(std::shared_ptr<HIRValue> arr, std::shared_ptr<HIRValue> idx,
+                                             std::shared_ptr<HIRType> elemType = nullptr) {
+        // If elemType not specified, try to infer from array type
+        if (!elemType) {
+            if (arr->type && arr->type->kind == HIRTypeKind::Array && arr->type->elementType) {
+                elemType = arr->type->elementType;
+            } else {
+                elemType = HIRType::makeAny();
+            }
+        }
+        auto result = createValue(elemType);
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::GetElem);
         inst->result = result;
         inst->operands.push_back(arr);
