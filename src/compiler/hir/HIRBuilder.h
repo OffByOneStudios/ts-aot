@@ -823,6 +823,24 @@ public:
         emit(std::move(inst));
     }
 
+    // Indirect call through function pointer (for closures and callbacks)
+    std::shared_ptr<HIRValue> createCallIndirect(std::shared_ptr<HIRValue> funcPtr,
+                                                  const std::vector<std::shared_ptr<HIRValue>>& args,
+                                                  std::shared_ptr<HIRType> returnType) {
+        std::shared_ptr<HIRValue> result = nullptr;
+        if (returnType->kind != HIRTypeKind::Void) {
+            result = createValue(returnType);
+        }
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::CallIndirect);
+        inst->result = result;
+        inst->operands.push_back(funcPtr);
+        for (auto& arg : args) {
+            inst->operands.push_back(arg);
+        }
+        emit(std::move(inst));
+        return result;
+    }
+
     //==========================================================================
     // Globals
     //==========================================================================
@@ -847,6 +865,45 @@ public:
         inst->operands.push_back(name);
         emit(std::move(inst));
         return result;
+    }
+
+    //==========================================================================
+    // Closures
+    //==========================================================================
+
+    // Create a closure object from a function and captured values
+    // Returns a closure object pointer that can be called indirectly
+    std::shared_ptr<HIRValue> createMakeClosure(const std::string& funcName,
+                                                 const std::vector<std::shared_ptr<HIRValue>>& captures) {
+        auto result = createValue(HIRType::makePtr());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::MakeClosure);
+        inst->result = result;
+        inst->operands.push_back(funcName);
+        for (auto& cap : captures) {
+            inst->operands.push_back(cap);
+        }
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Load a captured variable from the closure environment
+    // The variable name must match one of the function's captures
+    std::shared_ptr<HIRValue> createLoadCapture(const std::string& varName,
+                                                  std::shared_ptr<HIRType> type) {
+        auto result = createValue(type);
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadCapture);
+        inst->result = result;
+        inst->operands.push_back(varName);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Store to a captured variable in the closure environment
+    void createStoreCapture(const std::string& varName, std::shared_ptr<HIRValue> val) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::StoreCapture);
+        inst->operands.push_back(varName);
+        inst->operands.push_back(val);
+        emit(std::move(inst));
     }
 
     //==========================================================================

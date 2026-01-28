@@ -214,6 +214,11 @@ private:
     void lowerLoadGlobal(HIRInstruction* inst);
     void lowerLoadFunction(HIRInstruction* inst);
 
+    // Closures
+    void lowerMakeClosure(HIRInstruction* inst);
+    void lowerLoadCapture(HIRInstruction* inst);
+    void lowerStoreCapture(HIRInstruction* inst);
+
     // Control flow
     void lowerBranch(HIRInstruction* inst);
     void lowerCondBranch(HIRInstruction* inst);

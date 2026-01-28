@@ -53,8 +53,22 @@ private:
     };
     struct Scope {
         std::map<std::string, VariableInfo> variables;
+        bool isFunctionBoundary = false;  // True if this scope starts a new function
+        HIRFunction* owningFunction = nullptr;  // The function this scope belongs to
     };
     std::vector<Scope> scopes_;
+
+    // Track captured variables for the current nested function being lowered
+    // Maps variable name to (outer scope index, type) for variables that need capturing
+    struct CaptureInfo {
+        std::string name;
+        std::shared_ptr<HIRType> type;
+        size_t outerScopeIndex;  // Which scope the variable was found in
+    };
+    std::vector<CaptureInfo> pendingCaptures_;
+
+    // The scope index where the current nested function begins (for capture detection)
+    size_t currentFunctionScopeStart_ = 0;
 
     // Control flow targets for break/continue
     struct LoopContext {
@@ -184,14 +198,33 @@ private:
     HIRBlock* createBlock(const std::string& hint = "bb");
     int blockCounter_ = 0;
 
+    // Counter for generating unique arrow function names
+    int arrowFuncCounter_ = 0;
+
+    // Counter for generating unique function expression names
+    int funcExprCounter_ = 0;
+
     // Scope management
     void pushScope();
+    void pushFunctionScope(HIRFunction* func);  // Push scope that marks function boundary
     void popScope();
     void defineVariable(const std::string& name, std::shared_ptr<HIRValue> value);
     void defineVariableAlloca(const std::string& name, std::shared_ptr<HIRValue> allocaPtr,
                                std::shared_ptr<HIRType> elemType);
     VariableInfo* lookupVariableInfo(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
+
+    // Closure capture helpers
+    // Looks up a variable and determines if it's captured from an outer function
+    // Returns true if the variable crosses a function boundary
+    bool isCapturedVariable(const std::string& name, size_t* outScopeIndex = nullptr);
+
+    // Register a captured variable for the current function being lowered
+    void registerCapture(const std::string& name, std::shared_ptr<HIRType> type, size_t scopeIndex);
+
+    // Get all captures for the current nested function
+    const std::vector<CaptureInfo>& getPendingCaptures() const { return pendingCaptures_; }
+    void clearPendingCaptures() { pendingCaptures_.clear(); }
 
     //==========================================================================
     // Control Flow Helpers

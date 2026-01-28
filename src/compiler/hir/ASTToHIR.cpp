@@ -47,7 +47,17 @@ HIRBlock* ASTToHIR::createBlock(const std::string& hint) {
 }
 
 void ASTToHIR::pushScope() {
-    scopes_.push_back(Scope{});
+    Scope scope;
+    scope.isFunctionBoundary = false;
+    scope.owningFunction = currentFunction_;
+    scopes_.push_back(scope);
+}
+
+void ASTToHIR::pushFunctionScope(HIRFunction* func) {
+    Scope scope;
+    scope.isFunctionBoundary = true;
+    scope.owningFunction = func;
+    scopes_.push_back(scope);
 }
 
 void ASTToHIR::popScope() {
@@ -98,6 +108,46 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
         return builder_.createLoad(info->elemType, info->value);
     }
     return info->value;
+}
+
+bool ASTToHIR::isCapturedVariable(const std::string& name, size_t* outScopeIndex) {
+    // Search from innermost to outermost scope
+    // Track if we cross a function boundary (excluding the innermost function's own boundary)
+    bool crossedFunctionBoundary = false;
+    size_t scopeIndex = scopes_.size();
+
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it, --scopeIndex) {
+        // Check if we're crossing into a different function's scope BEFORE looking up
+        // Skip the first function boundary (which is the current function)
+        if (it->isFunctionBoundary && it != scopes_.rbegin()) {
+            crossedFunctionBoundary = true;
+        }
+
+        auto found = it->variables.find(name);
+        if (found != it->variables.end()) {
+            // Found the variable - is it from an outer function?
+            if (crossedFunctionBoundary) {
+                if (outScopeIndex) *outScopeIndex = scopeIndex - 1;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    return false;  // Variable not found
+}
+
+void ASTToHIR::registerCapture(const std::string& name, std::shared_ptr<HIRType> type, size_t scopeIndex) {
+    // Check if already registered
+    for (const auto& cap : pendingCaptures_) {
+        if (cap.name == name) return;  // Already captured
+    }
+
+    CaptureInfo info;
+    info.name = name;
+    info.type = type;
+    info.outerScopeIndex = scopeIndex;
+    pendingCaptures_.push_back(info);
 }
 
 //==============================================================================
@@ -269,8 +319,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     builder_.setInsertPoint(entryBlock);
     currentBlock_ = entryBlock;
 
-    // Enter function scope
-    pushScope();
+    // Enter function scope (marks function boundary for capture detection)
+    pushFunctionScope(func.get());
 
     // Register parameters in the scope so they can be looked up
     // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM
@@ -780,6 +830,19 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Handle simple identifier assignment
     auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
     if (ident) {
+        // Check if this is a captured variable from an outer function
+        size_t scopeIndex = 0;
+        if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+            // Store to captured variable
+            auto* info = lookupVariableInfo(ident->name);
+            auto type = info && info->elemType ? info->elemType : rhs->type;
+            registerCapture(ident->name, type, scopeIndex);
+            currentFunction_->hasClosure = true;
+            builder_.createStoreCapture(ident->name, rhs);
+            lastValue_ = rhs;
+            return;
+        }
+
         // Look up variable info to see if it's an alloca
         auto* info = lookupVariableInfo(ident->name);
         if (info && info->isAlloca) {
@@ -841,6 +904,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle direct function call
     auto* ident = dynamic_cast<ast::Identifier*>(node->callee.get());
     if (ident) {
+        // Check if this is a local variable (might be a closure)
+        auto* info = lookupVariableInfo(ident->name);
+        if (info) {
+            // It's a local variable - load the function pointer and call indirectly
+            std::shared_ptr<HIRValue> funcPtr;
+            if (info->isAlloca && info->elemType) {
+                funcPtr = builder_.createLoad(info->elemType, info->value);
+            } else {
+                funcPtr = info->value;
+            }
+            lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
+            return;
+        }
+        // Not a local variable - direct function call
         lastValue_ = builder_.createCall(ident->name, args, HIRType::makeAny());
         return;
     }
@@ -969,7 +1046,24 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 }
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
-    // First check for local/parameter variables
+    // Check if this is a captured variable from an outer function
+    size_t scopeIndex = 0;
+    if (currentFunction_ && isCapturedVariable(node->name, &scopeIndex)) {
+        // Look up the variable info to get its type
+        auto* info = lookupVariableInfo(node->name);
+        if (info) {
+            auto type = info->elemType ? info->elemType : (info->value ? info->value->type : HIRType::makeAny());
+            // Register this capture for the current function
+            registerCapture(node->name, type, scopeIndex);
+            // Mark the function as having closures
+            currentFunction_->hasClosure = true;
+            // Use LoadCapture for captured variables
+            lastValue_ = builder_.createLoadCapture(node->name, type);
+            return;
+        }
+    }
+
+    // Check for local/parameter variables
     lastValue_ = lookupVariable(node->name);
     if (lastValue_) {
         return;
@@ -1069,15 +1163,254 @@ void ASTToHIR::visitDynamicImport(ast::DynamicImport* node) {
 }
 
 void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
-    // TODO: Proper arrow function lowering
-    lastValue_ = createValue(HIRType::makePtr());
-    builder_.createConstNull(lastValue_);
+    // Generate unique function name for the arrow function
+    std::string funcName = "__arrow_fn_" + std::to_string(arrowFuncCounter_++);
+
+    // Create HIR function
+    auto func = std::make_unique<HIRFunction>(funcName);
+    func->isAsync = node->isAsync;
+    func->isGenerator = false;  // Arrow functions can't be generators
+
+    // Handle parameters
+    for (auto& param : node->parameters) {
+        auto paramType = param->type.empty()
+            ? HIRType::makeAny()
+            : convertTypeFromString(param->type);
+
+        std::string paramName;
+        if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramName = ident->name;
+        } else {
+            paramName = "param" + std::to_string(func->params.size());
+        }
+        func->params.push_back({paramName, paramType});
+    }
+
+    // Determine return type from node's inferred type or default to Any
+    std::shared_ptr<HIRType> returnType = HIRType::makeAny();
+    if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
+        if (funcType->returnType) {
+            returnType = convertType(funcType->returnType);
+        }
+    }
+    func->returnType = returnType;
+
+    // Save current context
+    HIRFunction* savedFunc = currentFunction_;
+    HIRBlock* savedBlock = currentBlock_;
+    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+
+    currentFunction_ = func.get();
+    clearPendingCaptures();  // Start fresh for this function
+
+    // Create entry block
+    auto entryBlock = func->createBlock("entry");
+    builder_.setInsertPoint(entryBlock);
+    currentBlock_ = entryBlock;
+
+    // Enter function scope (marks function boundary for capture detection)
+    pushFunctionScope(func.get());
+
+    // Register parameters in the scope
+    for (size_t i = 0; i < func->params.size(); ++i) {
+        const auto& [paramName, paramType] = func->params[i];
+        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+        defineVariable(paramName, paramValue);
+    }
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Lower function body
+    // The body can be either a BlockStatement or an Expression (implicit return)
+    if (auto* blockStmt = dynamic_cast<ast::BlockStatement*>(node->body.get())) {
+        // Block body - lower each statement
+        for (auto& stmt : blockStmt->statements) {
+            lowerStatement(stmt.get());
+        }
+    } else if (auto* exprBody = dynamic_cast<ast::Expression*>(node->body.get())) {
+        // Expression body - implicit return
+        auto retVal = lowerExpression(exprBody);
+        builder_.createReturn(retVal);
+    }
+
+    // Add implicit return void if no terminator
+    if (!hasTerminator()) {
+        builder_.createReturnVoid();
+    }
+
+    // Copy pending captures to the function's captures list
+    for (const auto& cap : pendingCaptures_) {
+        func->captures.push_back({cap.name, cap.type});
+    }
+    bool hasClosure = !pendingCaptures_.empty();
+
+    popScope();
+
+    // Restore saved context
+    currentFunction_ = savedFunc;
+    currentBlock_ = savedBlock;
+    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    if (savedBlock) {
+        builder_.setInsertPoint(savedBlock);
+    }
+
+    // Get the function pointer before adding to module
+    HIRFunction* funcPtr = func.get();
+
+    // Add function to module
+    module_->functions.push_back(std::move(func));
+
+    // Return either a closure or plain function pointer
+    if (hasClosure && savedFunc) {
+        // Create a closure with captured values
+        std::vector<std::shared_ptr<HIRValue>> captureValues;
+        for (const auto& cap : funcPtr->captures) {
+            // Load the captured value from the outer scope
+            auto* info = lookupVariableInfo(cap.first);
+            if (info) {
+                std::shared_ptr<HIRValue> val;
+                if (info->isAlloca && info->elemType) {
+                    val = builder_.createLoad(info->elemType, info->value);
+                } else {
+                    val = info->value;
+                }
+                captureValues.push_back(val);
+            }
+        }
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues);
+    } else {
+        // Plain function pointer
+        lastValue_ = builder_.createLoadFunction(funcName);
+    }
 }
 
 void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
-    // TODO: Proper function expression lowering
-    lastValue_ = createValue(HIRType::makePtr());
-    builder_.createConstNull(lastValue_);
+    // Generate function name: use the node's name if available, otherwise generate one
+    std::string funcName;
+    if (!node->name.empty()) {
+        // Named function expression - use the name but make it unique
+        funcName = "__fn_expr_" + node->name + "_" + std::to_string(funcExprCounter_++);
+    } else {
+        // Anonymous function expression
+        funcName = "__fn_expr_" + std::to_string(funcExprCounter_++);
+    }
+
+    // Create HIR function
+    auto func = std::make_unique<HIRFunction>(funcName);
+    func->isAsync = node->isAsync;
+    func->isGenerator = node->isGenerator;
+
+    // Handle parameters
+    for (auto& param : node->parameters) {
+        auto paramType = param->type.empty()
+            ? HIRType::makeAny()
+            : convertTypeFromString(param->type);
+
+        std::string paramName;
+        if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramName = ident->name;
+        } else {
+            paramName = "param" + std::to_string(func->params.size());
+        }
+        func->params.push_back({paramName, paramType});
+    }
+
+    // Determine return type from explicit return type or inferred type
+    std::shared_ptr<HIRType> returnType = HIRType::makeAny();
+    if (!node->returnType.empty()) {
+        returnType = convertTypeFromString(node->returnType);
+    } else if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
+        if (funcType->returnType) {
+            returnType = convertType(funcType->returnType);
+        }
+    }
+    func->returnType = returnType;
+
+    // Save current context
+    HIRFunction* savedFunc = currentFunction_;
+    HIRBlock* savedBlock = currentBlock_;
+    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+
+    currentFunction_ = func.get();
+    clearPendingCaptures();  // Start fresh for this function
+
+    // Create entry block
+    auto entryBlock = func->createBlock("entry");
+    builder_.setInsertPoint(entryBlock);
+    currentBlock_ = entryBlock;
+
+    // Enter function scope (marks function boundary for capture detection)
+    pushFunctionScope(func.get());
+
+    // Register parameters in the scope
+    for (size_t i = 0; i < func->params.size(); ++i) {
+        const auto& [paramName, paramType] = func->params[i];
+        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+        defineVariable(paramName, paramValue);
+    }
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // If the function is named, make it available in its own scope (for recursion)
+    if (!node->name.empty()) {
+        auto fnPtr = std::make_shared<HIRValue>(func->nextValueId++, HIRType::makePtr(), node->name);
+        defineVariable(node->name, fnPtr);
+    }
+
+    // Lower function body (vector of statements)
+    for (auto& stmt : node->body) {
+        lowerStatement(stmt.get());
+    }
+
+    // Add implicit return undefined if no terminator
+    if (!hasTerminator()) {
+        builder_.createReturnVoid();
+    }
+
+    // Copy pending captures to the function's captures list
+    for (const auto& cap : pendingCaptures_) {
+        func->captures.push_back({cap.name, cap.type});
+    }
+    bool hasClosure = !pendingCaptures_.empty();
+
+    popScope();
+
+    // Restore saved context
+    currentFunction_ = savedFunc;
+    currentBlock_ = savedBlock;
+    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    if (savedBlock) {
+        builder_.setInsertPoint(savedBlock);
+    }
+
+    // Get the function pointer before adding to module
+    HIRFunction* funcPtr = func.get();
+
+    // Add function to module
+    module_->functions.push_back(std::move(func));
+
+    // Return either a closure or plain function pointer
+    if (hasClosure && savedFunc) {
+        // Create a closure with captured values
+        std::vector<std::shared_ptr<HIRValue>> captureValues;
+        for (const auto& cap : funcPtr->captures) {
+            // Load the captured value from the outer scope
+            auto* info = lookupVariableInfo(cap.first);
+            if (info) {
+                std::shared_ptr<HIRValue> val;
+                if (info->isAlloca && info->elemType) {
+                    val = builder_.createLoad(info->elemType, info->value);
+                } else {
+                    val = info->value;
+                }
+                captureValues.push_back(val);
+            }
+        }
+        lastValue_ = builder_.createMakeClosure(funcName, captureValues);
+    } else {
+        // Plain function pointer
+        lastValue_ = builder_.createLoadFunction(funcName);
+    }
 }
 
 void ASTToHIR::visitTemplateExpression(ast::TemplateExpression* node) {
