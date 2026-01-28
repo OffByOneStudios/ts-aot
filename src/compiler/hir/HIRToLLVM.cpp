@@ -1229,6 +1229,13 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
         obj = builder_->CreateCall(boxObjFn, {obj});
     }
 
+    // Box the key - ts_object_get_dynamic expects a boxed TsValue* for the key
+    // The key is a TsString* (from const.string), so box it as a string
+    if (key->getType()->isPointerTy()) {
+        auto boxKeyFn = getTsValueMakeString();
+        key = builder_->CreateCall(boxKeyFn, {key});
+    }
+
     auto fn = getTsObjectGetProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, key});
 
@@ -1550,6 +1557,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         // console functions return undefined
         if (inst->result) {
             setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Handle ts_value_is_undefined - returns bool, not ptr
+    if (funcName == "ts_value_is_undefined") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_undefined", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
         }
         return;
     }

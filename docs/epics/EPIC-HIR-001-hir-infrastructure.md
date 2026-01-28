@@ -149,10 +149,12 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [ ] Static blocks
 
 ### 3.5 Types and Patterns
-- [ ] Destructuring (object patterns)
-- [ ] Destructuring (array patterns)
-- [ ] Binding elements
-- [ ] Default values in destructuring
+- [x] Destructuring (object patterns)
+- [x] Destructuring (array patterns)
+- [x] Binding elements with renaming
+- [x] Default values in destructuring
+- [x] Rest elements (...rest) in array patterns
+- [x] Nested destructuring (objects in arrays, arrays in objects)
 - [x] Type assertions (as)
 - [x] Non-null assertions (!)
 - [ ] Enum declarations (stub exists)
@@ -356,13 +358,24 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 75% |
-| Phase 3: ASTToHIR Coverage | 85% |
+| Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 0% |
 
-**Overall: ~80% Complete**
+**Overall: ~85% Complete**
 
 ### Recent Progress (2026-01-28)
+- **Destructuring patterns fully implemented:**
+  - Object destructuring: `const { a, b } = obj`
+  - Property renaming: `const { a: x, b: y } = obj`
+  - Array destructuring: `const [first, second] = arr`
+  - Holes in array patterns: `const [a, , c] = arr`
+  - Default values for objects: `const { d = 100 } = obj`
+  - Default values for arrays: `const [a, b, c, d = 40] = arr`
+  - Rest elements: `const [first, ...rest] = arr`
+  - Nested destructuring (objects in arrays, arrays in objects)
+  - Uses `ts_value_is_undefined` runtime function for proper default value handling
+  - Boxing with `boxValueIfNeeded` for select instruction type consistency
 - **Exception handling fully implemented:**
   - Try/catch/finally statements with all combinations
   - Throw statements (direct and from function calls)
@@ -385,14 +398,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - TsClosure runtime struct with heap-allocated capture cells (TsCell)
 - MakeClosure, LoadCapture, StoreCapture HIR opcodes fully lowered to LLVM
 - CallIndirect passes closure context correctly
-- All closure, class, and exception tests passing
+- All closure, class, exception, and destructuring tests passing
 
 ---
 
 ## Next Steps (Priority Order)
 
-1. **Destructuring** - Common ES6+ pattern
-2. **TypePropagationPass** - Enables better downstream optimization
-3. **Async/await** - Required for async I/O patterns
-4. **Getters/setters** - OOP pattern for computed properties
-5. **Private fields (#field)** - Modern class encapsulation
+1. **TypePropagationPass** - Enables better downstream optimization
+2. **Async/await** - Required for async I/O patterns
+3. **Getters/setters** - OOP pattern for computed properties
+4. **Private fields (#field)** - Modern class encapsulation
+5. **Spread elements** - Common ES6+ pattern
