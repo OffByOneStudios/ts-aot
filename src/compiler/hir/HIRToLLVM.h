@@ -112,6 +112,9 @@ private:
     void lowerModF64(HIRInstruction* inst);
     void lowerNegF64(HIRInstruction* inst);
 
+    // String operations
+    void lowerStringConcat(HIRInstruction* inst);
+
     // Bitwise operations
     void lowerAndI64(HIRInstruction* inst);
     void lowerOrI64(HIRInstruction* inst);

@@ -328,6 +328,14 @@ public:
     }
 
     //==========================================================================
+    // String operations
+    //==========================================================================
+
+    std::shared_ptr<HIRValue> createStringConcat(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::StringConcat, lhs, rhs, HIRType::makeString());
+    }
+
+    //==========================================================================
     // Checked arithmetic (overflow → branch)
     //==========================================================================
 
@@ -375,8 +383,24 @@ public:
         return createBinaryOp(HIROpcode::CmpEqF64, lhs, rhs, HIRType::makeBool());
     }
 
+    std::shared_ptr<HIRValue> createCmpNeF64(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpNeF64, lhs, rhs, HIRType::makeBool());
+    }
+
     std::shared_ptr<HIRValue> createCmpLtF64(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
         return createBinaryOp(HIROpcode::CmpLtF64, lhs, rhs, HIRType::makeBool());
+    }
+
+    std::shared_ptr<HIRValue> createCmpLeF64(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpLeF64, lhs, rhs, HIRType::makeBool());
+    }
+
+    std::shared_ptr<HIRValue> createCmpGtF64(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpGtF64, lhs, rhs, HIRType::makeBool());
+    }
+
+    std::shared_ptr<HIRValue> createCmpGeF64(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpGeF64, lhs, rhs, HIRType::makeBool());
     }
 
     std::shared_ptr<HIRValue> createCmpEqPtr(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
@@ -570,10 +594,15 @@ public:
         return result;
     }
 
-    void createStore(std::shared_ptr<HIRValue> val, std::shared_ptr<HIRValue> ptr) {
+    void createStore(std::shared_ptr<HIRValue> val, std::shared_ptr<HIRValue> ptr,
+                     std::shared_ptr<HIRType> elementType = nullptr) {
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::Store);
         inst->operands.push_back(val);
         inst->operands.push_back(ptr);
+        // Store element type for type coercion during LLVM lowering
+        if (elementType) {
+            inst->operands.push_back(elementType);
+        }
         emit(std::move(inst));
     }
 

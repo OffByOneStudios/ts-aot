@@ -243,6 +243,9 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::ModF64: lowerModF64(inst); break;
         case HIROpcode::NegF64: lowerNegF64(inst); break;
 
+        // String operations
+        case HIROpcode::StringConcat: lowerStringConcat(inst); break;
+
         // Bitwise
         case HIROpcode::AndI64:  lowerAndI64(inst); break;
         case HIROpcode::OrI64:   lowerOrI64(inst); break;
@@ -504,6 +507,24 @@ void HIRToLLVM::lowerModF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerNegF64(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
     llvm::Value* result = builder_->CreateFNeg(val, "fneg");
+    setValue(inst->result, result);
+}
+
+//==============================================================================
+// String Operations
+//==============================================================================
+
+void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Call ts_string_concat(void* a, void* b) -> void*
+    auto fn = getOrDeclareRuntimeFunction(
+        "ts_string_concat",
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getPtrTy() }
+    );
+    llvm::Value* result = builder_->CreateCall(fn, { lhs, rhs }, "strcat");
     setValue(inst->result, result);
 }
 
@@ -903,6 +924,23 @@ void HIRToLLVM::lowerLoad(HIRInstruction* inst) {
 void HIRToLLVM::lowerStore(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
     llvm::Value* ptr = getOperandValue(inst->operands[1]);
+
+    // Get the expected type from the HIR operand (the type being stored)
+    auto expectedType = getOperandType(inst->operands[2]);  // operands[2] is the element type
+    if (expectedType) {
+        llvm::Type* targetType = getLLVMType(expectedType);
+        llvm::Type* valType = val->getType();
+
+        // Handle type coercion: i64 -> f64
+        if (valType->isIntegerTy(64) && targetType->isDoubleTy()) {
+            val = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        // Handle type coercion: f64 -> i64
+        else if (valType->isDoubleTy() && targetType->isIntegerTy(64)) {
+            val = builder_->CreateFPToSI(val, builder_->getInt64Ty(), "f64_to_i64");
+        }
+    }
+
     builder_->CreateStore(val, ptr);
 }
 
