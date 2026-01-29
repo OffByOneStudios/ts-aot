@@ -257,6 +257,9 @@ private:
     // Counter for generating unique method names (for object literal methods)
     int methodCounter_ = 0;
 
+    // Counter for generating unique class expression names
+    int classExprCounter_ = 0;
+
     // Scope management
     void pushScope();
     void pushFunctionScope(HIRFunction* func);  // Push scope that marks function boundary

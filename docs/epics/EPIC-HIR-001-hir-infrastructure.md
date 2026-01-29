@@ -136,7 +136,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ### 3.4 Classes
 - [x] Class declarations
-- [ ] Class expressions (stub exists)
+- [x] Class expressions
 - [x] Constructor
 - [x] Instance methods
 - [x] Static methods
@@ -376,6 +376,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 **Overall: ~98% Complete**
 
 ### Recent Progress (2026-01-29)
+- **Class expressions:**
+  - Full support for anonymous and named class expressions
+  - Unique name generation for anonymous classes (__class_expr_N)
+  - Proper inheritance handling (extends clause)
+  - Shape creation with inherited properties from base class
+  - Instance/static properties and methods
+  - Constructor processing with super calls
+  - Result value is reference to class constructor function
 - **Generator function support:**
   - Generator functions (function*) with Yield and YieldStar opcodes
   - Yield expressions produce IteratorResult values

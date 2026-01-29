@@ -2914,9 +2914,237 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 }
 
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
-    // TODO: Proper class expression lowering
-    lastValue_ = createValue(HIRType::makePtr());
-    builder_.createConstNull(lastValue_);
+    // Generate a unique class name for anonymous class expressions
+    std::string className = node->name.empty()
+        ? "__class_expr_" + std::to_string(classExprCounter_++)
+        : node->name;
+
+    // Create HIR class
+    auto* hirClass = builder_.createClass(className);
+    if (!hirClass) {
+        lastValue_ = builder_.createConstNull();
+        return;
+    }
+
+    // Track the current class for 'this' handling
+    HIRClass* savedClass = currentClass_;
+    currentClass_ = hirClass;
+
+    // Handle inheritance - look up base class
+    if (!node->baseClass.empty()) {
+        for (auto& cls : module_->classes) {
+            if (cls->name == node->baseClass) {
+                hirClass->baseClass = cls.get();
+                break;
+            }
+        }
+    }
+
+    // Create class shape (layout of instance properties)
+    auto shape = std::make_shared<HIRShape>();
+    shape->className = className;
+
+    // First pass: collect properties for the shape
+    uint32_t propertyOffset = 0;
+
+    // If we have a base class, copy its properties first
+    if (hirClass->baseClass && hirClass->baseClass->shape) {
+        auto baseShape = hirClass->baseClass->shape;
+        shape->parent = baseShape.get();
+        // Copy base class properties
+        for (const auto& [name, offset] : baseShape->propertyOffsets) {
+            shape->propertyOffsets[name] = offset;
+        }
+        for (const auto& [name, type] : baseShape->propertyTypes) {
+            shape->propertyTypes[name] = type;
+        }
+        propertyOffset = baseShape->size;  // Start our properties after base class properties
+    }
+
+    // Add this class's own properties
+    for (auto& memberPtr : node->members) {
+        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+            if (!propDef->isStatic) {
+                auto propType = propDef->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(propDef->type);
+                shape->propertyOffsets[propDef->name] = propertyOffset;
+                shape->propertyTypes[propDef->name] = propType;
+                propertyOffset++;
+            }
+        }
+    }
+    shape->size = propertyOffset;
+    hirClass->shape = shape;
+
+    // Static property pass: create globals for static properties
+    for (auto& memberPtr : node->members) {
+        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+            if (propDef->isStatic) {
+                auto propType = propDef->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(propDef->type);
+                std::string globalName = className + "_static_" + propDef->name;
+
+                // Create global variable for the static property
+                auto globalPtr = builder_.createGlobal(globalName, propType);
+                staticPropertyGlobals_[globalName] = {globalPtr, propType};
+
+                // Defer initialization to user_main
+                if (propDef->initializer) {
+                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get()});
+                }
+            }
+        }
+    }
+
+    // Second pass: create methods
+    for (auto& memberPtr : node->members) {
+        if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            // Generate a unique function name for the method
+            std::string methodFuncName;
+            std::string methodKey = methodDef->name;  // Key used for registration in class
+            if (methodDef->name == "constructor") {
+                methodFuncName = className + "_constructor";
+            } else if (methodDef->isGetter) {
+                // Getter: ClassName___getter_propName
+                methodFuncName = className + "___getter_" + methodDef->name;
+                methodKey = "__getter_" + methodDef->name;
+            } else if (methodDef->isSetter) {
+                // Setter: ClassName___setter_propName
+                methodFuncName = className + "___setter_" + methodDef->name;
+                methodKey = "__setter_" + methodDef->name;
+            } else if (methodDef->isStatic) {
+                methodFuncName = className + "_static_" + methodDef->name;
+            } else {
+                methodFuncName = className + "_" + methodDef->name;
+            }
+
+            // Create HIR function for this method
+            auto func = std::make_unique<HIRFunction>(methodFuncName);
+            func->isAsync = methodDef->isAsync;
+            func->isGenerator = methodDef->isGenerator;
+
+            // For instance methods (and constructor), 'this' is the first parameter
+            if (!methodDef->isStatic) {
+                func->params.push_back({"this", HIRType::makeObject()});
+            }
+
+            // Add explicit parameters
+            for (auto& param : methodDef->parameters) {
+                auto paramType = param->type.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(param->type);
+
+                std::string paramName;
+                if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                    paramName = ident->name;
+                } else {
+                    paramName = "param" + std::to_string(func->params.size());
+                }
+                func->params.push_back({paramName, paramType});
+            }
+
+            // Set return type
+            // Setters always return void, regardless of explicit type annotation
+            if (methodDef->isSetter) {
+                func->returnType = HIRType::makeVoid();
+            } else {
+                func->returnType = methodDef->returnType.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(methodDef->returnType);
+            }
+
+            // Save current function and create entry block
+            HIRFunction* savedFunc = currentFunction_;
+            currentFunction_ = func.get();
+
+            // Create entry block
+            auto entryBlock = func->createBlock("entry");
+            builder_.setInsertPoint(entryBlock);
+            currentBlock_ = entryBlock;
+
+            // Enter function scope
+            pushFunctionScope(func.get());
+
+            // Register parameters in scope
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                const auto& [paramName, paramType] = func->params[i];
+                auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+                defineVariable(paramName, paramValue);
+            }
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // For constructors, initialize instance property default values before user code
+            if (methodDef->name == "constructor") {
+                // Get 'this' pointer (first parameter)
+                auto thisValue = lookupVariable("this");
+                if (thisValue) {
+                    // Iterate over all property definitions and emit initializers
+                    for (auto& member : node->members) {
+                        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                            if (!propDef->isStatic && propDef->initializer) {
+                                // Lower the initializer expression
+                                auto initVal = lowerExpression(propDef->initializer.get());
+
+                                // Store the initialized value to the property
+                                builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Lower method body
+            for (auto& stmt : methodDef->body) {
+                lowerStatement(stmt.get());
+            }
+
+            // Add implicit return if no terminator
+            if (!hasTerminator()) {
+                builder_.createReturnVoid();
+            }
+
+            popScope();
+
+            // Restore saved function
+            currentFunction_ = savedFunc;
+            if (savedFunc) {
+                auto* savedBlock = savedFunc->getEntryBlock();
+                builder_.setInsertPoint(savedBlock);
+                currentBlock_ = savedBlock;
+            }
+
+            // Register method in the class
+            HIRFunction* funcPtr = func.get();
+            if (methodDef->name == "constructor") {
+                hirClass->constructor = funcPtr;
+            } else if (methodDef->isStatic) {
+                hirClass->staticMethods[methodDef->name] = funcPtr;
+            } else {
+                // Use methodKey for registration (includes __getter_/__setter_ prefix for accessors)
+                hirClass->methods[methodKey] = funcPtr;
+                // Add to vtable for virtual dispatch
+                hirClass->vtable.push_back({methodKey, funcPtr});
+            }
+
+            // Add function to module
+            module_->functions.push_back(std::move(func));
+        }
+    }
+
+    // Restore class context
+    currentClass_ = savedClass;
+
+    // The result of a class expression is a reference to the class constructor
+    // We use LoadFunction to get the constructor pointer
+    if (hirClass->constructor) {
+        lastValue_ = builder_.createLoadFunction(hirClass->constructor->name);
+    } else {
+        // If no explicit constructor, load the implicit default constructor
+        // For now, just return a pointer to the class (the runtime will handle allocation)
+        lastValue_ = builder_.createLoadFunction(className + "_constructor");
+    }
 }
 
 void ASTToHIR::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
