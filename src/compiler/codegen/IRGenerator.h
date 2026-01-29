@@ -160,6 +160,7 @@ private:
     void visitSwitchStatement(ast::SwitchStatement* node);
     void visitBreakStatement(ast::BreakStatement* node);
     void visitContinueStatement(ast::ContinueStatement* node);
+    void visitLabeledStatement(ast::LabeledStatement* node);
     void visitThrowStatement(ast::ThrowStatement* node);
     void visitTryStatement(ast::TryStatement* node);
     void visitFunctionDeclaration(ast::FunctionDeclaration* node);

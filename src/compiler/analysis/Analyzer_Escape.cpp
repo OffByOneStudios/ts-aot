@@ -283,6 +283,9 @@ public:
 
     void visitBreakStatement(ast::BreakStatement* node) override {}
     void visitContinueStatement(ast::ContinueStatement* node) override {}
+    void visitLabeledStatement(ast::LabeledStatement* node) override {
+        node->statement->accept(this);
+    }
 
     // JSX support - these nodes don't affect escape analysis
     void visitJsxElement(ast::JsxElement* node) override {}

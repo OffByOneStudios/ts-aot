@@ -1,6 +1,5 @@
 // Test: Labeled statements with break
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR labeled break not properly implemented - break outer doesn't exit outer loop
 
 // HIR-CHECK: define @user_main() -> f64
 

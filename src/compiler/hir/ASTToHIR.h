@@ -77,6 +77,12 @@ private:
     };
     std::stack<LoopContext> loopStack_;
 
+    // Labeled loop targets for labeled break/continue
+    std::map<std::string, LoopContext> labeledLoops_;
+
+    // Pending label for the next loop (set by visitLabeledStatement)
+    std::string pendingLabel_;
+
     // For switch statements
     struct SwitchContext {
         HIRBlock* breakTarget;
@@ -119,6 +125,7 @@ private:
     void visitForInStatement(ast::ForInStatement* node) override;
     void visitBreakStatement(ast::BreakStatement* node) override;
     void visitContinueStatement(ast::ContinueStatement* node) override;
+    void visitLabeledStatement(ast::LabeledStatement* node) override;
     void visitSwitchStatement(ast::SwitchStatement* node) override;
     void visitTryStatement(ast::TryStatement* node) override;
     void visitThrowStatement(ast::ThrowStatement* node) override;

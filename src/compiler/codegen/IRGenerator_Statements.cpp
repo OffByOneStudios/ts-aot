@@ -710,6 +710,11 @@ void IRGenerator::visitContinueStatement(ast::ContinueStatement* node) {
     builder->SetInsertPoint(deadBB);
 }
 
+void IRGenerator::visitLabeledStatement(ast::LabeledStatement* node) {
+    // Visit the inner statement - labels are handled by ASTToHIR
+    visit(node->statement.get());
+}
+
 void IRGenerator::visitBlockStatement(ast::BlockStatement* node) {
     for (const auto& stmt : node->statements) {
         visit(stmt.get());

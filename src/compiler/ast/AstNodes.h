@@ -34,6 +34,7 @@ struct ForOfStatement;
 struct ForInStatement;
 struct BreakStatement;
 struct ContinueStatement;
+struct LabeledStatement;
 struct CaseClause;
 struct DefaultClause;
 struct SwitchStatement;
@@ -114,6 +115,7 @@ struct Visitor {
     virtual void visitForInStatement(ForInStatement* node) = 0;
     virtual void visitBreakStatement(BreakStatement* node) = 0;
     virtual void visitContinueStatement(ContinueStatement* node) = 0;
+    virtual void visitLabeledStatement(LabeledStatement* node) = 0;
     virtual void visitSwitchStatement(SwitchStatement* node) = 0;
     virtual void visitTryStatement(TryStatement* node) = 0;
     virtual void visitThrowStatement(ThrowStatement* node) = 0;
@@ -326,13 +328,22 @@ struct ForStatement : Statement {
 };
 
 struct BreakStatement : Statement {
+    std::string label;  // Optional: the label to break to
     std::string getKind() const override { return "BreakStatement"; }
     void accept(Visitor* visitor) override { visitor->visitBreakStatement(this); }
 };
 
 struct ContinueStatement : Statement {
+    std::string label;  // Optional: the label to continue to
     std::string getKind() const override { return "ContinueStatement"; }
     void accept(Visitor* visitor) override { visitor->visitContinueStatement(this); }
+};
+
+struct LabeledStatement : Statement {
+    std::string label;
+    StmtPtr statement;
+    std::string getKind() const override { return "LabeledStatement"; }
+    void accept(Visitor* visitor) override { visitor->visitLabeledStatement(this); }
 };
 
 struct CaseClause : Node {
