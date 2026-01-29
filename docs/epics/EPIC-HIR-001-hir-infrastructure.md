@@ -371,22 +371,28 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 2: Resolution Passes | 75% |
 | Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
-| Phase 5: Optimization Passes | 70% |
+| Phase 5: Optimization Passes | 80% |
 
-**Overall: ~92% Complete**
+**Overall: ~93% Complete**
 
 ### Recent Progress (2026-01-28)
-- **InliningPass implemented:**
+- **InliningPass fully working and enabled:**
   - Call graph analysis with call count tracking
   - DFS-based recursion detection (prevents infinite inlining)
   - Size-based cost model with configurable thresholds
   - Single-call-site bonus (more aggressive inlining for unique calls)
   - Simple lambda detection for callback inlining
-  - Value cloning and remapping with proper SSA maintenance
+  - **Fixed parameter-to-argument mapping** - callee parameters now correctly replaced with caller arguments
+  - Value cloning and remapping with proper SSA maintenance (ID and name matching)
   - Return value extraction and call result replacement
   - Multi-block function support (disabled by default for safety)
   - Fixed-point iteration until no more inlining opportunities
-  - Currently disabled by default; enable via `passManager.addPass(std::make_unique<hir::InliningPass>())`
+  - **Enabled in default HIR pipeline** in Driver.cpp
+- **Type system fix for numeric literals:**
+  - All numeric literals now typed as `TypeKind::Double` (matching JavaScript semantics)
+  - Fixes HIR type mismatch error (`i64` vs `double`) when passing numeric literals to functions
+  - TypeScript `number` type is always IEEE 754 double-precision
+  - See `Analyzer_Expressions_Literals.cpp:visitNumericLiteral`
 - **DeadCodeEliminationPass implemented:**
   - Liveness analysis with backward propagation from roots
   - Side-effect detection for calls, stores, mutations
@@ -447,9 +453,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **HIR type mismatch fix** - Fix i64 vs double type handling in HIRToLLVM
-2. **Enable InliningPass** - Test and enable in default pipeline after type fix
-3. **EscapeAnalysisPass** - Track object escapes for stack allocation
-4. **Async/await** - Required for async I/O patterns
-5. **Getters/setters** - OOP pattern for computed properties
-6. **Private fields (#field)** - Modern class encapsulation
+1. **EscapeAnalysisPass** - Track object escapes for stack allocation
+2. **Async/await** - Required for async I/O patterns
+3. **Getters/setters** - OOP pattern for computed properties
+4. **Private fields (#field)** - Modern class encapsulation
