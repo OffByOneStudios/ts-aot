@@ -1154,6 +1154,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         lastValue_ = builder_.createShrI64(lhs, rhs);
     } else if (op == ">>>") {
         lastValue_ = builder_.createUShrI64(lhs, rhs);
+    } else if (op == ",") {
+        // Comma operator: evaluate both sides for side effects, return right
+        // lhs is already evaluated above, rhs is already evaluated above
+        lastValue_ = rhs;
     } else {
         // Unknown operator - return lhs
         lastValue_ = lhs;
@@ -1916,9 +1920,30 @@ void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
 }
 
 void ASTToHIR::visitYieldExpression(ast::YieldExpression* node) {
-    // TODO: Proper generator support
-    if (node->expression) {
-        lastValue_ = lowerExpression(node->expression.get());
+    // Yield: yield value or yield* iterable
+    // yield returns the value passed to next() when generator is resumed
+    // yield* delegates to another generator/iterable
+
+    if (node->isAsterisk) {
+        // yield* iterable - delegate to another generator
+        if (node->expression) {
+            auto iterable = lowerExpression(node->expression.get());
+            lastValue_ = builder_.createYieldStar(iterable);
+        } else {
+            // yield* with no expression - undefined behavior, yield undefined
+            auto undef = builder_.createConstUndefined();
+            lastValue_ = builder_.createYieldStar(undef);
+        }
+    } else {
+        // Regular yield
+        if (node->expression) {
+            auto value = lowerExpression(node->expression.get());
+            lastValue_ = builder_.createYield(value);
+        } else {
+            // yield with no expression yields undefined
+            auto undef = builder_.createConstUndefined();
+            lastValue_ = builder_.createYield(undef);
+        }
     }
 }
 
@@ -2482,9 +2507,69 @@ void ASTToHIR::visitTemplateExpression(ast::TemplateExpression* node) {
 }
 
 void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {
-    // TODO: Tagged template support
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstUndefined(lastValue_);
+    // Tagged template: tag`str${expr}str...`
+    // Calls: tag(stringsArray, ...expressions)
+    // stringsArray is an array of the literal parts with a 'raw' property
+
+    if (!node->tag || !node->templateExpr) {
+        lastValue_ = builder_.createConstUndefined();
+        return;
+    }
+
+    // Lower the tag function
+    auto tagFn = lowerExpression(node->tag.get());
+
+    // Get template parts - templateExpr could be TemplateExpression or NoSubstitutionTemplateLiteral
+    std::vector<std::string> stringParts;
+    std::vector<std::shared_ptr<HIRValue>> expressions;
+
+    auto* templateExpr = dynamic_cast<ast::TemplateExpression*>(node->templateExpr.get());
+    if (templateExpr) {
+        // Template with substitutions
+        stringParts.push_back(templateExpr->head);
+
+        for (const auto& span : templateExpr->spans) {
+            if (span.expression) {
+                expressions.push_back(lowerExpression(span.expression.get()));
+            }
+            stringParts.push_back(span.literal);
+        }
+    } else {
+        // NoSubstitutionTemplateLiteral - just a single string
+        auto* strLit = dynamic_cast<ast::StringLiteral*>(node->templateExpr.get());
+        if (strLit) {
+            stringParts.push_back(strLit->value);
+        }
+    }
+
+    // Create the strings array with the proper elements
+    auto arrayLen = builder_.createConstInt(static_cast<int64_t>(stringParts.size()));
+    auto stringsArray = builder_.createNewArrayBoxed(arrayLen, HIRType::makeString());
+    for (size_t i = 0; i < stringParts.size(); ++i) {
+        auto idx = builder_.createConstInt(static_cast<int64_t>(i));
+        auto strVal = builder_.createConstString(stringParts[i]);
+        builder_.createSetElem(stringsArray, idx, strVal);
+    }
+
+    // Add 'raw' property to the strings array (same values for now)
+    // TODO: Handle raw string escapes properly (e.g., `\n` vs actual newline)
+    auto rawArray = builder_.createNewArrayBoxed(arrayLen, HIRType::makeString());
+    for (size_t i = 0; i < stringParts.size(); ++i) {
+        auto idx = builder_.createConstInt(static_cast<int64_t>(i));
+        auto strVal = builder_.createConstString(stringParts[i]);
+        builder_.createSetElem(rawArray, idx, strVal);
+    }
+    builder_.createSetPropStatic(stringsArray, "raw", rawArray);
+
+    // Build argument list: [stringsArray, ...expressions]
+    std::vector<std::shared_ptr<HIRValue>> args;
+    args.push_back(stringsArray);
+    for (const auto& expr : expressions) {
+        args.push_back(expr);
+    }
+
+    // Call the tag function with indirect call (since tag could be any callable)
+    lastValue_ = builder_.createCallIndirect(tagFn, args, HIRType::makeAny());
 }
 
 void ASTToHIR::visitAsExpression(ast::AsExpression* node) {

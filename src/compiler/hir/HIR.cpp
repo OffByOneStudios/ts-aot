@@ -235,6 +235,14 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::GetException: return "get_exception";
         case HIROpcode::ClearException: return "clear_exception";
         case HIROpcode::PopHandler: return "pop_handler";
+
+        // Async/Await
+        case HIROpcode::Await: return "await";
+        case HIROpcode::AsyncReturn: return "async_return";
+
+        // Generator/Yield
+        case HIROpcode::Yield: return "yield";
+        case HIROpcode::YieldStar: return "yield*";
     }
     return "unknown";
 }

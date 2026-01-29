@@ -114,13 +114,13 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Object literals
 - [x] Template literals (simple)
 - [x] Template literals (spans/expressions)
-- [ ] Tagged template literals (stub exists)
-- [ ] Comma expressions
+- [x] Tagged template literals
+- [x] Comma expressions
 - [x] Optional chaining (?.)
 - [x] Nullish coalescing (??)
 - [x] Spread elements
 - [x] Await expressions
-- [ ] Yield expressions (stub exists)
+- [x] Yield expressions
 
 ### 3.3 Functions
 - [x] Function declarations
@@ -369,11 +369,11 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 100% |
-| Phase 3: ASTToHIR Coverage | 95% |
+| Phase 3: ASTToHIR Coverage | 97% |
 | Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 80% |
 
-**Overall: ~96% Complete**
+**Overall: ~97% Complete**
 
 ### Recent Progress (2026-01-29)
 - **Async/await support:**
@@ -392,6 +392,10 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
   - Registered all Set instance methods (add, has, delete, clear, size, forEach, entries, keys, values)
   - Registered ES2024 Set methods (union, intersection, difference, symmetricDifference, isSubsetOf, isSupersetOf, isDisjointFrom)
   - Registered Map.groupBy static method
+- **Expression completions:**
+  - Comma expressions: evaluate both sides for side effects, return right value
+  - Tagged template literals: full implementation with strings array, raw property, and expression arguments
+  - Yield expressions: added Yield and YieldStar opcodes for generator support
 
 ### Recent Progress (2026-01-28 evening)
 - **Template literals with expressions:**
