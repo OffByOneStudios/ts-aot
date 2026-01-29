@@ -15,16 +15,16 @@
 |----------|-------|-------|
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
 | AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in*, break_continue, continue_stmt, labeled_stmt | 11 |
-| AST→HIR Functions | basic_function, closure*, arrows*, declarations, mutable_closure* | 5 |
+| AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure | 5 |
 | AST→HIR Classes | basic_class | 1 |
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
 
 *Note: Files marked with * are XFAIL tests tracking known HIR-to-LLVM lowering bugs:*
 - `for_in`: HIR correct, but lowering doesn't emit console.log output in for-in body
-- `closure`: HIR pipeline does not yet support closure lowering
-- `arrows`: Crash when calling stored function pointer
-- `mutable_closure`: Type mismatch in closure return lowering
+
+**Recently Fixed (2026-01-29):**
+- `closure`, `arrows`, `mutable_closure`: Fixed variable type inference from initializer and TypePropagationPass LoadCapture handling
 
 ## Overview
 
@@ -385,7 +385,16 @@ Tests that unreachable and unused code is removed.
 ### Week 2: ASTToHIR Tests (IN PROGRESS)
 - [x] Expression tests (8/31 implemented)
 - [x] Statement tests (11/18 implemented)
-- [ ] Function tests (5/12 implemented)
+- [x] Function tests (5/12 implemented) - closure/arrows/mutable_closure now passing
+
+## Next Batch: Classes (Recommended)
+
+Priority tests to implement next:
+1. `classes/constructor.ts` - Constructor methods
+2. `classes/instance_method.ts` - Instance method calls
+3. `classes/static_method.ts` - Static method calls
+4. `classes/inheritance.ts` - extends keyword, super calls
+5. `classes/properties.ts` - Instance and static properties
 
 ### Week 3: ASTToHIR + Pass Tests
 - [ ] Class tests (1/12 implemented)
