@@ -257,6 +257,23 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
     } else if (typeStr.find("Promise<") == 0) {
         // Promise<T> - treat as ptr for now
         return HIRType::makePtr();
+    } else if (typeStr.find("=>") != std::string::npos) {
+        // Arrow function type syntax like "() => number" or "(x: number) => number"
+        // These are function types, represented as pointers (closures)
+        auto funcType = std::make_shared<HIRType>(HIRTypeKind::Function);
+        // Parse the return type after "=>"
+        size_t arrowPos = typeStr.find("=>");
+        if (arrowPos != std::string::npos) {
+            std::string retTypeStr = typeStr.substr(arrowPos + 2);
+            // Trim leading whitespace
+            while (!retTypeStr.empty() && (retTypeStr[0] == ' ' || retTypeStr[0] == '\t')) {
+                retTypeStr = retTypeStr.substr(1);
+            }
+            funcType->returnType = convertTypeFromString(retTypeStr);
+        } else {
+            funcType->returnType = HIRType::makeAny();
+        }
+        return funcType;
     }
 
     // Unknown type - could be a class name, treat as object
@@ -448,6 +465,10 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             varType = convertType(node->initializer->inferredType);
         } else if (!node->type.empty()) {
             varType = convertTypeFromString(node->type);
+        } else if (initValue && initValue->type && initValue->type->kind != HIRTypeKind::Any) {
+            // Fallback: use the type from the lowered initializer value
+            // This handles cases like `let count = 0` where the literal is Float64
+            varType = initValue->type;
         }
 
         auto allocaPtr = builder_.createAlloca(varType, ident->name);
@@ -2136,6 +2157,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         tsFuncType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
     }
 
+    // Add hidden __closure__ parameter as first parameter (for call_indirect compatibility)
+    // call_indirect always passes the closure as the first argument
+    func->params.push_back({"__closure__", HIRType::makePtr()});
+
     // Handle parameters - use inferred types from function type if available
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         auto& param = node->parameters[i];
@@ -2297,8 +2322,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
     } else {
-        // Plain function pointer
-        lastValue_ = builder_.createLoadFunction(funcName);
+        // No captures, but still wrap in a closure for consistency with call_indirect
+        // which always expects a TsClosure* (not a raw function pointer)
+        std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
+        lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
     }
 }
 
@@ -2317,6 +2344,10 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     auto func = std::make_unique<HIRFunction>(funcName);
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
+
+    // Add hidden __closure__ parameter as first parameter (for call_indirect compatibility)
+    // call_indirect always passes the closure as the first argument
+    func->params.push_back({"__closure__", HIRType::makePtr()});
 
     // Handle parameters
     for (auto& param : node->parameters) {
@@ -2470,8 +2501,10 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
     } else {
-        // Plain function pointer
-        lastValue_ = builder_.createLoadFunction(funcName);
+        // No captures, but still wrap in a closure for consistency with call_indirect
+        // which always expects a TsClosure* (not a raw function pointer)
+        std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
+        lastValue_ = builder_.createMakeClosure(funcName, emptyCaptureValues, closureFuncType);
     }
 }
 

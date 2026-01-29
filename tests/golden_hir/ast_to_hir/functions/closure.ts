@@ -1,6 +1,5 @@
 // Test: Closures generate make_closure and load_capture
-// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// XFAIL: HIR pipeline does not yet support closure lowering
+// RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @makeCounter
 // HIR-CHECK: alloca
