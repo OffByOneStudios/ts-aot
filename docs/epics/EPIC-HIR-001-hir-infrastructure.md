@@ -192,7 +192,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] AddI64, SubI64, MulI64, DivI64, ModI64, NegI64
 - [x] AddF64, SubF64, MulF64, DivF64, ModF64, NegF64
 - [x] StringConcat
-- [ ] Checked arithmetic (AddI64Checked, etc.) - stubs only
+- [x] Checked arithmetic (AddI64Checked, SubI64Checked, MulI64Checked with overflow detection)
 
 ### 4.3 Bitwise
 - [x] AndI64, OrI64, XorI64
@@ -239,7 +239,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 ### 4.10 Calls
 - [x] Call (with type-specific dispatch for console)
 - [x] CallMethod (fallback for unresolved)
-- [ ] CallVirtual (stub only)
+- [x] CallVirtual (vtable dispatch via TsObject::vtable)
 - [x] CallIndirect
 
 ### 4.11 Globals
@@ -370,10 +370,10 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 100% |
 | Phase 3: ASTToHIR Coverage | 98% |
-| Phase 4: HIRToLLVM Coverage | 98% |
+| Phase 4: HIRToLLVM Coverage | 100% |
 | Phase 5: Optimization Passes | 80% |
 
-**Overall: ~98% Complete**
+**Overall: ~99% Complete**
 
 ### Recent Progress (2026-01-29)
 - **Class expressions:**

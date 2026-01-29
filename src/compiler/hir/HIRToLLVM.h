@@ -123,6 +123,11 @@ private:
     void lowerModI64(HIRInstruction* inst);
     void lowerNegI64(HIRInstruction* inst);
 
+    // Checked integer arithmetic (with overflow detection)
+    void lowerAddI64Checked(HIRInstruction* inst);
+    void lowerSubI64Checked(HIRInstruction* inst);
+    void lowerMulI64Checked(HIRInstruction* inst);
+
     // Float arithmetic
     void lowerAddF64(HIRInstruction* inst);
     void lowerSubF64(HIRInstruction* inst);
