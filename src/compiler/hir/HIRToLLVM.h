@@ -52,6 +52,10 @@ private:
     bool isAsyncFunction_ = false;
     llvm::Value* asyncPromise_ = nullptr;  // The Promise to resolve/reject
 
+    // For generator functions
+    bool isGeneratorFunction_ = false;
+    llvm::Value* generatorObject_ = nullptr;  // The Generator object
+
     //==========================================================================
     // Type Mapping
     //==========================================================================
@@ -257,6 +261,10 @@ private:
     // Async/Await
     void lowerAwait(HIRInstruction* inst);
     void lowerAsyncReturn(HIRInstruction* inst);
+
+    // Generator/Yield
+    void lowerYield(HIRInstruction* inst);
+    void lowerYieldStar(HIRInstruction* inst);
 
     //==========================================================================
     // Runtime Function Helpers

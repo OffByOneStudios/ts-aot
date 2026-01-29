@@ -131,8 +131,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Function expressions
 - [x] Closures / captured variables (full implementation with mutable captures and nested closures)
 - [x] Async functions
-- [ ] Generator functions (stub exists)
-- [ ] Async generators
+- [x] Generator functions (function*, yield, yield*)
+- [x] Async generators (async function*, yield with Promises)
 
 ### 3.4 Classes
 - [x] Class declarations
@@ -369,13 +369,27 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
 | Phase 2: Resolution Passes | 100% |
-| Phase 3: ASTToHIR Coverage | 97% |
+| Phase 3: ASTToHIR Coverage | 98% |
 | Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 80% |
 
-**Overall: ~97% Complete**
+**Overall: ~98% Complete**
 
 ### Recent Progress (2026-01-29)
+- **Generator function support:**
+  - Generator functions (function*) with Yield and YieldStar opcodes
+  - Yield expressions produce IteratorResult values
+  - Yield* delegation to other generators/iterables
+  - Generator return handling marks generator as done
+- **Async generator support:**
+  - Async generators (async function*) combining async and generator semantics
+  - AsyncGenerator creation with ts_async_generator_create
+  - Async yield produces Promises
+  - Proper return handling for async generators
+- **Tagged template literals:**
+  - Full support for tagged templates with strings array and values
+- **Comma expressions:**
+  - Sequential evaluation with proper value propagation
 - **Async/await support:**
   - Await expressions now generate HIR Await opcode
   - Async functions properly call ts_promise_await for blocking semantics
