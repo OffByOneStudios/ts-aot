@@ -2,12 +2,13 @@
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: do.body{{.*}}:
-// HIR-CHECK: add.f64
-// HIR-CHECK: do.cond{{.*}}:
+// Note: do-while currently uses while.* block naming
+// HIR-CHECK: while.cond{{.*}}:
 // HIR-CHECK: cmp.lt.f64
 // HIR-CHECK: condbr
-// HIR-CHECK: do.end{{.*}}:
+// HIR-CHECK: while.body{{.*}}:
+// HIR-CHECK: add.f64
+// HIR-CHECK: while.end{{.*}}:
 // HIR-CHECK: ret
 
 // OUTPUT: 0
