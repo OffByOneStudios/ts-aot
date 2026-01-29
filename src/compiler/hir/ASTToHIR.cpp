@@ -1233,6 +1233,47 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         }
 
         auto obj = lowerExpression(propAccess->expression.get());
+
+        // Check for setter: look up the class type and see if it has __setter_<propName>
+        HIRClass* targetClass = nullptr;
+
+        // Check if expression has an inferred class type
+        if (propAccess->expression && propAccess->expression->inferredType) {
+            auto exprType = propAccess->expression->inferredType;
+            if (exprType->kind == ts::TypeKind::Class) {
+                auto classType = std::dynamic_pointer_cast<ts::ClassType>(exprType);
+                if (classType) {
+                    for (auto& cls : module_->classes) {
+                        if (cls->name == classType->name) {
+                            targetClass = cls.get();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If accessing 'this', use currentClass_
+        if (!targetClass) {
+            auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+            if (thisIdent && thisIdent->name == "this" && currentClass_) {
+                targetClass = currentClass_;
+            }
+        }
+
+        // Check if the target class has a setter for this property
+        if (targetClass) {
+            std::string setterKey = "__setter_" + propAccess->name;
+            auto setterIt = targetClass->methods.find(setterKey);
+            if (setterIt != targetClass->methods.end()) {
+                // Found a setter - call it instead of direct property assignment
+                HIRFunction* setterFunc = setterIt->second;
+                builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
+                lastValue_ = rhs;
+                return;
+            }
+        }
+
         builder_.createSetPropStatic(obj, propAccess->name, rhs);
         lastValue_ = rhs;
         return;
@@ -1459,17 +1500,46 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
         }
     }
 
-    auto lenVal = builder_.createConstInt(static_cast<int64_t>(node->elements.size()));
-    auto arr = builder_.createNewArrayBoxed(lenVal, elemType);
-
-    int64_t idx = 0;
+    // Check if we have any spread elements - if so, we need dynamic approach
+    bool hasSpread = false;
     for (auto& elem : node->elements) {
-        auto elemVal = lowerExpression(elem.get());
-        auto idxVal = builder_.createConstInt(idx++);
-        builder_.createSetElem(arr, idxVal, elemVal);
+        if (dynamic_cast<ast::SpreadElement*>(elem.get())) {
+            hasSpread = true;
+            break;
+        }
     }
 
-    lastValue_ = arr;
+    if (hasSpread) {
+        // With spread elements, use ts_array_create and dynamic push/concat
+        auto arr = builder_.createCall("ts_array_create", {}, HIRType::makeArray(elemType, false));
+
+        for (auto& elem : node->elements) {
+            if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem.get())) {
+                // Spread element: concatenate the spread array
+                auto spreadArr = lowerExpression(spread->expression.get());
+                builder_.createCall("ts_array_concat", {arr, spreadArr}, HIRType::makeVoid());
+            } else {
+                // Regular element: push it
+                auto elemVal = lowerExpression(elem.get());
+                builder_.createCall("ts_array_push", {arr, elemVal}, HIRType::makeInt64());
+            }
+        }
+
+        lastValue_ = arr;
+    } else {
+        // No spread elements - use efficient pre-allocated array
+        auto lenVal = builder_.createConstInt(static_cast<int64_t>(node->elements.size()));
+        auto arr = builder_.createNewArrayBoxed(lenVal, elemType);
+
+        int64_t idx = 0;
+        for (auto& elem : node->elements) {
+            auto elemVal = lowerExpression(elem.get());
+            auto idxVal = builder_.createConstInt(idx++);
+            builder_.createSetElem(arr, idxVal, elemVal);
+        }
+
+        lastValue_ = arr;
+    }
 }
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
@@ -1550,6 +1620,47 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Check for getter: look up the class type and see if it has __getter_<propName>
+    HIRClass* targetClass = nullptr;
+
+    // First, check if expression has an inferred class type
+    if (node->expression && node->expression->inferredType) {
+        auto exprType = node->expression->inferredType;
+        if (exprType->kind == ts::TypeKind::Class) {
+            auto classType = std::dynamic_pointer_cast<ts::ClassType>(exprType);
+            if (classType) {
+                // Find the HIRClass by name
+                for (auto& cls : module_->classes) {
+                    if (cls->name == classType->name) {
+                        targetClass = cls.get();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // If accessing 'this', use currentClass_
+    if (!targetClass) {
+        auto* thisIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
+        if (thisIdent && thisIdent->name == "this" && currentClass_) {
+            targetClass = currentClass_;
+        }
+    }
+
+    // Check if the target class has a getter for this property
+    if (targetClass) {
+        std::string getterKey = "__getter_" + node->name;
+        auto getterIt = targetClass->methods.find(getterKey);
+        if (getterIt != targetClass->methods.end()) {
+            // Found a getter - call it instead of direct property access
+            HIRFunction* getterFunc = getterIt->second;
+            auto returnType = getterFunc->returnType ? getterFunc->returnType : HIRType::makeAny();
+            lastValue_ = builder_.createCall(getterFunc->name, {obj}, returnType);
+            return;
+        }
+    }
+
     // Handle optional chaining: obj?.prop
     if (node->isOptional) {
         // Check if obj is nullish
@@ -1589,6 +1700,14 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
     auto obj = builder_.createNewObjectDynamic();
 
     for (auto& prop : node->properties) {
+        // Handle spread element: {...other}
+        if (auto* spread = dynamic_cast<ast::SpreadElement*>(prop.get())) {
+            auto spreadObj = lowerExpression(spread->expression.get());
+            // Use ts_object_assign to copy properties from spreadObj to obj
+            builder_.createCall("ts_object_assign", {obj, spreadObj}, HIRType::makeAny());
+            continue;
+        }
+
         // Handle MethodDefinition (including getters/setters) specially
         if (auto* method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
             // Create a function for the method
@@ -1785,9 +1904,14 @@ void ASTToHIR::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
 }
 
 void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
-    // TODO: Proper async/await
     if (node->expression) {
-        lastValue_ = lowerExpression(node->expression.get());
+        // Lower the promise expression
+        auto promise = lowerExpression(node->expression.get());
+        // Create await instruction to wait for promise resolution
+        lastValue_ = builder_.createAwait(promise);
+    } else {
+        // await with no expression returns undefined
+        lastValue_ = builder_.createConstUndefined();
     }
 }
 
@@ -2392,9 +2516,24 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     } else if (op == "typeof") {
         lastValue_ = builder_.createTypeOf(operand);
     } else if (op == "++" || op == "--") {
-        auto one = builder_.createConstInt(1);
-        auto result = (op == "++") ? builder_.createAddI64(operand, one)
-                                    : builder_.createSubI64(operand, one);
+        // Determine if operand is floating point
+        bool isFloat = false;
+        if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
+            isFloat = true;
+        } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
+            isFloat = true;
+        }
+
+        std::shared_ptr<HIRValue> result;
+        if (isFloat) {
+            auto one = builder_.createConstFloat(1.0);
+            result = (op == "++") ? builder_.createAddF64(operand, one)
+                                  : builder_.createSubF64(operand, one);
+        } else {
+            auto one = builder_.createConstInt(1);
+            result = (op == "++") ? builder_.createAddI64(operand, one)
+                                  : builder_.createSubI64(operand, one);
+        }
 
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
@@ -2406,7 +2545,14 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 defineVariable(ident->name, result);
             }
         }
-        lastValue_ = result;
+        // Handle property access (e.g., this.#count++ or obj.field++)
+        auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node->operand.get());
+        if (prop) {
+            auto obj = lowerExpression(prop->expression.get());
+            std::string propName = prop->name;
+            builder_.createSetPropStatic(obj, propName, result);
+        }
+        lastValue_ = result;  // Prefix returns new value
     } else {
         lastValue_ = operand;
     }
@@ -2423,9 +2569,24 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
 
     const std::string& op = node->op;
     if (op == "++" || op == "--") {
-        auto one = builder_.createConstInt(1);
-        auto result = (op == "++") ? builder_.createAddI64(operand, one)
-                                    : builder_.createSubI64(operand, one);
+        // Determine if operand is floating point
+        bool isFloat = false;
+        if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
+            isFloat = true;
+        } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
+            isFloat = true;
+        }
+
+        std::shared_ptr<HIRValue> result;
+        if (isFloat) {
+            auto one = builder_.createConstFloat(1.0);
+            result = (op == "++") ? builder_.createAddF64(operand, one)
+                                  : builder_.createSubF64(operand, one);
+        } else {
+            auto one = builder_.createConstInt(1);
+            result = (op == "++") ? builder_.createAddI64(operand, one)
+                                  : builder_.createSubI64(operand, one);
+        }
 
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
@@ -2436,6 +2597,13 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             } else {
                 defineVariable(ident->name, result);
             }
+        }
+        // Handle property access (e.g., this.#count++ or obj.field++)
+        auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node->operand.get());
+        if (prop) {
+            auto obj = lowerExpression(prop->expression.get());
+            std::string propName = prop->name;
+            builder_.createSetPropStatic(obj, propName, result);
         }
         // Postfix returns old value
         lastValue_ = oldValue;
@@ -2526,8 +2694,17 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
         if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
             // Generate a unique function name for the method
             std::string methodFuncName;
+            std::string methodKey = methodDef->name;  // Key used for registration in class
             if (methodDef->name == "constructor") {
                 methodFuncName = node->name + "_constructor";
+            } else if (methodDef->isGetter) {
+                // Getter: ClassName___getter_propName
+                methodFuncName = node->name + "___getter_" + methodDef->name;
+                methodKey = "__getter_" + methodDef->name;
+            } else if (methodDef->isSetter) {
+                // Setter: ClassName___setter_propName
+                methodFuncName = node->name + "___setter_" + methodDef->name;
+                methodKey = "__setter_" + methodDef->name;
             } else if (methodDef->isStatic) {
                 methodFuncName = node->name + "_static_" + methodDef->name;
             } else {
@@ -2560,9 +2737,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             }
 
             // Set return type
-            func->returnType = methodDef->returnType.empty()
-                ? HIRType::makeAny()
-                : convertTypeFromString(methodDef->returnType);
+            // Setters always return void, regardless of explicit type annotation
+            if (methodDef->isSetter) {
+                func->returnType = HIRType::makeVoid();
+            } else {
+                func->returnType = methodDef->returnType.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(methodDef->returnType);
+            }
 
             // Save current function and create entry block
             HIRFunction* savedFunc = currentFunction_;
@@ -2583,6 +2765,26 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 defineVariable(paramName, paramValue);
             }
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // For constructors, initialize instance property default values before user code
+            if (methodDef->name == "constructor") {
+                // Get 'this' pointer (first parameter)
+                auto thisValue = lookupVariable("this");
+                if (thisValue) {
+                    // Iterate over all property definitions and emit initializers
+                    for (auto& member : node->members) {
+                        if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                            if (!propDef->isStatic && propDef->initializer) {
+                                // Lower the initializer expression
+                                auto initVal = lowerExpression(propDef->initializer.get());
+
+                                // Store the initialized value to the property
+                                builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                            }
+                        }
+                    }
+                }
+            }
 
             // Lower method body
             for (auto& stmt : methodDef->body) {
@@ -2611,9 +2813,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             } else if (methodDef->isStatic) {
                 hirClass->staticMethods[methodDef->name] = funcPtr;
             } else {
-                hirClass->methods[methodDef->name] = funcPtr;
+                // Use methodKey for registration (includes __getter_/__setter_ prefix for accessors)
+                hirClass->methods[methodKey] = funcPtr;
                 // Add to vtable for virtual dispatch
-                hirClass->vtable.push_back({methodDef->name, funcPtr});
+                hirClass->vtable.push_back({methodKey, funcPtr});
             }
 
             // Add function to module

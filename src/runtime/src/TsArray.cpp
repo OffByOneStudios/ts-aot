@@ -771,34 +771,38 @@ extern "C" {
             return;
         }
 
-        // For non-double specialized arrays or generic arrays,
-        // check if value is a boxed TsValue* and unbox it
+        // For specialized integer arrays, unbox and store raw value
+        if (array->IsSpecialized()) {
+            TsValue* maybeBoxed = (TsValue*)value;
+            if (maybeBoxed && (uintptr_t)value > 0x10000) {
+                uint8_t typeVal = (uint8_t)maybeBoxed->type;
+                if (typeVal <= 10) {  // Valid ValueType range
+                    if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                        array->Push(maybeBoxed->i_val);
+                        return;
+                    } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                        array->Push((int64_t)maybeBoxed->d_val);
+                        return;
+                    } else if (maybeBoxed->type == ValueType::BOOLEAN) {
+                        array->Push(maybeBoxed->b_val ? 1 : 0);
+                        return;
+                    }
+                }
+            }
+            array->Push(bits);
+            return;
+        }
+
+        // For generic (non-specialized) arrays, keep values boxed as TsValue*
+        // This preserves type information and avoids ambiguity (e.g., double 0.0 vs null)
         TsValue* maybeBoxed = (TsValue*)value;
         if (maybeBoxed && (uintptr_t)value > 0x10000) {
             uint8_t typeVal = (uint8_t)maybeBoxed->type;
             if (typeVal <= 10) {  // Valid ValueType range (0-10)
-                // It's a boxed TsValue* - extract the actual value
-                if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                    array->Push(maybeBoxed->i_val);
-                    return;
-                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                    int64_t dbits;
-                    memcpy(&dbits, &maybeBoxed->d_val, sizeof(dbits));
-                    array->Push(dbits);
-                    return;
-                } else if (maybeBoxed->type == ValueType::OBJECT_PTR ||
-                           maybeBoxed->type == ValueType::STRING_PTR ||
-                           maybeBoxed->type == ValueType::ARRAY_PTR ||
-                           maybeBoxed->type == ValueType::FUNCTION_PTR ||
-                           maybeBoxed->type == ValueType::PROMISE_PTR ||
-                           maybeBoxed->type == ValueType::BIGINT_PTR ||
-                           maybeBoxed->type == ValueType::SYMBOL_PTR) {
-                    array->Push((int64_t)maybeBoxed->ptr_val);
-                    return;
-                } else if (maybeBoxed->type == ValueType::BOOLEAN) {
-                    array->Push(maybeBoxed->b_val ? 1 : 0);
-                    return;
-                }
+                // It's a boxed TsValue* - keep it boxed for generic arrays
+                // This ensures Join/Get can properly identify the type
+                array->Push(bits);  // Store the TsValue* pointer
+                return;
             }
         }
 

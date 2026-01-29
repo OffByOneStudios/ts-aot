@@ -268,6 +268,10 @@ enum class HIROpcode {
     GetException,       // %r = get_exception (get current exception from ts_get_exception)
     ClearException,     // clear_exception (call ts_set_exception(nullptr))
     PopHandler,         // pop_handler (call ts_pop_exception_handler)
+
+    // Async/Await
+    Await,              // %r = await %promise (await a promise, result is resolved value)
+    AsyncReturn,        // async_return %val (resolve promise and return from async function)
 };
 
 // Instruction operand

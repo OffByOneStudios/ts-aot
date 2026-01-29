@@ -48,6 +48,10 @@ private:
     // This is set when lowering a function with captures
     llvm::Value* closureParam_ = nullptr;
 
+    // For async functions
+    bool isAsyncFunction_ = false;
+    llvm::Value* asyncPromise_ = nullptr;  // The Promise to resolve/reject
+
     //==========================================================================
     // Type Mapping
     //==========================================================================
@@ -87,6 +91,7 @@ private:
     // Function Lowering
     //==========================================================================
 
+    void forwardDeclareFunction(HIRFunction* fn);
     void lowerFunction(HIRFunction* fn);
 
     // Create main entry point that calls ts_main with user_main
@@ -248,6 +253,10 @@ private:
     void lowerGetException(HIRInstruction* inst);
     void lowerClearException(HIRInstruction* inst);
     void lowerPopHandler(HIRInstruction* inst);
+
+    // Async/Await
+    void lowerAwait(HIRInstruction* inst);
+    void lowerAsyncReturn(HIRInstruction* inst);
 
     //==========================================================================
     // Runtime Function Helpers

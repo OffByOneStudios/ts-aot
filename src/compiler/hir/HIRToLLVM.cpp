@@ -39,6 +39,12 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         getOrCreateGlobal(name, type);
     }
 
+    // Forward-declare all functions first
+    // This is necessary because functions may call each other before they are defined
+    for (auto& fn : hirModule->functions) {
+        forwardDeclareFunction(fn.get());
+    }
+
     // Lower all functions
     for (auto& fn : hirModule->functions) {
         lowerFunction(fn.get());
@@ -194,14 +200,19 @@ llvm::BasicBlock* HIRToLLVM::getBlock(HIRBlock* hirBlock) {
 // Function Lowering
 //==============================================================================
 
-void HIRToLLVM::lowerFunction(HIRFunction* fn) {
+void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
+    // Skip if already declared
+    if (module_->getFunction(fn->mangledName)) {
+        return;
+    }
+
     // Build function type
-    llvm::Type* returnType = getLLVMType(fn->returnType);
+    // For async functions, the return type is always ptr (Promise*)
+    llvm::Type* returnType = fn->isAsync ? builder_->getPtrTy() : getLLVMType(fn->returnType);
     std::vector<llvm::Type*> paramTypes;
 
     // If this function has captures, add a hidden first parameter for the closure context
-    bool hasCaptureParams = !fn->captures.empty();
-    if (hasCaptureParams) {
+    if (!fn->captures.empty()) {
         paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
     }
 
@@ -210,24 +221,75 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     }
 
     llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
-    llvm::Function* llvmFunc = llvm::Function::Create(
+    llvm::Function::Create(
         funcType,
         llvm::Function::ExternalLinkage,
         fn->mangledName,
         module_.get()
     );
+}
+
+void HIRToLLVM::lowerFunction(HIRFunction* fn) {
+    // Get the forward-declared function (or create it if not yet declared)
+    llvm::Function* llvmFunc = module_->getFunction(fn->mangledName);
+    if (!llvmFunc) {
+        // Function wasn't forward-declared, create it now
+        // For async functions, the return type is always ptr (Promise*)
+        llvm::Type* returnType = fn->isAsync ? builder_->getPtrTy() : getLLVMType(fn->returnType);
+        std::vector<llvm::Type*> paramTypes;
+
+        if (!fn->captures.empty()) {
+            paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
+        }
+
+        for (auto& param : fn->params) {
+            paramTypes.push_back(getLLVMType(param.second));
+        }
+
+        llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+        llvmFunc = llvm::Function::Create(
+            funcType,
+            llvm::Function::ExternalLinkage,
+            fn->mangledName,
+            module_.get()
+        );
+    }
+
+    bool hasCaptureParams = !fn->captures.empty();
 
     // Set current function
     currentFunction_ = llvmFunc;
     currentHIRFunction_ = fn;
+    isAsyncFunction_ = fn->isAsync;
     valueMap_.clear();
     blockMap_.clear();
     closureParam_ = nullptr;
+    asyncPromise_ = nullptr;
 
-    // Create LLVM basic blocks first (for forward references)
+    // For async functions, we need to create a Promise first and store it
+    if (fn->isAsync) {
+        // Create entry block for async setup
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "async_entry", llvmFunc);
+        builder_->SetInsertPoint(entryBB);
+
+        // Create a Promise: ts_promise_create() -> TsPromise*
+        llvm::FunctionType* createPromiseFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), {}, false);
+        llvm::FunctionCallee createPromiseFn = module_->getOrInsertFunction(
+            "ts_promise_create", createPromiseFt);
+        asyncPromise_ = builder_->CreateCall(createPromiseFt, createPromiseFn.getCallee(), {}, "promise");
+    }
+
+    // Create LLVM basic blocks for HIR blocks
     for (auto& block : fn->blocks) {
         llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, llvmFunc);
         blockMap_[block->label] = bb;
+    }
+
+    // For async functions, branch from async_entry to the first HIR block
+    if (fn->isAsync && !fn->blocks.empty()) {
+        llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0]->label];
+        builder_->CreateBr(firstBlock);
     }
 
     // Map function parameters to values
@@ -254,7 +316,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
     currentFunction_ = nullptr;
     currentHIRFunction_ = nullptr;
+    isAsyncFunction_ = false;
     closureParam_ = nullptr;
+    asyncPromise_ = nullptr;
 }
 
 void HIRToLLVM::lowerBlock(HIRBlock* block) {
@@ -424,6 +488,10 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::GetException:   lowerGetException(inst); break;
         case HIROpcode::ClearException: lowerClearException(inst); break;
         case HIROpcode::PopHandler:     lowerPopHandler(inst); break;
+
+        // Async/Await
+        case HIROpcode::Await:          lowerAwait(inst); break;
+        case HIROpcode::AsyncReturn:    lowerAsyncReturn(inst); break;
 
         // Checked arithmetic (not yet implemented)
         case HIROpcode::AddI64Checked:
@@ -1217,8 +1285,17 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
     llvm::Value* result = builder_->CreateCall(fn, {obj, keyBoxed});
 
     // Unbox if the expected result type is a primitive
-    if (inst->result && inst->result->type) {
-        auto type = inst->result->type;
+    // First try to get type from operands[2] (where createGetPropStatic stores it)
+    // Fall back to inst->result->type if not available
+    std::shared_ptr<HIRType> type = nullptr;
+    if (inst->operands.size() > 2) {
+        type = getOperandType(inst->operands[2]);
+    }
+    if (!type && inst->result && inst->result->type) {
+        type = inst->result->type;
+    }
+
+    if (type) {
         if (type->kind == HIRTypeKind::Int64) {
             auto unboxFn = getTsValueGetInt();
             result = builder_->CreateCall(unboxFn, {result});
@@ -1658,6 +1735,74 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             builder_->getPtrTy(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_value", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle spread-related functions
+    if (funcName == "ts_array_create") {
+        // ts_array_create() - returns ptr, no args
+        llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_create", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {});
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_array_concat") {
+        // ts_array_concat(void* arr, void* other) - returns void
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* other = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_concat", ft);
+        builder_->CreateCall(ft, fn.getCallee(), { arr, other });
+        // No result - void function
+        return;
+    }
+
+    if (funcName == "ts_array_push") {
+        // ts_array_push(void* arr, void* value) - returns int64_t (new length)
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* val = getOperandValue(inst->operands[2]);
+
+        // Box the value if needed
+        if (!val->getType()->isPointerTy()) {
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getTsValueMakeInt();
+                val = builder_->CreateCall(boxFn, {val});
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getTsValueMakeDouble();
+                val = builder_->CreateCall(boxFn, {val});
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+                val = builder_->CreateCall(boxFn, {extended});
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_push", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, val });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_object_assign") {
+        // ts_object_assign(TsValue* target, TsValue* source) - returns TsValue*
+        llvm::Value* target = getOperandValue(inst->operands[1]);
+        llvm::Value* source = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_assign", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { target, source });
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -2256,6 +2401,40 @@ void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
 void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
 
+    // For async functions, a regular return should resolve the promise and return it
+    if (isAsyncFunction_ && asyncPromise_) {
+        // Box the return value if it's not already a pointer
+        llvm::Value* boxedVal = val;
+        if (!val->getType()->isPointerTy()) {
+            // Need to box the value for ts_promise_resolve_internal
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_int");
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                    builder_->getPtrTy(), { builder_->getDoubleTy() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_double");
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_bool");
+            }
+        }
+
+        // Resolve the promise with the value
+        auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(resolveFn, { asyncPromise_, boxedVal });
+
+        // Return the promise (wrapped for boxing)
+        auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+        builder_->CreateRet(boxedPromise);
+        return;
+    }
+
     // Get the function's declared return type
     llvm::Type* expectedRetType = currentFunction_->getReturnType();
 
@@ -2281,6 +2460,26 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
+    // For async functions, a void return should resolve the promise with undefined
+    if (isAsyncFunction_ && asyncPromise_) {
+        // Get undefined value
+        auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+            builder_->getPtrTy(), {});
+        llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+
+        // Resolve the promise with undefined
+        auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(resolveFn, { asyncPromise_, undefinedVal });
+
+        // Return the promise (wrapped for boxing)
+        auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+        builder_->CreateRet(boxedPromise);
+        return;
+    }
+
     builder_->CreateRetVoid();
 }
 
@@ -2390,6 +2589,48 @@ void HIRToLLVM::lowerPopHandler(HIRInstruction* inst) {
     auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
         builder_->getVoidTy(), {});
     builder_->CreateCall(popFn, {});
+}
+
+//==============================================================================
+// Async/Await Instructions
+//==============================================================================
+
+void HIRToLLVM::lowerAwait(HIRInstruction* inst) {
+    // Await instruction: %r = await %promise
+    // For a simple implementation (without full state machine), we call ts_promise_await
+    // which blocks until the promise resolves.
+    // TODO: Implement full state machine for proper async/await
+
+    llvm::Value* promiseVal = getOperandValue(inst->operands[0]);
+
+    // Call ts_promise_await(promise) -> TsValue* (the resolved value)
+    auto awaitFn = getOrDeclareRuntimeFunction("ts_promise_await",
+        builder_->getPtrTy(), { builder_->getPtrTy() });
+    llvm::Value* result = builder_->CreateCall(awaitFn, { promiseVal }, "await_result");
+
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerAsyncReturn(HIRInstruction* inst) {
+    // AsyncReturn: resolve the promise and return it
+    // async_return %val
+
+    llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    // Box the value if needed (for ts_promise_resolve_internal which expects TsValue*)
+    // For now, assume values coming from HIR are already properly typed
+
+    // Call ts_promise_resolve_internal(promise, value)
+    auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
+        builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+    builder_->CreateCall(resolveFn, { asyncPromise_, val });
+
+    // Return the promise (wrapped in ts_value_make_promise for boxing)
+    auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
+        builder_->getPtrTy(), { builder_->getPtrTy() });
+    llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+
+    builder_->CreateRet(boxedPromise);
 }
 
 //==============================================================================
