@@ -488,6 +488,11 @@ void Analyzer::visitContinueStatement(ast::ContinueStatement* node) {
     // No analysis needed for now
 }
 
+void Analyzer::visitLabeledStatement(ast::LabeledStatement* node) {
+    // Visit the inner statement
+    visit(node->statement.get());
+}
+
 void Analyzer::visitBlockStatement(ast::BlockStatement* node) {
     symbols.enterScope();
     for (auto& stmt : node->statements) {

@@ -722,9 +722,15 @@ function visitInternal(node) {
                 statements: node.statements.map(visit)
             };
         case ts.SyntaxKind.BreakStatement:
-            return { kind: "BreakStatement" };
+            return {
+                kind: "BreakStatement",
+                label: node.label ? node.label.text : null
+            };
         case ts.SyntaxKind.ContinueStatement:
-            return { kind: "ContinueStatement" };
+            return {
+                kind: "ContinueStatement",
+                label: node.label ? node.label.text : null
+            };
         case ts.SyntaxKind.Block:
             return {
                 kind: "BlockStatement",
@@ -843,8 +849,11 @@ function visitInternal(node) {
                 ]
             };
         case ts.SyntaxKind.LabeledStatement:
-            // Drop the label and keep the inner statement to avoid label handling downstream.
-            return visit(node.statement);
+            return {
+                kind: "LabeledStatement",
+                label: node.label.text,
+                statement: visit(node.statement)
+            };
         case ts.SyntaxKind.Decorator:
             return null;
         // JSX support

@@ -1376,6 +1376,7 @@ public:
     void visitFunctionDeclaration(ast::FunctionDeclaration* node) override {}
     void visitBreakStatement(ast::BreakStatement* node) override {}
     void visitContinueStatement(ast::ContinueStatement* node) override {}
+    void visitLabeledStatement(ast::LabeledStatement* node) override { node->statement->accept(this); }
     void visitSwitchStatement(ast::SwitchStatement* node) override {}
     void visitTryStatement(ast::TryStatement* node) override {}
     void visitThrowStatement(ast::ThrowStatement* node) override {}
@@ -1898,6 +1899,7 @@ public:
     void visitRegularExpressionLiteral(ast::RegularExpressionLiteral*) override {}
     void visitBreakStatement(ast::BreakStatement*) override {}
     void visitContinueStatement(ast::ContinueStatement*) override {}
+    void visitLabeledStatement(ast::LabeledStatement* node) override { node->statement->accept(this); }
     void visitProgram(ast::Program*) override {}
     void visitFunctionDeclaration(ast::FunctionDeclaration*) override {}
     void visitClassDeclaration(ast::ClassDeclaration*) override {}
@@ -2036,6 +2038,7 @@ public:
     void visitThrowStatement(ast::ThrowStatement*) override {}
     void visitBreakStatement(ast::BreakStatement*) override {}
     void visitContinueStatement(ast::ContinueStatement*) override {}
+    void visitLabeledStatement(ast::LabeledStatement* node) override { node->statement->accept(this); }
     void visitIdentifier(ast::Identifier*) override {}
     void visitNumericLiteral(ast::NumericLiteral*) override {}
     void visitStringLiteral(ast::StringLiteral*) override {}

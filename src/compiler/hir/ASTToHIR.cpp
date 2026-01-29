@@ -112,15 +112,24 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
 
 bool ASTToHIR::isCapturedVariable(const std::string& name, size_t* outScopeIndex) {
     // Search from innermost to outermost scope
-    // Track if we cross a function boundary (excluding the innermost function's own boundary)
+    // A variable is captured only if it's defined in a DIFFERENT function (outer function)
+    // We need to track two things:
+    // 1. Have we seen our current function's boundary? (the first one we encounter)
+    // 2. Have we crossed into an outer function? (a second function boundary)
+    bool seenCurrentFunctionBoundary = false;
     bool crossedFunctionBoundary = false;
     size_t scopeIndex = scopes_.size();
 
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it, --scopeIndex) {
-        // Check if we're crossing into a different function's scope BEFORE looking up
-        // Skip the first function boundary (which is the current function)
-        if (it->isFunctionBoundary && it != scopes_.rbegin()) {
-            crossedFunctionBoundary = true;
+        // Track function boundaries
+        if (it->isFunctionBoundary) {
+            if (seenCurrentFunctionBoundary) {
+                // This is a second function boundary - we've crossed into an outer function
+                crossedFunctionBoundary = true;
+            } else {
+                // This is the first function boundary (our current function)
+                seenCurrentFunctionBoundary = true;
+            }
         }
 
         auto found = it->variables.find(name);
@@ -636,7 +645,16 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     auto* endBlock = createBlock("while.end");
 
     // Push loop context for break/continue
-    loopStack_.push({condBlock, endBlock});
+    LoopContext ctx = {condBlock, endBlock};
+    loopStack_.push(ctx);
+
+    // Register with label if this loop is labeled
+    std::string myLabel;
+    if (!pendingLabel_.empty()) {
+        myLabel = pendingLabel_;
+        labeledLoops_[myLabel] = ctx;
+        pendingLabel_.clear();  // Clear so nested loops don't also register
+    }
 
     builder_.createBranch(condBlock);
 
@@ -653,6 +671,9 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     emitBranchIfNeeded(condBlock);
 
     loopStack_.pop();
+    if (!myLabel.empty()) {
+        labeledLoops_.erase(myLabel);
+    }
 
     // Continue in end block
     builder_.setInsertPoint(endBlock);
@@ -665,8 +686,17 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     auto* updateBlock = createBlock("for.update");
     auto* endBlock = createBlock("for.end");
 
-    // Push loop context
-    loopStack_.push({updateBlock, endBlock});
+    // Push loop context (continue -> update, break -> end)
+    LoopContext ctx = {updateBlock, endBlock};
+    loopStack_.push(ctx);
+
+    // Register with label if this loop is labeled
+    std::string myLabel;
+    if (!pendingLabel_.empty()) {
+        myLabel = pendingLabel_;
+        labeledLoops_[myLabel] = ctx;
+        pendingLabel_.clear();  // Clear so nested loops don't also register
+    }
 
     pushScope();
 
@@ -703,6 +733,9 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     builder_.createBranch(condBlock);
 
     loopStack_.pop();
+    if (!myLabel.empty()) {
+        labeledLoops_.erase(myLabel);
+    }
     popScope();
 
     // Continue in end block
@@ -711,29 +744,44 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
 }
 
 void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
-    // Simplified for-of: get iterator and loop
+    // For-of loop: iterate over array elements
     auto* condBlock = createBlock("forof.cond");
     auto* bodyBlock = createBlock("forof.body");
+    auto* updateBlock = createBlock("forof.update");
     auto* endBlock = createBlock("forof.end");
 
-    loopStack_.push({condBlock, endBlock});
+    // Push loop context (continue -> update, break -> end)
+    LoopContext ctx = {updateBlock, endBlock};
+    loopStack_.push(ctx);
+
+    // Register with label if this loop is labeled
+    std::string myLabel;
+    if (!pendingLabel_.empty()) {
+        myLabel = pendingLabel_;
+        labeledLoops_[myLabel] = ctx;
+        pendingLabel_.clear();  // Clear so nested loops don't also register
+    }
+
     pushScope();
 
     // Get the iterable
     auto* iterExpr = dynamic_cast<ast::Expression*>(node->expression.get());
     auto iterable = iterExpr ? lowerExpression(iterExpr) : createValue(HIRType::makeAny());
 
-    // Create iterator (simplified - just use array length for now)
-    auto indexVal = createValue(HIRType::makeInt64());
-    builder_.createConstInt(indexVal, 0);
-
+    // Get array length
     auto lenVal = builder_.createArrayLength(iterable);
+
+    // Create index variable (alloca for SSA)
+    auto indexAlloca = builder_.createAlloca(HIRType::makeInt64(), "forof.idx");
+    auto zero = builder_.createConstInt(0);
+    builder_.createStore(zero, indexAlloca);
 
     builder_.createBranch(condBlock);
 
     // Condition: index < length
     builder_.setInsertPoint(condBlock);
     currentBlock_ = condBlock;
+    auto indexVal = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
     auto cond = builder_.createCmpLtI64(indexVal, lenVal);
     builder_.createCondBranch(cond, bodyBlock, endBlock);
 
@@ -742,7 +790,8 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     currentBlock_ = bodyBlock;
 
     // Get current element
-    auto elemVal = builder_.createGetElem(iterable, indexVal);
+    auto currentIndex = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+    auto elemVal = builder_.createGetElem(iterable, currentIndex);
 
     // Bind to loop variable
     if (node->initializer) {
@@ -758,14 +807,22 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
 
     lowerStatement(node->body.get());
 
-    // Increment index
-    auto one = builder_.createConstInt(1);
-    auto newIndex = builder_.createAddI64(indexVal, one);
-    // Note: In real SSA, we'd need a phi node here. For now, this is simplified.
+    // Branch to update (if not already terminated)
+    emitBranchIfNeeded(updateBlock);
 
-    emitBranchIfNeeded(condBlock);
+    // Update block: increment index
+    builder_.setInsertPoint(updateBlock);
+    currentBlock_ = updateBlock;
+    auto idxForInc = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+    auto one = builder_.createConstInt(1);
+    auto newIndex = builder_.createAddI64(idxForInc, one);
+    builder_.createStore(newIndex, indexAlloca);
+    builder_.createBranch(condBlock);
 
     loopStack_.pop();
+    if (!myLabel.empty()) {
+        labeledLoops_.erase(myLabel);
+    }
     popScope();
 
     builder_.setInsertPoint(endBlock);
@@ -773,21 +830,90 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
 }
 
 void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
-    // Simplified for-in: iterate over keys
+    // For-in loop: iterate over object keys
+    // Implementation: Get Object.keys(obj), then iterate over the array
+    auto* condBlock = createBlock("forin.cond");
     auto* bodyBlock = createBlock("forin.body");
+    auto* updateBlock = createBlock("forin.update");
     auto* endBlock = createBlock("forin.end");
 
-    loopStack_.push({bodyBlock, endBlock});
+    // Push loop context (continue -> update, break -> end)
+    LoopContext ctx = {updateBlock, endBlock};
+    loopStack_.push(ctx);
+
+    // Register with label if this loop is labeled
+    std::string myLabel;
+    if (!pendingLabel_.empty()) {
+        myLabel = pendingLabel_;
+        labeledLoops_[myLabel] = ctx;
+        pendingLabel_.clear();  // Clear so nested loops don't also register
+    }
+
     pushScope();
 
     // Get the object to iterate
     auto* objExpr = dynamic_cast<ast::Expression*>(node->expression.get());
     auto obj = objExpr ? lowerExpression(objExpr) : createValue(HIRType::makeObject());
 
-    // For now, just branch to end (proper implementation needs Object.keys)
-    builder_.createBranch(endBlock);
+    // Get keys array: Object.keys(obj)
+    auto keys = builder_.createCall("ts_object_keys", {obj}, HIRType::makeArray(HIRType::makeString()));
+
+    // Get array length
+    auto length = builder_.createArrayLength(keys);
+
+    // Create index variable (alloca for SSA)
+    auto indexAlloca = builder_.createAlloca(HIRType::makeInt64(), "forin.idx");
+    auto zero = builder_.createConstInt(0);
+    builder_.createStore(zero, indexAlloca);
+
+    // Branch to condition
+    builder_.createBranch(condBlock);
+
+    // Condition block: check index < length
+    builder_.setInsertPoint(condBlock);
+    currentBlock_ = condBlock;
+    auto indexVal = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+    auto cond = builder_.createCmpLtI64(indexVal, length);
+    builder_.createCondBranch(cond, bodyBlock, endBlock);
+
+    // Body block
+    builder_.setInsertPoint(bodyBlock);
+    currentBlock_ = bodyBlock;
+
+    // Get current key: keys[index]
+    auto currentIndex = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+    auto key = builder_.createGetElem(keys, currentIndex);
+
+    // Bind to loop variable
+    if (node->initializer) {
+        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
+        if (varDecl) {
+            auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
+            if (ident) {
+                defineVariable(ident->name, key);
+            }
+        }
+    }
+
+    // Lower body
+    lowerStatement(node->body.get());
+
+    // Branch to update (if not already terminated)
+    emitBranchIfNeeded(updateBlock);
+
+    // Update block: increment index
+    builder_.setInsertPoint(updateBlock);
+    currentBlock_ = updateBlock;
+    auto idxForInc = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+    auto one = builder_.createConstInt(1);
+    auto newIndex = builder_.createAddI64(idxForInc, one);
+    builder_.createStore(newIndex, indexAlloca);
+    builder_.createBranch(condBlock);
 
     loopStack_.pop();
+    if (!myLabel.empty()) {
+        labeledLoops_.erase(myLabel);
+    }
     popScope();
 
     builder_.setInsertPoint(endBlock);
@@ -795,15 +921,44 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
 }
 
 void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
-    if (!loopStack_.empty()) {
+    if (!node->label.empty()) {
+        // Labeled break - find the labeled loop
+        auto it = labeledLoops_.find(node->label);
+        if (it != labeledLoops_.end()) {
+            builder_.createBranch(it->second.breakTarget);
+        }
+    } else if (!loopStack_.empty()) {
+        // Unlabeled break - use innermost loop
         builder_.createBranch(loopStack_.top().breakTarget);
     }
 }
 
 void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
-    if (!loopStack_.empty()) {
+    if (!node->label.empty()) {
+        // Labeled continue - find the labeled loop
+        auto it = labeledLoops_.find(node->label);
+        if (it != labeledLoops_.end()) {
+            builder_.createBranch(it->second.continueTarget);
+        }
+    } else if (!loopStack_.empty()) {
+        // Unlabeled continue - use innermost loop
         builder_.createBranch(loopStack_.top().continueTarget);
     }
+}
+
+void ASTToHIR::visitLabeledStatement(ast::LabeledStatement* node) {
+    // Set the pending label - the next loop will register itself with this label
+    std::string savedLabel = pendingLabel_;
+    pendingLabel_ = node->label;
+
+    // Lower the statement (the loop will pick up pendingLabel_)
+    lowerStatement(node->statement.get());
+
+    // Clean up the label registration (in case the loop registered it)
+    labeledLoops_.erase(node->label);
+
+    // Restore any outer pending label
+    pendingLabel_ = savedLabel;
 }
 
 void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {

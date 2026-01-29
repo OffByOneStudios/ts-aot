@@ -194,6 +194,7 @@ private:
     void visitExportAssignment(ast::ExportAssignment* node) override;
     void visitBreakStatement(ast::BreakStatement* node) override;
     void visitContinueStatement(ast::ContinueStatement* node) override;
+    void visitLabeledStatement(ast::LabeledStatement* node) override;
     void visitTemplateExpression(ast::TemplateExpression* node);
     void visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node);
     void visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) override;

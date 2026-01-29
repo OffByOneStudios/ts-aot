@@ -714,10 +714,22 @@ StmtPtr parseStatement(const json& j) {
     } else if (kind == "BreakStatement") {
         auto node = std::make_unique<BreakStatement>();
         setLocation(node.get(), j);
+        if (j.contains("label") && !j["label"].is_null()) {
+            node->label = j["label"].get<std::string>();
+        }
         return node;
     } else if (kind == "ContinueStatement") {
         auto node = std::make_unique<ContinueStatement>();
         setLocation(node.get(), j);
+        if (j.contains("label") && !j["label"].is_null()) {
+            node->label = j["label"].get<std::string>();
+        }
+        return node;
+    } else if (kind == "LabeledStatement") {
+        auto node = std::make_unique<LabeledStatement>();
+        setLocation(node.get(), j);
+        node->label = j["label"].get<std::string>();
+        node->statement = parseStatement(j["statement"]);
         return node;
     } else if (kind == "ImportDeclaration") {
         auto node = std::make_unique<ImportDeclaration>();

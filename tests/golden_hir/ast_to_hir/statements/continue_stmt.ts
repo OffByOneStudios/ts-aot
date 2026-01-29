@@ -1,6 +1,5 @@
 // Test: Continue statement generates correct HIR branch to loop header
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR load_capture bug - uses load_capture for local variable in while loop
 
 // HIR-CHECK: define @user_main() -> f64
 
