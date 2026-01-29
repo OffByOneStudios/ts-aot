@@ -529,13 +529,10 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::Yield:          lowerYield(inst); break;
         case HIROpcode::YieldStar:      lowerYieldStar(inst); break;
 
-        // Checked arithmetic (not yet implemented)
-        case HIROpcode::AddI64Checked:
-        case HIROpcode::SubI64Checked:
-        case HIROpcode::MulI64Checked:
-            SPDLOG_WARN("Checked arithmetic not yet implemented, using unchecked");
-            // Fall through to unchecked versions
-            break;
+        // Checked arithmetic (with overflow detection)
+        case HIROpcode::AddI64Checked: lowerAddI64Checked(inst); break;
+        case HIROpcode::SubI64Checked: lowerSubI64Checked(inst); break;
+        case HIROpcode::MulI64Checked: lowerMulI64Checked(inst); break;
 
         default:
             SPDLOG_ERROR("Unknown HIR opcode: {}", static_cast<int>(inst->opcode));
@@ -631,6 +628,85 @@ void HIRToLLVM::lowerNegI64(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
     llvm::Value* result = builder_->CreateNeg(val, "neg");
     setValue(inst->result, result);
+}
+
+//==============================================================================
+// Checked Integer Arithmetic (with overflow detection)
+//==============================================================================
+
+void HIRToLLVM::lowerAddI64Checked(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    HIRBlock* overflowBlock = getOperandBlock(inst->operands[2]);
+
+    // Use LLVM's signed add with overflow intrinsic
+    llvm::Function* intrinsic = llvm::Intrinsic::getDeclaration(
+        module_.get(), llvm::Intrinsic::sadd_with_overflow, {builder_->getInt64Ty()});
+    llvm::Value* resultStruct = builder_->CreateCall(intrinsic, {lhs, rhs}, "add_overflow");
+
+    // Extract result and overflow flag
+    llvm::Value* result = builder_->CreateExtractValue(resultStruct, 0, "add_result");
+    llvm::Value* overflow = builder_->CreateExtractValue(resultStruct, 1, "add_overflow_flag");
+
+    setValue(inst->result, result);
+
+    // Create continuation block for the non-overflow case
+    llvm::BasicBlock* continueBB = llvm::BasicBlock::Create(
+        context_, "add_no_overflow", currentFunction_);
+
+    // Branch to overflow block if overflow occurred
+    builder_->CreateCondBr(overflow, getBlock(overflowBlock), continueBB);
+    builder_->SetInsertPoint(continueBB);
+}
+
+void HIRToLLVM::lowerSubI64Checked(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    HIRBlock* overflowBlock = getOperandBlock(inst->operands[2]);
+
+    // Use LLVM's signed sub with overflow intrinsic
+    llvm::Function* intrinsic = llvm::Intrinsic::getDeclaration(
+        module_.get(), llvm::Intrinsic::ssub_with_overflow, {builder_->getInt64Ty()});
+    llvm::Value* resultStruct = builder_->CreateCall(intrinsic, {lhs, rhs}, "sub_overflow");
+
+    // Extract result and overflow flag
+    llvm::Value* result = builder_->CreateExtractValue(resultStruct, 0, "sub_result");
+    llvm::Value* overflow = builder_->CreateExtractValue(resultStruct, 1, "sub_overflow_flag");
+
+    setValue(inst->result, result);
+
+    // Create continuation block for the non-overflow case
+    llvm::BasicBlock* continueBB = llvm::BasicBlock::Create(
+        context_, "sub_no_overflow", currentFunction_);
+
+    // Branch to overflow block if overflow occurred
+    builder_->CreateCondBr(overflow, getBlock(overflowBlock), continueBB);
+    builder_->SetInsertPoint(continueBB);
+}
+
+void HIRToLLVM::lowerMulI64Checked(HIRInstruction* inst) {
+    llvm::Value* lhs = getOperandValue(inst->operands[0]);
+    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    HIRBlock* overflowBlock = getOperandBlock(inst->operands[2]);
+
+    // Use LLVM's signed mul with overflow intrinsic
+    llvm::Function* intrinsic = llvm::Intrinsic::getDeclaration(
+        module_.get(), llvm::Intrinsic::smul_with_overflow, {builder_->getInt64Ty()});
+    llvm::Value* resultStruct = builder_->CreateCall(intrinsic, {lhs, rhs}, "mul_overflow");
+
+    // Extract result and overflow flag
+    llvm::Value* result = builder_->CreateExtractValue(resultStruct, 0, "mul_result");
+    llvm::Value* overflow = builder_->CreateExtractValue(resultStruct, 1, "mul_overflow_flag");
+
+    setValue(inst->result, result);
+
+    // Create continuation block for the non-overflow case
+    llvm::BasicBlock* continueBB = llvm::BasicBlock::Create(
+        context_, "mul_no_overflow", currentFunction_);
+
+    // Branch to overflow block if overflow occurred
+    builder_->CreateCondBr(overflow, getBlock(overflowBlock), continueBB);
+    builder_->SetInsertPoint(continueBB);
 }
 
 //==============================================================================
@@ -1931,10 +2007,57 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerCallVirtual(HIRInstruction* inst) {
-    // TODO: Implement vtable dispatch
-    SPDLOG_WARN("CallVirtual not yet implemented");
+    // CallVirtual: %r = call_virtual %obj, <vtable_idx>, (%args...)
+    // Used for virtual method dispatch through an object's vtable
+    //
+    // TsObject layout (with C++ virtual inheritance):
+    //   offset 0: C++ vtable pointer (implicit from virtual methods)
+    //   offset 8: TsObject::vtable (explicit vtable for custom dispatch)
+    //   offset 16: TsObject::magic
+    //
+    // The explicit vtable is an array of function pointers:
+    //   vtable[0] = parent vtable pointer (for inheritance)
+    //   vtable[1+] = method function pointers
+
+    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    int64_t vtableIdx = getOperandInt(inst->operands[1]);
+
+    // Load the explicit vtable pointer from offset 8 (TsObject::vtable)
+    // GEP with i8 type to get byte offset
+    llvm::Value* vtablePtrAddr = builder_->CreateGEP(
+        builder_->getInt8Ty(),
+        obj,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 8),
+        "vtable_addr"
+    );
+    llvm::Value* vtable = builder_->CreateLoad(builder_->getPtrTy(), vtablePtrAddr, "vtable");
+
+    // Load the function pointer from vtable[vtableIdx]
+    // vtable is void** so each entry is 8 bytes
+    llvm::Value* funcPtrAddr = builder_->CreateGEP(
+        builder_->getPtrTy(),
+        vtable,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), vtableIdx),
+        "func_ptr_addr"
+    );
+    llvm::Value* funcPtr = builder_->CreateLoad(builder_->getPtrTy(), funcPtrAddr, "func_ptr");
+
+    // Build argument list: object as 'this', then remaining arguments
+    std::vector<llvm::Value*> args;
+    args.push_back(obj);  // 'this' pointer
+    for (size_t i = 2; i < inst->operands.size(); ++i) {
+        args.push_back(getOperandValue(inst->operands[i]));
+    }
+
+    // Build function type: ptr (ptr, ptr, ...) - all pointers
+    std::vector<llvm::Type*> paramTypes(args.size(), builder_->getPtrTy());
+    llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+
+    // Call the virtual function
+    llvm::Value* result = builder_->CreateCall(ft, funcPtr, args, "vcall_result");
+
     if (inst->result) {
-        setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        setValue(inst->result, result);
     }
 }
 
