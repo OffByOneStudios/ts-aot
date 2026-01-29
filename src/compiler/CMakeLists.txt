@@ -156,6 +156,7 @@ add_library(tscompiler_lib STATIC
     hir/passes/BuiltinResolutionPass.cpp
     hir/passes/TypePropagationPass.cpp
     hir/passes/ConstantFoldingPass.cpp
+    hir/passes/DeadCodeEliminationPass.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 

@@ -295,9 +295,9 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Fold comparisons (==, !=, <, <=, >, >=)
 
 ### 5.4 DeadCodeEliminationPass
-- [ ] Remove unused instructions
-- [ ] Remove unreachable blocks
-- [ ] Remove dead stores
+- [x] Remove unused instructions (liveness analysis with backward propagation)
+- [x] Remove unreachable blocks (BFS from entry block)
+- [x] Remove dead stores (side-effect analysis)
 
 ### 5.5 InliningPass
 - [ ] Inline small functions
@@ -353,6 +353,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - `src/compiler/hir/passes/TypePropagationPass.cpp`
 - `src/compiler/hir/passes/ConstantFoldingPass.h`
 - `src/compiler/hir/passes/ConstantFoldingPass.cpp`
+- `src/compiler/hir/passes/DeadCodeEliminationPass.h`
+- `src/compiler/hir/passes/DeadCodeEliminationPass.cpp`
 
 ---
 
@@ -364,11 +366,17 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 2: Resolution Passes | 75% |
 | Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
-| Phase 5: Optimization Passes | 35% |
+| Phase 5: Optimization Passes | 50% |
 
-**Overall: ~90% Complete**
+**Overall: ~92% Complete**
 
 ### Recent Progress (2026-01-28)
+- **DeadCodeEliminationPass implemented:**
+  - Liveness analysis with backward propagation from roots
+  - Side-effect detection for calls, stores, mutations
+  - Unreachable block detection via BFS from entry
+  - Removes unused instructions after constant folding
+  - Full test verification with unused variables/computations
 - **ConstantFoldingPass implemented:**
   - Integer arithmetic folding (add, sub, mul, div, mod)
   - Float arithmetic folding (add, sub, mul, div)
@@ -423,8 +431,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **DeadCodeEliminationPass** - Remove unused instructions and blocks
-2. **InliningPass** - Inline small functions and lambda callbacks
+1. **InliningPass** - Inline small functions and lambda callbacks
+2. **EscapeAnalysisPass** - Track object escapes for stack allocation
 3. **Async/await** - Required for async I/O patterns
 4. **Getters/setters** - OOP pattern for computed properties
 5. **Private fields (#field)** - Modern class encapsulation
