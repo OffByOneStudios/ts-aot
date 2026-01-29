@@ -7,18 +7,24 @@
 
 ## Current Progress
 
-**Tests Implemented: 24 / 183 (13%)**
+**Tests Implemented: 29 / 183 (16%)**
 
 ### Completed Test Files
 
 | Category | Files | Count |
 |----------|-------|-------|
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
-| AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt | 6 |
+| AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of*, for_in*, break_continue, continue_stmt*, labeled_stmt* | 11 |
 | AST→HIR Functions | basic_function, closure | 2 |
 | AST→HIR Classes | basic_class | 1 |
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
+
+*Note: Files marked with * are XFAIL tests tracking known HIR implementation bugs:*
+- `for_of`: load_capture bug - uses load_capture for local variable
+- `for_in`: loop body not generated
+- `continue_stmt`: load_capture bug in while loops
+- `labeled_stmt`: labeled break doesn't exit outer loop
 
 ## Overview
 
