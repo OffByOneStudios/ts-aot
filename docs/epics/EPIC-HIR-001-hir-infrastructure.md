@@ -69,10 +69,10 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] console.* resolution
 - [x] Math.* resolution
 - [x] JSON.* resolution
-- [ ] Object.* static methods (keys, values, entries, assign)
-- [ ] Array.* static methods (isArray, from, of)
-- [ ] Number.* static methods (isNaN, isFinite, parseInt, parseFloat)
-- [ ] String.* static methods (fromCharCode, fromCodePoint)
+- [x] Object.* static methods (keys, values, entries, assign, hasOwn, fromEntries, create, freeze, seal, is, getPrototypeOf, setPrototypeOf, isFrozen, isSealed, isExtensible, preventExtensions, defineProperty, defineProperties, getOwnPropertyDescriptor, getOwnPropertyDescriptors, getOwnPropertyNames, groupBy)
+- [x] Array.* static methods (isArray, from, of)
+- [x] Number.* static methods (isNaN, isFinite, isInteger, isSafeInteger, parseInt, parseFloat)
+- [x] String.* static methods (fromCharCode, fromCodePoint, raw)
 
 ---
 
@@ -113,11 +113,11 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Array literals
 - [x] Object literals
 - [x] Template literals (simple)
-- [ ] Template literals (spans/expressions)
+- [x] Template literals (spans/expressions)
 - [ ] Tagged template literals (stub exists)
 - [ ] Comma expressions
-- [ ] Optional chaining (?.)
-- [ ] Nullish coalescing (??)
+- [x] Optional chaining (?.)
+- [x] Nullish coalescing (??)
 - [ ] Spread elements (stub exists)
 - [ ] Await expressions (stub exists)
 - [ ] Yield expressions (stub exists)
@@ -142,11 +142,11 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Static methods
 - [x] Instance properties
 - [x] Static properties
-- [ ] Getters/setters
+- [x] Getters/setters (object literals)
 - [ ] Private fields (#field)
 - [x] Inheritance (extends)
 - [x] Super calls
-- [ ] Static blocks
+- [x] Static blocks
 
 ### 3.5 Types and Patterns
 - [x] Destructuring (object patterns)
@@ -162,12 +162,12 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Type alias declarations (type-only, no codegen)
 
 ### 3.6 Modules
-- [ ] Import declarations (stub exists)
-- [ ] Export declarations (stub exists)
-- [ ] Default exports
-- [ ] Named exports
-- [ ] Re-exports
-- [ ] Dynamic imports (stub exists)
+- [x] Import declarations (handled at module resolution, no-op at HIR)
+- [x] Export declarations (handled at module resolution, no-op at HIR)
+- [x] Default exports (handled at module resolution)
+- [x] Named exports (handled at module resolution)
+- [x] Re-exports (handled at module resolution)
+- [ ] Dynamic imports (requires runtime support)
 
 ### 3.7 Other
 - [ ] RegExp literals (stub exists)
@@ -368,14 +368,42 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase | Completion |
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
-| Phase 2: Resolution Passes | 75% |
-| Phase 3: ASTToHIR Coverage | 90% |
+| Phase 2: Resolution Passes | 95% |
+| Phase 3: ASTToHIR Coverage | 93% |
 | Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 80% |
 
-**Overall: ~93% Complete**
+**Overall: ~95% Complete**
+
+### Recent Progress (2026-01-28 evening)
+- **Template literals with expressions:**
+  - Support for `${expression}` interpolation within template strings
+  - TemplateLiteral, TemplateHead, TemplateMiddle, TemplateTail spans
+  - Lowered using StringConcat chain with expression stringification
+  - ts_stringification runtime helper for non-string expression values
+- **Optional chaining (`?.`):**
+  - Property access: `obj?.prop`
+  - Element access: `arr?.[index]`
+  - Null/undefined check → short-circuit to undefined
+  - Creates conditional branch with null coalescing
+- **Nullish coalescing (`??`):**
+  - `a ?? b` evaluates to `b` only if `a` is null/undefined
+  - CmpEqPtr with null constant + conditional branch
+  - Fixed double-boxing issue in HIRToLLVM::lowerStore (boxes non-pointer values when storing to Any-typed allocas)
+- **Getters/setters in object literals:**
+  - `get propName() { }` and `set propName(value) { }`
+  - Uses `__getter_<name>` and `__setter_<name>` naming convention
+  - Full closure support (captures from outer scope)
+  - Implicit `this` parameter for method body
 
 ### Recent Progress (2026-01-28)
+- **BuiltinRegistry static method registrations completed:**
+  - Object static methods: keys, values, entries, assign, hasOwn, fromEntries, create, freeze, seal, is, getPrototypeOf, setPrototypeOf, isFrozen, isSealed, isExtensible, preventExtensions, defineProperty, defineProperties, getOwnPropertyDescriptor, getOwnPropertyDescriptors, getOwnPropertyNames, groupBy (22 methods)
+  - Array static methods: isArray, from, of (3 methods)
+  - Number static methods: isNaN, isFinite, isInteger, isSafeInteger, parseInt, parseFloat (6 methods)
+  - String static methods: fromCharCode, fromCodePoint, raw (3 methods)
+  - Global functions: parseInt, parseFloat, isNaN, isFinite (4 functions)
+  - All registered in BuiltinRegistry for proper HIR resolution
 - **InliningPass fully working and enabled:**
   - Call graph analysis with call count tracking
   - DFS-based recursion detection (prevents infinite inlining)
@@ -455,5 +483,5 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 1. **EscapeAnalysisPass** - Track object escapes for stack allocation
 2. **Async/await** - Required for async I/O patterns
-3. **Getters/setters** - OOP pattern for computed properties
+3. **Class getters/setters** - Extend getter/setter support from object literals to classes
 4. **Private fields (#field)** - Modern class encapsulation

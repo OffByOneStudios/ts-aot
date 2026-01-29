@@ -9,8 +9,11 @@ BuiltinRegistry& BuiltinRegistry::instance() {
 
 BuiltinRegistry::BuiltinRegistry() {
     registerArrayMethods();
+    registerArrayStaticMethods();
     registerStringMethods();
+    registerStringStaticMethods();
     registerObjectMethods();
+    registerNumberStaticMethods();
     registerMathBuiltins();
     registerConsoleBuiltins();
     registerJSONBuiltins();
@@ -109,6 +112,24 @@ void BuiltinRegistry::registerArrayMethods() {
     // Higher-order methods (need callback handling - leave as dynamic for now)
     // These will be handled specially or left for runtime dispatch
     // map, filter, reduce, forEach, find, findIndex, some, every, flatMap
+}
+
+void BuiltinRegistry::registerArrayStaticMethods() {
+    auto boolType = HIRType::makeBool();
+    auto anyType = HIRType::makeAny();
+    auto arrayType = HIRType::makeArray(anyType);
+
+    // Array static methods
+    builtinGlobals_.insert("Array");
+
+    globalTable_[{"Array", "isArray"}] =
+        BuiltinResolution::makeRuntimeCall("ts_array_isArray", boolType);
+
+    globalTable_[{"Array", "from"}] =
+        BuiltinResolution::makeRuntimeCall("ts_array_from", arrayType);
+
+    globalTable_[{"Array", "of"}] =
+        BuiltinResolution::makeRuntimeCall("ts_array_of", arrayType);
 }
 
 void BuiltinRegistry::registerStringMethods() {
@@ -233,14 +254,140 @@ void BuiltinRegistry::registerStringMethods() {
         MethodResolution::makeRuntimeCall("ts_string_search", 1, intType);
 }
 
+void BuiltinRegistry::registerStringStaticMethods() {
+    auto stringType = HIRType::makeString();
+
+    // String static methods
+    builtinGlobals_.insert("String");
+
+    globalTable_[{"String", "fromCharCode"}] =
+        BuiltinResolution::makeRuntimeCall("ts_string_fromCharCode", stringType);
+
+    globalTable_[{"String", "fromCodePoint"}] =
+        BuiltinResolution::makeRuntimeCall("ts_string_fromCodePoint", stringType);
+
+    globalTable_[{"String", "raw"}] =
+        BuiltinResolution::makeRuntimeCall("ts_string_raw", stringType);
+}
+
+void BuiltinRegistry::registerNumberStaticMethods() {
+    auto boolType = HIRType::makeBool();
+    auto floatType = HIRType::makeFloat64();
+    auto intType = HIRType::makeInt64();
+
+    // Number static methods
+    builtinGlobals_.insert("Number");
+
+    globalTable_[{"Number", "isNaN"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isNaN", boolType);
+
+    globalTable_[{"Number", "isFinite"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isFinite", boolType);
+
+    globalTable_[{"Number", "isInteger"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isInteger", boolType);
+
+    globalTable_[{"Number", "isSafeInteger"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isSafeInteger", boolType);
+
+    globalTable_[{"Number", "parseInt"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_parseInt", intType);
+
+    globalTable_[{"Number", "parseFloat"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_parseFloat", floatType);
+
+    // Global parseInt/parseFloat also
+    globalTable_[{"", "parseInt"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_parseInt", intType);
+
+    globalTable_[{"", "parseFloat"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_parseFloat", floatType);
+
+    globalTable_[{"", "isNaN"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isNaN", boolType);
+
+    globalTable_[{"", "isFinite"}] =
+        BuiltinResolution::makeRuntimeCall("ts_number_isFinite", boolType);
+}
+
 void BuiltinRegistry::registerObjectMethods() {
     auto anyType = HIRType::makeAny();
     auto stringType = HIRType::makeString();
+    auto boolType = HIRType::makeBool();
+    auto objectType = HIRType::makeObject();
     auto arrayType = HIRType::makeArray(anyType);
     auto stringArrayType = HIRType::makeArray(stringType);
 
     // Object instance methods are typically handled via property access
-    // These are Object static methods which would be registered in globalTable_
+
+    // Object static methods
+    builtinGlobals_.insert("Object");
+
+    globalTable_[{"Object", "keys"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_keys", stringArrayType);
+
+    globalTable_[{"Object", "values"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_values", arrayType);
+
+    globalTable_[{"Object", "entries"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_entries", arrayType);
+
+    globalTable_[{"Object", "assign"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_assign", objectType);
+
+    globalTable_[{"Object", "hasOwn"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_hasOwn", boolType);
+
+    globalTable_[{"Object", "fromEntries"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_fromEntries", objectType);
+
+    globalTable_[{"Object", "getOwnPropertyNames"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_getOwnPropertyNames", stringArrayType);
+
+    globalTable_[{"Object", "getOwnPropertyDescriptor"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_getOwnPropertyDescriptor", objectType);
+
+    globalTable_[{"Object", "create"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_create", objectType);
+
+    globalTable_[{"Object", "freeze"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_freeze", objectType);
+
+    globalTable_[{"Object", "seal"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_seal", objectType);
+
+    globalTable_[{"Object", "is"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_is", boolType);
+
+    globalTable_[{"Object", "getPrototypeOf"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_getPrototypeOf", objectType);
+
+    globalTable_[{"Object", "setPrototypeOf"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_setPrototypeOf", objectType);
+
+    globalTable_[{"Object", "isFrozen"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_isFrozen", boolType);
+
+    globalTable_[{"Object", "isSealed"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_isSealed", boolType);
+
+    globalTable_[{"Object", "isExtensible"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_isExtensible", boolType);
+
+    globalTable_[{"Object", "preventExtensions"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_preventExtensions", objectType);
+
+    globalTable_[{"Object", "defineProperty"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_defineProperty", objectType);
+
+    globalTable_[{"Object", "defineProperties"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_defineProperties", objectType);
+
+    globalTable_[{"Object", "getOwnPropertyDescriptors"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_getOwnPropertyDescriptors", objectType);
+
+    globalTable_[{"Object", "groupBy"}] =
+        BuiltinResolution::makeRuntimeCall("ts_object_groupBy", objectType);
 }
 
 void BuiltinRegistry::registerMathBuiltins() {
