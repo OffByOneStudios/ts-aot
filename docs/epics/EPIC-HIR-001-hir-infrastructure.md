@@ -60,8 +60,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Array method resolution (push → ArrayPush, length → ArrayLength)
 - [x] String method resolution (charAt, substring, etc. → runtime calls)
 - [x] Registry-based lookup (no inline string checks)
-- [ ] Object method resolution (keys, values, entries)
-- [ ] Map/Set method resolution
+- [x] Object method resolution (keys, values, entries) - via BuiltinResolutionPass globalTable_
+- [x] Map/Set method resolution (get, set, has, delete, clear, forEach, entries, keys, values, size + ES2024 Set methods)
 
 ### 2.2 BuiltinResolutionPass
 - [x] Basic pass structure
@@ -118,8 +118,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [ ] Comma expressions
 - [x] Optional chaining (?.)
 - [x] Nullish coalescing (??)
-- [ ] Spread elements (stub exists)
-- [ ] Await expressions (stub exists)
+- [x] Spread elements
+- [x] Await expressions
 - [ ] Yield expressions (stub exists)
 
 ### 3.3 Functions
@@ -130,7 +130,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Arrow functions
 - [x] Function expressions
 - [x] Closures / captured variables (full implementation with mutable captures and nested closures)
-- [ ] Async functions (stub exists)
+- [x] Async functions
 - [ ] Generator functions (stub exists)
 - [ ] Async generators
 
@@ -143,7 +143,7 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Instance properties
 - [x] Static properties
 - [x] Getters/setters (object literals)
-- [ ] Private fields (#field)
+- [x] Private fields (#field)
 - [x] Inheritance (extends)
 - [x] Super calls
 - [x] Static blocks
@@ -368,12 +368,30 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase | Completion |
 |-------|------------|
 | Phase 1: Core Infrastructure | 100% |
-| Phase 2: Resolution Passes | 95% |
-| Phase 3: ASTToHIR Coverage | 93% |
+| Phase 2: Resolution Passes | 100% |
+| Phase 3: ASTToHIR Coverage | 95% |
 | Phase 4: HIRToLLVM Coverage | 98% |
 | Phase 5: Optimization Passes | 80% |
 
-**Overall: ~95% Complete**
+**Overall: ~96% Complete**
+
+### Recent Progress (2026-01-29)
+- **Async/await support:**
+  - Await expressions now generate HIR Await opcode
+  - Async functions properly call ts_promise_await for blocking semantics
+  - AsyncReturn opcode for resolving async function promises
+- **Spread elements:**
+  - Full support for array spread in literals and function calls
+  - Object spread in object literals
+- **Private fields (#field):**
+  - Class private field declarations and access
+  - Proper encapsulation via mangled property names
+- **Map/Set method resolution:**
+  - Added HIRTypeKind::Map and HIRTypeKind::Set type kinds
+  - Registered all Map instance methods (get, set, has, delete, clear, size, forEach, entries, keys, values)
+  - Registered all Set instance methods (add, has, delete, clear, size, forEach, entries, keys, values)
+  - Registered ES2024 Set methods (union, intersection, difference, symmetricDifference, isSubsetOf, isSupersetOf, isDisjointFrom)
+  - Registered Map.groupBy static method
 
 ### Recent Progress (2026-01-28 evening)
 - **Template literals with expressions:**
@@ -482,6 +500,6 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 ## Next Steps (Priority Order)
 
 1. **EscapeAnalysisPass** - Track object escapes for stack allocation
-2. **Async/await** - Required for async I/O patterns
-3. **Class getters/setters** - Extend getter/setter support from object literals to classes
-4. **Private fields (#field)** - Modern class encapsulation
+2. **Class getters/setters** - Extend getter/setter support from object literals to classes
+3. **Generator functions** - `function*` and `yield` support
+4. **Enum declarations** - Full enum support with const enums
