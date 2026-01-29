@@ -1,6 +1,5 @@
 // Test: Arrow functions generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR-to-LLVM crash when calling stored function pointer
 
 // Simple arrow function with expression body
 // HIR-CHECK: define @user_main() -> f64

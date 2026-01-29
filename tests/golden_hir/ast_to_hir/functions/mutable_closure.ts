@@ -1,6 +1,5 @@
 // Test: Mutable closure captures generate correct HIR
-// RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR-to-LLVM type mismatch in closure return lowering
+// RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // Counter function with mutable captured variable
 // HIR-CHECK: define @makeCounter

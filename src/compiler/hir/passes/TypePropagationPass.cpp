@@ -254,8 +254,9 @@ std::shared_ptr<HIRType> TypePropagationPass::inferResultType(HIRInstruction* in
         case HIROpcode::MakeClosure:
             return HIRType::makePtr();  // Closure pointer
         case HIROpcode::LoadCapture:
-            // Type comes from the capture's type in the function
-            return HIRType::makeAny();
+            // Type is already set correctly in ASTToHIR based on the captured variable's type
+            // Return nullptr to preserve the existing type
+            return nullptr;
 
         // Select
         case HIROpcode::Select:
