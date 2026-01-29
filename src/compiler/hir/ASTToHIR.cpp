@@ -1049,10 +1049,48 @@ void ASTToHIR::visitExportAssignment(ast::ExportAssignment* node) {
 //==============================================================================
 
 void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
+    const std::string& op = node->op;
+
+    // Handle nullish coalescing with short-circuit semantics
+    if (op == "??") {
+        // Lower left side first
+        auto lhs = lowerExpression(node->left.get());
+
+        // Box lhs to Any if needed (for consistent phi node type)
+        auto boxedLhs = boxValueIfNeeded(lhs);
+
+        // Check if lhs is nullish
+        auto isNullish = builder_.createCall("ts_value_is_nullish", {boxedLhs}, HIRType::makeBool());
+
+        // Create unique block names
+        int blockId = blockCounter_++;
+        auto* rhsBlock = builder_.createBlock("nullish_rhs_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("nullish_merge_" + std::to_string(blockId));
+
+        auto* lhsBlock = builder_.getInsertBlock();
+
+        // If nullish, evaluate rhs; otherwise use lhs
+        builder_.createCondBranch(isNullish, rhsBlock, mergeBlock);
+
+        // Evaluate rhs
+        builder_.setInsertPoint(rhsBlock);
+        auto rhs = lowerExpression(node->right.get());
+        // Box rhs to Any if needed (for consistent phi node type)
+        auto boxedRhs = boxValueIfNeeded(rhs);
+        auto* finalRhsBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // Merge with phi node - both values should now be Any/ptr type
+        builder_.setInsertPoint(mergeBlock);
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(boxedLhs, lhsBlock));
+        phiIncoming.push_back(std::make_pair(boxedRhs, finalRhsBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
+        return;
+    }
+
     auto lhs = lowerExpression(node->left.get());
     auto rhs = lowerExpression(node->right.get());
-
-    const std::string& op = node->op;
 
     // Helper to check if an operand is a string type
     auto isString = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
@@ -1436,6 +1474,40 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
     auto obj = lowerExpression(node->expression.get());
+
+    // Handle optional chaining: obj?.[idx]
+    if (node->isOptional) {
+        // Check if obj is nullish
+        auto isNullish = builder_.createCall("ts_value_is_nullish", {obj}, HIRType::makeBool());
+
+        // Create undefined value before branching (so it's in the current block)
+        auto undef = builder_.createConstUndefined();
+
+        // Create blocks for conditional access (with unique names)
+        int blockId = blockCounter_++;
+        auto* accessBlock = builder_.createBlock("opt_access_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("opt_merge_" + std::to_string(blockId));
+
+        // Branch based on nullish check
+        auto* currentBlock = builder_.getInsertBlock();
+        builder_.createCondBranch(isNullish, mergeBlock, accessBlock);
+
+        // Access block: perform the element access
+        builder_.setInsertPoint(accessBlock);
+        auto idx = lowerExpression(node->argumentExpression.get());
+        auto accessResult = builder_.createGetElem(obj, idx);
+        auto* finalAccessBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // Merge block: phi node to select result
+        builder_.setInsertPoint(mergeBlock);
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(undef, currentBlock));
+        phiIncoming.push_back(std::make_pair(accessResult, finalAccessBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
+        return;
+    }
+
     auto idx = lowerExpression(node->argumentExpression.get());
     lastValue_ = builder_.createGetElem(obj, idx);
 }
@@ -1478,6 +1550,38 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Handle optional chaining: obj?.prop
+    if (node->isOptional) {
+        // Check if obj is nullish
+        auto isNullish = builder_.createCall("ts_value_is_nullish", {obj}, HIRType::makeBool());
+
+        // Create undefined value before branching (so it's in the current block)
+        auto undef = builder_.createConstUndefined();
+
+        // Create blocks for conditional access (with unique names)
+        int blockId = blockCounter_++;
+        auto* accessBlock = builder_.createBlock("opt_access_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("opt_merge_" + std::to_string(blockId));
+
+        // Branch based on nullish check
+        auto* currentBlock = builder_.getInsertBlock();
+        builder_.createCondBranch(isNullish, mergeBlock, accessBlock);
+
+        // Access block: perform the property access
+        builder_.setInsertPoint(accessBlock);
+        auto accessResult = builder_.createGetPropStatic(obj, node->name, propType);
+        auto* finalAccessBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // Merge block: phi node to select result
+        builder_.setInsertPoint(mergeBlock);
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(undef, currentBlock));
+        phiIncoming.push_back(std::make_pair(accessResult, finalAccessBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
+        return;
+    }
+
     lastValue_ = builder_.createGetPropStatic(obj, node->name, propType);
 }
 
@@ -1485,9 +1589,39 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
     auto obj = builder_.createNewObjectDynamic();
 
     for (auto& prop : node->properties) {
-        // Save the object before visiting property (which may overwrite lastValue_)
-        lastValue_ = obj;
-        prop->accept(this);
+        // Handle MethodDefinition (including getters/setters) specially
+        if (auto* method = dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+            // Create a function for the method
+            auto funcValue = lowerMethodDefinitionToFunction(method);
+
+            // Determine the property key
+            std::string keyName;
+            if (auto* id = dynamic_cast<ast::Identifier*>(method->nameNode.get())) {
+                if (method->isGetter) {
+                    keyName = "__getter_" + id->name;
+                } else if (method->isSetter) {
+                    keyName = "__setter_" + id->name;
+                } else {
+                    keyName = id->name;
+                }
+            } else if (!method->name.empty()) {
+                if (method->isGetter) {
+                    keyName = "__getter_" + method->name;
+                } else if (method->isSetter) {
+                    keyName = "__setter_" + method->name;
+                } else {
+                    keyName = method->name;
+                }
+            }
+
+            if (!keyName.empty() && funcValue) {
+                builder_.createSetPropStatic(obj, keyName, funcValue);
+            }
+        } else {
+            // Save the object before visiting property (which may overwrite lastValue_)
+            lastValue_ = obj;
+            prop->accept(this);
+        }
     }
 
     // Ensure lastValue_ is the object after all properties are set
@@ -2024,13 +2158,203 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     }
 }
 
+std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodDefinition* node) {
+    // Generate function name based on method name and type
+    std::string prefix = node->isGetter ? "__getter_" : (node->isSetter ? "__setter_" : "__method_");
+    std::string methodName = node->name;
+    if (methodName.empty() && node->nameNode) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(node->nameNode.get())) {
+            methodName = id->name;
+        }
+    }
+    std::string funcName = prefix + methodName + "_" + std::to_string(methodCounter_++);
+
+    // Create HIR function
+    auto func = std::make_unique<HIRFunction>(funcName);
+    func->isAsync = node->isAsync;
+    func->isGenerator = node->isGenerator;
+
+    // Add implicit 'this' parameter for methods
+    func->params.push_back({"this", HIRType::makeAny()});
+
+    // Handle explicit parameters
+    for (auto& param : node->parameters) {
+        auto paramType = param->type.empty()
+            ? HIRType::makeAny()
+            : convertTypeFromString(param->type);
+
+        std::string paramName;
+        if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+            paramName = ident->name;
+        } else {
+            paramName = "param" + std::to_string(func->params.size());
+        }
+        func->params.push_back({paramName, paramType});
+    }
+
+    // Determine return type
+    std::shared_ptr<HIRType> returnType = HIRType::makeAny();
+    if (!node->returnType.empty()) {
+        returnType = convertTypeFromString(node->returnType);
+    } else if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
+        auto funcType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
+        if (funcType->returnType) {
+            returnType = convertType(funcType->returnType);
+        }
+    }
+    func->returnType = returnType;
+
+    // Save current context
+    HIRFunction* savedFunc = currentFunction_;
+    HIRBlock* savedBlock = currentBlock_;
+    auto savedCaptures = pendingCaptures_;
+
+    currentFunction_ = func.get();
+    clearPendingCaptures();
+
+    // Create entry block
+    auto entryBlock = func->createBlock("entry");
+    builder_.setInsertPoint(entryBlock);
+    currentBlock_ = entryBlock;
+
+    // Enter function scope
+    pushFunctionScope(func.get());
+
+    // Register parameters in the scope (including 'this')
+    for (size_t i = 0; i < func->params.size(); ++i) {
+        const auto& [paramName, paramType] = func->params[i];
+        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+        defineVariable(paramName, paramValue);
+    }
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Lower function body
+    for (auto& stmt : node->body) {
+        lowerStatement(stmt.get());
+    }
+
+    // Add implicit return undefined if no terminator
+    if (!hasTerminator()) {
+        builder_.createReturnVoid();
+    }
+
+    // Copy pending captures to the function's captures list
+    for (const auto& cap : pendingCaptures_) {
+        func->captures.push_back({cap.name, cap.type});
+    }
+    bool hasClosure = !pendingCaptures_.empty();
+
+    // Save the captures list for later use
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
+
+    popScope();
+
+    // Restore saved context
+    currentFunction_ = savedFunc;
+    currentBlock_ = savedBlock;
+    pendingCaptures_ = savedCaptures;
+    if (savedBlock) {
+        builder_.setInsertPoint(savedBlock);
+    }
+
+    // Get the function pointer before adding to module
+    HIRFunction* funcPtr = func.get();
+
+    // Add function to module
+    module_->functions.push_back(std::move(func));
+
+    // Build function type for the closure
+    auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+    for (const auto& [paramName, paramType] : funcPtr->params) {
+        closureFuncType->paramTypes.push_back(paramType);
+    }
+    closureFuncType->returnType = funcPtr->returnType;
+
+    // Return either a closure or plain function pointer
+    if (hasClosure && savedFunc) {
+        // Create a closure with captured values
+        std::vector<std::shared_ptr<HIRValue>> captureValues;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            const auto& capType = cap.second;
+
+            size_t scopeIndex = 0;
+            bool needsCapturePropagation = isCapturedVariable(capName, &scopeIndex);
+
+            if (needsCapturePropagation) {
+                registerCapture(capName, capType, scopeIndex);
+                currentFunction_->hasClosure = true;
+                bool alreadyInCaptures = false;
+                for (const auto& existingCap : currentFunction_->captures) {
+                    if (existingCap.first == capName) {
+                        alreadyInCaptures = true;
+                        break;
+                    }
+                }
+                if (!alreadyInCaptures) {
+                    currentFunction_->captures.push_back({capName, capType});
+                }
+                auto val = builder_.createLoadCapture(capName, capType);
+                captureValues.push_back(val);
+            } else {
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    std::shared_ptr<HIRValue> val;
+                    if (info->isAlloca && info->elemType) {
+                        val = builder_.createLoad(info->elemType, info->value);
+                    } else {
+                        val = info->value;
+                    }
+                    captureValues.push_back(val);
+                } else {
+                    captureValues.push_back(builder_.createConstNull());
+                }
+            }
+        }
+        return builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+    } else {
+        return builder_.createLoadFunction(funcName);
+    }
+}
+
 void ASTToHIR::visitTemplateExpression(ast::TemplateExpression* node) {
-    // Concatenate template parts
-    lastValue_ = builder_.createConstString("");
+    // Start with the head string
+    auto currentStr = builder_.createConstString(node->head);
 
     for (auto& span : node->spans) {
-        // TODO: Concatenate spans
+        // Lower the embedded expression
+        auto exprValue = lowerExpression(span.expression.get());
+
+        // Convert to string based on type
+        std::shared_ptr<HIRValue> strValue;
+        auto exprType = span.expression->inferredType;
+
+        if (exprType && exprType->kind == TypeKind::Int) {
+            // Integer to string conversion
+            strValue = builder_.createCall("ts_string_from_int", {exprValue}, HIRType::makeString());
+        } else if (exprType && exprType->kind == TypeKind::Double) {
+            // Double to string conversion
+            strValue = builder_.createCall("ts_string_from_double", {exprValue}, HIRType::makeString());
+        } else if (exprType && exprType->kind == TypeKind::Boolean) {
+            // Boolean to string conversion
+            strValue = builder_.createCall("ts_string_from_bool", {exprValue}, HIRType::makeString());
+        } else if (exprType && exprType->kind == TypeKind::String) {
+            // Already a string, use directly
+            strValue = exprValue;
+        } else {
+            // For any/boxed types, use runtime coercion to string
+            strValue = builder_.createCall("ts_string_from_value", {exprValue}, HIRType::makeString());
+        }
+
+        // Concatenate expression result
+        currentStr = builder_.createStringConcat(currentStr, strValue);
+
+        // Concatenate the literal part after the expression
+        auto litValue = builder_.createConstString(span.literal);
+        currentStr = builder_.createStringConcat(currentStr, litValue);
     }
+
+    lastValue_ = currentStr;
 }
 
 void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {

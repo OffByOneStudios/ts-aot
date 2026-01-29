@@ -1137,8 +1137,26 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         llvm::Type* targetType = getLLVMType(expectedType);
         llvm::Type* valType = val->getType();
 
+        // When storing to an Any-typed alloca (ptr), we need to box non-pointer values
+        if (expectedType->kind == HIRTypeKind::Any && targetType->isPointerTy()) {
+            if (valType->isIntegerTy(64)) {
+                // Box integer
+                auto fn = getTsValueMakeInt();
+                val = builder_->CreateCall(fn, {val});
+            } else if (valType->isDoubleTy()) {
+                // Box double
+                auto fn = getTsValueMakeDouble();
+                val = builder_->CreateCall(fn, {val});
+            } else if (valType->isIntegerTy(1)) {
+                // Box boolean
+                llvm::Value* i32Val = builder_->CreateZExt(val, builder_->getInt32Ty());
+                auto fn = getTsValueMakeBool();
+                val = builder_->CreateCall(fn, {i32Val});
+            }
+            // If val is already a pointer, no boxing needed
+        }
         // Handle type coercion: i64 -> f64
-        if (valType->isIntegerTy(64) && targetType->isDoubleTy()) {
+        else if (valType->isIntegerTy(64) && targetType->isDoubleTy()) {
             val = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "i64_to_f64");
         }
         // Handle type coercion: f64 -> i64
@@ -1413,6 +1431,11 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
 
+    // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+    if (idx->getType()->isDoubleTy()) {
+        idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+    }
+
     auto fn = getTsArrayGet();
     llvm::Value* result = builder_->CreateCall(fn, {arr, idx});
 
@@ -1439,6 +1462,11 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
+
+    // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+    if (idx->getType()->isDoubleTy()) {
+        idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+    }
 
     // ts_array_set expects (ptr, i64, ptr) - need to box value if not a pointer
     if (!val->getType()->isPointerTy()) {
@@ -1567,6 +1595,68 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_undefined", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_value_is_nullish - returns bool, not ptr
+    if (funcName == "ts_value_is_nullish") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_nullish", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle string conversion functions - they take specific types, not ptr
+    if (funcName == "ts_string_from_int") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_int", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_string_from_double") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_double", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_string_from_bool") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_bool", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_string_from_value") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_value", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
         if (inst->result) {
             setValue(inst->result, result);

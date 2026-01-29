@@ -224,6 +224,9 @@ private:
     // Box a value to Any/ptr type if needed for select instructions
     std::shared_ptr<HIRValue> boxValueIfNeeded(std::shared_ptr<HIRValue> value);
 
+    // Lower a MethodDefinition to a function value (for object literal methods including getters/setters)
+    std::shared_ptr<HIRValue> lowerMethodDefinitionToFunction(ast::MethodDefinition* method);
+
     //==========================================================================
     // Type Conversion
     //==========================================================================
@@ -250,6 +253,9 @@ private:
 
     // Counter for generating unique function expression names
     int funcExprCounter_ = 0;
+
+    // Counter for generating unique method names (for object literal methods)
+    int methodCounter_ = 0;
 
     // Scope management
     void pushScope();

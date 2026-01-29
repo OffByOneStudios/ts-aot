@@ -142,8 +142,11 @@ private:
     BuiltinRegistry& operator=(const BuiltinRegistry&) = delete;
 
     void registerArrayMethods();
+    void registerArrayStaticMethods();
     void registerStringMethods();
+    void registerStringStaticMethods();
     void registerObjectMethods();
+    void registerNumberStaticMethods();
     void registerMathBuiltins();
     void registerConsoleBuiltins();
     void registerJSONBuiltins();
