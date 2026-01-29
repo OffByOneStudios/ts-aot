@@ -1881,8 +1881,10 @@ void ASTToHIR::visitStringLiteral(ast::StringLiteral* node) {
 }
 
 void ASTToHIR::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
-    // TODO: RegExp support
-    lastValue_ = builder_.createConstString(node->text);
+    // Create a RegExp object from the literal text (e.g., "/pattern/flags")
+    // The runtime function ts_regexp_from_literal parses the literal and creates the RegExp
+    auto literalStr = builder_.createConstString(node->text);
+    lastValue_ = builder_.createCall("ts_regexp_from_literal", {literalStr}, HIRType::makeObject());
 }
 
 void ASTToHIR::visitNumericLiteral(ast::NumericLiteral* node) {
@@ -1891,8 +1893,19 @@ void ASTToHIR::visitNumericLiteral(ast::NumericLiteral* node) {
 }
 
 void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
-    // TODO: BigInt support - for now convert to int
-    lastValue_ = builder_.createConstInt(0);
+    // Create a BigInt from the literal string value (e.g., "123n" -> "123")
+    // The value in the AST includes the 'n' suffix, so we need to strip it
+    std::string valueStr = node->value;
+    if (!valueStr.empty() && valueStr.back() == 'n') {
+        valueStr.pop_back();
+    }
+
+    // Create the string constant for the BigInt value
+    auto strVal = builder_.createConstString(valueStr);
+
+    // Call ts_bigint_create_str with base 10
+    auto radix = builder_.createConstInt(10);
+    lastValue_ = builder_.createCall("ts_bigint_create_str", {strVal, radix}, HIRType::makeObject());
 }
 
 void ASTToHIR::visitBooleanLiteral(ast::BooleanLiteral* node) {
@@ -3182,25 +3195,108 @@ void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
 }
 
 //==============================================================================
-// JSX Lowering (stubs)
+// JSX Lowering
 //==============================================================================
 
+// Helper to lower JSX attributes into a props object
+std::shared_ptr<HIRValue> ASTToHIR::lowerJsxAttributes(const std::vector<ast::NodePtr>& attributes) {
+    // Create a new object for props
+    auto propsObj = builder_.createNewObjectDynamic();
+
+    for (const auto& attr : attributes) {
+        if (auto* jsxAttr = dynamic_cast<ast::JsxAttribute*>(attr.get())) {
+            // Regular attribute: <div name={value} /> or <div name="string" />
+            auto propName = builder_.createConstString(jsxAttr->name);
+            std::shared_ptr<HIRValue> propValue;
+
+            if (jsxAttr->initializer) {
+                // Attribute has a value
+                propValue = lowerExpression(jsxAttr->initializer.get());
+            } else {
+                // Boolean attribute: <div disabled /> means disabled={true}
+                propValue = builder_.createConstBool(true);
+            }
+
+            builder_.createSetPropDynamic(propsObj, propName, propValue);
+        } else if (auto* spreadAttr = dynamic_cast<ast::JsxSpreadAttribute*>(attr.get())) {
+            // Spread attribute: <div {...props} />
+            // For now, we'll just skip spread attributes (would need Object.assign)
+            // A more complete implementation would merge the spread object into props
+            if (spreadAttr->expression) {
+                // TODO: Implement spread merging with Object.assign
+                // For now, just evaluate the expression for side effects
+                lowerExpression(spreadAttr->expression.get());
+            }
+        }
+    }
+
+    return propsObj;
+}
+
+// Helper to lower JSX children into an array
+std::shared_ptr<HIRValue> ASTToHIR::lowerJsxChildren(const std::vector<ast::ExprPtr>& children) {
+    // Create a new array for children
+    auto childArray = builder_.createNewArrayBoxed(builder_.createConstInt(static_cast<int64_t>(children.size())));
+
+    int64_t index = 0;
+    for (const auto& child : children) {
+        auto childValue = lowerExpression(child.get());
+        auto indexVal = builder_.createConstInt(index++);
+        builder_.createSetElem(childArray, indexVal, childValue);
+    }
+
+    return childArray;
+}
+
 void ASTToHIR::visitJsxElement(ast::JsxElement* node) {
-    // TODO: JSX support
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstNull(lastValue_);
+    // Lower JSX element: <tagName attributes>children</tagName>
+    // Creates an object { type: tagName, props: {...}, children: [...] }
+
+    // Create tag name string
+    auto tagName = builder_.createConstString(node->tagName);
+
+    // Lower attributes to props object
+    auto props = lowerJsxAttributes(node->attributes);
+
+    // Lower children to array
+    auto children = lowerJsxChildren(node->children);
+
+    // Call ts_jsx_create_element(tagName, props, children)
+    lastValue_ = builder_.createCall("ts_jsx_create_element", {tagName, props, children}, HIRType::makeObject());
 }
 
 void ASTToHIR::visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) {
-    // TODO: JSX support
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstNull(lastValue_);
+    // Lower self-closing JSX element: <tagName attributes />
+    // Same as JsxElement but with empty children
+
+    // Create tag name string
+    auto tagName = builder_.createConstString(node->tagName);
+
+    // Lower attributes to props object
+    auto props = lowerJsxAttributes(node->attributes);
+
+    // Create empty children array
+    auto children = builder_.createNewArrayBoxed(builder_.createConstInt(0));
+
+    // Call ts_jsx_create_element(tagName, props, children)
+    lastValue_ = builder_.createCall("ts_jsx_create_element", {tagName, props, children}, HIRType::makeObject());
 }
 
 void ASTToHIR::visitJsxFragment(ast::JsxFragment* node) {
-    // TODO: JSX support
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstNull(lastValue_);
+    // Lower JSX fragment: <>children</>
+    // Fragments have null tagName and no props
+
+    // Null tagName for fragments
+    auto tagName = builder_.createConstNull();
+
+    // Empty props object for fragments
+    auto props = builder_.createNewObjectDynamic();
+
+    // Lower children to array
+    auto children = lowerJsxChildren(node->children);
+
+    // Call ts_jsx_create_element(null, {}, children)
+    lastValue_ = builder_.createCall("ts_jsx_create_element", {tagName, props, children}, HIRType::makeObject());
 }
 
 void ASTToHIR::visitJsxExpression(ast::JsxExpression* node) {

@@ -228,6 +228,16 @@ private:
     std::shared_ptr<HIRValue> lowerMethodDefinitionToFunction(ast::MethodDefinition* method);
 
     //==========================================================================
+    // JSX Helpers
+    //==========================================================================
+
+    // Lower JSX attributes into a props object
+    std::shared_ptr<HIRValue> lowerJsxAttributes(const std::vector<ast::NodePtr>& attributes);
+
+    // Lower JSX children into an array
+    std::shared_ptr<HIRValue> lowerJsxChildren(const std::vector<ast::ExprPtr>& children);
+
+    //==========================================================================
     // Type Conversion
     //==========================================================================
 

@@ -170,11 +170,11 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [ ] Dynamic imports (requires runtime support)
 
 ### 3.7 Other
-- [ ] RegExp literals (stub exists)
-- [ ] BigInt literals (partial - converts to int)
-- [ ] JSX elements (stub exists)
-- [ ] JSX fragments (stub exists)
-- [ ] Decorators
+- [x] RegExp literals (calls ts_regexp_from_literal)
+- [x] BigInt literals (calls ts_bigint_create_str)
+- [x] JSX elements (calls ts_jsx_create_element with props/children)
+- [x] JSX fragments (calls ts_jsx_create_element with null tagName)
+- [x] Decorators (handled in IRGenerator, not HIR)
 
 ---
 
