@@ -300,9 +300,12 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - [x] Remove dead stores (side-effect analysis)
 
 ### 5.5 InliningPass
-- [ ] Inline small functions
-- [ ] Inline lambda callbacks
-- [ ] Cost model for inlining decisions
+- [x] Inline small functions (with configurable size threshold)
+- [x] Inline lambda callbacks (simple single-block lambdas)
+- [x] Cost model for inlining decisions (size-based with call count bonus)
+- [x] Call graph analysis with recursion detection
+- [x] Value cloning and remapping for inlining transformation
+- [x] Multi-block function support (disabled by default)
 
 ### 5.6 EscapeAnalysisPass
 - [ ] Track object escapes
@@ -355,6 +358,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 - `src/compiler/hir/passes/ConstantFoldingPass.cpp`
 - `src/compiler/hir/passes/DeadCodeEliminationPass.h`
 - `src/compiler/hir/passes/DeadCodeEliminationPass.cpp`
+- `src/compiler/hir/passes/InliningPass.h`
+- `src/compiler/hir/passes/InliningPass.cpp`
 
 ---
 
@@ -366,11 +371,22 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 2: Resolution Passes | 75% |
 | Phase 3: ASTToHIR Coverage | 90% |
 | Phase 4: HIRToLLVM Coverage | 98% |
-| Phase 5: Optimization Passes | 50% |
+| Phase 5: Optimization Passes | 70% |
 
 **Overall: ~92% Complete**
 
 ### Recent Progress (2026-01-28)
+- **InliningPass implemented:**
+  - Call graph analysis with call count tracking
+  - DFS-based recursion detection (prevents infinite inlining)
+  - Size-based cost model with configurable thresholds
+  - Single-call-site bonus (more aggressive inlining for unique calls)
+  - Simple lambda detection for callback inlining
+  - Value cloning and remapping with proper SSA maintenance
+  - Return value extraction and call result replacement
+  - Multi-block function support (disabled by default for safety)
+  - Fixed-point iteration until no more inlining opportunities
+  - Currently disabled by default; enable via `passManager.addPass(std::make_unique<hir::InliningPass>())`
 - **DeadCodeEliminationPass implemented:**
   - Liveness analysis with backward propagation from roots
   - Side-effect detection for calls, stores, mutations
@@ -431,8 +447,9 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **InliningPass** - Inline small functions and lambda callbacks
-2. **EscapeAnalysisPass** - Track object escapes for stack allocation
-3. **Async/await** - Required for async I/O patterns
-4. **Getters/setters** - OOP pattern for computed properties
-5. **Private fields (#field)** - Modern class encapsulation
+1. **HIR type mismatch fix** - Fix i64 vs double type handling in HIRToLLVM
+2. **Enable InliningPass** - Test and enable in default pipeline after type fix
+3. **EscapeAnalysisPass** - Track object escapes for stack allocation
+4. **Async/await** - Required for async I/O patterns
+5. **Getters/setters** - OOP pattern for computed properties
+6. **Private fields (#field)** - Modern class encapsulation
