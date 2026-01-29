@@ -15,7 +15,7 @@
 |----------|-------|-------|
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
 | AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in*, break_continue, continue_stmt, labeled_stmt | 11 |
-| AST→HIR Functions | basic_function, closure*, arrows*, declarations*, mutable_closure* | 5 |
+| AST→HIR Functions | basic_function, closure*, arrows*, declarations, mutable_closure* | 5 |
 | AST→HIR Classes | basic_class | 1 |
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
@@ -24,7 +24,6 @@
 - `for_in`: HIR correct, but lowering doesn't emit console.log output in for-in body
 - `closure`: HIR pipeline does not yet support closure lowering
 - `arrows`: Crash when calling stored function pointer
-- `declarations`: Uses neg.i64 for float negation, should be neg.f64
 - `mutable_closure`: Type mismatch in closure return lowering
 
 ## Overview

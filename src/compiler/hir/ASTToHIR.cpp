@@ -2759,7 +2759,14 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
     const std::string& op = node->op;
     if (op == "-") {
-        lastValue_ = builder_.createNegI64(operand);
+        // Determine if operand is floating point
+        bool isFloat = false;
+        if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
+            isFloat = true;
+        } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
+            isFloat = true;
+        }
+        lastValue_ = isFloat ? builder_.createNegF64(operand) : builder_.createNegI64(operand);
     } else if (op == "!") {
         lastValue_ = builder_.createLogicalNot(operand);
     } else if (op == "~") {

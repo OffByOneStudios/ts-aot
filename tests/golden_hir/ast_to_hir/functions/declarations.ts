@@ -1,6 +1,5 @@
 // Test: Function declarations with parameters and return
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR uses neg.i64 for float negation, should be neg.f64
 
 // Test function with multiple parameters
 // HIR-CHECK: define @add({{.*}}, {{.*}}) -> f64
