@@ -184,6 +184,13 @@ bool InliningPass::shouldInline(const HIRFunction& caller, const HIRFunction& ca
         return false;
     }
 
+    // Never inline getters/setters - they have semantic meaning
+    // Naming convention: ClassName___getter_propName or ClassName___setter_propName
+    if (callee.name.find("___getter_") != std::string::npos ||
+        callee.name.find("___setter_") != std::string::npos) {
+        return false;
+    }
+
     // Check inline depth
     if (currentInlineDepth_ >= config_.maxInlineDepth) {
         return false;

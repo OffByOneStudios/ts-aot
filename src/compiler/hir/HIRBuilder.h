@@ -1063,6 +1063,29 @@ public:
         emit(std::move(inst));
     }
 
+    //==========================================================================
+    // Async/Await
+    //==========================================================================
+
+    // Await: Wait for a promise to resolve and return the result
+    // In the current implementation, this synchronously gets the promise value
+    std::shared_ptr<HIRValue> createAwait(std::shared_ptr<HIRValue> promise) {
+        auto result = createValue(HIRType::makeAny());  // Awaited value is any
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::Await);
+        inst->result = result;
+        inst->operands.push_back(promise);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // AsyncReturn: Resolve the async function's promise with a value and return
+    // This is a terminator instruction
+    void createAsyncReturn(std::shared_ptr<HIRValue> val) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::AsyncReturn);
+        inst->operands.push_back(val);
+        emit(std::move(inst));
+    }
+
 private:
     HIRModule* module_;
     HIRFunction* currentFunction_ = nullptr;
