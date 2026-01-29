@@ -31,6 +31,8 @@ enum class HIRTypeKind {
     String,     // TsString*
     Object,     // Generic object (TsObject*)
     Array,      // TsArray* (may be typed or boxed)
+    Map,        // TsMap*
+    Set,        // TsSet*
     Function,   // Function pointer
     Class,      // Specific class instance
     Any,        // Boxed TsValue*
@@ -64,6 +66,8 @@ struct HIRType {
     static std::shared_ptr<HIRType> makeAny() { return std::make_shared<HIRType>(HIRTypeKind::Any); }
     static std::shared_ptr<HIRType> makePtr() { return std::make_shared<HIRType>(HIRTypeKind::Ptr); }
     static std::shared_ptr<HIRType> makeObject() { return std::make_shared<HIRType>(HIRTypeKind::Object); }
+    static std::shared_ptr<HIRType> makeMap() { return std::make_shared<HIRType>(HIRTypeKind::Map); }
+    static std::shared_ptr<HIRType> makeSet() { return std::make_shared<HIRType>(HIRTypeKind::Set); }
 
     static std::shared_ptr<HIRType> makeArray(std::shared_ptr<HIRType> elem, bool typed = false) {
         auto t = std::make_shared<HIRType>(HIRTypeKind::Array);

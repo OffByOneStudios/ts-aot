@@ -13,6 +13,8 @@ BuiltinRegistry::BuiltinRegistry() {
     registerStringMethods();
     registerStringStaticMethods();
     registerObjectMethods();
+    registerMapMethods();
+    registerSetMethods();
     registerNumberStaticMethods();
     registerMathBuiltins();
     registerConsoleBuiltins();
@@ -390,6 +392,116 @@ void BuiltinRegistry::registerObjectMethods() {
         BuiltinResolution::makeRuntimeCall("ts_object_groupBy", objectType);
 }
 
+void BuiltinRegistry::registerMapMethods() {
+    auto anyType = HIRType::makeAny();
+    auto intType = HIRType::makeInt64();
+    auto boolType = HIRType::makeBool();
+    auto mapType = HIRType::makeMap();
+    auto voidType = HIRType::makeVoid();
+    auto arrayType = HIRType::makeArray(anyType);
+
+    // Map instance methods
+    methodTable_[{HIRTypeKind::Map, "get"}] =
+        MethodResolution::makeRuntimeCall("ts_map_get", 1, anyType);
+
+    methodTable_[{HIRTypeKind::Map, "set"}] =
+        MethodResolution::makeRuntimeCall("ts_map_set", 2, mapType);
+
+    methodTable_[{HIRTypeKind::Map, "has"}] =
+        MethodResolution::makeRuntimeCall("ts_map_has", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Map, "delete"}] =
+        MethodResolution::makeRuntimeCall("ts_map_delete", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Map, "clear"}] =
+        MethodResolution::makeRuntimeCall("ts_map_clear", 0, voidType);
+
+    methodTable_[{HIRTypeKind::Map, "size"}] =
+        MethodResolution::makeRuntimeCall("ts_map_size", 0, intType);
+
+    methodTable_[{HIRTypeKind::Map, "forEach"}] =
+        MethodResolution::makeRuntimeCall("ts_map_forEach", -1, voidType);
+
+    // Iterator methods (return arrays for now)
+    methodTable_[{HIRTypeKind::Map, "entries"}] =
+        MethodResolution::makeRuntimeCall("ts_map_entries", 0, arrayType);
+
+    methodTable_[{HIRTypeKind::Map, "keys"}] =
+        MethodResolution::makeRuntimeCall("ts_map_keys", 0, arrayType);
+
+    methodTable_[{HIRTypeKind::Map, "values"}] =
+        MethodResolution::makeRuntimeCall("ts_map_values", 0, arrayType);
+
+    // Map static methods
+    builtinGlobals_.insert("Map");
+
+    globalTable_[{"Map", "groupBy"}] =
+        BuiltinResolution::makeRuntimeCall("ts_map_groupBy", mapType);
+}
+
+void BuiltinRegistry::registerSetMethods() {
+    auto anyType = HIRType::makeAny();
+    auto intType = HIRType::makeInt64();
+    auto boolType = HIRType::makeBool();
+    auto setType = HIRType::makeSet();
+    auto voidType = HIRType::makeVoid();
+    auto arrayType = HIRType::makeArray(anyType);
+
+    // Set instance methods
+    methodTable_[{HIRTypeKind::Set, "add"}] =
+        MethodResolution::makeRuntimeCall("ts_set_add", 1, setType);
+
+    methodTable_[{HIRTypeKind::Set, "has"}] =
+        MethodResolution::makeRuntimeCall("ts_set_has", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Set, "delete"}] =
+        MethodResolution::makeRuntimeCall("ts_set_delete", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Set, "clear"}] =
+        MethodResolution::makeRuntimeCall("ts_set_clear", 0, voidType);
+
+    methodTable_[{HIRTypeKind::Set, "size"}] =
+        MethodResolution::makeRuntimeCall("ts_set_size", 0, intType);
+
+    methodTable_[{HIRTypeKind::Set, "forEach"}] =
+        MethodResolution::makeRuntimeCall("ts_set_forEach", -1, voidType);
+
+    // Iterator methods (return arrays for now)
+    methodTable_[{HIRTypeKind::Set, "entries"}] =
+        MethodResolution::makeRuntimeCall("ts_set_entries", 0, arrayType);
+
+    methodTable_[{HIRTypeKind::Set, "keys"}] =
+        MethodResolution::makeRuntimeCall("ts_set_keys", 0, arrayType);
+
+    methodTable_[{HIRTypeKind::Set, "values"}] =
+        MethodResolution::makeRuntimeCall("ts_set_values", 0, arrayType);
+
+    // ES2024 Set methods
+    methodTable_[{HIRTypeKind::Set, "union"}] =
+        MethodResolution::makeRuntimeCall("ts_set_union", 1, setType);
+
+    methodTable_[{HIRTypeKind::Set, "intersection"}] =
+        MethodResolution::makeRuntimeCall("ts_set_intersection", 1, setType);
+
+    methodTable_[{HIRTypeKind::Set, "difference"}] =
+        MethodResolution::makeRuntimeCall("ts_set_difference", 1, setType);
+
+    methodTable_[{HIRTypeKind::Set, "symmetricDifference"}] =
+        MethodResolution::makeRuntimeCall("ts_set_symmetricDifference", 1, setType);
+
+    methodTable_[{HIRTypeKind::Set, "isSubsetOf"}] =
+        MethodResolution::makeRuntimeCall("ts_set_isSubsetOf", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Set, "isSupersetOf"}] =
+        MethodResolution::makeRuntimeCall("ts_set_isSupersetOf", 1, boolType);
+
+    methodTable_[{HIRTypeKind::Set, "isDisjointFrom"}] =
+        MethodResolution::makeRuntimeCall("ts_set_isDisjointFrom", 1, boolType);
+
+    // Set static methods
+    builtinGlobals_.insert("Set");
+}
+
 void BuiltinRegistry::registerMathBuiltins() {
     auto floatType = HIRType::makeFloat64();
     auto intType = HIRType::makeInt64();
@@ -608,6 +720,8 @@ bool BuiltinRegistry::isBuiltinType(HIRTypeKind kind) const {
         case HIRTypeKind::Array:
         case HIRTypeKind::String:
         case HIRTypeKind::Object:
+        case HIRTypeKind::Map:
+        case HIRTypeKind::Set:
             return true;
         default:
             return false;

@@ -15,6 +15,8 @@ std::string HIRType::toString() const {
         case HIRTypeKind::Float64: return "f64";
         case HIRTypeKind::String: return "string";
         case HIRTypeKind::Object: return "object";
+        case HIRTypeKind::Map: return "map";
+        case HIRTypeKind::Set: return "set";
         case HIRTypeKind::Any: return "any";
         case HIRTypeKind::Ptr: return "ptr";
         case HIRTypeKind::Array: {

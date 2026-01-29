@@ -146,6 +146,8 @@ private:
     void registerStringMethods();
     void registerStringStaticMethods();
     void registerObjectMethods();
+    void registerMapMethods();
+    void registerSetMethods();
     void registerNumberStaticMethods();
     void registerMathBuiltins();
     void registerConsoleBuiltins();
