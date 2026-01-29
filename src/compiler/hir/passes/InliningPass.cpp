@@ -362,8 +362,18 @@ std::vector<std::unique_ptr<HIRInstruction>> InliningPass::cloneInstructions(
 
     const auto& sourceBlock = callee.blocks[0];
 
-    // Track how many parameters we've seen (to map them to args)
-    size_t paramIndex = 0;
+    // Map callee parameters to caller arguments
+    // In HIR, parameters have IDs 0, 1, 2... matching their index in callee.params
+    // We create HIRValue objects for these parameters and map them to the actual arguments
+    for (size_t i = 0; i < callee.params.size() && i < args.size(); ++i) {
+        const auto& [paramName, paramType] = callee.params[i];
+        // Create a HIRValue representing the parameter (same as ASTToHIR does)
+        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+        // Map this parameter value to the corresponding argument from the caller
+        valueMap[paramValue] = args[i];
+        SPDLOG_DEBUG("Inlining: Mapping parameter {} (id={}) to argument {}",
+                     paramName, i, args[i]->toString());
+    }
 
     for (const auto& inst : sourceBlock->instructions) {
         // Create a clone of the instruction
@@ -381,14 +391,28 @@ std::vector<std::unique_ptr<HIRInstruction>> InliningPass::cloneInstructions(
         for (const auto& operand : inst->operands) {
             if (auto* val = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
                 // Check if this value should be remapped
+                // First try direct pointer match
                 auto mapIt = valueMap.find(*val);
                 if (mapIt != valueMap.end()) {
                     clone->operands.push_back(mapIt->second);
                 } else {
-                    // Check if this might be a parameter reference
-                    // Parameters are typically referenced but not defined in instructions
-                    // For simplicity, just copy the original value
-                    clone->operands.push_back(*val);
+                    // Check if this is a parameter reference by ID/name
+                    // Parameters have IDs 0, 1, 2... matching their index in params
+                    bool foundParam = false;
+                    for (const auto& [paramVal, argVal] : valueMap) {
+                        // Match by ID (parameter values have specific IDs)
+                        if (paramVal->id == (*val)->id && paramVal->name == (*val)->name) {
+                            clone->operands.push_back(argVal);
+                            foundParam = true;
+                            SPDLOG_DEBUG("Inlining: Remapped value {} to {}",
+                                        (*val)->toString(), argVal->toString());
+                            break;
+                        }
+                    }
+                    if (!foundParam) {
+                        // Not a parameter, just copy the original value
+                        clone->operands.push_back(*val);
+                    }
                 }
             } else {
                 // Copy non-value operands directly
@@ -402,7 +426,18 @@ std::vector<std::unique_ptr<HIRInstruction>> InliningPass::cloneInstructions(
             if (mapIt != valueMap.end()) {
                 clone->phiIncoming.push_back({mapIt->second, phiBlock});
             } else {
-                clone->phiIncoming.push_back({val, phiBlock});
+                // Check by ID/name for parameter values
+                bool foundParam = false;
+                for (const auto& [paramVal, argVal] : valueMap) {
+                    if (paramVal->id == val->id && paramVal->name == val->name) {
+                        clone->phiIncoming.push_back({argVal, phiBlock});
+                        foundParam = true;
+                        break;
+                    }
+                }
+                if (!foundParam) {
+                    clone->phiIncoming.push_back({val, phiBlock});
+                }
             }
         }
 

@@ -7,11 +7,10 @@
 namespace ts {
 using namespace ast;
 void Analyzer::visitNumericLiteral(ast::NumericLiteral* node) {
-    if (node->value == (int64_t)node->value) {
-        lastType = std::make_shared<Type>(TypeKind::Int);
-    } else {
-        lastType = std::make_shared<Type>(TypeKind::Double);
-    }
+    // In JavaScript/TypeScript, all numbers are IEEE 754 double-precision floats.
+    // Always use Double type to match TypeScript 'number' semantics and avoid
+    // type mismatches when passing to functions expecting 'number' parameters.
+    lastType = std::make_shared<Type>(TypeKind::Double);
     node->inferredType = lastType;
 }
 
