@@ -1086,6 +1086,32 @@ public:
         emit(std::move(inst));
     }
 
+    //==========================================================================
+    // Generator/Yield
+    //==========================================================================
+
+    // Yield: Yield a value from a generator function
+    // Returns the value passed to next() when the generator is resumed
+    std::shared_ptr<HIRValue> createYield(std::shared_ptr<HIRValue> value) {
+        auto result = createValue(HIRType::makeAny());  // Value from next() is any
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::Yield);
+        inst->result = result;
+        inst->operands.push_back(value);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // YieldStar: Delegate to another generator or iterable
+    // Returns the final value of the delegated generator
+    std::shared_ptr<HIRValue> createYieldStar(std::shared_ptr<HIRValue> iterable) {
+        auto result = createValue(HIRType::makeAny());  // Delegated result is any
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::YieldStar);
+        inst->result = result;
+        inst->operands.push_back(iterable);
+        emit(std::move(inst));
+        return result;
+    }
+
 private:
     HIRModule* module_;
     HIRFunction* currentFunction_ = nullptr;

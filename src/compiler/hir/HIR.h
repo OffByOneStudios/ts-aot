@@ -276,6 +276,10 @@ enum class HIROpcode {
     // Async/Await
     Await,              // %r = await %promise (await a promise, result is resolved value)
     AsyncReturn,        // async_return %val (resolve promise and return from async function)
+
+    // Generator/Yield
+    Yield,              // %r = yield %value (yield a value, returns value sent by next())
+    YieldStar,          // %r = yield* %iterable (delegate to another generator/iterable)
 };
 
 // Instruction operand
