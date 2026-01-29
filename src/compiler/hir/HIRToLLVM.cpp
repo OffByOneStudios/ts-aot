@@ -207,8 +207,8 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     }
 
     // Build function type
-    // For async functions, the return type is always ptr (Promise*)
-    llvm::Type* returnType = fn->isAsync ? builder_->getPtrTy() : getLLVMType(fn->returnType);
+    // For async and generator functions, the return type is always ptr (Promise*/Generator*)
+    llvm::Type* returnType = (fn->isAsync || fn->isGenerator) ? builder_->getPtrTy() : getLLVMType(fn->returnType);
     std::vector<llvm::Type*> paramTypes;
 
     // If this function has captures, add a hidden first parameter for the closure context
@@ -234,8 +234,8 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     llvm::Function* llvmFunc = module_->getFunction(fn->mangledName);
     if (!llvmFunc) {
         // Function wasn't forward-declared, create it now
-        // For async functions, the return type is always ptr (Promise*)
-        llvm::Type* returnType = fn->isAsync ? builder_->getPtrTy() : getLLVMType(fn->returnType);
+        // For async and generator functions, the return type is always ptr (Promise*/Generator*)
+        llvm::Type* returnType = (fn->isAsync || fn->isGenerator) ? builder_->getPtrTy() : getLLVMType(fn->returnType);
         std::vector<llvm::Type*> paramTypes;
 
         if (!fn->captures.empty()) {
@@ -261,13 +261,29 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     currentFunction_ = llvmFunc;
     currentHIRFunction_ = fn;
     isAsyncFunction_ = fn->isAsync;
+    isGeneratorFunction_ = fn->isGenerator;
     valueMap_.clear();
     blockMap_.clear();
     closureParam_ = nullptr;
     asyncPromise_ = nullptr;
+    generatorObject_ = nullptr;
 
-    // For async functions, we need to create a Promise first and store it
-    if (fn->isAsync) {
+    // For async generator functions (both isAsync and isGenerator), create an AsyncGenerator
+    if (fn->isAsync && fn->isGenerator) {
+        // Create entry block for async generator setup
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "async_gen_entry", llvmFunc);
+        builder_->SetInsertPoint(entryBB);
+
+        // Create an AsyncGenerator: ts_async_generator_create() -> TsAsyncGenerator*
+        llvm::FunctionType* createAsyncGenFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), {}, false);
+        llvm::FunctionCallee createAsyncGenFn = module_->getOrInsertFunction(
+            "ts_async_generator_create", createAsyncGenFt);
+        generatorObject_ = builder_->CreateCall(createAsyncGenFt, createAsyncGenFn.getCallee(), {}, "async_generator");
+        // Note: async generators don't use asyncPromise_ - they yield Promises directly
+    }
+    // For async functions (not generators), create a Promise
+    else if (fn->isAsync) {
         // Create entry block for async setup
         llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "async_entry", llvmFunc);
         builder_->SetInsertPoint(entryBB);
@@ -279,6 +295,19 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             "ts_promise_create", createPromiseFt);
         asyncPromise_ = builder_->CreateCall(createPromiseFt, createPromiseFn.getCallee(), {}, "promise");
     }
+    // For generator functions (not async), create a Generator
+    else if (fn->isGenerator) {
+        // Create entry block for generator setup
+        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "generator_entry", llvmFunc);
+        builder_->SetInsertPoint(entryBB);
+
+        // Create a Generator: ts_generator_create() -> TsGenerator*
+        llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), {}, false);
+        llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
+            "ts_generator_create", createGeneratorFt);
+        generatorObject_ = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), {}, "generator");
+    }
 
     // Create LLVM basic blocks for HIR blocks
     for (auto& block : fn->blocks) {
@@ -286,8 +315,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         blockMap_[block->label] = bb;
     }
 
-    // For async functions, branch from async_entry to the first HIR block
-    if (fn->isAsync && !fn->blocks.empty()) {
+    // For async, generator, or async generator functions, branch from entry to the first HIR block
+    // (The entry block was created above based on the function type)
+    if ((fn->isAsync || fn->isGenerator) && !fn->blocks.empty()) {
         llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0]->label];
         builder_->CreateBr(firstBlock);
     }
@@ -317,8 +347,10 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     currentFunction_ = nullptr;
     currentHIRFunction_ = nullptr;
     isAsyncFunction_ = false;
+    isGeneratorFunction_ = false;
     closureParam_ = nullptr;
     asyncPromise_ = nullptr;
+    generatorObject_ = nullptr;
 }
 
 void HIRToLLVM::lowerBlock(HIRBlock* block) {
@@ -492,6 +524,10 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         // Async/Await
         case HIROpcode::Await:          lowerAwait(inst); break;
         case HIROpcode::AsyncReturn:    lowerAsyncReturn(inst); break;
+
+        // Generator/Yield
+        case HIROpcode::Yield:          lowerYield(inst); break;
+        case HIROpcode::YieldStar:      lowerYieldStar(inst); break;
 
         // Checked arithmetic (not yet implemented)
         case HIROpcode::AddI64Checked:
@@ -2401,6 +2437,66 @@ void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
 void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
 
+    // For async generator functions, mark the async generator as done with the return value
+    if (isAsyncFunction_ && isGeneratorFunction_ && generatorObject_) {
+        // Box the return value if needed
+        llvm::Value* boxedVal = val;
+        if (!val->getType()->isPointerTy()) {
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_int");
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                    builder_->getPtrTy(), { builder_->getDoubleTy() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_double");
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_bool");
+            }
+        }
+
+        // Call ts_async_generator_return to mark as done with return value
+        auto returnFn = getOrDeclareRuntimeFunction("ts_async_generator_return",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { generatorObject_, boxedVal });
+
+        // Return the async generator object
+        builder_->CreateRet(generatorObject_);
+        return;
+    }
+
+    // For regular generator functions, a return marks the generator as done with the return value
+    if (isGeneratorFunction_ && generatorObject_) {
+        // Box the return value if needed
+        llvm::Value* boxedVal = val;
+        if (!val->getType()->isPointerTy()) {
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_int");
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                    builder_->getPtrTy(), { builder_->getDoubleTy() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_double");
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_bool");
+            }
+        }
+
+        // Call ts_generator_return to mark as done with return value
+        auto returnFn = getOrDeclareRuntimeFunction("ts_generator_return",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { generatorObject_, boxedVal });
+
+        // Return the generator object
+        builder_->CreateRet(generatorObject_);
+        return;
+    }
+
     // For async functions, a regular return should resolve the promise and return it
     if (isAsyncFunction_ && asyncPromise_) {
         // Box the return value if it's not already a pointer
@@ -2460,7 +2556,41 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
-    // For async functions, a void return should resolve the promise with undefined
+    // For async generator functions, a void return marks the async generator as done with undefined
+    if (isAsyncFunction_ && isGeneratorFunction_ && generatorObject_) {
+        // Get undefined value
+        auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+            builder_->getPtrTy(), {});
+        llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+
+        // Call ts_async_generator_return to mark as done with undefined
+        auto returnFn = getOrDeclareRuntimeFunction("ts_async_generator_return",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { generatorObject_, undefinedVal });
+
+        // Return the async generator object
+        builder_->CreateRet(generatorObject_);
+        return;
+    }
+
+    // For regular generator functions, a void return marks the generator as done with undefined
+    if (isGeneratorFunction_ && generatorObject_) {
+        // Get undefined value
+        auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+            builder_->getPtrTy(), {});
+        llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+
+        // Call ts_generator_return to mark as done with undefined
+        auto returnFn = getOrDeclareRuntimeFunction("ts_generator_return",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { generatorObject_, undefinedVal });
+
+        // Return the generator object
+        builder_->CreateRet(generatorObject_);
+        return;
+    }
+
+    // For async functions (not generators), a void return should resolve the promise with undefined
     if (isAsyncFunction_ && asyncPromise_) {
         // Get undefined value
         auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
@@ -2631,6 +2761,67 @@ void HIRToLLVM::lowerAsyncReturn(HIRInstruction* inst) {
     llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
 
     builder_->CreateRet(boxedPromise);
+}
+
+void HIRToLLVM::lowerYield(HIRInstruction* inst) {
+    // Yield instruction: %r = yield %value
+    // For generators, this yields a value and suspends execution.
+    // The result is the value passed to next() when resumed.
+    //
+    // For async generators, yield produces a Promise that resolves to the value.
+    //
+    // For a simple implementation, we call ts_generator_yield/ts_async_generator_yield which:
+    // - Stores the yielded value in the generator state
+    // - Returns the value sent via next() (or undefined if none)
+    // TODO: Implement full generator state machine for proper suspension/resumption
+
+    llvm::Value* yieldVal = getOperandValue(inst->operands[0]);
+
+    llvm::Value* result;
+    if (isAsyncFunction_ && isGeneratorFunction_) {
+        // Async generator: yield produces a Promise
+        auto yieldFn = getOrDeclareRuntimeFunction("ts_async_generator_yield",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        result = builder_->CreateCall(yieldFn, { yieldVal }, "async_yield_result");
+    } else {
+        // Regular generator
+        auto yieldFn = getOrDeclareRuntimeFunction("ts_generator_yield",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        result = builder_->CreateCall(yieldFn, { yieldVal }, "yield_result");
+    }
+
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
+    // YieldStar instruction: %r = yield* %iterable
+    // Delegates to another generator or iterable.
+    // This iterates over the iterable, yielding each value.
+    // The result is the return value of the delegated generator.
+    //
+    // For async generators, yield* produces Promises for each yielded value.
+    //
+    // For a simple implementation, we call ts_generator_yield_star/ts_async_generator_yield_star which:
+    // - Iterates the iterable calling next() and yield on each value
+    // - Returns the final return value of the iterable
+    // TODO: Implement full delegation with proper value passing
+
+    llvm::Value* iterableVal = getOperandValue(inst->operands[0]);
+
+    llvm::Value* result;
+    if (isAsyncFunction_ && isGeneratorFunction_) {
+        // Async generator: yield* delegates to async iterable
+        auto yieldStarFn = getOrDeclareRuntimeFunction("ts_async_generator_yield_star",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        result = builder_->CreateCall(yieldStarFn, { iterableVal }, "async_yield_star_result");
+    } else {
+        // Regular generator
+        auto yieldStarFn = getOrDeclareRuntimeFunction("ts_generator_yield_star",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        result = builder_->CreateCall(yieldStarFn, { iterableVal }, "yield_star_result");
+    }
+
+    setValue(inst->result, result);
 }
 
 //==============================================================================
