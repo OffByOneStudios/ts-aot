@@ -65,12 +65,18 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::tryResolveMethod(
 
     // Check receiver type and query the registry
     if (!receiver->type) {
+        SPDLOG_DEBUG("MethodResolution: receiver has no type for method {}", methodName);
         return nullptr;
     }
+
+    SPDLOG_DEBUG("MethodResolution: trying to resolve {}.{} (type kind={})",
+                 receiver->name, methodName, static_cast<int>(receiver->type->kind));
 
     auto& registry = BuiltinRegistry::instance();
     auto resolution = registry.resolveMethod(receiver->type->kind, methodName,
                                              static_cast<int>(args.size()));
+
+    SPDLOG_DEBUG("MethodResolution: resolution kind={}", static_cast<int>(resolution.kind));
 
     switch (resolution.kind) {
         case MethodResolution::Kind::HIROpcode:

@@ -3,6 +3,7 @@
 #include "TsMap.h"
 #include "TsRegExp.h"
 #include "TsRuntime.h"
+#include "TsClosure.h"
 #include "GC.h"
 #include <cstring>
 #include <iostream>
@@ -80,6 +81,46 @@ int64_t TsArray::Pop() {
     if (length == 0) return 0;
     if (elementSize != 8) return 0;
     return ((int64_t*)elements)[--length];
+}
+
+double TsArray::GetElementDouble(size_t index) {
+    if (index >= length) return 0.0;
+
+    if (isSpecialized && isDouble) {
+        // Specialized double array - elements stored directly as doubles
+        return ((double*)elements)[index];
+    }
+
+    // Generic array - element is a TsValue* pointer
+    int64_t val = ((int64_t*)elements)[index];
+    TsValue* boxed = (TsValue*)val;
+    if (!boxed) return 0.0;
+
+    // Extract double from the boxed value
+    if (boxed->type == ValueType::NUMBER_DBL) {
+        return boxed->d_val;
+    } else if (boxed->type == ValueType::NUMBER_INT) {
+        return (double)boxed->i_val;
+    }
+    return 0.0;
+}
+
+void TsArray::PushDouble(double value) {
+    if (isSpecialized && isDouble) {
+        // Specialized double array - store directly
+        if (length >= capacity) {
+            size_t newCapacity = capacity * 2;
+            void* newElements = ts_alloc(newCapacity * elementSize);
+            std::memcpy(newElements, elements, length * elementSize);
+            elements = newElements;
+            capacity = newCapacity;
+        }
+        ((double*)elements)[length++] = value;
+    } else {
+        // Generic array - box the double and store the pointer
+        TsValue* boxed = ts_value_make_double(value);
+        Push((int64_t)boxed);
+    }
 }
 
 void TsArray::Unshift(int64_t value) {
@@ -243,6 +284,18 @@ void* TsArray::FlatMap(void* callback, void* thisArg) {
 }
 
 void TsArray::ForEach(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = 0; i < length; ++i) {
+            // Get element as double (unboxed) for HIR closures
+            double elem = GetElementDouble(i);
+            ts_closure_invoke_1d_void(closure, elem);
+        }
+        return;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
@@ -255,6 +308,21 @@ void TsArray::ForEach(void* callback, void* thisArg) {
 }
 
 void* TsArray::Map(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        TsArray* result = TsArray::Create(length);
+        for (size_t i = 0; i < length; ++i) {
+            // Get element as double (unboxed) for HIR closures
+            double elem = GetElementDouble(i);
+            double mapped = ts_closure_invoke_1d(closure, elem);
+            // Store as double directly (using bit pattern)
+            result->PushDouble(mapped);
+        }
+        return result;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
 
@@ -906,16 +974,46 @@ extern "C" {
         }
     }
 
+    // Helper to extract raw TsArray* from potentially boxed TsValue*
+    static TsArray* unboxArrayIfNeeded(void* arr) {
+        if (!arr) return nullptr;
+
+        // Check if this is a boxed TsValue* with ARRAY_PTR type
+        // TsValue first byte is the type enum (0-10)
+        uint8_t firstByte = *(uint8_t*)arr;
+        if (firstByte == (uint8_t)ValueType::ARRAY_PTR) {
+            // It's a boxed TsValue*, extract the ptr_val (at offset 8 due to alignment)
+            TsValue* val = (TsValue*)arr;
+            return (TsArray*)val->ptr_val;
+        }
+
+        // It's already a raw array pointer
+        return (TsArray*)arr;
+    }
+
     void* ts_array_get_unchecked(void* arr, int64_t index) {
-        return (void*)((TsArray*)arr)->GetUnchecked(index);
+        TsArray* array = unboxArrayIfNeeded(arr);
+        if (!array) return nullptr;
+        return (void*)array->GetUnchecked(index);
     }
 
     void ts_array_set_unchecked(void* arr, int64_t index, void* value) {
-        ((TsArray*)arr)->SetUnchecked(index, (int64_t)value);
+        TsArray* array = unboxArrayIfNeeded(arr);
+        if (!array) return;
+        array->SetUnchecked(index, (int64_t)value);
     }
 
     int64_t ts_array_length(void* arr) {
         if (!arr) return 0;
+
+        // Check if this is a boxed TsValue* with ARRAY_PTR type
+        uint8_t firstByte = *(uint8_t*)arr;
+        if (firstByte == (uint8_t)ValueType::ARRAY_PTR) {
+            TsValue* val = (TsValue*)arr;
+            arr = val->ptr_val;
+            if (!arr) return 0;
+        }
+
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;
         if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")

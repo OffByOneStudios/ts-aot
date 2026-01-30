@@ -1,6 +1,5 @@
 // Test: Switch statement generates correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR-to-LLVM lowering - switch on double with i64 case constants
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: switch

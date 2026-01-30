@@ -17,8 +17,10 @@ public:
     int64_t Shift();
     int64_t Get(size_t index);
     int64_t GetUnchecked(size_t index) { return ((int64_t*)elements)[index]; }
+    double GetElementDouble(size_t index);  // Get element as double (handles both boxed and raw)
     void Set(size_t index, int64_t value);
     void SetUnchecked(size_t index, int64_t value) { ((int64_t*)elements)[index] = value; }
+    void PushDouble(double value);  // Push a double value
     int64_t Length();
     void Sort();
     int64_t IndexOf(int64_t value);
