@@ -94,6 +94,13 @@ private:
     // Class context - tracks when we're inside a class body
     HIRClass* currentClass_ = nullptr;
 
+    // Class expression tracking - maps variable names to class names for class expressions
+    // E.g., "const MyClass = class { ... }" maps "MyClass" -> "__class_expr_0" or generated name
+    std::map<std::string, std::string> variableToClassName_;
+
+    // Last generated class name from visitClassExpression (used by visitVariableDeclaration)
+    std::string lastGeneratedClassName_;
+
     // Static property globals - maps "ClassName_static_propName" to (globalPtr, type)
     std::map<std::string, std::pair<std::shared_ptr<HIRValue>, std::shared_ptr<HIRType>>> staticPropertyGlobals_;
 

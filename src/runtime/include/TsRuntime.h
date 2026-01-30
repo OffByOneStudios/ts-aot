@@ -204,7 +204,7 @@ TsValue* ts_timers_promises_setImmediate(TsValue* value);
 
 // --- BigInt ---
 void* ts_bigint_create_int(int64_t val);
-void* ts_bigint_create_str(const char* str, int32_t radix);
+void* ts_bigint_create_str(void* tsStr, int32_t radix);
 void* ts_bigint_to_string(void* bi, int32_t radix);
 void* ts_bigint_from_value(TsValue* val);
 

@@ -316,6 +316,11 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
         return;
     }
 
+    if (magic == 0x42494749) { // BIGI - TsBigInt
+        std::fprintf(stream, "%sn", ((TsBigInt*)val)->ToString());
+        return;
+    }
+
     if (magic == 0x53455453) { // SETS
         std::fprintf(stream, "Set(%lld)", ((TsSet*)val)->Size());
         return;

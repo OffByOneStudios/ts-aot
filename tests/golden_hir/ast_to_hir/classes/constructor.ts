@@ -13,9 +13,9 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Rectangle"
 // HIR-CHECK: call "Rectangle_constructor"
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Circle"
 // HIR-CHECK: call "Circle_constructor"
 // HIR-CHECK: ret
 

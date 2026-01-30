@@ -21,7 +21,7 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Counter"
 // HIR-CHECK: call "Counter_constructor"
 // HIR-CHECK: ret
 

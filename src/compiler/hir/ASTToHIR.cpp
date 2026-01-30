@@ -22,9 +22,41 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     scopes_.clear();
     pushScope();  // Global scope
 
+    // Check if we need a module init function for top-level executable code
+    // (VariableDeclarations with initializers, ExpressionStatements, etc.)
+    bool needsModuleInit = false;
+    for (auto& stmt : program->body) {
+        std::string kind = stmt->getKind();
+        if (kind == "VariableDeclaration" || kind == "ExpressionStatement") {
+            needsModuleInit = true;
+            break;
+        }
+    }
+
+    // Create module initialization function for top-level code
+    HIRFunction* moduleInitFunc = nullptr;
+    if (needsModuleInit) {
+        auto initFunc = std::make_unique<HIRFunction>("__module_init");
+        initFunc->returnType = HIRType::makeVoid();
+        moduleInitFunc = initFunc.get();
+        currentFunction_ = moduleInitFunc;
+
+        // Create entry block
+        auto entryBlock = initFunc->createBlock("entry");
+        builder_.setInsertPoint(entryBlock);
+        currentBlock_ = entryBlock;
+
+        module_->functions.push_back(std::move(initFunc));
+    }
+
     // Visit all statements in the program
     for (auto& stmt : program->body) {
         lowerStatement(stmt.get());
+    }
+
+    // Add terminator to module init function if it was created
+    if (moduleInitFunc && currentBlock_ && !hasTerminator()) {
+        builder_.createReturnVoid();
     }
 
     popScope();
@@ -308,8 +340,16 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
             }
             return HIRType::makeArray(HIRType::makeAny());
         case ts::TypeKind::Object:
-        case ts::TypeKind::Class:
             return HIRType::makeObject();
+        case ts::TypeKind::Class: {
+            // Preserve class type information including the class name
+            if (auto classType = std::dynamic_pointer_cast<ts::ClassType>(type)) {
+                return HIRType::makeClass(classType->name, 0);
+            }
+            return HIRType::makeObject();  // Fallback to generic object
+        }
+        case ts::TypeKind::BigInt:
+            return HIRType::makeObject();  // BigInt is a heap-allocated object
         case ts::TypeKind::Function: {
             // Preserve function type information for closures
             auto funcType = std::dynamic_pointer_cast<ts::FunctionType>(type);
@@ -463,6 +503,14 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
     std::shared_ptr<HIRValue> initValue;
     if (node->initializer) {
         initValue = lowerExpression(node->initializer.get());
+
+        // Track class expression assignments: const MyClass = class { ... }
+        if (dynamic_cast<ast::ClassExpression*>(node->initializer.get())) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
+                // Map the variable name to the generated class name
+                variableToClassName_[ident->name] = lastGeneratedClassName_;
+            }
+        }
     } else {
         initValue = builder_.createConstUndefined();
     }
@@ -1295,38 +1343,88 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         return false;
     };
 
+    // Helper to check if an operand is BigInt type
+    auto isBigInt = [](ast::Expression* astNode) {
+        return astNode && astNode->inferredType &&
+               astNode->inferredType->kind == ts::TypeKind::BigInt;
+    };
+
     // Determine if we should use Float64 operations (if either operand is Float64)
     bool useFloat = isFloat64(lhs, node->left.get()) || isFloat64(rhs, node->right.get());
+    bool useBigInt = isBigInt(node->left.get()) || isBigInt(node->right.get());
 
     if (op == "+") {
         // Check if either operand is a string - if so, use string concatenation
         if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
             lastValue_ = builder_.createStringConcat(lhs, rhs);
+        } else if (useBigInt) {
+            // BigInt addition via runtime call
+            lastValue_ = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
         } else if (useFloat) {
             lastValue_ = builder_.createAddF64(lhs, rhs);
         } else {
             lastValue_ = builder_.createAddI64(lhs, rhs);
         }
     } else if (op == "-") {
-        lastValue_ = useFloat ? builder_.createSubF64(lhs, rhs) : builder_.createSubI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
+        } else {
+            lastValue_ = useFloat ? builder_.createSubF64(lhs, rhs) : builder_.createSubI64(lhs, rhs);
+        }
     } else if (op == "*") {
-        lastValue_ = useFloat ? builder_.createMulF64(lhs, rhs) : builder_.createMulI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_mul", {lhs, rhs}, HIRType::makeObject());
+        } else {
+            lastValue_ = useFloat ? builder_.createMulF64(lhs, rhs) : builder_.createMulI64(lhs, rhs);
+        }
     } else if (op == "/") {
-        lastValue_ = useFloat ? builder_.createDivF64(lhs, rhs) : builder_.createDivI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_div", {lhs, rhs}, HIRType::makeObject());
+        } else {
+            lastValue_ = useFloat ? builder_.createDivF64(lhs, rhs) : builder_.createDivI64(lhs, rhs);
+        }
     } else if (op == "%") {
-        lastValue_ = useFloat ? builder_.createModF64(lhs, rhs) : builder_.createModI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_mod", {lhs, rhs}, HIRType::makeObject());
+        } else {
+            lastValue_ = useFloat ? builder_.createModF64(lhs, rhs) : builder_.createModI64(lhs, rhs);
+        }
     } else if (op == "<") {
-        lastValue_ = useFloat ? builder_.createCmpLtF64(lhs, rhs) : builder_.createCmpLtI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_lt", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpLtF64(lhs, rhs) : builder_.createCmpLtI64(lhs, rhs);
+        }
     } else if (op == "<=") {
-        lastValue_ = useFloat ? builder_.createCmpLeF64(lhs, rhs) : builder_.createCmpLeI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_le", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpLeF64(lhs, rhs) : builder_.createCmpLeI64(lhs, rhs);
+        }
     } else if (op == ">") {
-        lastValue_ = useFloat ? builder_.createCmpGtF64(lhs, rhs) : builder_.createCmpGtI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_gt", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpGtF64(lhs, rhs) : builder_.createCmpGtI64(lhs, rhs);
+        }
     } else if (op == ">=") {
-        lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_ge", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
+        }
     } else if (op == "==" || op == "===") {
-        lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_eq", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
+        }
     } else if (op == "!=" || op == "!==") {
-        lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_ne", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
+        }
     } else if (op == "&&") {
         lastValue_ = builder_.createLogicalAnd(lhs, rhs);
     } else if (op == "||") {
@@ -1641,7 +1739,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // Get constructor/class name
     auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
-    std::string className = ident ? ident->name : "Object";
+    std::string className = "Object";
+    if (ident) {
+        // First check if this is a variable pointing to a class expression
+        auto it = variableToClassName_.find(ident->name);
+        if (it != variableToClassName_.end()) {
+            className = it->second;  // Use the actual generated class name
+        } else {
+            className = ident->name;
+        }
+    }
 
     // Handle built-in classes specially
     if (className == "Error" || className == "TypeError" || className == "RangeError" ||
@@ -1673,16 +1780,23 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         args.push_back(lowerExpression(arg.get()));
     }
 
-    // Create new object
-    auto newObj = builder_.createNewObjectDynamic();
-
-    // Look up the class and call its constructor if it exists
+    // Look up the class
     HIRClass* hirClass = nullptr;
     for (auto& cls : module_->classes) {
         if (cls->name == className) {
             hirClass = cls.get();
             break;
         }
+    }
+
+    // Create new object with the correct type
+    std::shared_ptr<HIRValue> newObj;
+    if (hirClass && hirClass->shape) {
+        // Use the class's shape to create a properly typed object
+        newObj = builder_.createNewObject(hirClass->shape.get());
+    } else {
+        // Fallback to dynamic object (for built-in or unknown classes)
+        newObj = builder_.createNewObjectDynamic();
     }
 
     if (hirClass && hirClass->constructor) {
@@ -3167,8 +3281,9 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // Generate a unique class name for anonymous class expressions
+    // Use the same naming convention as the analyzer (__anon_class_X)
     std::string className = node->name.empty()
-        ? "__class_expr_" + std::to_string(classExprCounter_++)
+        ? "__anon_class_" + std::to_string(classExprCounter_++)
         : node->name;
 
     // Create HIR class
@@ -3253,6 +3368,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             deferredStaticBlocks_.push_back(staticBlock);
         }
     }
+
+    // Save the current insert point before processing methods
+    // (so we can restore it after and not pollute method bodies with later instructions)
+    HIRBlock* savedBlockBeforeMethods = currentBlock_;
+    HIRFunction* savedFuncBeforeMethods = currentFunction_;
 
     // Second pass: create methods
     for (auto& memberPtr : node->members) {
@@ -3389,8 +3509,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         }
     }
 
+    // Restore the insert point to what it was before processing methods
+    currentFunction_ = savedFuncBeforeMethods;
+    currentBlock_ = savedBlockBeforeMethods;
+    if (savedBlockBeforeMethods) {
+        builder_.setInsertPoint(savedBlockBeforeMethods);
+    }
+
     // Restore class context
     currentClass_ = savedClass;
+
+    // Store the generated class name for variable tracking (used by visitVariableDeclaration)
+    lastGeneratedClassName_ = className;
 
     // The result of a class expression is a reference to the class constructor
     // We use LoadFunction to get the constructor pointer

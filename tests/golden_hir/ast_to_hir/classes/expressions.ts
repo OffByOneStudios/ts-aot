@@ -1,11 +1,11 @@
 // Test: Class expressions generate correct HIR
-// XFAIL: Class expression methods not generated as separate HIR functions (falls back to dynamic dispatch)
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object_dynamic
-// HIR-CHECK: call_method {{.*}}, "getValue"
-// HIR-CHECK: call_method {{.*}}, "log"
+// HIR-CHECK: new_object "__anon_class_0"
+// HIR-CHECK: call "__anon_class_0_constructor"
+// HIR-CHECK: get_prop.static {{.*}}, "value"
+// HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
 // OUTPUT: 42
