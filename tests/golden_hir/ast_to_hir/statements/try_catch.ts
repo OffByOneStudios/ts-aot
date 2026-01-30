@@ -2,11 +2,11 @@
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: try.begin
+// HIR-CHECK: setup_try
 // HIR-CHECK: throw
-// HIR-CHECK: try.end
-// HIR-CHECK: catch.begin
-// HIR-CHECK: catch.end
+// HIR-CHECK: catch
+// HIR-CHECK: get_exception
+// HIR-CHECK: finally
 // HIR-CHECK: ret
 
 // OUTPUT: caught: test error
