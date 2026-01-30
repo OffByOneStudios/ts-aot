@@ -7,7 +7,7 @@
 
 ## Current Progress
 
-**Tests Implemented: 42 / 183 (23%)**
+**Tests Implemented: 43 / 183 (23%)**
 
 ### Completed Test Files
 
@@ -18,10 +18,10 @@
 | AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure, async_await, generator (XFAIL) | 7 |
 | AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties, private_fields | 7 |
 | AST→HIR Other | spread_operator | 1 |
-| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
+| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution, string_method_resolution | 6 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
 
-**41 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
+**42 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
 
 **Recently Fixed (2026-01-29):**
 - `try_catch`: Fixed string concatenation with boxed values (error.message now works correctly)
