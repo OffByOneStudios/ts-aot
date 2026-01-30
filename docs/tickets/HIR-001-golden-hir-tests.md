@@ -7,28 +7,33 @@
 
 ## Current Progress
 
-**Tests Implemented: 37 / 183 (20%)**
+**Tests Implemented: 41 / 183 (22%)**
 
 ### Completed Test Files
 
 | Category | Files | Count |
 |----------|-------|-------|
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
-| AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt*, for_of, for_in*, break_continue, continue_stmt, labeled_stmt | 11 |
-| AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure | 5 |
+| AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in, break_continue, continue_stmt, labeled_stmt, try_catch | 12 |
+| AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure, async_await, generator (XFAIL) | 7 |
 | AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties | 6 |
-| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution*, math_builtin_resolution* | 5 |
+| AST→HIR Other | spread_operator | 1 |
+| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
 
-*Note: Files marked with * are XFAIL tests tracking known HIR-to-LLVM lowering bugs:*
-- `for_in`: HIR correct, but lowering doesn't emit console.log output in for-in body
-- `switch_stmt`: Switch on double with i64 case constants type mismatch
-- `array_method_resolution`: CallMethod for map/forEach not fully implemented
-- `math_builtin_resolution`: ts_math_floor/ceil parameter type mismatch
+**40 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
 
 **Recently Fixed (2026-01-29):**
-- `closure`, `arrows`, `mutable_closure`: Fixed variable type inference from initializer and TypePropagationPass LoadCapture handling
+- `try_catch`: Fixed string concatenation with boxed values (error.message now works correctly)
+- `switch_stmt`: Fixed type mismatch in switch case lowering
+- `array_method_resolution`: Added TsClosure support for Map/ForEach callbacks
+- `math_builtin_resolution`: Fixed LLVM type for Math functions (double params, not ptr)
+- `for_in`: Fixed boxed array handling in ts_array_length/get_unchecked
+- `closure`, `arrows`, `mutable_closure`: Fixed variable type inference from initializer
 - `do_while`: Fixed block naming pattern (uses while.* instead of do.*)
+
+**XFAIL Tests:**
+- `generator.ts`: HIR pipeline lacks generator state machine transformation (generators run to completion instead of suspending at yield points)
 
 ## Overview
 
@@ -388,22 +393,23 @@ Tests that unreachable and unused code is removed.
 
 ### Week 2: ASTToHIR Tests (IN PROGRESS)
 - [x] Expression tests (8/31 implemented)
-- [x] Statement tests (11/18 implemented)
-- [x] Function tests (5/12 implemented) - closure/arrows/mutable_closure now passing
+- [x] Statement tests (12/18 implemented) - including try_catch
+- [x] Function tests (7/12 implemented) - including async_await, generator (XFAIL)
 - [x] Class tests (6/12 implemented) - basic, constructor, instance_method, static_method, inheritance, properties
+- [x] Other construct tests (1/8 implemented) - spread_operator
 
-## Next Batch: Functions + Classes Completion (Recommended)
+## Next Batch: Classes + Other Constructs (Recommended)
 
 Remaining high-priority tests:
-1. `functions/generators.ts` - Generator functions (function*, yield)
-2. `functions/async.ts` - Async/await functions
-3. `classes/private_fields.ts` - Private class fields (#field)
-4. `classes/static_blocks.ts` - Static initialization blocks
-5. `classes/expressions.ts` - Class expressions
+1. `classes/private_fields.ts` - Private class fields (#field)
+2. `classes/static_blocks.ts` - Static initialization blocks
+3. `classes/expressions.ts` - Class expressions
+4. `other/regexp.ts` - Regular expressions
+5. `other/bigint.ts` - BigInt literals and operations
 
-### Week 3: ASTToHIR + Pass Tests
-- [x] Class tests (6/12 implemented) - basic, constructor, instance_method, static_method, inheritance, properties
-- [ ] Other construct tests (0/8 tests)
+### Week 3: Remaining Classes + Pass Tests
+- [ ] Class tests (6/12 remaining: private_fields, static_blocks, expressions, etc.)
+- [ ] Other construct tests (7/8 remaining: regexp, bigint, jsx, etc.)
 - [ ] MethodResolutionPass tests (2/20 implemented)
 
 ### Week 4: Pass + Lowering Tests

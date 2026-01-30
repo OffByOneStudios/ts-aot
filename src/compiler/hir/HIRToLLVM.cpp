@@ -230,6 +230,7 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
 }
 
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
+    SPDLOG_INFO("Lowering function: {}", fn->mangledName);
     // Get the forward-declared function (or create it if not yet declared)
     llvm::Function* llvmFunc = module_->getFunction(fn->mangledName);
     if (!llvmFunc) {
@@ -301,12 +302,19 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "generator_entry", llvmFunc);
         builder_->SetInsertPoint(entryBB);
 
-        // Create a Generator: ts_generator_create() -> TsGenerator*
-        llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
+        // First create an AsyncContext
+        llvm::FunctionType* createCtxFt = llvm::FunctionType::get(
             builder_->getPtrTy(), {}, false);
+        llvm::FunctionCallee createCtxFn = module_->getOrInsertFunction(
+            "ts_async_context_create", createCtxFt);
+        llvm::Value* asyncContext = builder_->CreateCall(createCtxFt, createCtxFn.getCallee(), {}, "async_ctx");
+
+        // Create a Generator: ts_generator_create(AsyncContext*) -> TsGenerator*
+        llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
             "ts_generator_create", createGeneratorFt);
-        generatorObject_ = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), {}, "generator");
+        generatorObject_ = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncContext }, "generator");
     }
 
     // Create LLVM basic blocks for HIR blocks
@@ -354,6 +362,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 }
 
 void HIRToLLVM::lowerBlock(HIRBlock* block) {
+    SPDLOG_INFO("  Lowering block: {}", block->label);
     llvm::BasicBlock* bb = getBlock(block);
     if (!bb) return;
 
@@ -361,6 +370,7 @@ void HIRToLLVM::lowerBlock(HIRBlock* block) {
 
     // Lower each instruction
     for (auto& inst : block->instructions) {
+        SPDLOG_INFO("    Lowering instruction: opcode={}", static_cast<int>(inst->opcode));
         lowerInstruction(inst.get());
     }
 }
@@ -859,8 +869,23 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
 
     // Helper lambda to convert value to string based on type
     auto convertToString = [&](llvm::Value* val, std::shared_ptr<HIRType> type) -> llvm::Value* {
+        // For pointer types (String, Any, Object, Class), always call ts_value_get_string
+        // which handles both TsValue* (boxed) and raw TsString* pointers
+        if (val->getType()->isPointerTy()) {
+            if (!type || type->kind == HIRTypeKind::String ||
+                type->kind == HIRTypeKind::Any || type->kind == HIRTypeKind::Object ||
+                type->kind == HIRTypeKind::Class) {
+                auto fn = getOrDeclareRuntimeFunction(
+                    "ts_value_get_string",
+                    builder_->getPtrTy(),
+                    { builder_->getPtrTy() }
+                );
+                return builder_->CreateCall(fn, { val });
+            }
+        }
+
         if (!type || type->kind == HIRTypeKind::String) {
-            return val; // Already a string
+            return val; // Already a string (non-pointer type, shouldn't happen but handle it)
         }
 
         if (type->kind == HIRTypeKind::Float64 || val->getType()->isDoubleTy()) {
@@ -897,7 +922,8 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
             return builder_->CreateSelect(boolVal, trueVal, falseVal);
         }
 
-        // For any/object/etc - just pass through (assume already string or will be handled at runtime)
+        // For any other types (Array, Function, etc.) - pass through
+        // The pointer types (Any, Object, Class, String) are already handled above
         return val;
     };
 
@@ -1096,7 +1122,30 @@ void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerLogicalNot(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    llvm::Value* result = builder_->CreateNot(val, "lnot");
+
+    llvm::Value* result;
+    if (val->getType()->isPointerTy()) {
+        // For pointer types (boxed values or objects), we need to:
+        // 1. Call ts_value_to_bool to convert to actual boolean
+        // 2. Then negate the result
+        llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+        llvm::Value* boolVal = builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { val }, "tobool");
+        result = builder_->CreateNot(boolVal, "lnot");
+    } else if (val->getType()->isIntegerTy(1)) {
+        // Already a boolean - just negate
+        result = builder_->CreateNot(val, "lnot");
+    } else if (val->getType()->isIntegerTy()) {
+        // Integer type - convert to boolean first (non-zero check)
+        llvm::Value* boolVal = builder_->CreateICmpNE(
+            val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
+        result = builder_->CreateNot(boolVal, "lnot");
+    } else {
+        // Fall back to CreateNot (may fail for unsupported types)
+        result = builder_->CreateNot(val, "lnot");
+    }
+
     setValue(inst->result, result);
 }
 
@@ -1308,11 +1357,26 @@ void HIRToLLVM::lowerLoad(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerStore(HIRInstruction* inst) {
+    SPDLOG_INFO("      lowerStore: operands.size()={}", inst->operands.size());
+    if (inst->operands.size() < 2) {
+        SPDLOG_ERROR("      lowerStore: not enough operands");
+        return;
+    }
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    SPDLOG_INFO("      lowerStore: val={}", val ? "non-null" : "NULL");
+    if (!val) {
+        SPDLOG_ERROR("      lowerStore: value is null!");
+        return;
+    }
     llvm::Value* ptr = getOperandValue(inst->operands[1]);
+    SPDLOG_INFO("      lowerStore: ptr={}", ptr ? "non-null" : "NULL");
+    if (!ptr) {
+        SPDLOG_ERROR("      lowerStore: ptr is null!");
+        return;
+    }
 
     // Get the expected type from the HIR operand (the type being stored)
-    auto expectedType = getOperandType(inst->operands[2]);  // operands[2] is the element type
+    auto expectedType = inst->operands.size() > 2 ? getOperandType(inst->operands[2]) : nullptr;  // operands[2] is the element type
     if (expectedType) {
         llvm::Type* targetType = getLLVMType(expectedType);
         llvm::Type* valType = val->getType();
@@ -1334,6 +1398,26 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
                 val = builder_->CreateCall(fn, {i32Val});
             }
             // If val is already a pointer, no boxing needed
+        }
+        // When storing to a primitive-typed alloca but value is a pointer (e.g., from await),
+        // we need to unbox the value first
+        else if (valType->isPointerTy() && targetType->isDoubleTy()) {
+            // Unbox: TsValue* -> double
+            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_double",
+                builder_->getDoubleTy(), { builder_->getPtrTy() });
+            val = builder_->CreateCall(unboxFn, { val }, "unboxed_double");
+        }
+        else if (valType->isPointerTy() && targetType->isIntegerTy(64)) {
+            // Unbox: TsValue* -> int64
+            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_int",
+                builder_->getInt64Ty(), { builder_->getPtrTy() });
+            val = builder_->CreateCall(unboxFn, { val }, "unboxed_int");
+        }
+        else if (valType->isPointerTy() && targetType->isIntegerTy(1)) {
+            // Unbox: TsValue* -> bool
+            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_bool",
+                builder_->getInt1Ty(), { builder_->getPtrTy() });
+            val = builder_->CreateCall(unboxFn, { val }, "unboxed_bool");
         }
         // Handle type coercion: i64 -> f64
         else if (valType->isIntegerTy(64) && targetType->isDoubleTy()) {
@@ -1377,9 +1461,18 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     std::string propName = getOperandString(inst->operands[1]);
 
+    // Check if the source value is already a boxed TsValue* (Any type)
+    // If so, we should NOT box it again to avoid double-boxing
+    bool alreadyBoxed = false;
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::Any) {
+            alreadyBoxed = true;
+        }
+    }
+
     // Box the object if it's not already a pointer-sized boxed value
     // ts_object_get_dynamic expects TsValue*, not raw TsMap*
-    if (obj->getType()->isPointerTy()) {
+    if (obj->getType()->isPointerTy() && !alreadyBoxed) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
     }
@@ -1430,8 +1523,17 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     llvm::Value* key = getOperandValue(inst->operands[1]);
 
+    // Check if the source value is already a boxed TsValue* (Any type)
+    // If so, we should NOT box it again to avoid double-boxing
+    bool alreadyBoxed = false;
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::Any) {
+            alreadyBoxed = true;
+        }
+    }
+
     // Box the object if it's not already boxed
-    if (obj->getType()->isPointerTy()) {
+    if (obj->getType()->isPointerTy() && !alreadyBoxed) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
     }
@@ -2055,7 +2157,116 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    // Generic method call - not yet implemented
+    // Check if we can determine the object type from the HIRValue
+    std::string className;
+    if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*valPtr && (*valPtr)->type) {
+            if ((*valPtr)->type->kind == HIRTypeKind::Class) {
+                className = (*valPtr)->type->className;
+            }
+        }
+    }
+
+    // Handle Generator.next()
+    if ((className == "Generator" || className.empty()) && methodName == "next") {
+        // Generator_next(gen, value) -> returns iterator result {value, done}
+        llvm::FunctionType* nextFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee nextFn = module_->getOrInsertFunction("Generator_next", nextFt);
+
+        // The generator object - must box it with ts_value_make_object
+        llvm::Value* boxedGen = obj;
+        if (!obj->getType()->isPointerTy()) {
+            boxedGen = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
+        }
+        // Box the generator object pointer
+        llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
+        boxedGen = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { boxedGen });
+
+        // Get the argument (or null if none)
+        llvm::Value* val = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            val = getOperandValue(inst->operands[2]);
+            // Ensure val is a pointer (box if needed)
+            if (!val->getType()->isPointerTy()) {
+                if (val->getType()->isIntegerTy(64)) {
+                    // Box integer value
+                    llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                        builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                    llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+                    val = builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+                } else if (val->getType()->isDoubleTy()) {
+                    // Box double value
+                    llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                        builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                    llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
+                    val = builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+                }
+            }
+        }
+
+        llvm::Value* result = builder_->CreateCall(nextFt, nextFn.getCallee(), { boxedGen, val });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle AsyncGenerator.next()
+    if (className == "AsyncGenerator" && methodName == "next") {
+        // AsyncGenerator_next(gen, value) -> returns Promise<iterator result>
+        llvm::FunctionType* nextFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee nextFn = module_->getOrInsertFunction("AsyncGenerator_next", nextFt);
+
+        // The generator object - must box it with ts_value_make_object
+        llvm::Value* boxedGen = obj;
+        if (!obj->getType()->isPointerTy()) {
+            boxedGen = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
+        }
+        // Box the generator object pointer
+        llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
+        boxedGen = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { boxedGen });
+
+        // Get the argument (or null if none)
+        llvm::Value* val = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            val = getOperandValue(inst->operands[2]);
+            // Ensure val is a pointer (box if needed)
+            if (!val->getType()->isPointerTy()) {
+                if (val->getType()->isIntegerTy(64)) {
+                    llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                        builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                    llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+                    val = builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+                } else if (val->getType()->isDoubleTy()) {
+                    llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                        builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                    llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
+                    val = builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+                }
+            }
+        }
+
+        llvm::Value* result = builder_->CreateCall(nextFt, nextFn.getCallee(), { boxedGen, val });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Generic method call - fall back to dynamic dispatch
+    // Call ts_object_call_method(obj, methodName, argsArray, argCount)
     SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);
 
     // Return null for now
@@ -2920,6 +3131,26 @@ void HIRToLLVM::lowerAwait(HIRInstruction* inst) {
 
     llvm::Value* promiseVal = getOperandValue(inst->operands[0]);
 
+    // If the value is not a pointer (e.g., inlined async returned a raw value),
+    // we need to box it first. In JavaScript, await on a non-promise value
+    // simply returns the value itself.
+    if (!promiseVal->getType()->isPointerTy()) {
+        // Box the value first
+        if (promiseVal->getType()->isIntegerTy(64)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                builder_->getPtrTy(), { builder_->getInt64Ty() });
+            promiseVal = builder_->CreateCall(boxFn, { promiseVal }, "boxed_int");
+        } else if (promiseVal->getType()->isDoubleTy()) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                builder_->getPtrTy(), { builder_->getDoubleTy() });
+            promiseVal = builder_->CreateCall(boxFn, { promiseVal }, "boxed_double");
+        } else if (promiseVal->getType()->isIntegerTy(1)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                builder_->getPtrTy(), { builder_->getInt1Ty() });
+            promiseVal = builder_->CreateCall(boxFn, { promiseVal }, "boxed_bool");
+        }
+    }
+
     // Call ts_promise_await(promise) -> TsValue* (the resolved value)
     auto awaitFn = getOrDeclareRuntimeFunction("ts_promise_await",
         builder_->getPtrTy(), { builder_->getPtrTy() });
@@ -2963,6 +3194,23 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
     // TODO: Implement full generator state machine for proper suspension/resumption
 
     llvm::Value* yieldVal = getOperandValue(inst->operands[0]);
+
+    // Box the value if it's not already a pointer
+    if (!yieldVal->getType()->isPointerTy()) {
+        if (yieldVal->getType()->isIntegerTy(64)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                builder_->getPtrTy(), { builder_->getInt64Ty() });
+            yieldVal = builder_->CreateCall(boxFn, { yieldVal }, "boxed_int");
+        } else if (yieldVal->getType()->isDoubleTy()) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                builder_->getPtrTy(), { builder_->getDoubleTy() });
+            yieldVal = builder_->CreateCall(boxFn, { yieldVal }, "boxed_double");
+        } else if (yieldVal->getType()->isIntegerTy(1)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                builder_->getPtrTy(), { builder_->getInt1Ty() });
+            yieldVal = builder_->CreateCall(boxFn, { yieldVal }, "boxed_bool");
+        }
+    }
 
     llvm::Value* result;
     if (isAsyncFunction_ && isGeneratorFunction_) {

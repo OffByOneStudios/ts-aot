@@ -99,8 +99,11 @@ extern "C" {
 
     TsGenerator* ts_generator_create(AsyncContext* ctx);
     TsValue* Generator_next(TsValue* gen, TsValue* value);
+    void ts_generator_return(TsGenerator* gen, TsValue* value);
+    TsValue* ts_generator_yield(TsValue* value);
 
     TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
+    void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value);
     TsValue* AsyncGenerator_next(TsValue* gen, TsValue* value);
     void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done);
 

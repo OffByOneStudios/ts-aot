@@ -142,42 +142,75 @@ python tests/golden_hir/runner.py tests/golden_hir/passes/
 python tests/golden_hir/runner.py --verbose tests/golden_hir/passes/method_resolution/array_methods.ts
 ```
 
-## Coverage Goals
+## Current Test Status
+
+**Total: 37 tests, 0 XFAIL**
 
 ### ASTToHIR Coverage
 
-| Category | Tests | Status |
-|----------|-------|--------|
-| Binary expressions | 15+ | Planned |
-| Unary expressions | 8+ | Planned |
-| Call expressions | 10+ | Planned |
-| Property access | 8+ | Planned |
-| Element access | 6+ | Planned |
-| Variable declarations | 6+ | Planned |
-| Control flow (if/while/for) | 12+ | Planned |
-| Switch statements | 4+ | Planned |
-| Try/catch | 4+ | Planned |
-| Function declarations | 6+ | Planned |
-| Arrow functions | 6+ | Planned |
-| Closures | 8+ | Planned |
-| Generators | 6+ | Planned |
-| Async/await | 6+ | Planned |
-| Classes | 12+ | Planned |
-| Inheritance | 6+ | Planned |
+| Category | Tests | Passing | Status |
+|----------|-------|---------|--------|
+| Expressions | 8 | 8 | ✅ Complete |
+| Statements | 11 | 11 | ✅ Complete |
+| Functions | 5 | 5 | ✅ Complete |
+| Classes | 6 | 6 | ✅ Complete |
+
+**Expressions (8 tests):**
+- integer_arithmetic, comparison_ops, boolean_ops, array_ops
+- unary_ops, property_access, call_expr, string_ops
+
+**Statements (11 tests):**
+- if_else, while_loop, for_loop, do_while, for_of, for_in
+- switch_stmt, variable_decl, break_continue, continue_stmt, labeled_stmt
+
+**Functions (5 tests):**
+- basic_function, declarations, arrows, closure, mutable_closure
+
+**Classes (6 tests):**
+- basic_class, instance_method, inheritance, properties, constructor, static_method
 
 ### HIR Pass Coverage
 
-| Pass | Tests | Status |
-|------|-------|--------|
-| MethodResolutionPass | 20+ | Planned |
-| BuiltinResolutionPass | 15+ | Planned |
-| TypePropagationPass | 10+ | Planned |
-| ConstantFoldingPass | 10+ | Planned |
-| DeadCodeEliminationPass | 8+ | Planned |
+| Pass | Tests | Passing | Status |
+|------|-------|---------|--------|
+| MethodResolutionPass | 2 | 2 | ✅ Core working |
+| BuiltinResolutionPass | 2 | 2 | ✅ Core working |
+| ConstantFoldingPass | 1 | 1 | ✅ Core working |
+
+**Pass tests (5 total):**
+- method_resolution, array_method_resolution
+- builtin_resolution, math_builtin_resolution
+- constant_folding
 
 ### HIRToLLVM Coverage
 
-All 80+ HIR opcodes should have at least one test validating correct LLVM IR lowering.
+| Category | Tests | Passing | Status |
+|----------|-------|---------|--------|
+| Arithmetic | 1 | 1 | ✅ Working |
+| Control Flow | 1 | 1 | ✅ Working |
+
+**Lowering tests (2 total):**
+- arithmetic_to_llvm, control_flow_to_llvm
+
+## Next Tests to Add
+
+### Priority 1: Core Language Features
+- [ ] try_catch.ts - Exception handling
+- [ ] async_await.ts - Async functions
+- [ ] generator.ts - Generator functions
+- [ ] spread_operator.ts - Spread in arrays/calls
+
+### Priority 2: More Pass Tests
+- [ ] dead_code_elimination.ts - DCE pass validation
+- [ ] type_propagation.ts - Type inference in HIR
+- [ ] string_method_resolution.ts - String.split, etc.
+- [ ] map_set_methods.ts - Map/Set operations
+
+### Priority 3: Edge Cases
+- [ ] nested_closures.ts - Multiple closure levels
+- [ ] recursive_functions.ts - Self-referential calls
+- [ ] virtual_dispatch.ts - Class method overrides
+- [ ] optional_chaining.ts - ?. operator
 
 ## Example Tests
 

@@ -1,7 +1,7 @@
 // Test: Generator functions generate correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
-// XFAIL: CallMethod for generator.next() not fully implemented in HIR
+// XFAIL: HIR pipeline lacks generator state machine transformation (generators run to completion instead of suspending at yield points)
 
 // HIR-CHECK: define @countUp
 // HIR-CHECK: yield

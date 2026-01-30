@@ -1,0 +1,22 @@
+// Test: Async functions and await generate correct HIR
+// RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
+
+// HIR-CHECK: define @fetchData
+// HIR-CHECK: ret
+
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: call
+// HIR-CHECK: await
+// HIR-CHECK: ret
+
+// OUTPUT: 42
+
+async function fetchData(): Promise<number> {
+  return 42;
+}
+
+async function user_main(): Promise<number> {
+  const result = await fetchData();
+  console.log(result);
+  return 0;
+}
