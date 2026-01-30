@@ -7,7 +7,7 @@
 
 ## Current Progress
 
-**Tests Implemented: 43 / 183 (23%)**
+**Tests Implemented: 47 / 183 (26%)**
 
 **Golden IR Test Suite: 130/145 passed (89.7%)**
 
@@ -18,12 +18,12 @@
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
 | AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in, break_continue, continue_stmt, labeled_stmt, try_catch | 12 |
 | AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure, async_await, generator (XFAIL) | 7 |
-| AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties, private_fields | 7 |
-| AST→HIR Other | spread_operator | 1 |
+| AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties, private_fields, static_blocks, expressions (XFAIL) | 9 |
+| AST→HIR Other | spread_operator, regexp, bigint (XFAIL) | 3 |
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution, string_method_resolution | 6 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
 
-**42 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
+**44 tests passing, 3 XFAIL**
 
 **Recently Fixed (2026-01-30):**
 - **RegExp.test return type:** Fixed explicit handling in HIRToLLVM to return i1 boolean
@@ -42,6 +42,8 @@
 
 **XFAIL Tests:**
 - `generator.ts`: HIR pipeline lacks generator state machine transformation (generators run to completion instead of suspending at yield points)
+- `expressions.ts`: Class expression methods not generated as separate HIR functions (falls back to dynamic dispatch)
+- `bigint.ts`: BigInt arithmetic uses i64 ops instead of ts_bigint_* calls in HIR pipeline
 
 ## Overview
 
@@ -403,22 +405,22 @@ Tests that unreachable and unused code is removed.
 - [x] Expression tests (8/31 implemented)
 - [x] Statement tests (12/18 implemented) - including try_catch
 - [x] Function tests (7/12 implemented) - including async_await, generator (XFAIL)
-- [x] Class tests (6/12 implemented) - basic, constructor, instance_method, static_method, inheritance, properties
-- [x] Other construct tests (1/8 implemented) - spread_operator
+- [x] Class tests (9/12 implemented) - including static_blocks, expressions (XFAIL)
+- [x] Other construct tests (3/8 implemented) - spread_operator, regexp, bigint (XFAIL)
 
-## Next Batch: Classes + HIR Passes (Recommended)
+## Next Batch: HIR Passes + Lowering (Recommended)
 
-**Ready for implementation (blockers resolved):**
+**Completed:**
 1. ~~`classes/private_fields.ts`~~ - **DONE** - Private class fields (#field)
-2. `classes/static_blocks.ts` - **READY** - Static initialization blocks (blocker fixed 2026-01-30)
-3. `classes/expressions.ts` - **READY** - Class expressions (blocker fixed 2026-01-30)
-4. `other/regexp.ts` - **READY** - Regular expressions (blocker fixed 2026-01-30)
-5. `other/bigint.ts` - **READY** - BigInt literals (blocker fixed 2026-01-30)
+2. ~~`classes/static_blocks.ts`~~ - **DONE** - Static initialization blocks
+3. ~~`classes/expressions.ts`~~ - **DONE (XFAIL)** - Class expressions (dynamic dispatch only)
+4. ~~`other/regexp.ts`~~ - **DONE** - Regular expressions
+5. ~~`other/bigint.ts`~~ - **DONE (XFAIL)** - BigInt literals (arithmetic bug)
 
-**Additional HIR pass tests:**
-- `passes/string_method_resolution.ts` - String method resolution
+**Next priority - HIR pass tests:**
 - `passes/dead_code_elimination.ts` - DCE pass
 - `lowering/string_concat.ts` - String concatenation lowering
+- `lowering/objects/property_access.ts` - Object property lowering
 
 ### Week 3: Remaining Classes + Pass Tests
 - [ ] Class tests (6/12 remaining: private_fields, static_blocks, expressions, etc.)
