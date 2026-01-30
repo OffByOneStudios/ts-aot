@@ -1,10 +1,10 @@
 // Test: Async functions and await generate correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @fetchData
+// HIR-CHECK: define async @fetchData
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: define async @user_main()
 // HIR-CHECK: call
 // HIR-CHECK: await
 // HIR-CHECK: ret
