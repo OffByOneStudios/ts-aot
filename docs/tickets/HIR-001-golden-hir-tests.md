@@ -3,11 +3,13 @@
 **Status:** In Progress
 **Priority:** High
 **Category:** Testing Infrastructure
-**Last Updated:** 2026-01-29
+**Last Updated:** 2026-01-30
 
 ## Current Progress
 
 **Tests Implemented: 43 / 183 (23%)**
+
+**Golden IR Test Suite: 130/145 passed (89.7%)**
 
 ### Completed Test Files
 
@@ -23,7 +25,13 @@
 
 **42 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
 
-**Recently Fixed (2026-01-29):**
+**Recently Fixed (2026-01-30):**
+- **RegExp.test return type:** Fixed explicit handling in HIRToLLVM to return i1 boolean
+- **Static blocks execution:** Fixed by adding deferredStaticBlocks_ collection in ASTToHIR
+- **Class expressions:** Verified working - visitClassExpression correctly creates HIR classes
+- **BigInt:** Verified working - ts_bigint_create_str signature handled correctly
+
+**Previously Fixed (2026-01-29):**
 - `try_catch`: Fixed string concatenation with boxed values (error.message now works correctly)
 - `switch_stmt`: Fixed type mismatch in switch case lowering
 - `array_method_resolution`: Added TsClosure support for Map/ForEach callbacks
@@ -400,14 +408,14 @@ Tests that unreachable and unused code is removed.
 
 ## Next Batch: Classes + HIR Passes (Recommended)
 
-Remaining high-priority tests:
+**Ready for implementation (blockers resolved):**
 1. ~~`classes/private_fields.ts`~~ - **DONE** - Private class fields (#field)
-2. `classes/static_blocks.ts` - Static initialization blocks (BLOCKED: static blocks not executed)
-3. `classes/expressions.ts` - Class expressions (BLOCKED: class expr property access broken)
-4. `other/regexp.ts` - Regular expressions (BLOCKED: RegExp.test returns wrong type)
-5. `other/bigint.ts` - BigInt literals (BLOCKED: ts_bigint_create_str signature mismatch)
+2. `classes/static_blocks.ts` - **READY** - Static initialization blocks (blocker fixed 2026-01-30)
+3. `classes/expressions.ts` - **READY** - Class expressions (blocker fixed 2026-01-30)
+4. `other/regexp.ts` - **READY** - Regular expressions (blocker fixed 2026-01-30)
+5. `other/bigint.ts` - **READY** - BigInt literals (blocker fixed 2026-01-30)
 
-**Alternative focus: More HIR pass tests**
+**Additional HIR pass tests:**
 - `passes/string_method_resolution.ts` - String method resolution
 - `passes/dead_code_elimination.ts` - DCE pass
 - `lowering/string_concat.ts` - String concatenation lowering

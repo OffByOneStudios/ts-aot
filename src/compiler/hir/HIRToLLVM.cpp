@@ -2265,6 +2265,53 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
+    // Handle RegExp.test(string) -> bool
+    if ((className == "RegExp" || className.empty()) && methodName == "test") {
+        // RegExp_test(re, str) -> returns i32 (0 or 1)
+        llvm::FunctionType* testFt = llvm::FunctionType::get(
+            builder_->getInt32Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee testFn = module_->getOrInsertFunction("RegExp_test", testFt);
+
+        // Get the string argument
+        llvm::Value* str = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            str = getOperandValue(inst->operands[2]);
+        }
+
+        // Call RegExp_test and convert i32 result to i1 (bool)
+        llvm::Value* result32 = builder_->CreateCall(testFt, testFn.getCallee(), { obj, str });
+        llvm::Value* result = builder_->CreateICmpNE(result32,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Try to look up user-defined class method
+    if (!className.empty()) {
+        std::string funcName = className + "_" + methodName;
+        llvm::Function* fn = module_->getFunction(funcName);
+        if (fn) {
+            // Found the method function - call it with 'this' and arguments
+            std::vector<llvm::Value*> args;
+            args.push_back(obj);  // 'this' pointer
+            for (size_t i = 2; i < inst->operands.size(); ++i) {
+                args.push_back(getOperandValue(inst->operands[i]));
+            }
+
+            llvm::Value* result = builder_->CreateCall(fn, args);
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
     // Generic method call - fall back to dynamic dispatch
     // Call ts_object_call_method(obj, methodName, argsArray, argCount)
     SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);

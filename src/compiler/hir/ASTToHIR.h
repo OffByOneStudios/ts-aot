@@ -105,7 +105,10 @@ private:
     };
     std::vector<StaticPropInit> deferredStaticInits_;
 
-    // Emit deferred static initializations
+    // Deferred static blocks (to be emitted at the start of user_main)
+    std::vector<ast::StaticBlock*> deferredStaticBlocks_;
+
+    // Emit deferred static initializations and static blocks
     void emitDeferredStaticInits();
 
     //==========================================================================
