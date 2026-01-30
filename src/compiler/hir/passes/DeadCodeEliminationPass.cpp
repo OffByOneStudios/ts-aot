@@ -210,6 +210,15 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
         case HIROpcode::SafepointPoll:
             return true;
 
+        // Generator operations - yield suspends and returns a value
+        case HIROpcode::Yield:
+        case HIROpcode::YieldStar:
+            return true;
+
+        // Await suspends and waits for a promise
+        case HIROpcode::Await:
+            return true;
+
         default:
             return false;
     }

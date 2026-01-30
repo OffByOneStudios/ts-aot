@@ -422,7 +422,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
 
     // Lower function body
-    for (auto& stmt : node->body) {
+    for (size_t i = 0; i < node->body.size(); ++i) {
+        auto& stmt = node->body[i];
         lowerStatement(stmt.get());
     }
 
