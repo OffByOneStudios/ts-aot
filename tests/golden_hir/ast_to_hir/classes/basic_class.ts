@@ -7,7 +7,7 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Point"
 // HIR-CHECK: call "Point_constructor"
 // HIR-CHECK: ret
 

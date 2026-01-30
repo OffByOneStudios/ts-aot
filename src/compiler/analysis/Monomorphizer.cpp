@@ -122,8 +122,17 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 // TypeScript: keep for monomorphization
                 // JavaScript: move to moduleInit for runtime hoisting
                 keepInNewBody = !isJavaScriptModule;
+            } else if (kind == "VariableDeclaration") {
+                // Keep VariableDeclarations with ClassExpression initializers
+                // so they are available for HIR pipeline processing
+                auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+                if (varDecl && varDecl->initializer) {
+                    if (dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get())) {
+                        keepInNewBody = true;
+                    }
+                }
             }
-            
+
             if (keepInNewBody) {
                 newBody.push_back(std::move(stmt));
                 if (isLodashModule) {

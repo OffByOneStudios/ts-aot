@@ -26,9 +26,9 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Dog"
 // HIR-CHECK: call "Dog_constructor"
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Cat"
 // HIR-CHECK: call "Cat_constructor"
 // HIR-CHECK: ret
 

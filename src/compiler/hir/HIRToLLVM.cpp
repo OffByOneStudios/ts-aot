@@ -2081,6 +2081,56 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle BigInt creation - ts_bigint_create_str(const char*, int32_t)
+    if (funcName == "ts_bigint_create_str") {
+        llvm::Value* strArg = getOperandValue(inst->operands[1]);
+        llvm::Value* radixArg = getOperandValue(inst->operands[2]);
+        // Convert radix from i64 to i32
+        if (radixArg->getType()->isIntegerTy(64)) {
+            radixArg = builder_->CreateTrunc(radixArg, builder_->getInt32Ty());
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getInt32Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_bigint_create_str", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { strArg, radixArg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle BigInt arithmetic - all take (ptr, ptr) and return ptr
+    if (funcName == "ts_bigint_add" || funcName == "ts_bigint_sub" ||
+        funcName == "ts_bigint_mul" || funcName == "ts_bigint_div" ||
+        funcName == "ts_bigint_mod") {
+        llvm::Value* a = getOperandValue(inst->operands[1]);
+        llvm::Value* b = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a, b });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle BigInt comparison - take (ptr, ptr) and return bool (i1)
+    if (funcName == "ts_bigint_lt" || funcName == "ts_bigint_le" ||
+        funcName == "ts_bigint_gt" || funcName == "ts_bigint_ge" ||
+        funcName == "ts_bigint_eq" || funcName == "ts_bigint_ne") {
+        llvm::Value* a = getOperandValue(inst->operands[1]);
+        llvm::Value* b = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a, b });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {

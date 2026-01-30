@@ -68,7 +68,7 @@ int Driver::run() {
             SPDLOG_INFO("Loading AST from {}...", jsonFile);
         }
         auto program = ast::loadAst(jsonFile);
-        
+
         if (isTemporaryJson) {
             std::filesystem::remove(jsonFile);
         }

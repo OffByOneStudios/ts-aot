@@ -67,8 +67,12 @@ void* ts_bigint_create_int(int64_t val) {
     return TsBigInt::Create(val);
 }
 
-void* ts_bigint_create_str(const char* str, int32_t radix) {
-    return TsBigInt::Create(str, radix);
+void* ts_bigint_create_str(void* strArg, int32_t radix) {
+    // strArg is a TsString* from the HIR const.string
+    TsString* tsStr = (TsString*)strArg;
+    if (!tsStr) return TsBigInt::Create((int64_t)0);
+    const char* cstr = tsStr->ToUtf8();
+    return TsBigInt::Create(cstr, radix);
 }
 
 void* ts_bigint_to_string(void* bi, int32_t radix) {

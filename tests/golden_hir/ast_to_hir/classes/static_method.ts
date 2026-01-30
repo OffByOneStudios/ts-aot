@@ -18,7 +18,7 @@
 
 // Factory static method
 // HIR-CHECK: define @Point_static_origin
-// HIR-CHECK: new_object_dynamic
+// HIR-CHECK: new_object "Point"
 // HIR-CHECK: call "Point_constructor"
 // HIR-CHECK: ret
 
