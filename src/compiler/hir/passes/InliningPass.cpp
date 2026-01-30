@@ -184,6 +184,17 @@ bool InliningPass::shouldInline(const HIRFunction& caller, const HIRFunction& ca
         return false;
     }
 
+    // Never inline generator functions - they have special calling semantics
+    // Calling a generator returns a generator object, not the actual return value
+    if (callee.isGenerator) {
+        return false;
+    }
+
+    // Never inline async functions - they have special calling semantics
+    if (callee.isAsync) {
+        return false;
+    }
+
     // Never inline getters/setters - they have semantic meaning
     // Naming convention: ClassName___getter_propName or ClassName___setter_propName
     if (callee.name.find("___getter_") != std::string::npos ||
