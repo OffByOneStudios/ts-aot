@@ -61,4 +61,15 @@ extern "C" {
     // Create a cell and store it in the closure at the given index
     // This is a convenience function that combines ts_cell_create and ts_closure_set_cell
     void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initialValue);
+
+    // Check if a pointer is a TsClosure (by checking magic number)
+    bool ts_is_closure(void* ptr);
+
+    // Invoke a closure with one double argument, returns double
+    // Used for map/filter callbacks with number arrays
+    double ts_closure_invoke_1d(TsClosure* closure, double arg1);
+
+    // Invoke a closure with one double argument, returns void
+    // Used for forEach callbacks with number arrays
+    void ts_closure_invoke_1d_void(TsClosure* closure, double arg1);
 }

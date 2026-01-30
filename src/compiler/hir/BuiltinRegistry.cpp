@@ -111,9 +111,44 @@ void BuiltinRegistry::registerArrayMethods() {
     methodTable_[{HIRTypeKind::Array, "values"}] =
         MethodResolution::makeRuntimeCall("ts_array_values", 0, arrayType);
 
-    // Higher-order methods (need callback handling - leave as dynamic for now)
-    // These will be handled specially or left for runtime dispatch
-    // map, filter, reduce, forEach, find, findIndex, some, every, flatMap
+    // Higher-order methods (callback-based)
+    auto voidType = HIRType::makeVoid();
+
+    methodTable_[{HIRTypeKind::Array, "map"}] =
+        MethodResolution::makeRuntimeCall("ts_array_map", -1, arrayType);
+
+    methodTable_[{HIRTypeKind::Array, "filter"}] =
+        MethodResolution::makeRuntimeCall("ts_array_filter", -1, arrayType);
+
+    methodTable_[{HIRTypeKind::Array, "reduce"}] =
+        MethodResolution::makeRuntimeCall("ts_array_reduce", -1, anyType);
+
+    methodTable_[{HIRTypeKind::Array, "reduceRight"}] =
+        MethodResolution::makeRuntimeCall("ts_array_reduceRight", -1, anyType);
+
+    methodTable_[{HIRTypeKind::Array, "forEach"}] =
+        MethodResolution::makeRuntimeCall("ts_array_forEach", -1, voidType);
+
+    methodTable_[{HIRTypeKind::Array, "find"}] =
+        MethodResolution::makeRuntimeCall("ts_array_find", -1, anyType);
+
+    methodTable_[{HIRTypeKind::Array, "findIndex"}] =
+        MethodResolution::makeRuntimeCall("ts_array_findIndex", -1, intType);
+
+    methodTable_[{HIRTypeKind::Array, "findLast"}] =
+        MethodResolution::makeRuntimeCall("ts_array_findLast", -1, anyType);
+
+    methodTable_[{HIRTypeKind::Array, "findLastIndex"}] =
+        MethodResolution::makeRuntimeCall("ts_array_findLastIndex", -1, intType);
+
+    methodTable_[{HIRTypeKind::Array, "some"}] =
+        MethodResolution::makeRuntimeCall("ts_array_some", -1, boolType);
+
+    methodTable_[{HIRTypeKind::Array, "every"}] =
+        MethodResolution::makeRuntimeCall("ts_array_every", -1, boolType);
+
+    methodTable_[{HIRTypeKind::Array, "flatMap"}] =
+        MethodResolution::makeRuntimeCall("ts_array_flatMap", -1, arrayType);
 }
 
 void BuiltinRegistry::registerArrayStaticMethods() {

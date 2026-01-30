@@ -49,4 +49,27 @@ void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initial
     closure->setCell(index, cell);
 }
 
+// Check if a pointer is a TsClosure (by checking magic number)
+bool ts_is_closure(void* ptr) {
+    if (!ptr) return false;
+    TsObject* obj = (TsObject*)ptr;
+    return obj->magic == 0x434C5352; // 'CLSR'
+}
+
+// Invoke a closure with one double argument, returns double
+// Used for map/filter callbacks with number arrays
+double ts_closure_invoke_1d(TsClosure* closure, double arg1) {
+    if (!closure || !closure->func_ptr) return 0.0;
+    typedef double (*Fn)(void*, double);
+    return ((Fn)closure->func_ptr)(closure, arg1);
+}
+
+// Invoke a closure with one double argument, returns void
+// Used for forEach callbacks with number arrays
+void ts_closure_invoke_1d_void(TsClosure* closure, double arg1) {
+    if (!closure || !closure->func_ptr) return;
+    typedef void (*Fn)(void*, double);
+    ((Fn)closure->func_ptr)(closure, arg1);
+}
+
 }

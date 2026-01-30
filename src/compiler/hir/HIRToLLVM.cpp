@@ -1921,6 +1921,64 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle Math functions - they take and return double
+    if (funcName == "ts_math_floor" || funcName == "ts_math_ceil" ||
+        funcName == "ts_math_round" || funcName == "ts_math_trunc" ||
+        funcName == "ts_math_abs" || funcName == "ts_math_sqrt" ||
+        funcName == "ts_math_sin" || funcName == "ts_math_cos" ||
+        funcName == "ts_math_tan" || funcName == "ts_math_log" ||
+        funcName == "ts_math_exp") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getDoubleTy(), { builder_->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Math.pow - takes two double arguments
+    if (funcName == "ts_math_pow") {
+        llvm::Value* base = getOperandValue(inst->operands[1]);
+        llvm::Value* exp = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getDoubleTy(), { builder_->getDoubleTy(), builder_->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { base, exp });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Math.min/max - take two double arguments
+    if (funcName == "ts_math_min" || funcName == "ts_math_max") {
+        llvm::Value* a = getOperandValue(inst->operands[1]);
+        llvm::Value* b = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getDoubleTy(), { builder_->getDoubleTy(), builder_->getDoubleTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a, b });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Math.random - takes no arguments
+    if (funcName == "ts_math_random") {
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getDoubleTy(), {}, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {});
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
@@ -2534,6 +2592,12 @@ void HIRToLLVM::lowerCondBranch(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    // LLVM switch instruction only supports integer types.
+    // If the switch value is a double (TypeScript number), convert it to i64.
+    if (val->getType()->isDoubleTy()) {
+        val = builder_->CreateFPToSI(val, builder_->getInt64Ty(), "switch.val.i64");
+    }
 
     llvm::BasicBlock* defaultBB = getBlock(inst->switchDefault);
     if (!defaultBB) {

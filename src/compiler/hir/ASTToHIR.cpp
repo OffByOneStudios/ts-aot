@@ -951,6 +951,9 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
     } else if (!loopStack_.empty()) {
         // Unlabeled break - use innermost loop
         builder_.createBranch(loopStack_.top().breakTarget);
+    } else if (!switchStack_.empty()) {
+        // Unlabeled break inside switch (but not inside a loop within the switch)
+        builder_.createBranch(switchStack_.top().breakTarget);
     }
 }
 
@@ -2229,7 +2232,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     } else if (auto* exprBody = dynamic_cast<ast::Expression*>(node->body.get())) {
         // Expression body - implicit return
         auto retVal = lowerExpression(exprBody);
-        builder_.createReturn(retVal);
+        // If return type is void, don't return the value (just execute the expression for side effects)
+        if (returnType->kind != HIRTypeKind::Void) {
+            builder_.createReturn(retVal);
+        }
     }
 
     // Add implicit return void if no terminator

@@ -1,6 +1,5 @@
 // Test: For-in loop generates correct HIR control flow
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
-// XFAIL: HIR-to-LLVM lowering issue - console.log in for-in body not emitting output
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object_dynamic
