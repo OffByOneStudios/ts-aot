@@ -1,0 +1,24 @@
+// Test: Spread operator generates correct HIR
+// RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
+
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: new_array.boxed
+// HIR-CHECK: new_array.boxed
+// HIR-CHECK: ret
+
+// OUTPUT: 1
+// OUTPUT: 2
+// OUTPUT: 3
+// OUTPUT: 4
+// OUTPUT: 5
+
+function user_main(): number {
+  const arr1: number[] = [1, 2, 3];
+  const arr2: number[] = [...arr1, 4, 5];
+
+  for (const val of arr2) {
+    console.log(val);
+  }
+
+  return 0;
+}

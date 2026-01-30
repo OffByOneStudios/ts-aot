@@ -142,6 +142,27 @@ TsValue* Generator_next(TsValue* genVal, TsValue* value) {
     return Generator_next_internal(ts_value_get_object(genVal), value);
 }
 
+void ts_generator_return(TsGenerator* gen, TsValue* value) {
+    if (!gen) return;
+    gen->done = true;
+    if (value) {
+        gen->ctx->yieldedValue = *value;
+    } else {
+        gen->ctx->yieldedValue = TsValue(); // undefined
+    }
+}
+
+TsValue* ts_generator_yield(TsValue* value) {
+    // This is a simplified yield implementation.
+    // In a proper generator state machine, this would:
+    // 1. Store the yielded value
+    // 2. Suspend the generator
+    // 3. Return the value passed to next() when resumed
+    //
+    // For now, we just return undefined (value passed to next() is typically undefined)
+    return ts_value_make_undefined();
+}
+
 TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx) {
     void* mem = ts_alloc(sizeof(TsAsyncGenerator));
     TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
@@ -161,6 +182,16 @@ TsValue* AsyncGenerator_next_internal(void* context, TsValue* value) {
 
 TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
     return AsyncGenerator_next_internal(ts_value_get_object(genVal), value);
+}
+
+void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value) {
+    if (!gen) return;
+    gen->done = true;
+    if (value) {
+        gen->ctx->yieldedValue = *value;
+    } else {
+        gen->ctx->yieldedValue = TsValue(); // undefined
+    }
 }
 
 // Magic number for AsyncArrayIterator

@@ -1630,15 +1630,39 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 }
 
 void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
+    // Get constructor/class name
+    auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
+    std::string className = ident ? ident->name : "Object";
+
+    // Handle built-in classes specially
+    if (className == "Error" || className == "TypeError" || className == "RangeError" ||
+        className == "ReferenceError" || className == "SyntaxError" || className == "URIError" ||
+        className == "EvalError" || className == "AggregateError") {
+        // new Error(message) or new Error(message, { cause: ... })
+        std::shared_ptr<HIRValue> message;
+        if (!node->arguments.empty()) {
+            message = lowerExpression(node->arguments[0].get());
+        } else {
+            // Create empty string
+            message = builder_.createConstString("");
+        }
+
+        // Call ts_error_create (returns already-boxed TsValue*)
+        if (node->arguments.size() >= 2) {
+            // ES2022: Error with options { cause: ... }
+            auto options = lowerExpression(node->arguments[1].get());
+            lastValue_ = builder_.createCall("ts_error_create_with_options", {message, options}, HIRType::makeAny());
+        } else {
+            lastValue_ = builder_.createCall("ts_error_create", {message}, HIRType::makeAny());
+        }
+        return;
+    }
+
     // Lower constructor arguments
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
         args.push_back(lowerExpression(arg.get()));
     }
-
-    // Get constructor/class name
-    auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
-    std::string className = ident ? ident->name : "Object";
 
     // Create new object
     auto newObj = builder_.createNewObjectDynamic();
