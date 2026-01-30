@@ -7,7 +7,7 @@
 
 ## Current Progress
 
-**Tests Implemented: 41 / 183 (22%)**
+**Tests Implemented: 42 / 183 (23%)**
 
 ### Completed Test Files
 
@@ -16,12 +16,12 @@
 | AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
 | AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in, break_continue, continue_stmt, labeled_stmt, try_catch | 12 |
 | AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure, async_await, generator (XFAIL) | 7 |
-| AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties | 6 |
+| AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties, private_fields | 7 |
 | AST→HIR Other | spread_operator | 1 |
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution | 5 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
 
-**40 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
+**41 tests passing, 1 XFAIL (generator.ts - requires state machine transformation)**
 
 **Recently Fixed (2026-01-29):**
 - `try_catch`: Fixed string concatenation with boxed values (error.message now works correctly)
@@ -398,14 +398,19 @@ Tests that unreachable and unused code is removed.
 - [x] Class tests (6/12 implemented) - basic, constructor, instance_method, static_method, inheritance, properties
 - [x] Other construct tests (1/8 implemented) - spread_operator
 
-## Next Batch: Classes + Other Constructs (Recommended)
+## Next Batch: Classes + HIR Passes (Recommended)
 
 Remaining high-priority tests:
-1. `classes/private_fields.ts` - Private class fields (#field)
-2. `classes/static_blocks.ts` - Static initialization blocks
-3. `classes/expressions.ts` - Class expressions
-4. `other/regexp.ts` - Regular expressions
-5. `other/bigint.ts` - BigInt literals and operations
+1. ~~`classes/private_fields.ts`~~ - **DONE** - Private class fields (#field)
+2. `classes/static_blocks.ts` - Static initialization blocks (BLOCKED: static blocks not executed)
+3. `classes/expressions.ts` - Class expressions (BLOCKED: class expr property access broken)
+4. `other/regexp.ts` - Regular expressions (BLOCKED: RegExp.test returns wrong type)
+5. `other/bigint.ts` - BigInt literals (BLOCKED: ts_bigint_create_str signature mismatch)
+
+**Alternative focus: More HIR pass tests**
+- `passes/string_method_resolution.ts` - String method resolution
+- `passes/dead_code_elimination.ts` - DCE pass
+- `lowering/string_concat.ts` - String concatenation lowering
 
 ### Week 3: Remaining Classes + Pass Tests
 - [ ] Class tests (6/12 remaining: private_fields, static_blocks, expressions, etc.)
