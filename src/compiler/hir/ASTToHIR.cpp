@@ -337,11 +337,20 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
 //==============================================================================
 
 void ASTToHIR::emitDeferredStaticInits() {
+    // Emit static property initializations
     for (auto& init : deferredStaticInits_) {
         auto initVal = lowerExpression(init.initExpr);
         builder_.createStore(initVal, init.globalPtr, init.propType);
     }
     deferredStaticInits_.clear();  // Only emit once
+
+    // Emit static blocks
+    for (auto* staticBlock : deferredStaticBlocks_) {
+        for (auto& stmt : staticBlock->body) {
+            lowerStatement(stmt.get());
+        }
+    }
+    deferredStaticBlocks_.clear();  // Only emit once
 }
 
 //==============================================================================
@@ -3011,6 +3020,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
         }
+        // Collect static blocks for deferred execution
+        if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
+            deferredStaticBlocks_.push_back(staticBlock);
+        }
     }
 
     // Second pass: create methods
@@ -3234,6 +3247,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get()});
                 }
             }
+        }
+        // Collect static blocks for deferred execution
+        if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
+            deferredStaticBlocks_.push_back(staticBlock);
         }
     }
 
