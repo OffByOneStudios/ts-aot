@@ -86,6 +86,11 @@ public:
     HIRBlock* getInsertBlock() const { return currentBlock_; }
     HIRFunction* getCurrentFunction() const { return currentFunction_; }
 
+    // Check if the current block already has a terminator (return, branch, throw, etc.)
+    bool isBlockTerminated() const {
+        return currentBlock_ && currentBlock_->getTerminator() != nullptr;
+    }
+
     HIRBlock* createBlock(const std::string& label) {
         if (!currentFunction_) return nullptr;
         return currentFunction_->createBlock(label);
