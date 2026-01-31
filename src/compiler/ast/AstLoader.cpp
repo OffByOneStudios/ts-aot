@@ -1,3 +1,4 @@
+// BlockStatement fix: use "body" instead of "statements" from JSON
 #include "AstLoader.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -603,7 +604,9 @@ StmtPtr parseStatement(const json& j) {
     } else if (kind == "BlockStatement") {
         auto node = std::make_unique<BlockStatement>();
         setLocation(node.get(), j);
-        for (const auto& stmt : j["statements"]) {
+        // The JSON from dump_ast.js uses "body" for BlockStatement contents
+        const auto& body = j.contains("body") ? j["body"] : j["statements"];
+        for (const auto& stmt : body) {
             node->statements.push_back(parseStatement(stmt));
         }
         return node;

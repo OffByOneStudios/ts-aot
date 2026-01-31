@@ -453,17 +453,62 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Enter function scope (marks function boundary for capture detection)
     pushFunctionScope(func.get());
 
+    // Update function's value counter to start after parameters BEFORE the loop
+    // This ensures values created during parameter processing (allocas, etc.)
+    // don't conflict with parameter IDs 0, 1, 2, ...
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
     // Register parameters in the scope so they can be looked up
     // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM
     for (size_t i = 0; i < func->params.size(); ++i) {
         const auto& [paramName, paramType] = func->params[i];
         // Create a value representing this parameter with specific ID
         auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-        defineVariable(paramName, paramValue);
+
+        // Check if this parameter has a default value
+        ast::Parameter* astParam = (i < node->parameters.size()) ? node->parameters[i].get() : nullptr;
+        if (astParam && astParam->initializer) {
+            // Parameter has a default value - need to check if undefined and use default
+            // Create an alloca to store the potentially-defaulted value
+            auto allocaVal = builder_.createAlloca(paramType);
+
+            // Check if param is undefined using pointer comparison
+            auto undefinedVal = builder_.createConstUndefined();
+            auto isUndefined = builder_.createCmpEqPtr(paramValue, undefinedVal);
+
+            // Create basic blocks for the conditional
+            auto defaultBB = func->createBlock("default_param");
+            auto usedBB = func->createBlock("use_param");
+            auto mergeBB = func->createBlock("param_merge");
+
+            // Branch based on undefined check
+            builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+            // Default block - evaluate default expression and store
+            builder_.setInsertPoint(defaultBB);
+            currentBlock_ = defaultBB;
+            auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+            auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+            builder_.createStore(defaultVal, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Use param block - store the passed parameter value
+            builder_.setInsertPoint(usedBB);
+            currentBlock_ = usedBB;
+            builder_.createStore(paramValue, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Merge block - continue execution
+            builder_.setInsertPoint(mergeBB);
+            currentBlock_ = mergeBB;
+
+            // Register the alloca as the variable (loads will get the correct value)
+            defineVariableAlloca(paramName, allocaVal, paramType);
+        } else {
+            // No default value - just register the parameter directly
+            defineVariable(paramName, paramValue);
+        }
     }
-    // Update function's value counter to start after parameters
-    // This ensures new values created in the function body don't reuse parameter IDs
-    func->nextValueId = static_cast<uint32_t>(func->params.size());
 
     // If this is user_main, emit deferred static property initializations
     if (node->name == "user_main") {
@@ -1455,6 +1500,118 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Comma operator: evaluate both sides for side effects, return right
         // lhs is already evaluated above, rhs is already evaluated above
         lastValue_ = rhs;
+    } else if (op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" ||
+               op == "&=" || op == "|=" || op == "^=" || op == "<<=" || op == ">>=" || op == ">>>=") {
+        // Compound assignment operators
+        // lhs already contains the loaded current value
+        // rhs contains the value to add/subtract/etc.
+        // We need to:
+        // 1. Compute the new value
+        // 2. Store it back to the LHS location
+        // 3. Return the new value
+
+        std::shared_ptr<HIRValue> result;
+
+        // Compute the operation
+        if (op == "+=") {
+            if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
+                result = builder_.createStringConcat(lhs, rhs);
+            } else if (useBigInt) {
+                result = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
+            } else if (useFloat) {
+                result = builder_.createAddF64(lhs, rhs);
+            } else {
+                result = builder_.createAddI64(lhs, rhs);
+            }
+        } else if (op == "-=") {
+            if (useBigInt) {
+                result = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
+            } else if (useFloat) {
+                result = builder_.createSubF64(lhs, rhs);
+            } else {
+                result = builder_.createSubI64(lhs, rhs);
+            }
+        } else if (op == "*=") {
+            if (useBigInt) {
+                result = builder_.createCall("ts_bigint_mul", {lhs, rhs}, HIRType::makeObject());
+            } else if (useFloat) {
+                result = builder_.createMulF64(lhs, rhs);
+            } else {
+                result = builder_.createMulI64(lhs, rhs);
+            }
+        } else if (op == "/=") {
+            if (useBigInt) {
+                result = builder_.createCall("ts_bigint_div", {lhs, rhs}, HIRType::makeObject());
+            } else if (useFloat) {
+                result = builder_.createDivF64(lhs, rhs);
+            } else {
+                result = builder_.createDivI64(lhs, rhs);
+            }
+        } else if (op == "%=") {
+            if (useBigInt) {
+                result = builder_.createCall("ts_bigint_mod", {lhs, rhs}, HIRType::makeObject());
+            } else if (useFloat) {
+                result = builder_.createModF64(lhs, rhs);
+            } else {
+                result = builder_.createModI64(lhs, rhs);
+            }
+        } else if (op == "&=") {
+            result = builder_.createAndI64(lhs, rhs);
+        } else if (op == "|=") {
+            result = builder_.createOrI64(lhs, rhs);
+        } else if (op == "^=") {
+            result = builder_.createXorI64(lhs, rhs);
+        } else if (op == "<<=") {
+            result = builder_.createShlI64(lhs, rhs);
+        } else if (op == ">>=") {
+            result = builder_.createShrI64(lhs, rhs);
+        } else if (op == ">>>=") {
+            result = builder_.createUShrI64(lhs, rhs);
+        }
+
+        // Now store the result back to the LHS
+        // Handle identifier LHS
+        auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
+        if (ident) {
+            auto* info = lookupVariableInfo(ident->name);
+            if (info && info->isAlloca) {
+                builder_.createStore(result, info->value, info->elemType);
+            } else if (info) {
+                // Direct value - promote to alloca for mutability
+                auto allocaPtr = builder_.createAlloca(result->type, ident->name);
+                builder_.createStore(result, allocaPtr, result->type);
+                info->value = allocaPtr;
+                info->elemType = result->type;
+                info->isAlloca = true;
+            }
+            lastValue_ = result;
+            return;
+        }
+
+        // Handle property access LHS (e.g., obj.prop += val)
+        auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get());
+        if (propAccess) {
+            auto obj = lowerExpression(propAccess->expression.get());
+            auto propName = builder_.createConstString(propAccess->name);
+            std::vector<std::shared_ptr<HIRValue>> args = {obj, propName, boxValueIfNeeded(result)};
+            builder_.createCall("ts_object_set_property", args, HIRType::makeVoid());
+            lastValue_ = result;
+            return;
+        }
+
+        // Handle element access LHS (e.g., arr[i] += val)
+        auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get());
+        if (elemAccess) {
+            auto arr = lowerExpression(elemAccess->expression.get());
+            auto idx = lowerExpression(elemAccess->argumentExpression.get());
+            std::vector<std::shared_ptr<HIRValue>> args = {arr, idx, boxValueIfNeeded(result)};
+            builder_.createCall("ts_array_set", args, HIRType::makeVoid());
+            lastValue_ = result;
+            return;
+        }
+
+        // Fallback - just return the computed value
+        lastValue_ = result;
     } else {
         // Unknown operator - return lhs
         lastValue_ = lhs;
@@ -1737,7 +1894,25 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
         // Not a local variable - direct function call
-        lastValue_ = builder_.createCall(ident->name, args, HIRType::makeAny());
+        // Look up the function to check for default parameters
+        HIRFunction* targetFunc = nullptr;
+        for (auto& f : module_->functions) {
+            if (f->name == ident->name) {
+                targetFunc = f.get();
+                break;
+            }
+        }
+
+        // If we found the function and have fewer args than params, pad with undefined
+        if (targetFunc && args.size() < targetFunc->params.size()) {
+            for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
+                args.push_back(builder_.createConstUndefined());
+            }
+        }
+
+        // Determine return type from target function if available
+        auto returnType = (targetFunc && targetFunc->returnType) ? targetFunc->returnType : HIRType::makeAny();
+        lastValue_ = builder_.createCall(ident->name, args, returnType);
         return;
     }
 
