@@ -317,13 +317,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 ## Testing
 
 ### Golden HIR Test Suite
-- [x] **58 tests implemented** (32% of planned 183)
-- [x] All tests passing (100% pass rate)
-- [x] AST→HIR tests: expressions (13), statements (12), functions (7), classes (9), other (3)
-- [x] HIR Passes tests: method/builtin/math/string/array resolution, constant folding, type propagation, DCE (8)
-- [x] HIR→LLVM Lowering tests: arithmetic, control flow, strings, arrays, objects, closures (6)
+- [x] **103 tests implemented** (56% of planned 183)
+- [x] **99/103 tests passing (96.1% pass rate)**, 4 XFAIL (expected failures)
+- [x] AST→HIR tests: expressions (21), statements (18), functions (13), classes (12), other (6)
+- [x] HIR Passes tests: method/builtin/math/string/array/object/console/JSON resolution, constant folding, type propagation, DCE (17)
+- [x] HIR→LLVM Lowering tests: arithmetic, control flow, strings, arrays, objects, closures, branches, calls (16)
 - [x] Bitwise ops fixed (f64→i64 conversion in HIRToLLVM)
 - [x] Dead code elimination fixed (terminator check stops statement processing after return/throw)
+- [x] Test patterns updated for post-optimization HIR (inlined constructors, resolved builtins, correct block ordering)
 
 ### Unit Tests
 - [ ] PassManager tests
