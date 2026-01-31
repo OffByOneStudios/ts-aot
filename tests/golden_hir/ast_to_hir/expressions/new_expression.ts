@@ -1,8 +1,9 @@
 // Test: New expressions for builtin types
-// XFAIL: new Array().length returns undefined in HIR pipeline
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
+// Array constructor creates array via new_array.boxed
+// HIR-CHECK: new_array.boxed
 // HIR-CHECK: ret
 
 // OUTPUT: 0
