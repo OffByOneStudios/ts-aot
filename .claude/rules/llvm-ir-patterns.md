@@ -348,6 +348,29 @@ llvm::Value* floatVal = builder->CreateSIToFP(intValue, builder->getDoubleTy());
 llvm::Value* intVal = builder->CreateFPToSI(doubleValue, builder->getInt64Ty());
 ```
 
+### TypeScript Numbers and Bitwise Operations
+
+**⚠️ IMPORTANT:** TypeScript/JavaScript numbers are IEEE 754 doubles (`f64`), but LLVM bitwise operations require integers (`i64`). Always convert!
+
+```cpp
+// Helper pattern for bitwise ops
+llvm::Value* ensureI64ForBitwise(llvm::Value* val) {
+    if (val->getType()->isDoubleTy()) {
+        return builder_->CreateFPToSI(val, builder_->getInt64Ty(), "toi64");
+    }
+    return val;
+}
+
+// Usage in bitwise AND
+llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
+llvm::Value* result = builder_->CreateAnd(lhs, rhs, "and");
+// Convert result back to f64 for JS semantics
+result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+```
+
+This applies to: `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`
+
 ## Constant Values
 
 ```cpp
