@@ -20,6 +20,7 @@ enum class ValueType : uint8_t {
 
 struct TaggedValue {
     ValueType type;
+    uint8_t _padding[7] = {0, 0, 0, 0, 0, 0, 0};  // Explicit padding, zero-initialized
     union {
         int64_t i_val;
         double d_val;
@@ -27,11 +28,11 @@ struct TaggedValue {
         void* ptr_val;
     };
 
-    TaggedValue() : type(ValueType::UNDEFINED), ptr_val(nullptr) {}
-    TaggedValue(std::nullptr_t) : type(ValueType::UNDEFINED), ptr_val(nullptr) {}
+    TaggedValue() : type(ValueType::UNDEFINED), i_val(0) {}
+    TaggedValue(std::nullptr_t) : type(ValueType::UNDEFINED), i_val(0) {}
     TaggedValue(int64_t v) : type(ValueType::NUMBER_INT), i_val(v) {}
     TaggedValue(double v) : type(ValueType::NUMBER_DBL), d_val(v) {}
-    TaggedValue(bool v) : type(ValueType::BOOLEAN), b_val(v) {}
+    TaggedValue(bool v) : type(ValueType::BOOLEAN), i_val(v ? 1 : 0) {}  // Use i_val to zero all 8 bytes
     TaggedValue(void* v) : type(ValueType::OBJECT_PTR), ptr_val(v) {}
     TaggedValue(TsString* v) : type(ValueType::STRING_PTR), ptr_val(v) {}
     
