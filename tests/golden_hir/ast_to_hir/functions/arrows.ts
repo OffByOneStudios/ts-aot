@@ -1,18 +1,17 @@
 // Test: Arrow functions generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Simple arrow function with expression body
-// HIR-CHECK: define @user_main() -> f64
-
-// Arrow with expression body - should have implicit return
-// HIR-CHECK: define @{{.*}}arrow
+// Arrow function definitions come first in HIR
+// HIR-CHECK: define @__arrow_fn_0
 // HIR-CHECK: mul.f64
 // HIR-CHECK: ret
 
-// Arrow with block body - should have explicit return
-// HIR-CHECK: define @{{.*}}arrow
+// HIR-CHECK: define @__arrow_fn_1
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
+
+// Then user_main
+// HIR-CHECK: define @user_main() -> f64
 
 // OUTPUT: 10
 // OUTPUT: 7

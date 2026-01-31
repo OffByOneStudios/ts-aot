@@ -1,9 +1,10 @@
 // Test: Spread operator generates correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
+// First array uses new_array.boxed, spread creates via ts_array_create
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_array.boxed
-// HIR-CHECK: new_array.boxed
+// HIR-CHECK: call "ts_array_create"
 // HIR-CHECK: ret
 
 // OUTPUT: 1

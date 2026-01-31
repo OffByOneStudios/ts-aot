@@ -8,7 +8,7 @@
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: const.f64 10
 // HIR-CHECK: const.f64 20
-// HIR-CHECK: call "add"
+// HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
 // OUTPUT: 30

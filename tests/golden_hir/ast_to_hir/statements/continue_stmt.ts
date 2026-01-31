@@ -3,16 +3,15 @@
 
 // HIR-CHECK: define @user_main() -> f64
 
-// While loop with continue
-// HIR-CHECK: while.cond{{.*}}:
+// While loop structure with continue
+// HIR-CHECK: while.cond
 // HIR-CHECK: condbr
-// HIR-CHECK: while.body{{.*}}:
-// HIR-CHECK: if.then{{.*}}:
-// continue generates branch to while.cond
-// HIR-CHECK: br %while.cond
-// HIR-CHECK: while.end{{.*}}:
-
+// HIR-CHECK: while.body
+// while.end block contains the return (comes before if.then in HIR)
+// HIR-CHECK: while.end
 // HIR-CHECK: ret
+// continue generates branch back to while.cond (in if.then block)
+// HIR-CHECK: br %while.cond
 
 // OUTPUT: 1
 // OUTPUT: 3

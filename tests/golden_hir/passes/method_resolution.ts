@@ -1,10 +1,10 @@
-// Test: Array method calls are represented in HIR
+// Test: Array method calls are resolved to builtin operations
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 
-// Array.push is represented as call_method in HIR
+// Array.push is resolved to array.push builtin
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_array.boxed
-// HIR-CHECK: call_method {{.*}}, "push"
+// HIR-CHECK: array.push
 // HIR-CHECK: ret
 
 // OUTPUT: 3

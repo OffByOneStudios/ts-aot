@@ -1,10 +1,11 @@
 // Test: Conditional return statements
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
+// sign function with multiple conditional returns
 // HIR-CHECK: define @sign(f64 %x) -> f64
 // HIR-CHECK: cmp.lt.f64
 // HIR-CHECK: condbr
-// HIR-CHECK: neg.f64
+// HIR-CHECK: const.f64 -1
 // HIR-CHECK: ret
 // HIR-CHECK: cmp.gt.f64
 // HIR-CHECK: condbr

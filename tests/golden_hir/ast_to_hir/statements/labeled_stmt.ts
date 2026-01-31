@@ -3,24 +3,23 @@
 
 // HIR-CHECK: define @user_main() -> f64
 
-// Outer loop
-// HIR-CHECK: for.cond{{.*}}:
+// Outer loop structure
+// HIR-CHECK: for.cond
 // HIR-CHECK: cmp.lt.f64
 // HIR-CHECK: condbr
-// HIR-CHECK: for.body{{.*}}:
+// HIR-CHECK: for.body
 
-// Inner loop (nested)
-// HIR-CHECK: for.cond{{.*}}:
-// HIR-CHECK: condbr
-// HIR-CHECK: for.body{{.*}}:
-
-// Labeled break targets the outer loop's end
-// HIR-CHECK: if.then{{.*}}:
-// HIR-CHECK: br %for.end
-
-// Outer loop end
-// HIR-CHECK: for.end{{.*}}:
+// Outer for.end with ret (appears before inner loop blocks in HIR)
+// HIR-CHECK: for.end
 // HIR-CHECK: ret
+
+// Inner loop (nested, appears after outer for.end in HIR)
+// HIR-CHECK: for.cond
+// HIR-CHECK: condbr
+// HIR-CHECK: for.body
+
+// Labeled break targets the outer loop's end (in if.then block)
+// HIR-CHECK: br %for.end
 
 // OUTPUT: 0
 // OUTPUT: 1

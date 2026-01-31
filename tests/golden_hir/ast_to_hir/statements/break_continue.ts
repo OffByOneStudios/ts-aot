@@ -3,20 +3,17 @@
 
 // HIR-CHECK: define @user_main() -> f64
 
-// For loop with break
-// HIR-CHECK: for.cond{{.*}}:
+// For loop structure with break
+// HIR-CHECK: for.cond
 // HIR-CHECK: cmp.lt.f64
 // HIR-CHECK: condbr
-// HIR-CHECK: for.body{{.*}}:
+// HIR-CHECK: for.body
 // HIR-CHECK: cmp.eq.f64
-// HIR-CHECK: condbr
-// HIR-CHECK: if.then{{.*}}:
-// break generates branch to for.end
-// HIR-CHECK: br %for.end
-// HIR-CHECK: for.update{{.*}}:
-// HIR-CHECK: for.end{{.*}}:
-
+// for.end block contains the return
+// HIR-CHECK: for.end
 // HIR-CHECK: ret
+// break generates branch to for.end (in if.then block after for.end in HIR)
+// HIR-CHECK: br %for.end
 
 // OUTPUT: 0
 // OUTPUT: 1

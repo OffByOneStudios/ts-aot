@@ -1,11 +1,13 @@
 // Test: Block statements create proper scopes
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
+// Outer and inner x variables with block scoping
 // HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: const.f64 10.000000
 // HIR-CHECK: alloca f64
-// HIR-CHECK: const.f64 10
 // HIR-CHECK: store
-// HIR-CHECK: const.f64 20
+// HIR-CHECK: const.f64 20.000000
+// HIR-CHECK: alloca f64
 // HIR-CHECK: store
 // HIR-CHECK: ret
 

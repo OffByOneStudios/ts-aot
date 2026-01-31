@@ -1,16 +1,18 @@
 // Test: Closures generate make_closure and load_capture
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
+// Arrow function definition comes first
+// HIR-CHECK: define @__arrow_fn_0
+// HIR-CHECK: load_capture "count"
+// HIR-CHECK: add.f64
+// HIR-CHECK: store_capture "count"
+// HIR-CHECK: ret
+
+// Then makeCounter definition
 // HIR-CHECK: define @makeCounter
 // HIR-CHECK: alloca
 // HIR-CHECK: store
 // HIR-CHECK: make_closure
-
-// HIR-CHECK: define @__arrow_fn_
-// HIR-CHECK: load_capture
-// HIR-CHECK: add.f64
-// HIR-CHECK: store_capture
-// HIR-CHECK: ret
 
 // OUTPUT: 1
 // OUTPUT: 2
