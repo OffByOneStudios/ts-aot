@@ -3,13 +3,13 @@
 **Status:** In Progress
 **Priority:** High
 **Category:** Testing Infrastructure
-**Last Updated:** 2026-01-30
+**Last Updated:** 2026-01-31
 
 ## Current Progress
 
 **Tests Implemented: 103 / 183 (56%)**
 
-**HIR Test Suite: 74/103 passed, 4 XFAIL (71.8%)**
+**HIR Test Suite: 99/103 passed, 4 XFAIL (96.1%)**
 
 ### Completed Test Files
 
@@ -23,7 +23,7 @@
 | HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution, string_method_resolution, type_propagation, dead_code_elimination, constant_folding_arithmetic, constant_folding_comparison, constant_folding_string, object_method_resolution, console_method_resolution, **dead_code_if_true (XFAIL)**, **dead_code_if_false (XFAIL)**, **dead_code_throw (XFAIL)**, **json_method_resolution (XFAIL)** | 17 |
 | HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm, string_concat, array_access, objects/property_access, closures/captures, comparison_to_llvm, boolean_to_llvm, branch_to_llvm, call_to_llvm, alloca_to_llvm, phi_to_llvm, return_to_llvm, negation_to_llvm, runtime_call_to_llvm, **loop_to_llvm (XFAIL)** | 16 |
 
-**74 tests passing, 4 XFAIL (expected failures)**
+**99 tests passing, 4 XFAIL (expected failures)**
 
 **XFAIL Tests (Known Issues - 4 tests):**
 | Test | Issue |
@@ -33,7 +33,25 @@
 | json_method_resolution.ts | JSON.parse returns float formatting (10.0 vs 10) |
 | rest_params.ts | Rest parameters compilation failure |
 
-**Fixes Completed (2026-01-31):**
+**Fixes Completed (2026-01-31 - Pattern Updates):**
+Updated 25 test files to match post-optimization HIR output:
+- **Constructor inlining:** Constructor calls inlined as `set_prop.static` sequences, not `call "ClassName_constructor"`
+- **Small function inlining:** Functions like `getValue()` inlined as `const.f64 42` instead of `call "getValue"`
+- **Method resolution:** `call_method {{.*}}, "push"` resolved to `array.push` builtin
+- **Constant format:** Changed `const.f64 10` to `const.f64 10.000000`
+- **Block ordering:** Loop exit blocks (for.end, while.end) appear before conditional blocks in HIR output
+- **Negation representation:** Uses `const.f64 -1` not `neg.f64` for negative constants
+
+Test categories updated:
+- Classes: 8 tests (basic_class, constructor, expressions, inheritance, instance_method, static_blocks, static_method, super_call)
+- Expressions: 3 tests (array_ops, call_expr, comma_operator)
+- Functions: 4 tests (arrows, basic_function, closure, void_function)
+- Statements: 6 tests (block_stmt, break_continue, conditional_return, continue_stmt, labeled_stmt, return_stmt)
+- Other: 1 test (spread_operator)
+- Lowering: 2 tests (branch_to_llvm, call_to_llvm)
+- Passes: 1 test (method_resolution)
+
+**Fixes Completed (2026-01-31 - Earlier):**
 - **Default parameter values (default_params.ts):** Fixed value ID collision - moved `func->nextValueId` update BEFORE parameter loop in ASTToHIR to prevent allocas from conflicting with parameter IDs
 - **Array destructuring (destructuring_array.ts):** Fixed test patterns - HIR outputs `get_elem` not `get_element`
 - **Dead code elimination for constants (dead_code_if_true.ts, dead_code_if_false.ts):**
