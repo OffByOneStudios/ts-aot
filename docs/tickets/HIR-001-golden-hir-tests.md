@@ -7,7 +7,7 @@
 
 ## Current Progress
 
-**Tests Implemented: 47 / 183 (26%)**
+**Tests Implemented: 58 / 183 (32%)**
 
 **Golden IR Test Suite: 130/145 passed (89.7%)**
 
@@ -15,17 +15,22 @@
 
 | Category | Files | Count |
 |----------|-------|-------|
-| AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops | 8 |
+| AST→HIR Expressions | integer_arithmetic, comparison_ops, boolean_ops, array_ops, unary_ops, property_access, call_expr, string_ops, template_literals, ternary_operator, typeof_operator, logical_ops, bitwise_ops (XFAIL) | 13 |
 | AST→HIR Statements | if_else, while_loop, for_loop, variable_decl, do_while, switch_stmt, for_of, for_in, break_continue, continue_stmt, labeled_stmt, try_catch | 12 |
 | AST→HIR Functions | basic_function, closure, arrows, declarations, mutable_closure, async_await, generator | 7 |
 | AST→HIR Classes | basic_class, constructor, instance_method, static_method, inheritance, properties, private_fields, static_blocks, expressions | 9 |
 | AST→HIR Other | spread_operator, regexp, bigint | 3 |
-| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution, string_method_resolution | 6 |
-| HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm | 2 |
+| HIR Passes | constant_folding, builtin_resolution, method_resolution, array_method_resolution, math_builtin_resolution, string_method_resolution, type_propagation, dead_code_elimination (XFAIL) | 8 |
+| HIR→LLVM Lowering | arithmetic_to_llvm, control_flow_to_llvm, string_concat, array_access, objects/property_access, closures/captures | 6 |
 
-**47 tests passing, 0 XFAIL**
+**56 tests passing, 2 XFAIL (bitwise_ops, dead_code_elimination)**
 
-**Recently Fixed (2026-01-30):**
+**Recently Added (2026-01-30):**
+- **Expressions tests:** Added template_literals.ts (string.concat), ternary_operator.ts (select), typeof_operator.ts, logical_ops.ts (and.bool, or.bool, not.bool), bitwise_ops.ts (XFAIL - needs f64→i64 conversion)
+- **Passes tests:** Added type_propagation.ts (verifies types flow through operations), dead_code_elimination.ts (XFAIL - DCE pass not yet removing code after returns)
+- **Lowering tests:** Added string_concat.ts, array_access.ts (new_array.boxed, get_elem, set_elem), objects/property_access.ts, closures/captures.ts (make_closure, load_capture, store_capture)
+
+**Previously Fixed (2026-01-30):**
 - **Generator state machine (generator.ts):** Implemented full generator state machine transformation in HIRToLLVM. Generators now properly suspend at yield points and resume correctly. Fixed TsValue padding bytes that caused `ts_value_to_bool` to fail detecting boolean values from `result.done`.
 - **Class expressions (expressions.ts):** Fixed class naming alignment between analyzer (`__anon_class_0`) and HIR. Methods now correctly generated as separate HIR functions with proper vtable registration.
 - **BigInt arithmetic (bigint.ts):** Added BigInt case to ASTToHIR::convertType() and BigInt dispatch in visitBinaryExpression() using runtime calls (ts_bigint_add, etc.)
@@ -42,8 +47,9 @@
 - `closure`, `arrows`, `mutable_closure`: Fixed variable type inference from initializer
 - `do_while`: Fixed block naming pattern (uses while.* instead of do.*)
 
-**XFAIL Tests:**
-None - all 47 golden HIR tests now pass!
+**XFAIL Tests (2):**
+- `ast_to_hir/expressions/bitwise_ops.ts` - Bitwise ops on number (f64) fail LLVM verification - needs f64→i64 conversion in lowering
+- `passes/dead_code_elimination.ts` - DCE pass not yet removing code after return statements
 
 ## Overview
 
