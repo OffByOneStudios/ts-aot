@@ -268,6 +268,11 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     closureParam_ = nullptr;
     asyncPromise_ = nullptr;
     generatorObject_ = nullptr;
+    asyncContext_ = nullptr;
+    currentYieldState_ = 0;
+    yieldResumeBlocks_.clear();
+    generatorDoneBlock_ = nullptr;
+    generatorImplFunc_ = nullptr;
 
     // For async generator functions (both isAsync and isGenerator), create an AsyncGenerator
     if (fn->isAsync && fn->isGenerator) {
@@ -296,25 +301,158 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             "ts_promise_create", createPromiseFt);
         asyncPromise_ = builder_->CreateCall(createPromiseFt, createPromiseFn.getCallee(), {}, "promise");
     }
-    // For generator functions (not async), create a Generator
+    // For generator functions (not async), create a state machine
     else if (fn->isGenerator) {
-        // Create entry block for generator setup
-        llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "generator_entry", llvmFunc);
-        builder_->SetInsertPoint(entryBB);
+        // Reset generator state tracking
+        currentYieldState_ = 0;
+        yieldResumeBlocks_.clear();
+        generatorDoneBlock_ = nullptr;
+        generatorImplFunc_ = nullptr;
+        asyncContext_ = nullptr;
 
-        // First create an AsyncContext
+        // First, count the number of yields to create resume blocks
+        int yieldCount = 0;
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Yield) {
+                    yieldCount++;
+                }
+            }
+        }
+
+        // Create the implementation function (state machine)
+        // Signature: void impl(AsyncContext* ctx)
+        std::string implName = fn->mangledName + "$impl";
+        llvm::FunctionType* implFuncType = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy() },  // AsyncContext*
+            false
+        );
+        generatorImplFunc_ = llvm::Function::Create(
+            implFuncType,
+            llvm::Function::InternalLinkage,
+            implName,
+            module_.get()
+        );
+
+        // Now set up the wrapper function (the original function)
+        // It creates AsyncContext, sets resumeFn, creates Generator, and returns it
+        llvm::BasicBlock* wrapperEntry = llvm::BasicBlock::Create(context_, "wrapper_entry", llvmFunc);
+        builder_->SetInsertPoint(wrapperEntry);
+
+        // Create AsyncContext
         llvm::FunctionType* createCtxFt = llvm::FunctionType::get(
             builder_->getPtrTy(), {}, false);
         llvm::FunctionCallee createCtxFn = module_->getOrInsertFunction(
             "ts_async_context_create", createCtxFt);
-        llvm::Value* asyncContext = builder_->CreateCall(createCtxFt, createCtxFn.getCallee(), {}, "async_ctx");
+        llvm::Value* asyncCtx = builder_->CreateCall(createCtxFt, createCtxFn.getCallee(), {}, "async_ctx");
 
-        // Create a Generator: ts_generator_create(AsyncContext*) -> TsGenerator*
+        // Set ctx->resumeFn = impl function
+        // AsyncContext layout: { TsObject base (16 bytes), int state (4), bool error (1), bool yielded (1), 2 padding, TsValue yieldedValue (16), ... }
+        // state is at offset 16, error at 20, yielded at 21, yieldedValue at 24, promise at 40, pendingNextPromise at 48, generator at 56, resumeFn at 64
+        // Actually let's use ts_async_context_set_resume_fn(ctx, fn) for safety
+        llvm::FunctionType* setResumeFt = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee setResumeFn = module_->getOrInsertFunction(
+            "ts_async_context_set_resume_fn", setResumeFt);
+        builder_->CreateCall(setResumeFt, setResumeFn.getCallee(), { asyncCtx, generatorImplFunc_ });
+
+        // Create Generator
         llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
             "ts_generator_create", createGeneratorFt);
-        generatorObject_ = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncContext }, "generator");
+        llvm::Value* generator = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator");
+
+        // Return the generator immediately (don't execute the body)
+        builder_->CreateRet(generator);
+
+        // Now build the implementation function (state machine)
+        currentFunction_ = generatorImplFunc_;
+        llvm::Argument* ctxArg = generatorImplFunc_->getArg(0);
+        ctxArg->setName("ctx");
+        asyncContext_ = ctxArg;
+
+        // Create entry block with state dispatch
+        llvm::BasicBlock* implEntry = llvm::BasicBlock::Create(context_, "impl_entry", generatorImplFunc_);
+        builder_->SetInsertPoint(implEntry);
+
+        // Load state: ctx->state (offset 16 in AsyncContext after TsObject base)
+        llvm::FunctionType* getStateFt = llvm::FunctionType::get(
+            builder_->getInt32Ty(),
+            { builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee getStateFn = module_->getOrInsertFunction(
+            "ts_async_context_get_state", getStateFt);
+        llvm::Value* state = builder_->CreateCall(getStateFt, getStateFn.getCallee(), { asyncContext_ }, "state");
+
+        // Create blocks for each state
+        // State 0 = initial (start of generator)
+        // State 1..N = resume after yield 1..N
+        // State N+1 = done (generator finished)
+
+        // Create LLVM basic blocks for HIR blocks (these go in the impl function)
+        for (auto& block : fn->blocks) {
+            llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, generatorImplFunc_);
+            blockMap_[block->label] = bb;
+        }
+
+        // Create the done block
+        generatorDoneBlock_ = llvm::BasicBlock::Create(context_, "generator_done", generatorImplFunc_);
+
+        // Create resume blocks for each yield point (state 1, 2, 3, ...)
+        for (int i = 0; i < yieldCount; i++) {
+            llvm::BasicBlock* resumeBlock = llvm::BasicBlock::Create(
+                context_,
+                "yield_resume_" + std::to_string(i + 1),
+                generatorImplFunc_
+            );
+            yieldResumeBlocks_.push_back(resumeBlock);
+        }
+
+        // Create the state dispatch switch
+        llvm::BasicBlock* firstHIRBlock = fn->blocks.empty() ? generatorDoneBlock_ : blockMap_[fn->blocks[0]->label];
+        llvm::SwitchInst* stateSwitch = builder_->CreateSwitch(state, generatorDoneBlock_, yieldCount + 1);
+
+        // State 0 -> start of generator (first HIR block)
+        stateSwitch->addCase(builder_->getInt32(0), firstHIRBlock);
+
+        // States 1..N -> resume after corresponding yield
+        for (int i = 0; i < yieldCount; i++) {
+            stateSwitch->addCase(builder_->getInt32(i + 1), yieldResumeBlocks_[i]);
+        }
+
+        // Build the done block - just return without setting yielded
+        builder_->SetInsertPoint(generatorDoneBlock_);
+        builder_->CreateRetVoid();
+
+        // Map function parameters - but for generators, params are stored in ctx->data
+        // For simplicity, we'll just skip parameter mapping for now
+        // TODO: Store params in ctx->data when wrapper is called, load them in impl
+
+        // Lower each HIR block in the impl function
+        for (auto& block : fn->blocks) {
+            lowerBlock(block.get());
+        }
+
+        // Restore state
+        currentFunction_ = llvmFunc;
+        asyncContext_ = nullptr;
+        generatorImplFunc_ = nullptr;
+
+        // Skip the normal block lowering below since we already did it
+        currentFunction_ = nullptr;
+        currentHIRFunction_ = nullptr;
+        isAsyncFunction_ = false;
+        isGeneratorFunction_ = false;
+        closureParam_ = nullptr;
+        asyncPromise_ = nullptr;
+        generatorObject_ = nullptr;
+        return;  // Exit early - we've handled everything for generators
     }
 
     // Create LLVM basic blocks for HIR blocks
@@ -323,9 +461,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         blockMap_[block->label] = bb;
     }
 
-    // For async, generator, or async generator functions, branch from entry to the first HIR block
+    // For async functions, branch from entry to the first HIR block
     // (The entry block was created above based on the function type)
-    if ((fn->isAsync || fn->isGenerator) && !fn->blocks.empty()) {
+    if (fn->isAsync && !fn->blocks.empty()) {
         llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0]->label];
         builder_->CreateBr(firstBlock);
     }
@@ -359,6 +497,11 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     closureParam_ = nullptr;
     asyncPromise_ = nullptr;
     generatorObject_ = nullptr;
+    asyncContext_ = nullptr;
+    currentYieldState_ = 0;
+    yieldResumeBlocks_.clear();
+    generatorDoneBlock_ = nullptr;
+    generatorImplFunc_ = nullptr;
 }
 
 void HIRToLLVM::lowerBlock(HIRBlock* block) {
@@ -2895,6 +3038,27 @@ void HIRToLLVM::lowerCondBranch(HIRInstruction* inst) {
     llvm::BasicBlock* thenBB = getBlock(thenBlock);
     llvm::BasicBlock* elseBB = getBlock(elseBlock);
 
+    // Convert condition to i1 (boolean) if it's not already
+    if (!cond->getType()->isIntegerTy(1)) {
+        if (cond->getType()->isIntegerTy(64)) {
+            // Integer: compare != 0
+            cond = builder_->CreateICmpNE(cond,
+                llvm::ConstantInt::get(builder_->getInt64Ty(), 0), "tobool");
+        } else if (cond->getType()->isIntegerTy(32)) {
+            cond = builder_->CreateICmpNE(cond,
+                llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "tobool");
+        } else if (cond->getType()->isDoubleTy()) {
+            // Double: compare != 0.0
+            cond = builder_->CreateFCmpONE(cond,
+                llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0), "tobool");
+        } else if (cond->getType()->isPointerTy()) {
+            // Pointer (boxed value): use runtime ts_value_to_bool for JS truthiness
+            auto toBoolFn = getOrDeclareRuntimeFunction("ts_value_to_bool",
+                builder_->getInt1Ty(), { builder_->getPtrTy() });
+            cond = builder_->CreateCall(toBoolFn, { cond }, "tobool");
+        }
+    }
+
     builder_->CreateCondBr(cond, thenBB, elseBB);
 }
 
@@ -3280,15 +3444,12 @@ void HIRToLLVM::lowerAsyncReturn(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerYield(HIRInstruction* inst) {
     // Yield instruction: %r = yield %value
-    // For generators, this yields a value and suspends execution.
-    // The result is the value passed to next() when resumed.
-    //
-    // For async generators, yield produces a Promise that resolves to the value.
-    //
-    // For a simple implementation, we call ts_generator_yield/ts_async_generator_yield which:
-    // - Stores the yielded value in the generator state
-    // - Returns the value sent via next() (or undefined if none)
-    // TODO: Implement full generator state machine for proper suspension/resumption
+    // For generators with state machine, this:
+    // 1. Stores the yielded value in ctx->yieldedValue
+    // 2. Sets ctx->yielded = true
+    // 3. Sets ctx->state to next state
+    // 4. Returns from the impl function
+    // 5. Continues in the corresponding resume block
 
     llvm::Value* yieldVal = getOperandValue(inst->operands[0]);
 
@@ -3309,20 +3470,48 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         }
     }
 
-    llvm::Value* result;
     if (isAsyncFunction_ && isGeneratorFunction_) {
         // Async generator: yield produces a Promise
         auto yieldFn = getOrDeclareRuntimeFunction("ts_async_generator_yield",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        result = builder_->CreateCall(yieldFn, { yieldVal }, "async_yield_result");
+        llvm::Value* result = builder_->CreateCall(yieldFn, { yieldVal }, "async_yield_result");
+        setValue(inst->result, result);
+    } else if (isGeneratorFunction_ && asyncContext_ != nullptr) {
+        // Generator with state machine - use the new implementation
+        // Call ts_async_context_yield(ctx, value) to store value and set yielded=true
+        auto yieldFn = getOrDeclareRuntimeFunction("ts_async_context_yield",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(yieldFn, { asyncContext_, yieldVal });
+
+        // Set state to next state (currentYieldState_ + 1)
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn, { asyncContext_, builder_->getInt32(nextState) });
+
+        // Return from the impl function (suspend)
+        builder_->CreateRetVoid();
+
+        // Move to the corresponding resume block for subsequent instructions
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
+            builder_->SetInsertPoint(resumeBlock);
+
+            // Get the resumed value from ctx->resumedValue for the yield result
+            auto getResumedFn = getOrDeclareRuntimeFunction("ts_async_context_get_resumed_value",
+                builder_->getPtrTy(), { builder_->getPtrTy() });
+            llvm::Value* resumedValue = builder_->CreateCall(getResumedFn, { asyncContext_ }, "resumed_value");
+            setValue(inst->result, resumedValue);
+        }
+
+        currentYieldState_++;
     } else {
-        // Regular generator
+        // Regular generator (fallback to old implementation)
         auto yieldFn = getOrDeclareRuntimeFunction("ts_generator_yield",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        result = builder_->CreateCall(yieldFn, { yieldVal }, "yield_result");
+        llvm::Value* result = builder_->CreateCall(yieldFn, { yieldVal }, "yield_result");
+        setValue(inst->result, result);
     }
-
-    setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {

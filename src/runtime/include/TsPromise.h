@@ -97,6 +97,13 @@ extern "C" {
     void ts_async_resume(AsyncContext* ctx, TsValue* value);
     void ts_async_yield(TsValue* value, AsyncContext* ctx);
 
+    // Generator state machine helpers
+    void ts_async_context_set_resume_fn(AsyncContext* ctx, void (*fn)(AsyncContext*));
+    int ts_async_context_get_state(AsyncContext* ctx);
+    void ts_async_context_set_state(AsyncContext* ctx, int state);
+    void ts_async_context_yield(AsyncContext* ctx, TsValue* value);
+    TsValue* ts_async_context_get_resumed_value(AsyncContext* ctx);
+
     TsGenerator* ts_generator_create(AsyncContext* ctx);
     TsValue* Generator_next(TsValue* gen, TsValue* value);
     void ts_generator_return(TsGenerator* gen, TsValue* value);

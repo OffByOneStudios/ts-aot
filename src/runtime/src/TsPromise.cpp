@@ -73,7 +73,7 @@ TsValue* TsGenerator::next(TsValue* value) {
     if (done) {
         return create_generator_result(TsValue(), true);
     }
-    
+
     ctx->yielded = false;
     ctx->resumedValue = value;
     ctx->resumeFn(ctx);
@@ -1274,5 +1274,43 @@ void* TsPromise_VTable[] = {
     nullptr,
     (void*)ts_promise_get_property
 };
+
+// ========================================================================
+// AsyncContext helper functions for generator state machine
+// ========================================================================
+
+void ts_async_context_set_resume_fn(AsyncContext* ctx, void (*fn)(AsyncContext*)) {
+    if (ctx) {
+        ctx->resumeFn = fn;
+    }
+}
+
+int ts_async_context_get_state(AsyncContext* ctx) {
+    return ctx ? ctx->state : 0;
+}
+
+void ts_async_context_set_state(AsyncContext* ctx, int state) {
+    if (ctx) {
+        ctx->state = state;
+    }
+}
+
+void ts_async_context_yield(AsyncContext* ctx, TsValue* value) {
+    if (ctx) {
+        ctx->yielded = true;
+        if (value) {
+            ctx->yieldedValue = *value;
+        } else {
+            ctx->yieldedValue = TsValue();
+        }
+    }
+}
+
+TsValue* ts_async_context_get_resumed_value(AsyncContext* ctx) {
+    if (ctx && ctx->resumedValue) {
+        return ctx->resumedValue;
+    }
+    return ts_value_make_undefined();
+}
 
 } // namespace ts

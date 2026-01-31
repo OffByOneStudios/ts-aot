@@ -55,6 +55,13 @@ private:
     // For generator functions
     bool isGeneratorFunction_ = false;
     llvm::Value* generatorObject_ = nullptr;  // The Generator object
+    llvm::Value* asyncContext_ = nullptr;     // AsyncContext* for state machine
+
+    // Generator state machine tracking
+    int currentYieldState_ = 0;               // Yield state counter (0 = initial, 1+ = resume points)
+    std::vector<llvm::BasicBlock*> yieldResumeBlocks_;  // Resume blocks for each yield
+    llvm::BasicBlock* generatorDoneBlock_ = nullptr;    // Block when generator is done
+    llvm::Function* generatorImplFunc_ = nullptr;       // The state machine implementation function
 
     //==========================================================================
     // Type Mapping

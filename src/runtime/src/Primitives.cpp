@@ -702,7 +702,8 @@ bool ts_value_to_bool(TsValue* v) {
             double d = v->d_val;
             return d != 0.0 && !std::isnan(d);
         }
-        case ValueType::BOOLEAN: return v->b_val;
+        case ValueType::BOOLEAN:
+            return v->i_val != 0;  // Use i_val since we store as 0 or 1
         case ValueType::STRING_PTR: {
             if (!v->ptr_val) return false;
             TsString* str = (TsString*)v->ptr_val;
