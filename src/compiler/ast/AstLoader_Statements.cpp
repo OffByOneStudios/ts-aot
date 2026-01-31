@@ -95,14 +95,23 @@ StmtPtr parseStatement(const json& j) {
         if (j.contains("returnType")) node->returnType = j["returnType"];
         parseDecorators(node->decorators, j);
         for (const auto& stmt : j["body"]) {
-            auto parsed = parseStatement(stmt);
-            // Flatten BlockStatements from MultipleVariableDeclarations expansion
-            if (auto block = dynamic_cast<BlockStatement*>(parsed.get())) {
-                for (auto& s : block->statements) {
-                    node->body.push_back(std::move(s));
+            // Check if this is a MultipleVariableDeclarations that needs flattening
+            if (stmt.contains("kind") && stmt["kind"] == "MultipleVariableDeclarations") {
+                // Flatten multiple variable declarations into the function body
+                for (const auto& declJson : stmt["declarations"]) {
+                    auto decl = std::make_unique<VariableDeclaration>();
+                    setLocation(decl.get(), declJson);
+                    decl->name = parseNode(declJson["name"]);
+                    if (declJson.contains("isExported")) decl->isExported = declJson["isExported"];
+                    if (declJson.contains("type")) decl->type = declJson["type"];
+                    if (declJson.contains("initializer") && !declJson["initializer"].is_null()) {
+                        decl->initializer = parseExpression(declJson["initializer"]);
+                    }
+                    node->body.push_back(std::move(decl));
                 }
             } else {
-                node->body.push_back(std::move(parsed));
+                // Regular statement - don't flatten BlockStatements
+                node->body.push_back(parseStatement(stmt));
             }
         }
         return node;

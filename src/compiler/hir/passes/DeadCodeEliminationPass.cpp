@@ -14,6 +14,11 @@ PassResult DeadCodeEliminationPass::runOnFunction(HIRFunction& func) {
     liveInstructions_.clear();
     reachableBlocks_.clear();
 
+    // Phase 0: Simplify constant conditional branches to unconditional branches
+    if (simplifyConstantCondBranches(func)) {
+        changed = true;
+    }
+
     // Phase 1: Build use-def chains
     buildUseMap(func);
 
@@ -34,6 +39,72 @@ PassResult DeadCodeEliminationPass::runOnFunction(HIRFunction& func) {
     }
 
     return changed ? PassResult::modified() : PassResult::unchanged();
+}
+
+bool DeadCodeEliminationPass::simplifyConstantCondBranches(HIRFunction& func) {
+    bool changed = false;
+
+    for (auto& block : func.blocks) {
+        if (block->instructions.empty()) continue;
+
+        HIRInstruction* term = block->instructions.back().get();
+        if (term->opcode != HIROpcode::CondBranch) continue;
+        if (term->operands.size() < 3) continue;
+
+        // Check if the condition is a constant boolean
+        auto* condVal = std::get_if<std::shared_ptr<HIRValue>>(&term->operands[0]);
+        if (!condVal || !*condVal) continue;
+
+        // Find the defining instruction for the condition
+        HIRInstruction* condDef = nullptr;
+        for (auto& b : func.blocks) {
+            for (auto& inst : b->instructions) {
+                if (inst->result == *condVal) {
+                    condDef = inst.get();
+                    break;
+                }
+            }
+            if (condDef) break;
+        }
+
+        if (!condDef) continue;
+
+        // Check if it's a ConstBool instruction
+        if (condDef->opcode != HIROpcode::ConstBool) continue;
+        if (condDef->operands.empty()) continue;
+
+        auto* boolVal = std::get_if<bool>(&condDef->operands[0]);
+        if (!boolVal) continue;
+
+        // Get target blocks
+        auto* thenBlk = std::get_if<HIRBlock*>(&term->operands[1]);
+        auto* elseBlk = std::get_if<HIRBlock*>(&term->operands[2]);
+        if (!thenBlk || !elseBlk) continue;
+
+        // Replace condbr with unconditional branch
+        HIRBlock* targetBlock = *boolVal ? *thenBlk : *elseBlk;
+        HIRBlock* deadBlock = *boolVal ? *elseBlk : *thenBlk;
+
+        SPDLOG_DEBUG("DCE: Simplifying constant condbr to br: {} -> {}",
+            *boolVal ? "true" : "false", targetBlock->label);
+
+        // Replace the instruction in-place
+        term->opcode = HIROpcode::Branch;
+        term->operands.clear();
+        term->operands.push_back(targetBlock);
+
+        // Update block's successors list
+        block->successors.clear();
+        block->successors.push_back(targetBlock);
+
+        // Remove this block from the dead block's predecessors
+        auto& deadPreds = deadBlock->predecessors;
+        deadPreds.erase(std::remove(deadPreds.begin(), deadPreds.end(), block.get()), deadPreds.end());
+
+        changed = true;
+    }
+
+    return changed;
 }
 
 void DeadCodeEliminationPass::buildUseMap(HIRFunction& func) {
@@ -275,12 +346,32 @@ bool DeadCodeEliminationPass::removeDeadInstructions(HIRFunction& func) {
 bool DeadCodeEliminationPass::removeUnreachableBlocks(HIRFunction& func) {
     bool changed = false;
 
+    // First, collect all unreachable blocks
+    std::set<HIRBlock*> unreachableBlocks;
+    for (auto& block : func.blocks) {
+        if (reachableBlocks_.find(block.get()) == reachableBlocks_.end()) {
+            unreachableBlocks.insert(block.get());
+        }
+    }
+
+    // Update predecessors lists of all remaining blocks to remove references to unreachable blocks
+    for (auto& block : func.blocks) {
+        if (unreachableBlocks.find(block.get()) != unreachableBlocks.end()) {
+            continue;  // Skip unreachable blocks
+        }
+        auto& preds = block->predecessors;
+        preds.erase(std::remove_if(preds.begin(), preds.end(),
+            [&unreachableBlocks](HIRBlock* pred) {
+                return unreachableBlocks.find(pred) != unreachableBlocks.end();
+            }), preds.end());
+    }
+
     // Remove unreachable blocks
     auto it = func.blocks.begin();
     while (it != func.blocks.end()) {
         HIRBlock* block = it->get();
-        if (reachableBlocks_.find(block) == reachableBlocks_.end()) {
-            SPDLOG_DEBUG("DCE: Removing unreachable block: {}", block->name);
+        if (unreachableBlocks.find(block) != unreachableBlocks.end()) {
+            SPDLOG_DEBUG("DCE: Removing unreachable block: {}", block->label);
             it = func.blocks.erase(it);
             changed = true;
         } else {

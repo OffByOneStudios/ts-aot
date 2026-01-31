@@ -50,6 +50,10 @@ private:
     /// Set of reachable blocks
     std::set<HIRBlock*> reachableBlocks_;
 
+    /// Simplify constant conditional branches to unconditional branches
+    /// @return true if any branches were simplified
+    bool simplifyConstantCondBranches(HIRFunction& func);
+
     /// Build use-def chains for all values in the function
     void buildUseMap(HIRFunction& func);
 

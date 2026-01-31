@@ -142,12 +142,6 @@ int Driver::run() {
             hir::ASTToHIR astToHir;
             auto hirModule = astToHir.lower(program.get(), moduleName);
 
-            if (options.dumpHir) {
-                SPDLOG_INFO("=== HIR Dump (before passes) ===");
-                hir::HIRPrinter printer(std::cout);
-                printer.print(*hirModule);
-            }
-
             // Run HIR optimization passes
             if (options.verbose) {
                 SPDLOG_INFO("Running HIR passes...");
@@ -167,8 +161,8 @@ int Driver::run() {
                 return 1;
             }
 
-            if (options.dumpHir && passResult.changed) {
-                SPDLOG_INFO("=== HIR Dump (after passes) ===");
+            // Dump final HIR (after all optimization passes)
+            if (options.dumpHir) {
                 hir::HIRPrinter printer(std::cout);
                 printer.print(*hirModule);
             }
