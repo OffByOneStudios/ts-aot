@@ -1,5 +1,4 @@
 // Test: Dead code elimination removes unreachable code
-// XFAIL: DCE pass not yet removing code after return statements
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // After early return, dead code should be eliminated

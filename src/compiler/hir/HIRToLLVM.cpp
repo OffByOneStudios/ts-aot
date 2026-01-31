@@ -1087,51 +1087,73 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
 // Bitwise Operations
 //==============================================================================
 
+// Helper to ensure value is i64 for bitwise operations (convert from f64 if needed)
+llvm::Value* HIRToLLVM::ensureI64ForBitwise(llvm::Value* val) {
+    if (val->getType()->isDoubleTy()) {
+        return builder_->CreateFPToSI(val, builder_->getInt64Ty(), "toi64");
+    }
+    return val;
+}
+
 void HIRToLLVM::lowerAndI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateAnd(lhs, rhs, "and");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerOrI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateOr(lhs, rhs, "or");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerXorI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateXor(lhs, rhs, "xor");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerShlI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateShl(lhs, rhs, "shl");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerShrI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateAShr(lhs, rhs, "ashr");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerUShrI64(HIRInstruction* inst) {
-    llvm::Value* lhs = getOperandValue(inst->operands[0]);
-    llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
+    llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
     llvm::Value* result = builder_->CreateLShr(lhs, rhs, "lshr");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerNotI64(HIRInstruction* inst) {
-    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* val = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* result = builder_->CreateNot(val, "not");
+    // Convert result back to f64 since TypeScript numbers are doubles
+    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 

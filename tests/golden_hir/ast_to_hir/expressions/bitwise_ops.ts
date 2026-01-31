@@ -1,5 +1,4 @@
 // Test: Bitwise operators in HIR
-// XFAIL: Bitwise ops on number (f64) fail LLVM verification - needs f64->i64 conversion
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // Bitwise operations generate i64 instructions

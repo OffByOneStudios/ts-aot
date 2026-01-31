@@ -474,6 +474,11 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     for (size_t i = 0; i < node->body.size(); ++i) {
         auto& stmt = node->body[i];
         lowerStatement(stmt.get());
+        // Stop processing statements after a terminator (return, throw, etc.)
+        // This prevents dead code from being emitted after control flow ends
+        if (builder_.isBlockTerminated()) {
+            break;
+        }
     }
 
     // Add implicit return if no terminator
@@ -677,6 +682,11 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
     pushScope();
     for (auto& stmt : node->statements) {
         lowerStatement(stmt.get());
+        // Stop processing statements after a terminator (return, throw, etc.)
+        // This prevents dead code from being emitted after control flow ends
+        if (builder_.isBlockTerminated()) {
+            break;
+        }
     }
     popScope();
 }
@@ -2376,6 +2386,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         // Block body - lower each statement
         for (auto& stmt : blockStmt->statements) {
             lowerStatement(stmt.get());
+            // Stop processing after a terminator
+            if (builder_.isBlockTerminated()) {
+                break;
+            }
         }
     } else if (auto* exprBody = dynamic_cast<ast::Expression*>(node->body.get())) {
         // Expression body - implicit return

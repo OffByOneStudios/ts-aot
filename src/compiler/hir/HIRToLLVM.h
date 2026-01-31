@@ -147,6 +147,7 @@ private:
     void lowerStringConcat(HIRInstruction* inst);
 
     // Bitwise operations
+    llvm::Value* ensureI64ForBitwise(llvm::Value* val);  // Convert f64 to i64 if needed
     void lowerAndI64(HIRInstruction* inst);
     void lowerOrI64(HIRInstruction* inst);
     void lowerXorI64(HIRInstruction* inst);
