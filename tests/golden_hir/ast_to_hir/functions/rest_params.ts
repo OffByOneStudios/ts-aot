@@ -1,12 +1,15 @@
-// Test: Rest parameters create array
-// XFAIL: Rest parameters not supported in HIR pipeline
+// Test: Rest parameters create array from call-site arguments
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @sum
-// HIR-CHECK: alloca
+// Rest parameter is an array - accessed via get_elem
+// HIR-CHECK: get_elem
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
+// Call site packages arguments into array
+// HIR-CHECK: new_array.boxed
+// HIR-CHECK: set_elem
 // HIR-CHECK: call "sum"
 // HIR-CHECK: ret
 

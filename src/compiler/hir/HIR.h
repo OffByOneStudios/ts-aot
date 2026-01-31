@@ -382,6 +382,8 @@ struct HIRFunction {
     bool isExported = false;
     bool isExtern = false;              // External function (no body)
     bool hasClosure = false;            // True if this function captures variables
+    bool hasRestParam = false;          // True if last parameter is a rest parameter (...args)
+    size_t restParamIndex = 0;          // Index of the rest parameter (if hasRestParam is true)
 
     // Value counter for SSA naming
     uint32_t nextValueId = 0;

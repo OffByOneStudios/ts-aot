@@ -420,7 +420,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     func->isGenerator = node->isGenerator;
 
     // Handle parameters
-    for (auto& param : node->parameters) {
+    for (size_t paramIdx = 0; paramIdx < node->parameters.size(); ++paramIdx) {
+        auto& param = node->parameters[paramIdx];
         // Convert parameter type from string if available
         auto paramType = param->type.empty()
             ? HIRType::makeAny()
@@ -433,6 +434,18 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
+
+        // Check if this is a rest parameter (...args)
+        if (param->isRest) {
+            func->hasRestParam = true;
+            func->restParamIndex = paramIdx;
+            // Rest parameter should be an array type
+            if (paramType->kind != HIRTypeKind::Array) {
+                // Wrap in array type if not already
+                paramType = HIRType::makeArray(paramType, false);
+            }
+        }
+
         func->params.push_back({paramName, paramType});
     }
 
@@ -1894,7 +1907,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
         // Not a local variable - direct function call
-        // Look up the function to check for default parameters
+        // Look up the function to check for default parameters and rest parameters
         HIRFunction* targetFunc = nullptr;
         for (auto& f : module_->functions) {
             if (f->name == ident->name) {
@@ -1903,10 +1916,51 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
-        // If we found the function and have fewer args than params, pad with undefined
-        if (targetFunc && args.size() < targetFunc->params.size()) {
-            for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
-                args.push_back(builder_.createConstUndefined());
+        if (targetFunc) {
+            // Handle rest parameters: package excess arguments into an array
+            if (targetFunc->hasRestParam) {
+                size_t restIdx = targetFunc->restParamIndex;
+                std::vector<std::shared_ptr<HIRValue>> newArgs;
+
+                // Add arguments before the rest parameter
+                for (size_t i = 0; i < restIdx && i < args.size(); ++i) {
+                    newArgs.push_back(args[i]);
+                }
+
+                // Pad with undefined for missing non-rest arguments
+                while (newArgs.size() < restIdx) {
+                    newArgs.push_back(builder_.createConstUndefined());
+                }
+
+                // Create array from remaining arguments
+                auto restElemType = HIRType::makeAny();
+                if (restIdx < targetFunc->params.size()) {
+                    auto& restParamType = targetFunc->params[restIdx].second;
+                    if (restParamType && restParamType->kind == HIRTypeKind::Array && restParamType->elementType) {
+                        restElemType = restParamType->elementType;
+                    }
+                }
+
+                // Create the rest array
+                size_t restArgsCount = (args.size() > restIdx) ? args.size() - restIdx : 0;
+                auto lenVal = builder_.createConstInt(static_cast<int64_t>(restArgsCount));
+                auto restArray = builder_.createNewArrayBoxed(lenVal, restElemType);
+
+                // Add elements to the rest array
+                for (size_t i = restIdx; i < args.size(); ++i) {
+                    auto idxVal = builder_.createConstInt(static_cast<int64_t>(i - restIdx));
+                    builder_.createSetElem(restArray, idxVal, args[i]);
+                }
+
+                newArgs.push_back(restArray);
+                args = std::move(newArgs);
+            } else {
+                // If we found the function and have fewer args than params, pad with undefined
+                if (args.size() < targetFunc->params.size()) {
+                    for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
+                        args.push_back(builder_.createConstUndefined());
+                    }
+                }
             }
         }
 
@@ -1935,7 +1989,66 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
-    // Handle built-in classes specially
+    // Handle built-in Array class
+    if (className == "Array") {
+        // new Array() or new Array(length) or new Array(elem1, elem2, ...)
+        // Try to infer element type from type parameter
+        std::shared_ptr<HIRType> elemType = HIRType::makeAny();
+        if (node->inferredType && node->inferredType->kind == ts::TypeKind::Array) {
+            auto arrayType = std::static_pointer_cast<ts::ArrayType>(node->inferredType);
+            if (arrayType->elementType) {
+                elemType = convertType(arrayType->elementType);
+            }
+        }
+
+        if (node->arguments.empty()) {
+            // new Array() - create empty array
+            auto zero = builder_.createConstInt(0);
+            lastValue_ = builder_.createNewArrayBoxed(zero, elemType);
+        } else if (node->arguments.size() == 1) {
+            // Check if single argument is a number (length) or element
+            auto& arg = node->arguments[0];
+            bool isNumericArg = arg->inferredType &&
+                (arg->inferredType->kind == ts::TypeKind::Double ||
+                 arg->inferredType->kind == ts::TypeKind::Int);
+            if (isNumericArg) {
+                // new Array(length) - create array with capacity
+                auto lenVal = lowerExpression(arg.get());
+                lastValue_ = builder_.createNewArrayBoxed(lenVal, elemType);
+            } else {
+                // new Array(elem) - create array with single element
+                auto zero = builder_.createConstInt(0);
+                auto arr = builder_.createNewArrayBoxed(zero, elemType);
+                auto elemVal = lowerExpression(arg.get());
+                builder_.createCall("ts_array_push", {arr, elemVal}, HIRType::makeInt64());
+                lastValue_ = arr;
+            }
+        } else {
+            // new Array(elem1, elem2, ...) - create array with elements
+            auto zero = builder_.createConstInt(0);
+            auto arr = builder_.createNewArrayBoxed(zero, elemType);
+            for (auto& arg : node->arguments) {
+                auto elemVal = lowerExpression(arg.get());
+                builder_.createCall("ts_array_push", {arr, elemVal}, HIRType::makeInt64());
+            }
+            lastValue_ = arr;
+        }
+        return;
+    }
+
+    // Handle built-in Map class
+    if (className == "Map") {
+        lastValue_ = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+        return;
+    }
+
+    // Handle built-in Set class
+    if (className == "Set") {
+        lastValue_ = builder_.createCall("ts_set_create", {}, HIRType::makeSet());
+        return;
+    }
+
+    // Handle built-in Error classes
     if (className == "Error" || className == "TypeError" || className == "RangeError" ||
         className == "ReferenceError" || className == "SyntaxError" || className == "URIError" ||
         className == "EvalError" || className == "AggregateError") {
@@ -2123,6 +2236,20 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
     // Determine the property type - check if this is 'this' access in a class context
     std::shared_ptr<HIRType> propType = HIRType::makeAny();
+
+    // Special handling for built-in type properties
+    if (node->expression && node->expression->inferredType) {
+        auto exprType = node->expression->inferredType;
+
+        // Array.length returns a number (f64 for consistency with JS number semantics)
+        if (exprType->kind == ts::TypeKind::Array && node->name == "length") {
+            propType = HIRType::makeFloat64();
+        }
+        // String.length returns a number
+        else if (exprType->kind == ts::TypeKind::String && node->name == "length") {
+            propType = HIRType::makeFloat64();
+        }
+    }
 
     if (currentClass_) {
         // Check if the expression is 'this'
