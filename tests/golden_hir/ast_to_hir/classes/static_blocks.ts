@@ -5,7 +5,7 @@
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: store {{.*}}, @Counter_static_count
 // HIR-CHECK: const.string "Static block executed"
-// HIR-CHECK: call_method {{.*}}, "log"
+// HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
 // OUTPUT: Static block executed

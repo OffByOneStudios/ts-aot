@@ -3,9 +3,9 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_array.boxed
-// HIR-CHECK: call_method {{.*}}, "push"
-// HIR-CHECK: call_method {{.*}}, "push"
-// HIR-CHECK: call_method {{.*}}, "push"
+// HIR-CHECK: array.push
+// HIR-CHECK: array.push
+// HIR-CHECK: array.push
 // HIR-CHECK: ret
 
 // OUTPUT: 1

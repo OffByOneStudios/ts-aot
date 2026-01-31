@@ -1,12 +1,15 @@
 // Test: Return statements generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
+// getValue function definition (may not be called if inlined)
 // HIR-CHECK: define @getValue() -> f64
 // HIR-CHECK: const.f64 42
 // HIR-CHECK: ret
 
+// user_main with inlined getValue call
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: call "getValue"
+// HIR-CHECK: const.f64 42
+// HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
 // OUTPUT: 42

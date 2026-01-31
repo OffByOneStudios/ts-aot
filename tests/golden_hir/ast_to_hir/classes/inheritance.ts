@@ -10,9 +10,9 @@
 // HIR-CHECK: define @Animal_speak
 // HIR-CHECK: ret
 
-// Derived class constructor with super call
+// Derived class constructor with super call (inlined)
 // HIR-CHECK: define @Dog_constructor
-// HIR-CHECK: call "Animal_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "name"
 // HIR-CHECK: set_prop.static {{.*}}, "breed"
 // HIR-CHECK: ret
 
@@ -20,16 +20,17 @@
 // HIR-CHECK: define @Dog_speak
 // HIR-CHECK: ret
 
-// Derived class calling super method
+// Derived class calling super method (inlined)
 // HIR-CHECK: define @Cat_constructor
-// HIR-CHECK: call "Animal_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "name"
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object "Dog"
-// HIR-CHECK: call "Dog_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "name"
+// HIR-CHECK: set_prop.static {{.*}}, "breed"
 // HIR-CHECK: new_object "Cat"
-// HIR-CHECK: call "Cat_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "name"
 // HIR-CHECK: ret
 
 // OUTPUT: Buddy

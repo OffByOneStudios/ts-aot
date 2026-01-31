@@ -22,7 +22,7 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object "Counter"
-// HIR-CHECK: call "Counter_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "value"
 // HIR-CHECK: ret
 
 // OUTPUT: 0

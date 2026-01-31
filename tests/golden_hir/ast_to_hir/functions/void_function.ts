@@ -4,8 +4,10 @@
 // HIR-CHECK: define @printMessage
 // HIR-CHECK: ret
 
+// Function is inlined after optimization
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: call "printMessage"
+// HIR-CHECK: const.string "Hello from function!"
+// HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
 // OUTPUT: Hello from function!

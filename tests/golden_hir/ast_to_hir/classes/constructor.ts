@@ -14,9 +14,10 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object "Rectangle"
-// HIR-CHECK: call "Rectangle_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "width"
+// HIR-CHECK: set_prop.static {{.*}}, "height"
 // HIR-CHECK: new_object "Circle"
-// HIR-CHECK: call "Circle_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "radius"
 // HIR-CHECK: ret
 
 // OUTPUT: 50

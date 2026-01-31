@@ -8,7 +8,8 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object "Point"
-// HIR-CHECK: call "Point_constructor"
+// HIR-CHECK: set_prop.static {{.*}}, "x"
+// HIR-CHECK: set_prop.static {{.*}}, "y"
 // HIR-CHECK: ret
 
 // OUTPUT: 10

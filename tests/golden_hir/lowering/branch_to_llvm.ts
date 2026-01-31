@@ -3,7 +3,8 @@
 
 // HIR branches should generate LLVM br and conditional br
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: branch
+// HIR-CHECK: condbr
+// HIR-CHECK: br
 // HIR-CHECK: ret
 
 // OUTPUT: positive

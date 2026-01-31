@@ -3,8 +3,7 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object "__anon_class_0"
-// HIR-CHECK: call "__anon_class_0_constructor"
-// HIR-CHECK: get_prop.static {{.*}}, "value"
+// HIR-CHECK: set_prop.static {{.*}}, "value"
 // HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
