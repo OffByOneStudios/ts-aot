@@ -4,17 +4,27 @@ This guide explains the 3-layer architecture for adding any new Node.js API to t
 
 ## Architecture Overview
 
+There are two compilation pipelines:
+
+### Legacy Pipeline (AST → LLVM)
 ```
 TypeScript Code → Analyzer → IRGenerator → Runtime
      (types)       (LLVM IR)     (C++ impl)
 ```
 
-Each API needs changes in **3 layers**:
+### HIR Pipeline (AST → HIR → LLVM) - Preferred for new work
+```
+TypeScript Code → Analyzer → ASTToHIR → HIRToLLVM → Runtime
+     (types)        (HIR)      (LLVM IR)    (C++ impl)
+```
+
+Each API needs changes in **3-4 layers** depending on pipeline:
 
 | Layer | File Pattern | Purpose |
 |-------|--------------|---------|
 | **Analysis** | `src/compiler/analysis/Analyzer_StdLib_<Module>.cpp` | Register types and method signatures |
-| **Codegen** | `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp` | Generate LLVM IR that calls runtime |
+| **HIR Lowering** | `src/compiler/hir/LoweringRegistry.cpp` | Register HIR-to-LLVM call specifications (HIR pipeline) |
+| **Codegen** | `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp` | Generate LLVM IR (legacy pipeline) |
 | **Runtime** | `src/runtime/src/*.cpp` + `src/runtime/include/*.h` | Implement the actual functionality |
 
 ---
@@ -175,6 +185,94 @@ bool IRGenerator::tryGenerateBuiltinCall(...) {
 
 ---
 
+## Step 2b: Register in LoweringRegistry (HIR Pipeline)
+
+**File:** `src/compiler/hir/LoweringRegistry.cpp`
+
+**Purpose:** When using the HIR pipeline (`--use-hir`), builtins are lowered via a declarative registry instead of inline code.
+
+### Template: Register a Builtin
+
+Add registrations in `LoweringRegistry::registerBuiltins()`:
+
+```cpp
+// In LoweringRegistry.cpp, inside registerBuiltins():
+
+// Simple function: takes ptr arg, returns i64
+reg.registerLowering("ts_my_module_do_something",
+    lowering("ts_my_module_do_something")
+        .returnsI64()           // Return type: i64
+        .ptrArg()               // Arg 0: ptr (passed as-is)
+        .build());
+
+// Function with boxed arg: boxes the input before calling
+reg.registerLowering("ts_my_module_process",
+    lowering("ts_my_module_process")
+        .returnsBoxed()         // Returns TsValue* (already boxed)
+        .boxedArg()             // Arg 0: box to TsValue* before call
+        .build());
+
+// Void function
+reg.registerLowering("ts_my_module_log",
+    lowering("ts_my_module_log")
+        .returnsVoid()          // No return value
+        .ptrArg()               // Arg 0: ptr
+        .build());
+
+// Function with multiple args
+reg.registerLowering("ts_my_module_combine",
+    lowering("ts_my_module_combine")
+        .returnsPtr()           // Returns raw ptr
+        .ptrArg()               // Arg 0: ptr
+        .i64Arg()               // Arg 1: i64
+        .boxedArg()             // Arg 2: boxed value
+        .build());
+```
+
+### Builder API Reference
+
+**Return Types:**
+| Method | LLVM Type | Use Case |
+|--------|-----------|----------|
+| `.returnsVoid()` | `void` | No return value |
+| `.returnsPtr()` | `ptr` | Raw pointer return |
+| `.returnsI64()` | `i64` | Integer return |
+| `.returnsF64()` | `double` | Float return |
+| `.returnsBool()` | `i1` | Boolean return |
+| `.returnsBoxed()` | `ptr` | Returns TsValue* (marks as boxed) |
+
+**Argument Types:**
+| Method | LLVM Type | Conversion |
+|--------|-----------|------------|
+| `.ptrArg()` | `ptr` | Pass through |
+| `.ptrArg(ArgConversion::Box)` | `ptr` | Box before call |
+| `.boxedArg()` | `ptr` | Shorthand for `.ptrArg(ArgConversion::Box)` |
+| `.i64Arg()` | `i64` | Pass through |
+| `.f64Arg()` | `double` | Pass through |
+| `.boolArg()` | `i1` | Pass through |
+
+**Argument Conversions (ArgConversion enum):**
+| Conversion | Effect |
+|------------|--------|
+| `None` | Pass value as-is |
+| `Box` | Box to TsValue* |
+| `Unbox` | Unbox from TsValue* |
+| `ToI64` | Convert f64 → i64 |
+| `ToF64` | Convert i64 → f64 |
+| `ToI32` | Truncate to i32 |
+| `ToBool` | Convert to i1 |
+| `PtrToInt` | Cast ptr → i64 |
+| `IntToPtr` | Cast i64 → ptr |
+
+### When NOT to Use Registry
+
+Keep inline in HIRToLLVM for:
+- **Type-specific dispatch**: Console functions dispatch to `ts_console_log_int`, `ts_console_log_double`, etc. based on argument type
+- **User-defined functions**: Looked up from function table
+- **Complex multi-step lowerings**: Multiple LLVM instructions or conditional logic
+
+---
+
 ## Step 3: Implement in Runtime
 
 **Files:** 
@@ -236,16 +334,25 @@ add_library(tsruntime STATIC
 
 ## Checklist Before Committing
 
+### For Both Pipelines
 - [ ] Analyzer: Types registered in `Analyzer_StdLib_<Module>.cpp`
 - [ ] Analyzer: `register<Module>()` called from `registerBuiltins()`
-- [ ] Codegen: Handler in `IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
-- [ ] Codegen: Handler declared in `IRGenerator.h`
-- [ ] Codegen: Handler called from `tryGenerateBuiltinCall()`
-- [ ] **Codegen: Boxing info registered via `boxingPolicy.registerRuntimeApi()`**
 - [ ] Runtime: `extern "C"` functions implemented
 - [ ] Runtime: Source file added to `CMakeLists.txt`
 - [ ] Build: `cmake --build build --target ts-aot --config Release` succeeds
-- [ ] Test: Create `examples/test_<feature>.ts` and verify output
+- [ ] Test: Create `tmp/test_<feature>.ts` and verify output
+
+### Legacy Pipeline (IRGenerator)
+- [ ] Codegen: Handler in `IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
+- [ ] Codegen: Handler declared in `IRGenerator.h`
+- [ ] Codegen: Handler called from `tryGenerateBuiltinCall()`
+- [ ] Codegen: Boxing info registered via `boxingPolicy.registerRuntimeApi()`
+
+### HIR Pipeline (LoweringRegistry) - Preferred
+- [ ] HIR: Builtin registered in `LoweringRegistry::registerBuiltins()` in `src/compiler/hir/LoweringRegistry.cpp`
+- [ ] HIR: Correct return type (`.returnsVoid()`, `.returnsI64()`, `.returnsBoxed()`, etc.)
+- [ ] HIR: Correct argument types and conversions (`.ptrArg()`, `.boxedArg()`, `.i64Arg()`, etc.)
+- [ ] Test with `--use-hir` flag: `ts-aot tmp/test.ts --use-hir -o tmp/test.exe`
 
 ---
 
