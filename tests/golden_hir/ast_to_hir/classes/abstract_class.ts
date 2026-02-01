@@ -1,5 +1,4 @@
 // Test: Abstract classes with abstract methods
-// XFAIL: Abstract classes cause super() call resolution issues in HIR (null vtable)
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // Abstract class has non-abstract method defined
