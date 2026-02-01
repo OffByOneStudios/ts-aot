@@ -179,8 +179,52 @@ void TsMyClass::StartAsync() {
     MyContext* ctx = (MyContext*)ts_alloc(sizeof(MyContext));
     ctx->self = this;
     ctx->callback = nullptr;
-    
+
     handle->data = ctx;
     // Start libuv operation...
 }
 ```
+
+---
+
+## 11. Register Builtin in LoweringRegistry (HIR Pipeline)
+
+In `LoweringRegistry.cpp`, inside `registerBuiltins()`:
+
+```cpp
+// Basic pattern: runtime func name, return type, arg types
+reg.registerLowering("ts_my_function",
+    lowering("ts_my_function")
+        .returnsI64()       // Return i64
+        .ptrArg()           // Arg 0: ptr (passed as-is)
+        .build());
+
+// With boxed arg (auto-boxes before call)
+reg.registerLowering("ts_my_boxed_func",
+    lowering("ts_my_boxed_func")
+        .returnsBoxed()     // Returns TsValue* (marked boxed)
+        .ptrArg()           // Arg 0: object ptr
+        .boxedArg()         // Arg 1: value (auto-box to TsValue*)
+        .build());
+
+// Void return
+reg.registerLowering("ts_my_void_func",
+    lowering("ts_my_void_func")
+        .returnsVoid()
+        .ptrArg()
+        .ptrArg()
+        .build());
+
+// With type conversion
+reg.registerLowering("ts_my_float_func",
+    lowering("ts_my_float_func")
+        .returnsF64()
+        .f64Arg()           // Direct f64 arg
+        .i64Arg(ArgConversion::ToF64)  // Convert i64 to f64
+        .build());
+```
+
+**Builder Methods:**
+- `.returnsVoid()`, `.returnsI64()`, `.returnsF64()`, `.returnsPtr()`, `.returnsBoxed()`, `.returnsBool()`
+- `.ptrArg()`, `.i64Arg()`, `.f64Arg()`, `.boolArg()`, `.boxedArg()`
+- `.variadic()` for vararg functions
