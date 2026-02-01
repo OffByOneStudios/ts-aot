@@ -184,6 +184,7 @@ public:
 
 private:
     LoweringRegistry() = default;
+    void registerBuiltinsImpl();  // Internal implementation to avoid recursion
     std::unordered_map<std::string, LoweringSpec> registry_;
     static bool builtinsRegistered_;
 };

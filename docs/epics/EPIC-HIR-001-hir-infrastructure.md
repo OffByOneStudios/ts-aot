@@ -387,8 +387,14 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 **Overall: ~99% Complete**
 
-### Recent Progress (2026-01-31)
-- **XFAIL test fixes (11 tests converted to PASS):**
+### Recent Progress (2026-01-31 - Critical Bug Fix)
+- **CRITICAL: Fixed LoweringRegistry infinite recursion bug** (22 tests unblocked!)
+  - Bug: `registerBuiltins()` called `instance()` which called `registerBuiltins()` before setting flag
+  - Root cause: Stack overflow (exit code -1073741571 / 0xC00000FD) in all tests using array/string/object methods
+  - Fix: Set `builtinsRegistered_ = true` BEFORE calling registration, add `registerBuiltinsImpl()` private method
+  - **Pass rate jumped from 79.5% to 98.3%**
+
+- **Previous XFAIL test fixes (11 tests converted to PASS):**
   - `instanceof.ts` - Added instanceof operator support in HIR
   - `array_find.ts` - Fixed find/findIndex return values
   - `array_predicates.ts` - Fixed some/every boolean returns
@@ -559,8 +565,21 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **LoweringRegistry refactor** - Replace 90+ inline string checks in HIRToLLVM with registry-based lowering
-   - See [REFACTOR-001-hir-lowering-registry.md](../tickets/REFACTOR-001-hir-lowering-registry.md)
+### Remaining XFAIL Tests (2 tests)
+
+1. **Abstract classes** (`tests/golden_hir/ast_to_hir/classes/abstract_class.ts`)
+   - Issue: `super()` call resolution fails with null vtable for abstract base classes
+   - Fix needed: Handle abstract class vtable initialization in ASTToHIR
+
+2. **Spread operator** (`tests/golden_hir/ast_to_hir/other/spread_operator.ts`)
+   - Issue: `[...arr, 4, 5]` doesn't copy source array elements (only appends new elements)
+   - Fix needed: Generate `ts_array_concat` or explicit element copy loop for spread source
+
+### Future Optimizations
+
+1. **LoweringRegistry refactor** - ✅ COMPLETED (2026-01-31)
+   - Registry-based lowering now working with 100+ builtin registrations
+   - Fixed infinite recursion bug
 2. **EscapeAnalysisPass** - Track object escapes for stack allocation
 3. **Class getters/setters** - Extend getter/setter support from object literals to classes
 4. **Enum declarations** - Full enum support with const enums

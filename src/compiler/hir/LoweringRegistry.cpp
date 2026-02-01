@@ -7,8 +7,8 @@ bool LoweringRegistry::builtinsRegistered_ = false;
 LoweringRegistry& LoweringRegistry::instance() {
     static LoweringRegistry instance;
     if (!builtinsRegistered_) {
-        registerBuiltins();
-        builtinsRegistered_ = true;
+        builtinsRegistered_ = true;  // Set flag BEFORE calling registerBuiltins to prevent recursion
+        instance.registerBuiltinsImpl();
     }
     return instance;
 }
@@ -31,10 +31,20 @@ bool LoweringRegistry::hasLowering(const std::string& hirFuncName) const {
 
 void LoweringRegistry::clear() {
     registry_.clear();
+    builtinsRegistered_ = false;  // Allow re-registration after clear
 }
 
 void LoweringRegistry::registerBuiltins() {
-    auto& reg = instance();
+    // Public API - get the instance and register
+    // Note: This is safe because instance() sets builtinsRegistered_ = true BEFORE
+    // calling registerBuiltinsImpl(), so we won't recurse.
+    auto& inst = instance();
+    inst.registerBuiltinsImpl();
+}
+
+void LoweringRegistry::registerBuiltinsImpl() {
+    // Use 'this' directly - we're called from instance() on the static instance
+    auto& reg = *this;
 
     // ========================================
     // Console functions
