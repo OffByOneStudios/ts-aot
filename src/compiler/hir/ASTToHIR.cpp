@@ -584,11 +584,13 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         std::shared_ptr<HIRType> varType = HIRType::makeAny();
         if (node->initializer && node->initializer->inferredType) {
             varType = convertType(node->initializer->inferredType);
-        } else if (!node->type.empty()) {
+        }
+        if (!node->type.empty() && varType->kind == HIRTypeKind::Any) {
             varType = convertTypeFromString(node->type);
-        } else if (initValue && initValue->type && initValue->type->kind != HIRTypeKind::Any) {
-            // Fallback: use the type from the lowered initializer value
-            // This handles cases like `let count = 0` where the literal is Float64
+        }
+        // Fallback: if type is still Any but initValue has a more specific type, use that
+        // This handles cases like `const map = new Map()` where the lowered expression knows the type
+        if (varType->kind == HIRTypeKind::Any && initValue && initValue->type && initValue->type->kind != HIRTypeKind::Any) {
             varType = initValue->type;
         }
 
@@ -1394,6 +1396,39 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         return;
     }
 
+    // Handle instanceof operator - need to handle rhs specially as class reference
+    if (op == "instanceof") {
+        auto lhs = lowerExpression(node->left.get());
+
+        // rhs should be a class identifier - don't evaluate it as an expression
+        auto* ident = dynamic_cast<ast::Identifier*>(node->right.get());
+        if (ident) {
+            // Check for built-in types like Array
+            if (ident->name == "Array") {
+                // Arrays have a specific check using ts_array_is_array
+                lastValue_ = builder_.createCall("ts_array_is_array", {lhs}, HIRType::makeBool());
+                return;
+            }
+
+            // Look for the VTable global for this class
+            std::string vtableGlobalName = ident->name + "_VTable_Global";
+            auto vtablePtr = builder_.createLoadGlobal(vtableGlobalName);
+            lastValue_ = builder_.createInstanceOf(lhs, vtablePtr);
+        } else {
+            // Can't resolve class, return false
+            lastValue_ = builder_.createConstBool(false);
+        }
+        return;
+    }
+
+    // Handle 'in' operator - check if property exists in object
+    if (op == "in") {
+        auto lhs = lowerExpression(node->left.get());  // property key
+        auto rhs = lowerExpression(node->right.get()); // object
+        lastValue_ = builder_.createCall("ts_object_has_property", {rhs, lhs}, HIRType::makeBool());
+        return;
+    }
+
     auto lhs = lowerExpression(node->left.get());
     auto rhs = lowerExpression(node->right.get());
 
@@ -1874,6 +1909,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     break;
                 }
             }
+
+            // Case 4: Node.js builtin module method call - path.basename(...), fs.readFileSync(...), etc.
+            static const std::set<std::string> nodeModules = {
+                "path", "fs", "os", "url", "util", "crypto", "http", "https", "net", "dgram",
+                "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process"
+            };
+            if (nodeModules.count(classNameIdent->name)) {
+                // Emit direct call to ts_<module>_<method>
+                std::string runtimeFunc = "ts_" + classNameIdent->name + "_" + propAccess->name;
+                lastValue_ = builder_.createCall(runtimeFunc, args, HIRType::makeAny());
+                return;
+            }
         }
 
         // Fallback: Dynamic method call
@@ -1906,6 +1953,89 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             lastValue_ = builder_.createCallIndirect(funcPtr, args, resultType);
             return;
         }
+        // Handle builtin globals that are called as functions
+        if (ident->name == "Symbol") {
+            // Symbol(description?) creates a unique symbol
+            std::shared_ptr<HIRValue> desc;
+            if (!args.empty()) {
+                desc = args[0];
+            } else {
+                desc = builder_.createConstNull();
+            }
+            lastValue_ = builder_.createCall("ts_symbol_create", {desc}, HIRType::makeSymbol());
+            return;
+        }
+
+        if (ident->name == "BigInt") {
+            // BigInt(value) converts value to BigInt
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_bigint_from_value", {args[0]}, HIRType::makeBigInt());
+            } else {
+                lastValue_ = builder_.createConstNull();
+            }
+            return;
+        }
+
+        if (ident->name == "Boolean") {
+            // Boolean(value) converts to boolean using JavaScript truthiness
+            if (!args.empty()) {
+                // ts_value_to_bool expects a boxed TsValue*, so we need to box the argument
+                auto arg = args[0];
+                std::shared_ptr<HIRValue> boxed;
+                if (arg->type) {
+                    switch (arg->type->kind) {
+                        case HIRTypeKind::Int64:
+                            boxed = builder_.createBoxInt(arg);
+                            break;
+                        case HIRTypeKind::Float64:
+                            boxed = builder_.createBoxFloat(arg);
+                            break;
+                        case HIRTypeKind::Bool:
+                            boxed = builder_.createBoxBool(arg);
+                            break;
+                        case HIRTypeKind::String:
+                            boxed = builder_.createBoxString(arg);
+                            break;
+                        case HIRTypeKind::Any:
+                            // Already boxed
+                            boxed = arg;
+                            break;
+                        default:
+                            // For objects, arrays, etc. - box as object
+                            boxed = builder_.createBoxObject(arg);
+                            break;
+                    }
+                } else {
+                    // Unknown type, assume it needs boxing as object
+                    boxed = builder_.createBoxObject(arg);
+                }
+                lastValue_ = builder_.createCall("ts_value_to_bool", {boxed}, HIRType::makeBool());
+            } else {
+                lastValue_ = builder_.createConstBool(false);
+            }
+            return;
+        }
+
+        if (ident->name == "Number") {
+            // Number(value) converts to number
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_to_number", {args[0]}, HIRType::makeFloat64());
+            } else {
+                lastValue_ = builder_.createConstFloat(0.0);
+            }
+            return;
+        }
+
+        if (ident->name == "String") {
+            // String(value) converts to string
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_to_string", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createCall("ts_string_create", {builder_.createConstNull()}, HIRType::makeString());
+            }
+            return;
+        }
+
         // Not a local variable - direct function call
         // Look up the function to check for default parameters and rest parameters
         HIRFunction* targetFunc = nullptr;
@@ -1970,9 +2100,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
-    // Generic case
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstUndefined(lastValue_);
+    // Generic case - callee is an expression (IIFE, function expression, etc.)
+    // Lower the callee expression to get the function/closure pointer
+    auto calleeVal = lowerExpression(node->callee.get());
+
+    // Determine return type from the callee's function type if available
+    std::shared_ptr<HIRType> resultType = HIRType::makeAny();
+    if (calleeVal && calleeVal->type && calleeVal->type->kind == HIRTypeKind::Function && calleeVal->type->returnType) {
+        resultType = calleeVal->type->returnType;
+    }
+
+    // Call the function indirectly
+    lastValue_ = builder_.createCallIndirect(calleeVal, args, resultType);
 }
 
 void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
@@ -2172,6 +2311,26 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 }
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
+    // Check for enum reverse mapping: EnumName[numericValue]
+    auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
+    if (classNameIdent) {
+        auto enumReverseIt = enumReverseMap_.find(classNameIdent->name);
+        if (enumReverseIt != enumReverseMap_.end()) {
+            // This is an enum reverse mapping access
+            if (auto* numLit = dynamic_cast<ast::NumericLiteral*>(node->argumentExpression.get())) {
+                // Constant index - look up at compile time
+                int64_t idx = static_cast<int64_t>(numLit->value);
+                auto memberIt = enumReverseIt->second.find(idx);
+                if (memberIt != enumReverseIt->second.end()) {
+                    lastValue_ = builder_.createConstString(memberIt->second);
+                    return;
+                }
+            }
+            // Dynamic index - need runtime lookup (TODO: generate runtime object for dynamic access)
+            // For now, fall through to dynamic access
+        }
+    }
+
     auto obj = lowerExpression(node->expression.get());
 
     // Handle optional chaining: obj?.[idx]
@@ -2215,6 +2374,22 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     // Check for static property access: ClassName.propertyName
     auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
     if (classNameIdent) {
+        // Check for enum member access: EnumName.MemberName
+        auto enumIt = enumValues_.find(classNameIdent->name);
+        if (enumIt != enumValues_.end()) {
+            auto memberIt = enumIt->second.find(node->name);
+            if (memberIt != enumIt->second.end()) {
+                const EnumValue& ev = memberIt->second;
+                if (ev.isString) {
+                    lastValue_ = builder_.createConstString(ev.strValue);
+                } else {
+                    // Use float64 for consistency with JS number semantics
+                    lastValue_ = builder_.createConstFloat(static_cast<double>(ev.numValue));
+                }
+                return;
+            }
+        }
+
         for (auto& cls : module_->classes) {
             if (cls->name == classNameIdent->name) {
                 // Check if this is a static property
@@ -2481,7 +2656,10 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     static const std::set<std::string> knownGlobals = {
         "console", "Math", "JSON", "Object", "Array", "String", "Number",
         "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
-        "process", "global", "globalThis", "undefined", "NaN", "Infinity"
+        "process", "global", "globalThis", "undefined", "NaN", "Infinity",
+        // Node.js builtin modules
+        "path", "fs", "os", "url", "util", "crypto", "http", "https", "net", "dgram",
+        "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process"
     };
 
     if (knownGlobals.count(node->name)) {
@@ -3459,6 +3637,11 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Second pass: create methods
     for (auto& memberPtr : node->members) {
         if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            // Skip abstract methods - they have no body
+            if (methodDef->isAbstract || !methodDef->hasBody) {
+                continue;
+            }
+
             // Generate a unique function name for the method
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
@@ -3693,6 +3876,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // Second pass: create methods
     for (auto& memberPtr : node->members) {
         if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            // Skip abstract methods - they have no body
+            if (methodDef->isAbstract || !methodDef->hasBody) {
+                continue;
+            }
+
             // Generate a unique function name for the method
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
@@ -3880,7 +4068,47 @@ void ASTToHIR::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
 }
 
 void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
-    // TODO: Enum support
+    // Process enum members and store values
+    std::map<std::string, EnumValue> members;
+    std::map<int64_t, std::string> reverseMap;
+    int64_t autoValue = 0;
+
+    for (auto& member : node->members) {
+        EnumValue ev;
+
+        if (member.initializer) {
+            // Has an explicit initializer
+            if (auto* numLit = dynamic_cast<ast::NumericLiteral*>(member.initializer.get())) {
+                // Numeric initializer
+                ev.isString = false;
+                ev.numValue = static_cast<int64_t>(numLit->value);
+                autoValue = ev.numValue + 1;  // Next auto value
+                reverseMap[ev.numValue] = member.name;
+            } else if (auto* strLit = dynamic_cast<ast::StringLiteral*>(member.initializer.get())) {
+                // String initializer
+                ev.isString = true;
+                ev.strValue = strLit->value;
+                // String enums don't have reverse mapping
+            } else {
+                // Other expression - treat as numeric for now (TODO: const eval)
+                ev.isString = false;
+                ev.numValue = autoValue++;
+                reverseMap[ev.numValue] = member.name;
+            }
+        } else {
+            // Auto-increment numeric value
+            ev.isString = false;
+            ev.numValue = autoValue++;
+            reverseMap[ev.numValue] = member.name;
+        }
+
+        members[member.name] = ev;
+    }
+
+    enumValues_[node->name] = std::move(members);
+    if (!reverseMap.empty()) {
+        enumReverseMap_[node->name] = std::move(reverseMap);
+    }
 }
 
 //==============================================================================

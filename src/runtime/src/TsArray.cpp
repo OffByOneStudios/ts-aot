@@ -340,6 +340,20 @@ void* TsArray::Map(void* callback, void* thisArg) {
 }
 
 void* TsArray::Filter(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        TsArray* result = TsArray::Create();
+        for (size_t i = 0; i < length; ++i) {
+            double elem = GetElementDouble(i);
+            if (ts_closure_invoke_1d_bool(closure, elem)) {
+                result->PushDouble(elem);
+            }
+        }
+        return result;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
 
@@ -399,6 +413,17 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
 }
 
 bool TsArray::Some(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = 0; i < length; ++i) {
+            double elem = GetElementDouble(i);
+            if (ts_closure_invoke_1d_bool(closure, elem)) return true;
+        }
+        return false;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
 
@@ -413,6 +438,17 @@ bool TsArray::Some(void* callback, void* thisArg) {
 }
 
 bool TsArray::Every(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = 0; i < length; ++i) {
+            double elem = GetElementDouble(i);
+            if (!ts_closure_invoke_1d_bool(closure, elem)) return false;
+        }
+        return true;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
 
@@ -427,6 +463,20 @@ bool TsArray::Every(void* callback, void* thisArg) {
 }
 
 TsValue* TsArray::Find(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = 0; i < length; ++i) {
+            double elem = GetElementDouble(i);
+            if (ts_closure_invoke_1d_bool(closure, elem)) {
+                // Return the element as a boxed double
+                return ts_value_make_double(elem);
+            }
+        }
+        return ts_value_make_undefined();
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
 
@@ -443,6 +493,17 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
 }
 
 int64_t TsArray::FindIndex(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = 0; i < length; ++i) {
+            double elem = GetElementDouble(i);
+            if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)i;
+        }
+        return -1;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
 
@@ -457,6 +518,21 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
 }
 
 TsValue* TsArray::FindLast(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = length; i > 0; --i) {
+            size_t idx = i - 1;
+            double elem = GetElementDouble(idx);
+            if (ts_closure_invoke_1d_bool(closure, elem)) {
+                // Return the element as a boxed double
+                return ts_value_make_double(elem);
+            }
+        }
+        return ts_value_make_undefined();
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
 
@@ -474,6 +550,18 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
 }
 
 int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        for (size_t i = length; i > 0; --i) {
+            size_t idx = i - 1;
+            double elem = GetElementDouble(idx);
+            if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)idx;
+        }
+        return -1;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
 
@@ -1164,12 +1252,31 @@ extern "C" {
         return ((TsArray*)arr)->FindLastIndex(callback, thisArg);
     }
 
-    void ts_array_concat(void* arr, void* other) {
-        TsArray* target = (TsArray*)arr;
-        TsArray* source = (TsArray*)other;
-        for (size_t i = 0; i < source->Length(); ++i) {
-            target->Push(source->Get(i));
+    void* ts_array_concat(void* arr, void* other) {
+        // Unbox if arr is a TsValue* (boxed array)
+        void* rawArr = ts_value_get_object((TsValue*)arr);
+        if (!rawArr) rawArr = arr;
+        void* rawOther = ts_value_get_object((TsValue*)other);
+        if (!rawOther) rawOther = other;
+
+        TsArray* first = (TsArray*)rawArr;
+        TsArray* second = (TsArray*)rawOther;
+
+        // Create a new array with combined size
+        size_t totalLen = first->Length() + second->Length();
+        TsArray* result = TsArray::Create(totalLen);
+
+        // Copy elements from first array
+        for (size_t i = 0; i < first->Length(); ++i) {
+            result->Push(first->Get(i));
         }
+
+        // Copy elements from second array
+        for (size_t i = 0; i < second->Length(); ++i) {
+            result->Push(second->Get(i));
+        }
+
+        return result;
     }
 
     bool ts_array_is_array(void* value) {

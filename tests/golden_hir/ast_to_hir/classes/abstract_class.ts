@@ -1,12 +1,14 @@
 // Test: Abstract classes with abstract methods
-// XFAIL: Abstract classes cause super() call resolution issues in HIR
+// XFAIL: Abstract classes cause super() call resolution issues in HIR (null vtable)
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @user_main() -> f64
-// Abstract class has method defined
-// HIR-CHECK: define @Shape
+// Abstract class has non-abstract method defined
+// HIR-CHECK: define @Shape_describe
 // Concrete implementations
-// HIR-CHECK: define @Circle
+// HIR-CHECK: define @Circle_getArea
+// HIR-CHECK: define @Square_getArea
+// Main function
+// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: ret
 
 // OUTPUT: 78.5

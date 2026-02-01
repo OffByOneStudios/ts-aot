@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 **Started:** 2026-01-27
-**Last Updated:** 2026-01-28
+**Last Updated:** 2026-01-31
 
 ## Overview
 
@@ -317,14 +317,16 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 ## Testing
 
 ### Golden HIR Test Suite
-- [x] **103 tests implemented** (56% of planned 183)
-- [x] **99/103 tests passing (96.1% pass rate)**, 4 XFAIL (expected failures)
-- [x] AST→HIR tests: expressions (21), statements (18), functions (13), classes (12), other (6)
+- [x] **117 tests implemented** (64% of planned 183)
+- [x] **115/117 tests passing (98.3% pass rate)**, 2 XFAIL (expected failures: abstract_class.ts, spread_operator.ts)
+- [x] AST→HIR tests: expressions (23), statements (18), functions (15), classes (14), other (14)
 - [x] HIR Passes tests: method/builtin/math/string/array/object/console/JSON resolution, constant folding, type propagation, DCE (17)
 - [x] HIR→LLVM Lowering tests: arithmetic, control flow, strings, arrays, objects, closures, branches, calls (16)
 - [x] Bitwise ops fixed (f64→i64 conversion in HIRToLLVM)
 - [x] Dead code elimination fixed (terminator check stops statement processing after return/throw)
 - [x] Test patterns updated for post-optimization HIR (inlined constructors, resolved builtins, correct block ordering)
+- [x] Rest parameters fixed (argument packaging at call sites)
+- [x] Array/String .length fixed (returns Float64, not Any)
 
 ### Unit Tests
 - [ ] PassManager tests
@@ -384,6 +386,28 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 | Phase 5: Optimization Passes | 80% |
 
 **Overall: ~99% Complete**
+
+### Recent Progress (2026-01-31)
+- **XFAIL test fixes (11 tests converted to PASS):**
+  - `instanceof.ts` - Added instanceof operator support in HIR
+  - `array_find.ts` - Fixed find/findIndex return values
+  - `array_predicates.ts` - Fixed some/every boolean returns
+  - `array_slice_concat.ts` - Fixed slice/concat compilation
+  - `iife.ts` - Fixed IIFE (Immediately Invoked Function Expression) compilation
+  - `enum_types.ts` - Fixed reverse mapping for enums
+  - `map_set.ts` - Fixed Map/Set method calls
+  - `symbol_type.ts` - Added Symbol() builtin resolution
+  - `type_cast.ts` - Fixed Boolean() call compilation
+  - `module_import.ts` - Fixed path module method resolution
+  - `dead_code_throw.ts` - Fixed HIR-CHECK pattern order
+  - `json_method_resolution.ts` - Fixed JSON.stringify argument handling and float formatting
+- **HIRToLLVM fixes:**
+  - `ts_json_stringify` now correctly passes 3 arguments (obj, replacer=null, space=null)
+  - `ts_path_*` functions correctly handle optional parameters
+- **Runtime fixes:**
+  - JSON.stringify now formats whole numbers as integers (10.0 → "10" not "10.0")
+  - Added `std::modf` check in TsJSON.cpp for proper integer formatting
+- **Test suite now at 98.3% pass rate** (115/117 tests, 2 XFAIL remaining)
 
 ### Recent Progress (2026-01-29)
 - **Class expressions:**

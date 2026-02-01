@@ -12,6 +12,7 @@
 
 #include <set>
 #include <stdexcept>
+#include <cmath>
 
 using json = nlohmann::json;
 
@@ -70,7 +71,16 @@ static nlohmann::json ts_value_to_json(TsValue v, std::set<void*>& visited) {
     switch (v.type) {
         case ValueType::UNDEFINED: return nullptr;
         case ValueType::NUMBER_INT: return v.i_val;
-        case ValueType::NUMBER_DBL: return v.d_val;
+        case ValueType::NUMBER_DBL: {
+            // Format whole numbers as integers (10.0 -> 10, not 10.0)
+            double d = v.d_val;
+            double intPart;
+            if (std::modf(d, &intPart) == 0.0 &&
+                d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+                return (int64_t)d;
+            }
+            return d;
+        }
         case ValueType::BOOLEAN: return v.b_val;
         case ValueType::STRING_PTR: return ts_to_json_internal(v.ptr_val, visited);
         case ValueType::OBJECT_PTR: return ts_to_json_internal(v.ptr_val, visited);
@@ -91,6 +101,12 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     if (val > 0x00007FFFFFFFFFFF) {
         double d;
         std::memcpy(&d, &val, sizeof(double));
+        // Format whole numbers as integers (10.0 -> 10, not 10.0)
+        double intPart;
+        if (std::modf(d, &intPart) == 0.0 &&
+            d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            return (int64_t)d;
+        }
         return d;
     }
 

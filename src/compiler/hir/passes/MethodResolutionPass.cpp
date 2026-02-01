@@ -125,6 +125,12 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::createRuntimeCallInstructi
     newInst->result = original->result;
     newInst->sourceLocation = original->sourceLocation;
 
+    // Apply the return type from the registry to the result
+    // This ensures that e.g. concat returns array type not any
+    if (newInst->result && returnType) {
+        newInst->result->type = returnType;
+    }
+
     // First operand is the function name
     newInst->operands.push_back(runtimeFunction);
 

@@ -72,4 +72,8 @@ extern "C" {
     // Invoke a closure with one double argument, returns void
     // Used for forEach callbacks with number arrays
     void ts_closure_invoke_1d_void(TsClosure* closure, double arg1);
+
+    // Invoke a closure with one double argument, returns bool
+    // Used for find/filter/some/every callbacks with number arrays
+    bool ts_closure_invoke_1d_bool(TsClosure* closure, double arg1);
 }

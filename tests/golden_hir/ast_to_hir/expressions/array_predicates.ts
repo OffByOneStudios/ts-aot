@@ -1,5 +1,4 @@
 // Test: Array.some and Array.every predicate methods
-// XFAIL: Array.some/every cause exit code 1 in HIR pipeline
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64

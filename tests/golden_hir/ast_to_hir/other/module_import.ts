@@ -1,5 +1,4 @@
 // Test: Module imports and basic path usage
-// XFAIL: path module calls not properly resolved in HIR pipeline
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64

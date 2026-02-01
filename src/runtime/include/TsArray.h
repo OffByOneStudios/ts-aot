@@ -97,7 +97,7 @@ extern "C" {
     bool ts_array_includes(void* arr, int64_t value);
     void* ts_array_at(void* arr, int64_t index);
     void* ts_array_join(void* arr, void* separator);
-    void ts_array_concat(void* arr, void* other);
+    void* ts_array_concat(void* arr, void* other);
     void ts_array_reverse(void* arr);
     void ts_array_forEach(void* arr, void* callback, void* thisArg);
     void* ts_array_map(void* arr, void* callback, void* thisArg);

@@ -564,25 +564,28 @@ bool ts_value_is_nullish(TsValue* v) {
 
 bool ts_instanceof(void* obj, void* targetVTable) {
     if (!obj || !targetVTable) return false;
-    
+
     uintptr_t ptr = (uintptr_t)obj;
     if (ptr > 0x00007FFFFFFFFFFF) return false; // Bitcasted double
-    
+
     // Check for TsString magic number
     uint32_t magic = *(uint32_t*)obj;
     if (magic == 0x53545247) return false; // Strings are not instances of classes (for now)
-    
-    // Get vptr from object (first field)
-    void** vptr = *(void***)obj;
+
+    // TsObject-derived classes (like TsMap) have:
+    // - C++ vtable at offset 0 (from virtual destructor)
+    // - TypeScript vtable at offset 8 (TsObject::vtable member)
+    // Read the TypeScript vtable from offset 8
+    void** vptr = *(void***)((char*)obj + 8);
     if (!vptr) return false;
-    
+
     // Traverse parent pointers in VTable
     void** currentVTable = vptr;
     while (currentVTable) {
         if (currentVTable == targetVTable) return true;
         currentVTable = (void**)currentVTable[0]; // Parent VTable is at index 0
     }
-    
+
     return false;
 }
 

@@ -45,6 +45,57 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         forwardDeclareFunction(fn.get());
     }
 
+    // Create VTable globals for all classes (even empty ones for instanceof)
+    // VTable structure: { ParentVTable*, FunctionPtr1, FunctionPtr2, ... }
+    // This must happen AFTER forward-declaring functions so we can get the correct function types
+    for (auto& hirClass : hirModule->classes) {
+        std::string vtableGlobalName = hirClass->name + "_VTable_Global";
+
+        // Build vtable struct type - first entry is parent vtable, then function pointers
+        std::vector<llvm::Type*> vtableFieldTypes;
+        std::vector<llvm::Constant*> vtableFuncs;
+
+        // First entry: parent vtable pointer (null if no base class)
+        vtableFieldTypes.push_back(builder_->getPtrTy());  // Parent VTable
+        if (hirClass->baseClass) {
+            std::string baseVTableGlobalName = hirClass->baseClass->name + "_VTable_Global";
+            // Get or create reference to base class vtable
+            llvm::Constant* baseVTable = module_->getOrInsertGlobal(baseVTableGlobalName, builder_->getPtrTy());
+            vtableFuncs.push_back(baseVTable);
+        } else {
+            vtableFuncs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+
+        // Add function pointers for each method in vtable
+        for (const auto& [methodName, methodFunc] : hirClass->vtable) {
+            vtableFieldTypes.push_back(builder_->getPtrTy());
+
+            if (methodFunc) {
+                // Get the forward-declared function
+                llvm::Function* llvmFunc = module_->getFunction(methodFunc->mangledName);
+                if (llvmFunc) {
+                    vtableFuncs.push_back(llvmFunc);
+                } else {
+                    // Function not found - use null pointer
+                    vtableFuncs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+                    SPDLOG_WARN("VTable method {} not found for class {}", methodFunc->mangledName, hirClass->name);
+                }
+            } else {
+                // Abstract method - use null pointer
+                vtableFuncs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+            }
+        }
+
+        // Create vtable struct type (always has at least the parent pointer)
+        llvm::StructType* vtableStruct = llvm::StructType::create(context_, vtableFieldTypes, hirClass->name + "_VTable");
+
+        // Create vtable global
+        llvm::Constant* vtableInit = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
+        new llvm::GlobalVariable(*module_, vtableStruct, true, llvm::GlobalValue::ExternalLinkage, vtableInit, vtableGlobalName);
+
+        SPDLOG_DEBUG("Created VTable global: {} with {} entries (+ parent ptr)", vtableGlobalName, hirClass->vtable.size());
+    }
+
     // Lower all functions
     for (auto& fn : hirModule->functions) {
         lowerFunction(fn.get());
@@ -1612,8 +1663,30 @@ void HIRToLLVM::lowerGetElementPtr(HIRInstruction* inst) {
 //==============================================================================
 
 void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
-    auto fn = getTsObjectCreate();
-    llvm::Value* result = builder_->CreateCall(fn, {});
+    // Get the class name from the operand
+    std::string className;
+    if (!inst->operands.empty()) {
+        className = getOperandString(inst->operands[0]);
+    }
+
+    // Always create a TsMap-based object first (compatible with property access)
+    auto createFn = getTsObjectCreate();
+    llvm::Value* result = builder_->CreateCall(createFn, {});
+
+    // Look up the vtable global for this class
+    std::string vtableGlobalName = className + "_VTable_Global";
+    llvm::GlobalVariable* vtableGlobal = module_->getGlobalVariable(vtableGlobalName);
+
+    if (vtableGlobal) {
+        // Store the TypeScript vtable at offset 8 of the TsMap (TsObject::vtable member)
+        // TsObject layout: [C++ vtable (8 bytes), void* vtable, ...]
+        // ts_instanceof reads from offset 8 to get TypeScript vtable
+        llvm::Value* vtableSlot = builder_->CreateGEP(
+            builder_->getInt8Ty(), result,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 8));
+        builder_->CreateStore(vtableGlobal, vtableSlot);
+    }
+
     setValue(inst->result, result);
 }
 
@@ -2045,6 +2118,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle ts_value_to_bool - returns bool (i1), not ptr
+    if (funcName == "ts_value_to_bool") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_to_bool", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Handle ts_value_is_undefined - returns bool, not ptr
     if (funcName == "ts_value_is_undefined") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
@@ -2133,14 +2219,16 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     }
 
     if (funcName == "ts_array_concat") {
-        // ts_array_concat(void* arr, void* other) - returns void
+        // ts_array_concat(void* arr, void* other) - returns new array
         llvm::Value* arr = getOperandValue(inst->operands[1]);
         llvm::Value* other = getOperandValue(inst->operands[2]);
         llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_concat", ft);
-        builder_->CreateCall(ft, fn.getCallee(), { arr, other });
-        // No result - void function
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, other });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
         return;
     }
 
@@ -2296,6 +2384,560 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle ts_array_find and ts_array_findLast - return ptr (TsValue*), need to unbox
+    if (funcName == "ts_array_find" || funcName == "ts_array_findLast") {
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* callback = getOperandValue(inst->operands[2]);
+        llvm::Value* thisArg = (inst->operands.size() > 3)
+            ? getOperandValue(inst->operands[3])
+            : llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+        // Pass the raw closure pointer - runtime will check ts_is_closure and handle it
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, callback, thisArg });
+
+        // The result is a boxed TsValue* - keep it as ptr for now
+        // The caller (store instruction) will handle type conversion as needed
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_array_findIndex and ts_array_findLastIndex - return int64_t directly
+    if (funcName == "ts_array_findIndex" || funcName == "ts_array_findLastIndex") {
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* callback = getOperandValue(inst->operands[2]);
+        llvm::Value* thisArg = (inst->operands.size() > 3)
+            ? getOperandValue(inst->operands[3])
+            : llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+        // Pass the raw closure pointer - runtime will check ts_is_closure and handle it
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, callback, thisArg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_array_some and ts_array_every - return bool (i1)
+    if (funcName == "ts_array_some" || funcName == "ts_array_every") {
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* callback = getOperandValue(inst->operands[2]);
+        llvm::Value* thisArg = (inst->operands.size() > 3)
+            ? getOperandValue(inst->operands[3])
+            : llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+        // Pass the raw closure pointer - runtime will check ts_is_closure and handle it
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, callback, thisArg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_array_slice - takes (ptr, i64, i64), returns ptr
+    // HIR passes f64 for the indices but runtime expects i64
+    if (funcName == "ts_array_slice") {
+        llvm::Value* arr = getOperandValue(inst->operands[1]);
+        llvm::Value* startVal = getOperandValue(inst->operands[2]);
+        llvm::Value* endVal = getOperandValue(inst->operands[3]);
+
+        // Convert f64 indices to i64
+        if (startVal->getType()->isDoubleTy()) {
+            startVal = builder_->CreateFPToSI(startVal, builder_->getInt64Ty());
+        }
+        if (endVal->getType()->isDoubleTy()) {
+            endVal = builder_->CreateFPToSI(endVal, builder_->getInt64Ty());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getInt64Ty() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, startVal, endVal });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_array_concat - takes (ptr, ptr), returns ptr
+    if (funcName == "ts_array_concat") {
+        llvm::Value* arr1 = getOperandValue(inst->operands[1]);
+        llvm::Value* arr2 = getOperandValue(inst->operands[2]);
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr1, arr2 });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Helper to box a value for Map/Set operations
+    // These need TsValue* so we must box primitives AND strings
+    auto boxForMapSet = [this](llvm::Value* val, const HIROperand& operand) -> llvm::Value* {
+        // Get HIR type from operand
+        std::shared_ptr<HIRType> hirType = nullptr;
+        if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+            if (*valPtr) hirType = (*valPtr)->type;
+        }
+
+        if (!val->getType()->isPointerTy()) {
+            // Primitive types - box based on LLVM type
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getTsValueMakeInt();
+                return builder_->CreateCall(boxFn, {val});
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getTsValueMakeDouble();
+                return builder_->CreateCall(boxFn, {val});
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+                return builder_->CreateCall(boxFn, {extended});
+            }
+        } else {
+            // Pointer type - check HIR type to determine boxing method
+            if (hirType && hirType->kind == HIRTypeKind::String) {
+                // Box string with ts_value_make_string
+                llvm::FunctionType* ft = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_string", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { val });
+            } else if (hirType && (hirType->kind == HIRTypeKind::Object ||
+                                   hirType->kind == HIRTypeKind::Class ||
+                                   hirType->kind == HIRTypeKind::Array)) {
+                // Box object with ts_value_make_object
+                llvm::FunctionType* ft = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_object", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { val });
+            }
+            // If no HIR type info, assume it's already boxed or an object pointer
+        }
+        return val;
+    };
+
+    // Handle Map methods - they expect boxed TsValue* arguments
+    // ts_map_set(map, key, value), ts_map_get(map, key), ts_map_has(map, key), ts_map_delete(map, key), ts_map_clear(map)
+    if (funcName == "ts_map_set") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+        llvm::Value* key = getOperandValue(inst->operands[2]);
+        llvm::Value* value = getOperandValue(inst->operands[3]);
+
+        // Box key and value
+        key = boxForMapSet(key, inst->operands[2]);
+        value = boxForMapSet(value, inst->operands[3]);
+
+        // Call ts_map_set_wrapper(void* map, TsValue* key, TsValue* value) -> TsValue*
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_set_wrapper", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { map, key, value });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_map_get") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+        llvm::Value* key = getOperandValue(inst->operands[2]);
+
+        // Box key
+        key = boxForMapSet(key, inst->operands[2]);
+
+        // Call ts_map_get_wrapper(void* map, TsValue* key) -> TsValue*
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_get_wrapper", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { map, key });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_map_has") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+        llvm::Value* key = getOperandValue(inst->operands[2]);
+
+        // Box key
+        key = boxForMapSet(key, inst->operands[2]);
+
+        // Call ts_map_has_wrapper(void* map, TsValue* key) -> TsValue* (boxed bool)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_has_wrapper", ft);
+        llvm::Value* boxedResult = builder_->CreateCall(ft, fn.getCallee(), { map, key });
+
+        // Unbox the result to bool
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+        llvm::Value* result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_map_delete") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+        llvm::Value* key = getOperandValue(inst->operands[2]);
+
+        // Box key
+        key = boxForMapSet(key, inst->operands[2]);
+
+        // Call ts_map_delete_wrapper(void* map, TsValue* key) -> TsValue* (boxed bool)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_delete_wrapper", ft);
+        llvm::Value* boxedResult = builder_->CreateCall(ft, fn.getCallee(), { map, key });
+
+        // Unbox the result to bool
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+        llvm::Value* result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_map_clear") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+
+        // Call ts_map_clear_wrapper(void* map) -> void
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_clear_wrapper", ft);
+        builder_->CreateCall(ft, fn.getCallee(), { map });
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    if (funcName == "ts_map_size") {
+        llvm::Value* map = getOperandValue(inst->operands[1]);
+
+        // Call ts_map_size(void* map) -> int64_t
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_size", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { map });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Set methods - they expect boxed TsValue* arguments
+    // ts_set_add(set, value), ts_set_has(set, value), ts_set_delete(set, value), ts_set_clear(set)
+    if (funcName == "ts_set_add") {
+        llvm::Value* set = getOperandValue(inst->operands[1]);
+        llvm::Value* value = getOperandValue(inst->operands[2]);
+
+        // Box value
+        value = boxForMapSet(value, inst->operands[2]);
+
+        // Call ts_set_add_wrapper(void* set, TsValue* value) -> TsValue*
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_add_wrapper", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { set, value });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_set_has") {
+        llvm::Value* set = getOperandValue(inst->operands[1]);
+        llvm::Value* value = getOperandValue(inst->operands[2]);
+
+        // Box value
+        value = boxForMapSet(value, inst->operands[2]);
+
+        // Call ts_set_has_wrapper(void* set, TsValue* value) -> TsValue* (boxed bool)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_has_wrapper", ft);
+        llvm::Value* boxedResult = builder_->CreateCall(ft, fn.getCallee(), { set, value });
+
+        // Unbox the result to bool
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+        llvm::Value* result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_set_delete") {
+        llvm::Value* set = getOperandValue(inst->operands[1]);
+        llvm::Value* value = getOperandValue(inst->operands[2]);
+
+        // Box value
+        value = boxForMapSet(value, inst->operands[2]);
+
+        // Call ts_set_delete_wrapper(void* set, TsValue* value) -> TsValue* (boxed bool)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_delete_wrapper", ft);
+        llvm::Value* boxedResult = builder_->CreateCall(ft, fn.getCallee(), { set, value });
+
+        // Unbox the result to bool
+        llvm::FunctionType* unboxFt = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+        llvm::Value* result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedResult });
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_set_clear") {
+        llvm::Value* set = getOperandValue(inst->operands[1]);
+
+        // Call ts_set_clear_wrapper(void* set) -> void
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_clear_wrapper", ft);
+        builder_->CreateCall(ft, fn.getCallee(), { set });
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    if (funcName == "ts_set_size") {
+        llvm::Value* set = getOperandValue(inst->operands[1]);
+
+        // Call ts_set_size(void* set) -> int64_t
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_size", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { set });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle path module functions
+    if (funcName == "ts_path_basename") {
+        // ts_path_basename(void* path, void* ext) -> TsString*
+        // ext is optional - pass null if not provided
+        llvm::Value* path = getOperandValue(inst->operands[1]);
+        llvm::Value* ext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            ext = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_basename", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { path, ext });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_dirname") {
+        // ts_path_dirname(void* path) -> TsString*
+        llvm::Value* path = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_dirname", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { path });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_extname") {
+        // ts_path_extname(void* path) -> TsString*
+        llvm::Value* path = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_extname", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { path });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_join") {
+        // ts_path_join(void* path1, void* path2) -> TsString*
+        llvm::Value* path1 = getOperandValue(inst->operands[1]);
+        llvm::Value* path2 = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            path2 = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_join", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { path1, path2 });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_normalize") {
+        // ts_path_normalize(void* path) -> TsString*
+        llvm::Value* path = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_normalize", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { path });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_resolve") {
+        // ts_path_resolve(void* paths) -> TsString*
+        llvm::Value* paths = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_resolve", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { paths });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_relative") {
+        // ts_path_relative(void* from, void* to) -> TsString*
+        llvm::Value* from = getOperandValue(inst->operands[1]);
+        llvm::Value* to = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            to = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_relative", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { from, to });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (funcName == "ts_path_isAbsolute") {
+        // ts_path_is_absolute(void* path) -> int (bool as int)
+        llvm::Value* path = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt32Ty(),
+            { builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_path_is_absolute", ft);
+        llvm::Value* result32 = builder_->CreateCall(ft, fn.getCallee(), { path });
+        // Convert to bool
+        llvm::Value* result = builder_->CreateICmpNE(result32,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle JSON module functions
+    if (funcName == "ts_json_stringify") {
+        // ts_json_stringify(void* obj, void* replacer, void* space) -> TsString*
+        // replacer and space are optional - pass null if not provided
+        llvm::Value* obj = getOperandValue(inst->operands[1]);
+        llvm::Value* replacer = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        llvm::Value* space = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            replacer = getOperandValue(inst->operands[2]);
+        }
+        if (inst->operands.size() > 3) {
+            space = getOperandValue(inst->operands[3]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_json_stringify", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, replacer, space });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
@@ -2378,6 +3020,10 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         if (*valPtr && (*valPtr)->type) {
             if ((*valPtr)->type->kind == HIRTypeKind::Class) {
                 className = (*valPtr)->type->className;
+            } else if ((*valPtr)->type->kind == HIRTypeKind::Map) {
+                className = "Map";
+            } else if ((*valPtr)->type->kind == HIRTypeKind::Set) {
+                className = "Set";
             }
         }
     }
@@ -2525,6 +3171,252 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             }
             return;
         }
+    }
+
+    // Handle common array methods on Any-typed values
+    // This handles cases where MethodResolutionPass couldn't resolve due to Any type
+    if (methodName == "join") {
+        // ts_array_join(void* arr, void* separator) -> TsString*
+        llvm::Value* separator = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            separator = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_join", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, separator });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Helper lambda to box a value for Map/Set operations
+    // Returns TsValue* from the LLVM value based on its HIR type
+    auto boxValueForMapSet = [this](HIROperand& operand) -> llvm::Value* {
+        llvm::Value* val = getOperandValue(operand);
+
+        // Check the HIR type of the operand to decide how to box
+        std::shared_ptr<HIRType> hirType = nullptr;
+        if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+            if (*valPtr) hirType = (*valPtr)->type;
+        }
+
+        // If it's already a pointer, we need to check if it's a string or object
+        if (val->getType()->isPointerTy()) {
+            // Check HIR type to determine boxing function
+            if (hirType && hirType->kind == HIRTypeKind::String) {
+                // Box as string
+                llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_string", boxFt);
+                return builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+            } else {
+                // Box as object for any other pointer type
+                llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_object", boxFt);
+                return builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+            }
+        } else if (val->getType()->isIntegerTy(64)) {
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+            return builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+        } else if (val->getType()->isDoubleTy()) {
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
+            return builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+        } else if (val->getType()->isIntegerTy(1)) {
+            // Bool
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFt);
+            return builder_->CreateCall(boxFt, boxFn.getCallee(), { val });
+        }
+
+        // Fallback: return as-is (already boxed or unknown type)
+        return val;
+    };
+
+    // Handle Map methods
+    if (className == "Map" || className.empty()) {
+        if (methodName == "set") {
+            // ts_map_set_wrapper(void* map, TsValue* key, TsValue* value) -> TsValue* (returns map for chaining)
+            llvm::Value* key = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            llvm::Value* value = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                key = boxValueForMapSet(inst->operands[2]);
+            }
+            if (inst->operands.size() > 3) {
+                value = boxValueForMapSet(inst->operands[3]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_set_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key, value });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "get") {
+            // ts_map_get_wrapper(void* map, TsValue* key) -> TsValue*
+            llvm::Value* key = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                key = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_get_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "has" && className == "Map") {
+            // ts_map_has_wrapper(void* map, TsValue* key) -> TsValue* (bool boxed)
+            llvm::Value* key = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                key = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_has_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "delete" && className == "Map") {
+            // ts_map_delete_wrapper(void* map, TsValue* key) -> TsValue* (bool boxed)
+            llvm::Value* key = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                key = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_delete_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "clear" && className == "Map") {
+            // ts_map_clear_wrapper(void* map) -> TsValue* (undefined)
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_clear_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
+    // Handle Set methods
+    if (className == "Set" || className.empty()) {
+        if (methodName == "add") {
+            // ts_set_add_wrapper(void* set, TsValue* value) -> TsValue* (returns set for chaining)
+            llvm::Value* value = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                value = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_add_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, value });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "has" && className == "Set") {
+            // ts_set_has_wrapper(void* set, TsValue* value) -> TsValue* (bool boxed)
+            llvm::Value* value = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                value = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_has_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, value });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "delete" && className == "Set") {
+            // ts_set_delete_wrapper(void* set, TsValue* value) -> TsValue* (bool boxed)
+            llvm::Value* value = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (inst->operands.size() > 2) {
+                value = boxValueForMapSet(inst->operands[2]);
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_delete_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, value });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+        if (methodName == "clear" && className == "Set") {
+            // ts_set_clear_wrapper(void* set) -> TsValue* (undefined)
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_clear_wrapper", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
+    // Handle has method when className is empty (could be Map or Set)
+    if (className.empty() && methodName == "has") {
+        // Try to use Map.has as default
+        llvm::Value* key = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            key = boxValueForMapSet(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        // Use ts_map_has_wrapper as it works for both Map and Set conceptually
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_map_has_wrapper", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
     }
 
     // Generic method call - fall back to dynamic dispatch
@@ -2693,6 +3585,57 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_process";
     } else if (globalName == "global" || globalName == "globalThis") {
         funcName = "ts_get_global_globalThis";
+    } else if (globalName == "path") {
+        // path module - return a sentinel that lowerCallMethod will recognize
+        // We use the global name as a marker - the runtime doesn't need an actual object
+        funcName = "ts_get_global_path";
+    } else if (globalName == "fs") {
+        funcName = "ts_get_global_fs";
+    } else if (globalName == "os") {
+        funcName = "ts_get_global_os";
+    } else if (globalName == "url") {
+        funcName = "ts_get_global_url";
+    } else if (globalName == "util") {
+        funcName = "ts_get_global_util";
+    } else if (globalName == "crypto") {
+        funcName = "ts_get_global_crypto";
+    } else if (globalName == "http") {
+        funcName = "ts_get_global_http";
+    } else if (globalName == "https") {
+        funcName = "ts_get_global_https";
+    } else if (globalName == "net") {
+        funcName = "ts_get_global_net";
+    } else if (globalName == "dgram") {
+        funcName = "ts_get_global_dgram";
+    } else if (globalName == "dns") {
+        funcName = "ts_get_global_dns";
+    } else if (globalName == "tls") {
+        funcName = "ts_get_global_tls";
+    } else if (globalName == "zlib") {
+        funcName = "ts_get_global_zlib";
+    } else if (globalName == "stream") {
+        funcName = "ts_get_global_stream";
+    } else if (globalName == "events") {
+        funcName = "ts_get_global_events";
+    } else if (globalName == "querystring") {
+        funcName = "ts_get_global_querystring";
+    } else if (globalName == "assert") {
+        funcName = "ts_get_global_assert";
+    } else if (globalName == "child_process") {
+        funcName = "ts_get_global_child_process";
+    } else if (globalName.find("_VTable_Global") != std::string::npos) {
+        // VTable globals are LLVM globals, not runtime globals
+        llvm::GlobalVariable* vtableGlobal = module_->getGlobalVariable(globalName);
+        if (vtableGlobal) {
+            result = vtableGlobal;
+        } else {
+            // VTable doesn't exist yet - return null
+            result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        }
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
     } else {
         // Generic global lookup
         funcName = "ts_get_global";

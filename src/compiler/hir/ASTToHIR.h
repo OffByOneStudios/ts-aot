@@ -104,6 +104,18 @@ private:
     // Static property globals - maps "ClassName_static_propName" to (globalPtr, type)
     std::map<std::string, std::pair<std::shared_ptr<HIRValue>, std::shared_ptr<HIRType>>> staticPropertyGlobals_;
 
+    // Enum values - maps enum name to member values
+    // For numeric enums: "Color" -> {"Red" -> 0, "Green" -> 1, ...}
+    // For string enums: "Direction" -> {"Up" -> "up", "Down" -> "down"}
+    struct EnumValue {
+        bool isString;
+        int64_t numValue;
+        std::string strValue;
+    };
+    std::map<std::string, std::map<std::string, EnumValue>> enumValues_;
+    // Reverse mapping for numeric enums: "Color" -> {0 -> "Red", 1 -> "Green", ...}
+    std::map<std::string, std::map<int64_t, std::string>> enumReverseMap_;
+
     // Deferred static property initializations (to be emitted at the start of user_main)
     struct StaticPropInit {
         std::shared_ptr<HIRValue> globalPtr;
