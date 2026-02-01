@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HIR.h"
+#include "LoweringRegistry.h"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -241,6 +242,11 @@ private:
     void lowerCallMethod(HIRInstruction* inst);
     void lowerCallVirtual(HIRInstruction* inst);
     void lowerCallIndirect(HIRInstruction* inst);
+
+    // Registry-based call lowering
+    llvm::Value* lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);
+    llvm::Value* convertArg(llvm::Value* arg, ::hir::ArgConversion conv);
+    llvm::Value* handleReturn(llvm::Value* result, ::hir::ReturnHandling handling);
 
     // Globals
     void lowerLoadGlobal(HIRInstruction* inst);
