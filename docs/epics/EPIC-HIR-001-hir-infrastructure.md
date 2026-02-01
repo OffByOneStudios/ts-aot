@@ -559,7 +559,8 @@ TypeScript → AST → Analyzer → ASTToHIR → HIRModule → [Passes] → HIRT
 
 ## Next Steps (Priority Order)
 
-1. **EscapeAnalysisPass** - Track object escapes for stack allocation
-2. **Class getters/setters** - Extend getter/setter support from object literals to classes
-3. **Generator functions** - `function*` and `yield` support
+1. **LoweringRegistry refactor** - Replace 90+ inline string checks in HIRToLLVM with registry-based lowering
+   - See [REFACTOR-001-hir-lowering-registry.md](../tickets/REFACTOR-001-hir-lowering-registry.md)
+2. **EscapeAnalysisPass** - Track object escapes for stack allocation
+3. **Class getters/setters** - Extend getter/setter support from object literals to classes
 4. **Enum declarations** - Full enum support with const enums

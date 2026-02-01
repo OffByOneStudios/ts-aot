@@ -2938,6 +2938,15 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Try registry-based lowering for runtime functions
+    if (auto* spec = ::hir::LoweringRegistry::instance().lookup(funcName)) {
+        llvm::Value* result = lowerRegisteredCall(inst, *spec);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
@@ -2961,6 +2970,155 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     if (inst->result) {
         setValue(inst->result, result);
     }
+}
+
+//==============================================================================
+// Registry-Based Call Lowering
+//==============================================================================
+
+llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec) {
+    // Build LLVM function type
+    llvm::Type* retTy = spec.returnType
+        ? spec.returnType(context_)
+        : builder_->getVoidTy();
+
+    std::vector<llvm::Type*> argTys;
+    for (const auto& argType : spec.argTypes) {
+        argTys.push_back(argType(context_));
+    }
+
+    auto* ft = llvm::FunctionType::get(retTy, argTys, spec.isVariadic);
+    auto fn = module_->getOrInsertFunction(spec.runtimeFuncName, ft);
+
+    // Convert arguments
+    std::vector<llvm::Value*> llvmArgs;
+    for (size_t i = 1; i < inst->operands.size() && (i - 1) < spec.argConversions.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        arg = convertArg(arg, spec.argConversions[i - 1]);
+        llvmArgs.push_back(arg);
+    }
+
+    // Standard call
+    llvm::Value* result;
+    if (retTy->isVoidTy()) {
+        builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+        result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    } else {
+        result = builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+    }
+
+    // Handle return
+    return handleReturn(result, spec.returnHandling);
+}
+
+llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) {
+    switch (conv) {
+        case ::hir::ArgConversion::None:
+            return arg;
+
+        case ::hir::ArgConversion::Box: {
+            // Box the value based on its LLVM type
+            llvm::Type* argType = arg->getType();
+
+            if (argType->isIntegerTy(64)) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
+            } else if (argType->isDoubleTy()) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
+            } else if (argType->isIntegerTy(1)) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
+            } else if (argType->isPointerTy()) {
+                // Already a pointer, box as object
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_object", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
+            }
+            return arg;
+        }
+
+        case ::hir::ArgConversion::Unbox: {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_get_object", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
+
+        case ::hir::ArgConversion::ToI64: {
+            if (arg->getType()->isDoubleTy()) {
+                return builder_->CreateFPToSI(arg, builder_->getInt64Ty());
+            } else if (arg->getType()->isPointerTy()) {
+                return builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
+            }
+            return arg;
+        }
+
+        case ::hir::ArgConversion::ToF64: {
+            if (arg->getType()->isIntegerTy(64)) {
+                return builder_->CreateSIToFP(arg, builder_->getDoubleTy());
+            }
+            return arg;
+        }
+
+        case ::hir::ArgConversion::ToI32: {
+            if (arg->getType()->isIntegerTy(64)) {
+                return builder_->CreateTrunc(arg, builder_->getInt32Ty());
+            }
+            return arg;
+        }
+
+        case ::hir::ArgConversion::ToBool: {
+            if (arg->getType()->isIntegerTy()) {
+                return builder_->CreateICmpNE(arg,
+                    llvm::ConstantInt::get(arg->getType(), 0));
+            }
+            return arg;
+        }
+
+        case ::hir::ArgConversion::PtrToInt:
+            return builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
+
+        case ::hir::ArgConversion::IntToPtr:
+            return builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+    }
+    return arg;
+}
+
+llvm::Value* HIRToLLVM::handleReturn(llvm::Value* result, ::hir::ReturnHandling handling) {
+    switch (handling) {
+        case ::hir::ReturnHandling::Void:
+            return llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+        case ::hir::ReturnHandling::Raw:
+            return result;
+
+        case ::hir::ReturnHandling::Boxed:
+            // Result is already boxed, just return it
+            return result;
+
+        case ::hir::ReturnHandling::BoxResult: {
+            // Box the raw result
+            llvm::Type* resType = result->getType();
+            if (resType->isIntegerTy(64)) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { result });
+            } else if (resType->isDoubleTy()) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { result });
+            } else if (resType->isIntegerTy(1)) {
+                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { result });
+            }
+            return result;
+        }
+    }
+    return result;
 }
 
 void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
