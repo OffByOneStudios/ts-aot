@@ -1806,19 +1806,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
     // Handle super() call - calls parent class constructor
     auto* superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get());
-    if (superExpr && currentClass_ && currentClass_->baseClass && currentClass_->baseClass->constructor) {
-        // Call parent constructor with [this, ...args]
-        std::vector<std::shared_ptr<HIRValue>> ctorArgs;
-        auto thisVal = lookupVariable("this");
-        if (thisVal) {
-            ctorArgs.push_back(thisVal);
-        } else {
-            ctorArgs.push_back(builder_.createConstNull());
+    if (superExpr && currentClass_ && currentClass_->baseClass) {
+        if (currentClass_->baseClass->constructor) {
+            // Base class has explicit constructor - call it with [this, ...args]
+            std::vector<std::shared_ptr<HIRValue>> ctorArgs;
+            auto thisVal = lookupVariable("this");
+            if (thisVal) {
+                ctorArgs.push_back(thisVal);
+            } else {
+                ctorArgs.push_back(builder_.createConstNull());
+            }
+            for (auto& arg : args) {
+                ctorArgs.push_back(arg);
+            }
+            builder_.createCall(currentClass_->baseClass->constructor->name, ctorArgs, HIRType::makeVoid());
         }
-        for (auto& arg : args) {
-            ctorArgs.push_back(arg);
-        }
-        builder_.createCall(currentClass_->baseClass->constructor->name, ctorArgs, HIRType::makeVoid());
+        // If base class has no explicit constructor (e.g., abstract class),
+        // super() is a no-op - just continue with the derived class constructor
         lastValue_ = builder_.createConstUndefined();
         return;
     }
@@ -2284,8 +2288,9 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
         for (auto& elem : node->elements) {
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem.get())) {
                 // Spread element: concatenate the spread array
+                // ts_array_concat returns a NEW array, so we must capture it
                 auto spreadArr = lowerExpression(spread->expression.get());
-                builder_.createCall("ts_array_concat", {arr, spreadArr}, HIRType::makeVoid());
+                arr = builder_.createCall("ts_array_concat", {arr, spreadArr}, HIRType::makeArray(elemType, false));
             } else {
                 // Regular element: push it
                 auto elemVal = lowerExpression(elem.get());
