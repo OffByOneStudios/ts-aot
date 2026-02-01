@@ -489,6 +489,11 @@ public:
         createUnaryOpWithResult(HIROpcode::TypeOf, result, val);
     }
 
+    // InstanceOf: check if object is instance of a class
+    std::shared_ptr<HIRValue> createInstanceOf(std::shared_ptr<HIRValue> obj, std::shared_ptr<HIRValue> ctor) {
+        return createBinaryOp(HIROpcode::InstanceOf, obj, ctor, HIRType::makeBool());
+    }
+
     //==========================================================================
     // Type conversions
     //==========================================================================

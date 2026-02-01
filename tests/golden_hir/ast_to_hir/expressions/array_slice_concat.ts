@@ -1,5 +1,4 @@
 // Test: Array.slice and Array.concat methods
-// XFAIL: Array.slice/concat cause compilation failure in HIR pipeline
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64

@@ -1,5 +1,4 @@
 // Test: instanceof operator for type checking
-// XFAIL: instanceof HIR-CHECK pattern doesn't match current implementation
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64

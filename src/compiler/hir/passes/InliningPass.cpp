@@ -202,6 +202,17 @@ bool InliningPass::shouldInline(const HIRFunction& caller, const HIRFunction& ca
         return false;
     }
 
+    // Never inline functions that contain throw statements
+    // Inlining a function with throw into a try block creates "terminator in middle of block" errors
+    // because the code after throw in the caller would still be emitted
+    for (auto& block : callee.blocks) {
+        for (auto& inst : block->instructions) {
+            if (inst->opcode == HIROpcode::Throw) {
+                return false;
+            }
+        }
+    }
+
     // Check inline depth
     if (currentInlineDepth_ >= config_.maxInlineDepth) {
         return false;

@@ -1,5 +1,4 @@
 // Test: Array.find and Array.findIndex methods
-// XFAIL: Array.find/findIndex return incorrect values in HIR pipeline
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64

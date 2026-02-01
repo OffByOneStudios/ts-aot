@@ -1,5 +1,4 @@
 // Test: JSON method resolution
-// XFAIL: JSON.parse returns float formatting (10.0 vs 10)
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // JSON.stringify should be resolved to builtin

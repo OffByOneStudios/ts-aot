@@ -72,4 +72,12 @@ void ts_closure_invoke_1d_void(TsClosure* closure, double arg1) {
     ((Fn)closure->func_ptr)(closure, arg1);
 }
 
+// Invoke a closure with one double argument, returns bool
+// Used for find/filter/some/every callbacks with number arrays
+bool ts_closure_invoke_1d_bool(TsClosure* closure, double arg1) {
+    if (!closure || !closure->func_ptr) return false;
+    typedef bool (*Fn)(void*, double);
+    return ((Fn)closure->func_ptr)(closure, arg1);
+}
+
 }
