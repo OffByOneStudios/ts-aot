@@ -1,9 +1,11 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
+#include "../extensions/ExtensionLoader.h"
 #include <iostream>
 #include <fmt/core.h>
 #include <sstream>
 #include <filesystem>
+#include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 
@@ -1461,5 +1463,209 @@ Analyzer::Analyzer() {
     registerTTY();
     registerZlib();
     registerModule();
+
+    // Register types from extension contracts (JSON-defined APIs)
+    registerTypesFromExtensions();
 }
+
+//=============================================================================
+// Extension Contract Type Registration
+//=============================================================================
+
+// Helper: Convert extension TypeReference to Analyzer Type
+static std::shared_ptr<Type> convertExtTypeRef(const ext::TypeReference& ref) {
+    const std::string& name = ref.name;
+
+    // Primitive type mapping
+    if (name == "string") return std::make_shared<Type>(TypeKind::String);
+    if (name == "number") return std::make_shared<Type>(TypeKind::Double);
+    if (name == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
+    if (name == "void") return std::make_shared<Type>(TypeKind::Void);
+    if (name == "any") return std::make_shared<Type>(TypeKind::Any);
+    if (name == "object") return std::make_shared<Type>(TypeKind::Object);
+    if (name == "null") return std::make_shared<Type>(TypeKind::Null);
+    if (name == "undefined") return std::make_shared<Type>(TypeKind::Undefined);
+    if (name == "bigint") return std::make_shared<Type>(TypeKind::BigInt);
+    if (name == "symbol") return std::make_shared<Type>(TypeKind::Symbol);
+    if (name == "never") return std::make_shared<Type>(TypeKind::Never);
+
+    // Generic types with type arguments
+    if (ref.isGeneric()) {
+        if (name == "Array") {
+            // Array<T> -> ArrayType
+            auto elementType = ref.typeArgs.empty()
+                ? std::make_shared<Type>(TypeKind::Any)
+                : convertExtTypeRef(ref.typeArgs[0]);
+            return std::make_shared<ArrayType>(elementType);
+        }
+        if (name == "Promise") {
+            // Promise<T> -> ClassType("Promise")
+            auto promiseType = std::make_shared<ClassType>("Promise");
+            if (!ref.typeArgs.empty()) {
+                promiseType->typeArguments.push_back(convertExtTypeRef(ref.typeArgs[0]));
+            }
+            return promiseType;
+        }
+        if (name == "Map") {
+            return std::make_shared<MapType>();
+        }
+        if (name == "Set") {
+            return std::make_shared<Type>(TypeKind::SetType);
+        }
+    }
+
+    // Check for array shorthand notation (e.g., "string[]")
+    if (name.length() > 2 && name.substr(name.length() - 2) == "[]") {
+        std::string elemName = name.substr(0, name.length() - 2);
+        auto elementType = convertExtTypeRef(ext::TypeReference{elemName, {}});
+        return std::make_shared<ArrayType>(elementType);
+    }
+
+    // Default to ClassType for named types
+    return std::make_shared<ClassType>(name);
+}
+
+// Helper: Convert extension MethodDefinition to FunctionType
+static std::shared_ptr<FunctionType> convertExtMethod(const ext::MethodDefinition& method) {
+    auto funcType = std::make_shared<FunctionType>();
+
+    // Convert parameters
+    for (const auto& param : method.params) {
+        funcType->paramTypes.push_back(convertExtTypeRef(param.type));
+        if (param.rest) {
+            funcType->hasRest = true;
+        }
+    }
+
+    // Convert return type
+    funcType->returnType = convertExtTypeRef(method.returns);
+
+    return funcType;
+}
+
+// Helper: Convert extension FunctionDefinition to FunctionType
+static std::shared_ptr<FunctionType> convertExtFunction(const ext::FunctionDefinition& func) {
+    auto funcType = std::make_shared<FunctionType>();
+
+    // Convert parameters
+    for (const auto& param : func.params) {
+        funcType->paramTypes.push_back(convertExtTypeRef(param.type));
+        if (param.rest) {
+            funcType->hasRest = true;
+        }
+    }
+
+    // Convert return type
+    funcType->returnType = convertExtTypeRef(func.returns);
+
+    return funcType;
+}
+
+void Analyzer::registerTypesFromExtensions() {
+    auto& extRegistry = ext::ExtensionRegistry::instance();
+    const auto& contracts = extRegistry.getContracts();
+
+    if (contracts.empty()) {
+        return;  // No extensions loaded
+    }
+
+    SPDLOG_DEBUG("Registering types from {} extension contracts", contracts.size());
+
+    for (const auto& contract : contracts) {
+        SPDLOG_DEBUG("Processing extension: {} v{}", contract.name, contract.version);
+
+        // Register types (classes, interfaces)
+        for (const auto& [typeName, typeDef] : contract.types) {
+            // Skip types that are already registered (e.g., hardcoded in registerStdLib)
+            // This prevents conflicts with existing builtin handlers
+            if (symbols.lookupType(typeName) || symbols.lookup(typeName)) {
+                SPDLOG_DEBUG("  Skipping type {} (already registered)", typeName);
+                continue;
+            }
+
+            SPDLOG_DEBUG("  Registering type: {}", typeName);
+
+            auto classType = std::make_shared<ClassType>(typeName);
+
+            // Register properties
+            for (const auto& [propName, propDef] : typeDef.properties) {
+                classType->fields[propName] = convertExtTypeRef(propDef.type);
+            }
+
+            // Register methods
+            for (const auto& [methodName, methodDef] : typeDef.methods) {
+                classType->methods[methodName] = convertExtMethod(methodDef);
+            }
+
+            // Register static properties
+            for (const auto& [propName, propDef] : typeDef.staticProperties) {
+                // Static properties go into a separate staticFields map or as ObjectType
+                // For now, add to fields (simplification)
+            }
+
+            // Register static methods
+            for (const auto& [methodName, methodDef] : typeDef.staticMethods) {
+                classType->staticMethods[methodName] = convertExtMethod(methodDef);
+            }
+
+            // Register the type
+            symbols.defineType(typeName, classType);
+        }
+
+        // Register globals (variables and functions)
+        for (const auto& [globalName, globalDef] : contract.globals) {
+            // Skip globals that are already registered (e.g., hardcoded builtins)
+            if (symbols.lookup(globalName)) {
+                SPDLOG_DEBUG("  Skipping global {} (already registered)", globalName);
+                continue;
+            }
+
+            SPDLOG_DEBUG("  Registering global: {}", globalName);
+
+            if (globalDef.kind == ext::GlobalDefinition::Kind::Property) {
+                // Global variable - get its type from the extension
+                if (globalDef.property) {
+                    // First try to look up the type in the symbol table
+                    // This ensures we reuse types that were already registered (with methods, fields, etc.)
+                    const std::string& typeName = globalDef.property->type.name;
+                    auto existingType = symbols.lookupType(typeName);
+                    if (existingType) {
+                        symbols.define(globalName, existingType);
+                    } else {
+                        auto globalType = convertExtTypeRef(globalDef.property->type);
+                        symbols.define(globalName, globalType);
+                    }
+                }
+            } else if (globalDef.kind == ext::GlobalDefinition::Kind::Function) {
+                // Global function
+                if (globalDef.function) {
+                    auto funcType = convertExtFunction(*globalDef.function);
+                    symbols.define(globalName, funcType);
+                }
+            }
+        }
+
+        // Register objects (namespaces like 'console', 'Math')
+        for (const auto& [objName, objDef] : contract.objects) {
+            SPDLOG_DEBUG("  Registering object: {}", objName);
+
+            auto objType = std::make_shared<ObjectType>();
+
+            // Register properties
+            for (const auto& [propName, propDef] : objDef.properties) {
+                objType->fields[propName] = convertExtTypeRef(propDef.type);
+            }
+
+            // Register methods
+            for (const auto& [methodName, methodDef] : objDef.methods) {
+                objType->fields[methodName] = convertExtMethod(methodDef);
+            }
+
+            symbols.define(objName, objType);
+        }
+    }
+
+    SPDLOG_DEBUG("Extension type registration complete");
+}
+
 } // namespace ts

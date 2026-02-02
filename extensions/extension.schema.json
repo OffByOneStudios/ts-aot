@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ts-aot.dev/extension.schema.json",
+  "title": "ts-aot Extension Contract",
+  "description": "Schema for static extension contracts in ts-aot compiler",
+  "type": "object",
+  "required": ["name", "version"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Extension name (e.g., 'fs', 'http', 'console')"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the extension"
+    },
+    "modules": {
+      "type": "array",
+      "description": "Module specifiers this extension provides (e.g., ['fs', 'node:fs'])",
+      "items": { "type": "string" }
+    },
+    "types": {
+      "type": "object",
+      "description": "Type definitions (classes, interfaces)",
+      "additionalProperties": { "$ref": "#/$defs/TypeDefinition" }
+    },
+    "functions": {
+      "type": "object",
+      "description": "Standalone function definitions",
+      "additionalProperties": { "$ref": "#/$defs/FunctionDefinition" }
+    },
+    "objects": {
+      "type": "object",
+      "description": "Module namespace objects",
+      "additionalProperties": { "$ref": "#/$defs/ObjectDefinition" }
+    },
+    "globals": {
+      "type": "object",
+      "description": "Global variables/functions added to global scope",
+      "additionalProperties": { "$ref": "#/$defs/GlobalDefinition" }
+    }
+  },
+
+  "$defs": {
+    "TypeReference": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "properties": {
+            "generic": { "type": "string" },
+            "typeArgs": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/TypeReference" }
+            }
+          }
+        }
+      ]
+    },
+
+    "LoweringSpec": {
+      "type": "object",
+      "description": "LLVM lowering specification",
+      "properties": {
+        "args": {
+          "type": "array",
+          "description": "Argument types: 'ptr', 'i64', 'f64', 'i1', 'boxed'",
+          "items": {
+            "type": "string",
+            "enum": ["ptr", "i64", "f64", "i1", "i32", "boxed", "void"]
+          }
+        },
+        "returns": {
+          "type": "string",
+          "description": "Return type",
+          "enum": ["ptr", "i64", "f64", "i1", "i32", "boxed", "void"]
+        }
+      }
+    },
+
+    "ParameterDefinition": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "$ref": "#/$defs/TypeReference" },
+        "optional": { "type": "boolean", "default": false },
+        "rest": { "type": "boolean", "default": false },
+        "default": { "type": "string" }
+      }
+    },
+
+    "PropertyDefinition": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/TypeReference" },
+        "get": {
+          "type": "string",
+          "description": "Runtime function to get this property"
+        },
+        "set": {
+          "type": "string",
+          "description": "Runtime function to set this property"
+        },
+        "readonly": { "type": "boolean", "default": false },
+        "lowering": { "$ref": "#/$defs/LoweringSpec" }
+      }
+    },
+
+    "MethodDefinition": {
+      "type": "object",
+      "required": ["call", "returns"],
+      "properties": {
+        "call": {
+          "type": "string",
+          "description": "Runtime function name"
+        },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ParameterDefinition" },
+          "default": []
+        },
+        "returns": { "$ref": "#/$defs/TypeReference" },
+        "typeParams": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lowering": { "$ref": "#/$defs/LoweringSpec" }
+      }
+    },
+
+    "FunctionDefinition": {
+      "type": "object",
+      "required": ["call", "returns"],
+      "properties": {
+        "call": {
+          "type": "string",
+          "description": "Runtime function name"
+        },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ParameterDefinition" },
+          "default": []
+        },
+        "returns": { "$ref": "#/$defs/TypeReference" },
+        "async": { "type": "boolean", "default": false },
+        "typeParams": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lowering": { "$ref": "#/$defs/LoweringSpec" },
+        "overloads": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FunctionDefinition" }
+        }
+      }
+    },
+
+    "TypeDefinition": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["class", "interface", "enum"]
+        },
+        "typeParams": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "extends": { "$ref": "#/$defs/TypeReference" },
+        "implements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypeReference" }
+        },
+        "constructor": { "$ref": "#/$defs/MethodDefinition" },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        },
+        "staticProperties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "staticMethods": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        }
+      }
+    },
+
+    "ObjectDefinition": {
+      "type": "object",
+      "description": "Module namespace object (like 'fs' or 'console')",
+      "properties": {
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        }
+      }
+    },
+
+    "GlobalDefinition": {
+      "oneOf": [
+        { "$ref": "#/$defs/FunctionDefinition" },
+        { "$ref": "#/$defs/PropertyDefinition" }
+      ]
+    }
+  }
+}

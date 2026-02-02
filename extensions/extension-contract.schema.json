@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ts-aot.dev/extension-contract.schema.json",
+  "title": "ts-aot Extension Contract",
+  "description": "Schema for ts-aot extension contracts that define runtime APIs",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "name": {
+      "type": "string",
+      "description": "Extension name"
+    },
+    "version": {
+      "type": "string",
+      "description": "Extension version (semver)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9]+)?$"
+    },
+    "modules": {
+      "type": "array",
+      "description": "Module specifiers this extension provides (e.g., 'fs', 'node:fs')",
+      "items": { "type": "string" }
+    },
+    "types": {
+      "type": "object",
+      "description": "Type definitions (classes, interfaces, enums)",
+      "additionalProperties": { "$ref": "#/$defs/TypeDefinition" }
+    },
+    "functions": {
+      "type": "object",
+      "description": "Standalone function definitions",
+      "additionalProperties": { "$ref": "#/$defs/FunctionDefinition" }
+    },
+    "objects": {
+      "type": "object",
+      "description": "Object/namespace definitions (e.g., 'console', 'Math')",
+      "additionalProperties": { "$ref": "#/$defs/ObjectDefinition" }
+    },
+    "globals": {
+      "type": "object",
+      "description": "Global variable and function definitions",
+      "additionalProperties": { "$ref": "#/$defs/GlobalDefinition" }
+    }
+  },
+  "required": ["name", "version"],
+  "$defs": {
+    "LoweringType": {
+      "type": "string",
+      "enum": ["ptr", "i64", "i32", "f64", "i1", "boxed", "void"],
+      "description": "LLVM IR type for lowering"
+    },
+    "LoweringSpec": {
+      "type": "object",
+      "description": "LLVM lowering specification",
+      "properties": {
+        "args": {
+          "type": "array",
+          "description": "Argument types for the runtime function",
+          "items": { "$ref": "#/$defs/LoweringType" }
+        },
+        "returns": {
+          "$ref": "#/$defs/LoweringType",
+          "description": "Return type for the runtime function"
+        }
+      }
+    },
+    "TypeReference": {
+      "oneOf": [
+        { "type": "string", "description": "Simple type name" },
+        {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "Type name" },
+            "typeArgs": {
+              "type": "array",
+              "description": "Generic type arguments",
+              "items": { "$ref": "#/$defs/TypeReference" }
+            }
+          },
+          "required": ["name"]
+        }
+      ]
+    },
+    "ParameterDefinition": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Parameter name" },
+        "type": { "$ref": "#/$defs/TypeReference", "description": "Parameter type" },
+        "optional": { "type": "boolean", "description": "Whether parameter is optional", "default": false },
+        "rest": { "type": "boolean", "description": "Whether parameter is a rest parameter", "default": false },
+        "default": { "type": "string", "description": "Default value expression" }
+      },
+      "required": ["name", "type"]
+    },
+    "PropertyDefinition": {
+      "type": "object",
+      "properties": {
+        "type": { "$ref": "#/$defs/TypeReference", "description": "Property type" },
+        "getter": { "type": "string", "description": "Runtime getter function name" },
+        "setter": { "type": "string", "description": "Runtime setter function name" },
+        "readonly": { "type": "boolean", "description": "Whether property is readonly", "default": false },
+        "lowering": { "$ref": "#/$defs/LoweringSpec", "description": "LLVM lowering specification" }
+      },
+      "required": ["type"]
+    },
+    "MethodDefinition": {
+      "type": "object",
+      "properties": {
+        "call": { "type": "string", "description": "Runtime function name to call" },
+        "params": {
+          "type": "array",
+          "description": "Method parameters",
+          "items": { "$ref": "#/$defs/ParameterDefinition" }
+        },
+        "returns": { "$ref": "#/$defs/TypeReference", "description": "Return type" },
+        "typeParams": {
+          "type": "array",
+          "description": "Generic type parameters",
+          "items": { "type": "string" }
+        },
+        "lowering": { "$ref": "#/$defs/LoweringSpec", "description": "LLVM lowering specification" }
+      },
+      "required": ["call", "returns"]
+    },
+    "FunctionDefinition": {
+      "type": "object",
+      "properties": {
+        "call": { "type": "string", "description": "Runtime function name to call" },
+        "params": {
+          "type": "array",
+          "description": "Function parameters",
+          "items": { "$ref": "#/$defs/ParameterDefinition" }
+        },
+        "returns": { "$ref": "#/$defs/TypeReference", "description": "Return type" },
+        "async": { "type": "boolean", "description": "Whether function is async", "default": false },
+        "typeParams": {
+          "type": "array",
+          "description": "Generic type parameters",
+          "items": { "type": "string" }
+        },
+        "lowering": { "$ref": "#/$defs/LoweringSpec", "description": "LLVM lowering specification" },
+        "overloads": {
+          "type": "array",
+          "description": "Function overloads",
+          "items": { "$ref": "#/$defs/FunctionDefinition" }
+        }
+      },
+      "required": ["call", "returns"]
+    },
+    "TypeDefinition": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["class", "interface", "enum"],
+          "description": "Type kind",
+          "default": "class"
+        },
+        "typeParams": {
+          "type": "array",
+          "description": "Generic type parameters",
+          "items": { "type": "string" }
+        },
+        "extends": { "$ref": "#/$defs/TypeReference", "description": "Base class/interface" },
+        "implements": {
+          "type": "array",
+          "description": "Implemented interfaces",
+          "items": { "$ref": "#/$defs/TypeReference" }
+        },
+        "constructor": { "$ref": "#/$defs/MethodDefinition", "description": "Constructor definition" },
+        "properties": {
+          "type": "object",
+          "description": "Instance properties",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "methods": {
+          "type": "object",
+          "description": "Instance methods",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        },
+        "staticProperties": {
+          "type": "object",
+          "description": "Static properties",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "staticMethods": {
+          "type": "object",
+          "description": "Static methods",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        }
+      }
+    },
+    "ObjectDefinition": {
+      "type": "object",
+      "properties": {
+        "properties": {
+          "type": "object",
+          "description": "Object properties",
+          "additionalProperties": { "$ref": "#/$defs/PropertyDefinition" }
+        },
+        "methods": {
+          "type": "object",
+          "description": "Object methods",
+          "additionalProperties": { "$ref": "#/$defs/MethodDefinition" }
+        }
+      }
+    },
+    "GlobalDefinition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Global function",
+          "properties": {
+            "call": { "type": "string" },
+            "params": { "type": "array", "items": { "$ref": "#/$defs/ParameterDefinition" } },
+            "returns": { "$ref": "#/$defs/TypeReference" },
+            "async": { "type": "boolean" },
+            "typeParams": { "type": "array", "items": { "type": "string" } },
+            "lowering": { "$ref": "#/$defs/LoweringSpec" }
+          },
+          "required": ["call", "returns"]
+        },
+        {
+          "type": "object",
+          "description": "Global property",
+          "properties": {
+            "type": { "$ref": "#/$defs/TypeReference" },
+            "getter": { "type": "string" },
+            "setter": { "type": "string" },
+            "readonly": { "type": "boolean" },
+            "lowering": { "$ref": "#/$defs/LoweringSpec" }
+          },
+          "required": ["type"]
+        }
+      ]
+    }
+  }
+}

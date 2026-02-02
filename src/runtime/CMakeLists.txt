@@ -127,6 +127,7 @@ add_library(tsruntime STATIC
     src/TsHttp2.cpp
     src/TsZlib.cpp
     src/TsModule.cpp
+    src/TsTestExtension.cpp
 )
 
 target_include_directories(tsruntime PUBLIC include)

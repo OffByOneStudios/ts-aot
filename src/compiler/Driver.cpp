@@ -5,9 +5,11 @@
 #include "codegen/IRGenerator.h"
 #include "codegen/CodeGenerator.h"
 #include "codegen/LinkerDriver.h"
+#include "extensions/ExtensionLoader.h"
 #include "hir/ASTToHIR.h"
 #include "hir/HIRPrinter.h"
 #include "hir/HIRToLLVM.h"
+#include "hir/LoweringRegistry.h"
 #include "hir/passes/PassManager.h"
 #include "hir/passes/TypePropagationPass.h"
 #include "hir/passes/ConstantFoldingPass.h"
@@ -33,6 +35,13 @@ Driver::Driver(const DriverOptions& opts) : options(opts) {}
 Driver::~Driver() {}
 
 int Driver::run() {
+    // Load extension contracts
+    auto& extRegistry = ext::ExtensionRegistry::instance();
+    extRegistry.loadDefaultExtensions();
+
+    // Register lowerings from extension contracts
+    ::hir::LoweringRegistry::instance().registerFromExtensions();
+
     std::string tsFile = options.inputFile;
     std::string jsonFile;
     bool isTemporaryJson = false;

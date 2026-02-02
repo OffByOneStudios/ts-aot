@@ -86,6 +86,9 @@ public:
     void registerZlib();
     void registerModule();
 
+    // Register types from extension contracts (loaded via ExtensionRegistry)
+    void registerTypesFromExtensions();
+
     void reportError(const std::string& message);
 
     std::shared_ptr<Type> parseType(const std::string& typeName, SymbolTable& symbols);

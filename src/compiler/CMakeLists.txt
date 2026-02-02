@@ -159,6 +159,7 @@ add_library(tscompiler_lib STATIC
     hir/passes/ConstantFoldingPass.cpp
     hir/passes/DeadCodeEliminationPass.cpp
     hir/passes/InliningPass.cpp
+    extensions/ExtensionLoader.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 
