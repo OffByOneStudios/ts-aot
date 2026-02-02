@@ -181,6 +181,10 @@ MethodDefinition ExtensionLoader::parseMethod(const json& j) {
         method.lowering = parseLowering(j["lowering"]);
     }
 
+    if (j.contains("platformArg") && j["platformArg"].is_number_integer()) {
+        method.platformArg = j["platformArg"].get<int>();
+    }
+
     return method;
 }
 
@@ -290,6 +294,12 @@ ObjectDefinition ExtensionLoader::parseObject(const json& j) {
         }
     }
 
+    if (j.contains("nestedObjects") && j["nestedObjects"].is_object()) {
+        for (auto& [name, nestedDef] : j["nestedObjects"].items()) {
+            obj.nestedObjects[name] = std::make_shared<ObjectDefinition>(parseObject(nestedDef));
+        }
+    }
+
     return obj;
 }
 
@@ -372,6 +382,7 @@ void ExtensionRegistry::clear() {
     objectCache_.clear();
     globalCache_.clear();
     globalTypeCache_.clear();
+    moduleCache_.clear();
 }
 
 void ExtensionRegistry::rebuildCaches() {
@@ -380,6 +391,7 @@ void ExtensionRegistry::rebuildCaches() {
     objectCache_.clear();
     globalCache_.clear();
     globalTypeCache_.clear();
+    moduleCache_.clear();
 
     for (const auto& contract : contracts_) {
         for (const auto& [name, type] : contract.types) {
@@ -396,6 +408,14 @@ void ExtensionRegistry::rebuildCaches() {
             // For property globals, extract the type name
             if (global.kind == GlobalDefinition::Kind::Property && global.property) {
                 globalTypeCache_[name] = global.property->type.name;
+            }
+        }
+        // Map module specifiers to their providing objects
+        for (const auto& moduleName : contract.modules) {
+            // Find the object that matches this module name
+            auto objIt = contract.objects.find(moduleName);
+            if (objIt != contract.objects.end()) {
+                moduleCache_[moduleName] = &objIt->second;
             }
         }
     }
@@ -454,6 +474,54 @@ std::vector<std::pair<std::string, const GlobalDefinition*>> ExtensionRegistry::
         result.emplace_back(name, global);
     }
     return result;
+}
+
+const ObjectDefinition* ExtensionRegistry::findObjectByModule(const std::string& moduleName) const {
+    auto it = moduleCache_.find(moduleName);
+    return it != moduleCache_.end() ? it->second : nullptr;
+}
+
+const MethodDefinition* ExtensionRegistry::findObjectMethod(const std::string& objectName, const std::string& methodName) const {
+    auto objIt = objectCache_.find(objectName);
+    if (objIt == objectCache_.end()) return nullptr;
+
+    const ObjectDefinition* obj = objIt->second;
+    auto methodIt = obj->methods.find(methodName);
+    return methodIt != obj->methods.end() ? &methodIt->second : nullptr;
+}
+
+const PropertyDefinition* ExtensionRegistry::findObjectProperty(const std::string& objectName, const std::string& propName) const {
+    auto objIt = objectCache_.find(objectName);
+    if (objIt == objectCache_.end()) return nullptr;
+
+    const ObjectDefinition* obj = objIt->second;
+    auto propIt = obj->properties.find(propName);
+    return propIt != obj->properties.end() ? &propIt->second : nullptr;
+}
+
+const ObjectDefinition* ExtensionRegistry::findNestedObject(const std::string& objectName, const std::string& nestedName) const {
+    auto objIt = objectCache_.find(objectName);
+    if (objIt == objectCache_.end()) return nullptr;
+
+    const ObjectDefinition* obj = objIt->second;
+    auto nestedIt = obj->nestedObjects.find(nestedName);
+    return nestedIt != obj->nestedObjects.end() ? nestedIt->second.get() : nullptr;
+}
+
+const MethodDefinition* ExtensionRegistry::findNestedObjectMethod(const std::string& objectName, const std::string& nestedName, const std::string& methodName) const {
+    const ObjectDefinition* nested = findNestedObject(objectName, nestedName);
+    if (!nested) return nullptr;
+
+    auto methodIt = nested->methods.find(methodName);
+    return methodIt != nested->methods.end() ? &methodIt->second : nullptr;
+}
+
+const PropertyDefinition* ExtensionRegistry::findNestedObjectProperty(const std::string& objectName, const std::string& nestedName, const std::string& propName) const {
+    const ObjectDefinition* nested = findNestedObject(objectName, nestedName);
+    if (!nested) return nullptr;
+
+    auto propIt = nested->properties.find(propName);
+    return propIt != nested->properties.end() ? &propIt->second : nullptr;
 }
 
 } // namespace ext

@@ -105,6 +105,8 @@ void TsWriteStream::End() {
     });
 }
 
+// extern "C" wrappers moved to extensions/node/stream/src/stream.cpp
+#if 0  // Moved to ts_stream extension
 extern "C" {
     void* ts_fs_createWriteStream(void* path) {
         TsString* p = (TsString*)path;
@@ -221,3 +223,4 @@ extern "C" {
         return ws->IsPending();
     }
 }
+#endif  // Moved to ts_stream extension

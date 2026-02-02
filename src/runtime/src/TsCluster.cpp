@@ -393,6 +393,7 @@ bool TsWorker::IsConnected() const {
 // C API Implementation
 // ============================================================================
 
+#if 0  // Migrated to extensions/node/cluster
 extern "C" {
 
 void ts_cluster_init() {
@@ -603,3 +604,4 @@ void ts_worker_kill(void* worker, void* signal) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/cluster

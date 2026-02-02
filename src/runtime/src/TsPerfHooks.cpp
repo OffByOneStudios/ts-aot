@@ -297,6 +297,7 @@ void TsPerformance::NotifyObservers(TsPerformanceEntry* entry) {
     }
 }
 
+#if 0  // Migrated to extensions/node/perf_hooks
 // C API implementation
 extern "C" {
 
@@ -640,3 +641,4 @@ void* ts_performance_observer_entry_list_get_entries_by_type(void* listArg, void
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/perf_hooks

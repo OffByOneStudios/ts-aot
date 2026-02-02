@@ -958,7 +958,7 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
         node->expression->inferredType ? (int)node->expression->inferredType->kind : -1);
 
     if (tryGenerateFSPropertyAccess(node)) return;
-    if (tryGeneratePathPropertyAccess(node)) return;
+    if (tryGenerateExtensionPropertyAccess(node)) return;  // Extension-based dispatch (path, etc.)
     if (tryGenerateHTTPPropertyAccess(node)) return;
     if (tryGenerateNetPropertyAccess(node)) return;
     if (tryGenerateOSPropertyAccess(node)) return;
@@ -974,9 +974,6 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateZlibPropertyAccess(node)) return;
     if (tryGenerateZlibConstantsAccess(node)) return;
     if (tryGenerateModulePropertyAccess(node)) return;
-
-    // Check for extension-defined property access
-    if (tryGenerateExtensionPropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {

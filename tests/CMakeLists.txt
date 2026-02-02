@@ -14,6 +14,7 @@ target_link_libraries(unit_tests PRIVATE
     Catch2::Catch2WithMain
     tsruntime
     tscompiler_lib
+    ts_events  # Required for ts_event_emitter_* function pointers used by TsObject
 )
 
 # Include runtime and compiler headers

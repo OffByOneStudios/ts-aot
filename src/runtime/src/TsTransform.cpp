@@ -100,6 +100,8 @@ void TsTransform::DoFlush() {
     PushNull();
 }
 
+// extern "C" wrappers moved to extensions/node/stream/src/stream.cpp
+#if 0  // Moved to ts_stream extension
 // C API implementations
 extern "C" {
 
@@ -154,3 +156,4 @@ void ts_stream_transform_set_flush(void* transformPtr, void* callback) {
 }
 
 } // extern "C"
+#endif  // Moved to ts_stream extension

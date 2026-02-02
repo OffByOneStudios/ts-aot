@@ -723,6 +723,7 @@ void TsChildProcessReadable::HandleError(int status) {
 // C API Implementation
 // ============================================================================
 
+#if 0  // Migrated to extensions/node/child_process
 extern "C" {
 
 void* ts_child_process_spawn(void* command, void* args, void* options) {
@@ -1369,3 +1370,4 @@ void* ts_child_process_unref(void* cp) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/child_process

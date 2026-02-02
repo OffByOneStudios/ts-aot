@@ -1,0 +1,409 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "path",
+  "version": "1.0.0",
+  "modules": ["path"],
+
+  "types": {
+    "ParsedPath": {
+      "kind": "interface",
+      "properties": {
+        "root": { "type": "string" },
+        "dir": { "type": "string" },
+        "base": { "type": "string" },
+        "ext": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    }
+  },
+
+  "objects": {
+    "path": {
+      "methods": {
+        "join": {
+          "call": "ts_path_join_variadic",
+          "params": [{ "name": "paths", "type": "string", "rest": true }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "resolve": {
+          "call": "ts_path_resolve",
+          "params": [{ "name": "paths", "type": "string", "rest": true }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "normalize": {
+          "call": "ts_path_normalize",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "isAbsolute": {
+          "call": "ts_path_is_absolute",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i32"
+          }
+        },
+        "basename": {
+          "call": "ts_path_basename",
+          "params": [
+            { "name": "path", "type": "string" },
+            { "name": "ext", "type": "string", "optional": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "dirname": {
+          "call": "ts_path_dirname",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "extname": {
+          "call": "ts_path_extname",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "relative": {
+          "call": "ts_path_relative",
+          "params": [
+            { "name": "from", "type": "string" },
+            { "name": "to", "type": "string" }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "parse": {
+          "call": "ts_path_parse",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "ParsedPath",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "format": {
+          "call": "ts_path_format",
+          "params": [{ "name": "pathObject", "type": "ParsedPath" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "toNamespacedPath": {
+          "call": "ts_path_to_namespaced_path",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "properties": {
+        "sep": {
+          "type": "string",
+          "getter": "ts_path_get_sep",
+          "lowering": { "returns": "ptr" }
+        },
+        "delimiter": {
+          "type": "string",
+          "getter": "ts_path_get_delimiter",
+          "lowering": { "returns": "ptr" }
+        }
+      },
+      "nestedObjects": {
+        "win32": {
+          "methods": {
+            "join": {
+              "call": "ts_path_join_variadic_ex",
+              "params": [{ "name": "paths", "type": "string", "rest": true }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "resolve": {
+              "call": "ts_path_resolve_ex",
+              "params": [{ "name": "paths", "type": "string", "rest": true }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "normalize": {
+              "call": "ts_path_normalize_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "isAbsolute": {
+              "call": "ts_path_is_absolute_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "boolean",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "i32"
+              }
+            },
+            "basename": {
+              "call": "ts_path_basename_ex",
+              "params": [
+                { "name": "path", "type": "string" },
+                { "name": "ext", "type": "string", "optional": true }
+              ],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "dirname": {
+              "call": "ts_path_dirname_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "extname": {
+              "call": "ts_path_extname_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "relative": {
+              "call": "ts_path_relative_ex",
+              "params": [
+                { "name": "from", "type": "string" },
+                { "name": "to", "type": "string" }
+              ],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "parse": {
+              "call": "ts_path_parse_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "ParsedPath",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "format": {
+              "call": "ts_path_format_ex",
+              "params": [{ "name": "pathObject", "type": "ParsedPath" }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["boxed", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "toNamespacedPath": {
+              "call": "ts_path_to_namespaced_path_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 1,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            }
+          },
+          "properties": {
+            "sep": {
+              "type": "string",
+              "getter": "ts_path_get_sep_win32",
+              "lowering": { "returns": "ptr" }
+            },
+            "delimiter": {
+              "type": "string",
+              "getter": "ts_path_get_delimiter_win32",
+              "lowering": { "returns": "ptr" }
+            }
+          }
+        },
+        "posix": {
+          "methods": {
+            "join": {
+              "call": "ts_path_join_variadic_ex",
+              "params": [{ "name": "paths", "type": "string", "rest": true }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "resolve": {
+              "call": "ts_path_resolve_ex",
+              "params": [{ "name": "paths", "type": "string", "rest": true }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "normalize": {
+              "call": "ts_path_normalize_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "isAbsolute": {
+              "call": "ts_path_is_absolute_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "boolean",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "i32"
+              }
+            },
+            "basename": {
+              "call": "ts_path_basename_ex",
+              "params": [
+                { "name": "path", "type": "string" },
+                { "name": "ext", "type": "string", "optional": true }
+              ],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "dirname": {
+              "call": "ts_path_dirname_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "extname": {
+              "call": "ts_path_extname_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "relative": {
+              "call": "ts_path_relative_ex",
+              "params": [
+                { "name": "from", "type": "string" },
+                { "name": "to", "type": "string" }
+              ],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "parse": {
+              "call": "ts_path_parse_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "ParsedPath",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "format": {
+              "call": "ts_path_format_ex",
+              "params": [{ "name": "pathObject", "type": "ParsedPath" }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["boxed", "i32"],
+                "returns": "ptr"
+              }
+            },
+            "toNamespacedPath": {
+              "call": "ts_path_to_namespaced_path_ex",
+              "params": [{ "name": "path", "type": "string" }],
+              "returns": "string",
+              "platformArg": 2,
+              "lowering": {
+                "args": ["ptr", "i32"],
+                "returns": "ptr"
+              }
+            }
+          },
+          "properties": {
+            "sep": {
+              "type": "string",
+              "getter": "ts_path_get_sep_posix",
+              "lowering": { "returns": "ptr" }
+            },
+            "delimiter": {
+              "type": "string",
+              "getter": "ts_path_get_delimiter_posix",
+              "lowering": { "returns": "ptr" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

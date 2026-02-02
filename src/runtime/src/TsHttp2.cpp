@@ -1465,6 +1465,7 @@ void TsHttp2SecureServer::HandleConnection(int status) {
 // C API Implementation
 // =============================================================================
 
+#if 0  // Migrated to extensions/node/http2
 extern "C" {
 
 // Module functions
@@ -2131,3 +2132,4 @@ void ts_http2_server_set_timeout(void* server, int64_t msecs, void* callback) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/http2

@@ -175,7 +175,7 @@ private:
     bool tryGenerateMemberCall(ast::CallExpression* node);
     bool tryGenerateBuiltinCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateFSCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
-    bool tryGeneratePathCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    // Path module now handled via extension contract (path.ext.json) - see tryGenerateExtensionCall
     bool tryGenerateProcessCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateBufferCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateEventsCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
@@ -244,7 +244,8 @@ private:
     bool tryGenerateModulePropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateModuleSourceMapNew(ast::NewExpression* node);
 
-    // Extension contract method calls
+    // Extension contract method calls (object/namespace and instance methods)
+    bool tryGenerateExtensionCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateExtensionMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateExtensionPropertyAccess(ast::PropertyAccessExpression* prop);
 
@@ -255,7 +256,7 @@ private:
     void visitPropertyAccessExpression(ast::PropertyAccessExpression* node);
     void generatePropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateFSPropertyAccess(ast::PropertyAccessExpression* node);
-    bool tryGeneratePathPropertyAccess(ast::PropertyAccessExpression* node);
+    // Path module property access now handled via extension contract - see tryGenerateExtensionPropertyAccess
     bool tryGenerateEventsPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateBufferPropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateHTTPPropertyAccess(ast::PropertyAccessExpression* node);
