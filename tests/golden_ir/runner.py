@@ -66,8 +66,6 @@ class TestCase:
     hir_check_patterns: List[HIRCheckPattern] = field(default_factory=list)
     expected_output: List[str] = field(default_factory=list)
     expected_exit_code: int = 0
-    expected_failure: bool = False
-    expected_failure_reason: str = ""
 
 
 @dataclass
@@ -168,8 +166,6 @@ class GoldenIRRunner:
         self.total_tests = 0
         self.passed_tests = 0
         self.failed_tests = 0
-        self.xfail_tests = 0  # Expected failures that failed
-        self.xpass_tests = 0  # Expected failures that passed (good news!)
         self.failure_details = []
 
     def check_compiler_exists(self) -> bool:
@@ -271,11 +267,6 @@ class GoldenIRRunner:
             # Expected exit code
             elif match := re.match(r'^\s*//\s*EXIT-CODE:\s*(\d+)$', line):
                 test.expected_exit_code = int(match.group(1))
-
-            # Expected failure (XFAIL)
-            elif match := re.match(r'^\s*//\s*XFAIL:\s*(.+)$', line):
-                test.expected_failure = True
-                test.expected_failure_reason = match.group(1).strip()
 
         # Default RUN command if not specified
         if not test.run_command:
@@ -611,10 +602,6 @@ class GoldenIRRunner:
 
         test = self.parse_test_file(test_file)
 
-        # Show XFAIL reason if present
-        if test.expected_failure:
-            print(color_text(f"  [XFAIL: {test.expected_failure_reason}]", Colors.YELLOW))
-
         # Create temporary directory
         temp_dir = Path(tempfile.gettempdir()) / f"golden_ir_{uuid.uuid4()}"
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -626,18 +613,12 @@ class GoldenIRRunner:
             if not result.success:
                 print(color_text('  X COMPILATION FAILED', Colors.RED))
                 print(color_text(f"  Error: {result.error}", Colors.RED))
-                
-                # Check if this was expected to fail
-                if test.expected_failure:
-                    print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
-                    self.xfail_tests += 1
-                else:
-                    self.failed_tests += 1
-                    self.failure_details.append({
-                        'test': test_name,
-                        'stage': result.stage,
-                        'error': result.error
-                    })
+                self.failed_tests += 1
+                self.failure_details.append({
+                    'test': test_name,
+                    'stage': result.stage,
+                    'error': result.error
+                })
                 return
 
             # Check HIR patterns first (if any)
@@ -648,18 +629,12 @@ class GoldenIRRunner:
                     print(color_text('  X HIR-CHECK PATTERNS FAILED', Colors.RED))
                     for failure in hir_check_result.failures:
                         print(color_text(f"    {failure}", Colors.RED))
-
-                    # Check if this was expected to fail
-                    if test.expected_failure:
-                        print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
-                        self.xfail_tests += 1
-                    else:
-                        self.failed_tests += 1
-                        self.failure_details.append({
-                            'test': test_name,
-                            'stage': 'HIR-CHECK Patterns',
-                            'failures': hir_check_result.failures
-                        })
+                    self.failed_tests += 1
+                    self.failure_details.append({
+                        'test': test_name,
+                        'stage': 'HIR-CHECK Patterns',
+                        'failures': hir_check_result.failures
+                    })
                     return
 
             # Check LLVM IR patterns
@@ -670,18 +645,12 @@ class GoldenIRRunner:
                     print(color_text('  X CHECK PATTERNS FAILED', Colors.RED))
                     for failure in check_result.failures:
                         print(color_text(f"    {failure}", Colors.RED))
-
-                    # Check if this was expected to fail
-                    if test.expected_failure:
-                        print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
-                        self.xfail_tests += 1
-                    else:
-                        self.failed_tests += 1
-                        self.failure_details.append({
-                            'test': test_name,
-                            'stage': 'CHECK Patterns',
-                            'failures': check_result.failures
-                        })
+                    self.failed_tests += 1
+                    self.failure_details.append({
+                        'test': test_name,
+                        'stage': 'CHECK Patterns',
+                        'failures': check_result.failures
+                    })
                     return
 
             # Check output
@@ -697,28 +666,17 @@ class GoldenIRRunner:
                     print(color_text('  X OUTPUT VALIDATION FAILED', Colors.RED))
                     for failure in output_result.failures:
                         print(color_text(f"    {failure}", Colors.RED))
-
-                    # Check if this was expected to fail
-                    if test.expected_failure:
-                        print(color_text('  XFAIL (Expected failure)', Colors.YELLOW))
-                        self.xfail_tests += 1
-                    else:
-                        self.failed_tests += 1
-                        self.failure_details.append({
-                            'test': test_name,
-                            'stage': 'Output',
-                            'failures': output_result.failures
-                        })
+                    self.failed_tests += 1
+                    self.failure_details.append({
+                        'test': test_name,
+                        'stage': 'Output',
+                        'failures': output_result.failures
+                    })
                     return
 
             # Test passed
-            if test.expected_failure:
-                # Expected failure passed - this is a good surprise!
-                print(color_text('  ! XPASS (Unexpected pass - bug fixed?)', Colors.YELLOW))
-                self.xpass_tests += 1
-            else:
-                print(color_text('  + PASSED', Colors.GREEN))
-                self.passed_tests += 1
+            print(color_text('  + PASSED', Colors.GREEN))
+            self.passed_tests += 1
 
         finally:
             # Clean up temp directory
@@ -740,12 +698,6 @@ class GoldenIRRunner:
             print(color_text(f"Failed: {self.failed_tests}", Colors.RED))
         else:
             print("Failed: 0")
-
-        if self.xfail_tests > 0:
-            print(color_text(f"XFail: {self.xfail_tests} (Expected failures)", Colors.YELLOW))
-
-        if self.xpass_tests > 0:
-            print(color_text(f"XPass: {self.xpass_tests} (Unexpected passes - bugs fixed!)", Colors.YELLOW))
 
         pass_rate = (self.passed_tests / self.total_tests * 100) if self.total_tests > 0 else 0
         color = Colors.GREEN if pass_rate == 100 else Colors.YELLOW

@@ -1,4 +1,10 @@
+// RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: Switch statement with multiple cases
+// CHECK: fcmp {{.*}} oeq
+// CHECK: br i1
+// CHECK: switch.end
+// OUTPUT: 20
+
 const x = 2;
 
 switch (x) {
@@ -14,8 +20,3 @@ switch (x) {
     default:
         console.log(0);
 }
-
-// CHECK: switch i64
-// CHECK: br label
-
-// OUTPUT: 20
