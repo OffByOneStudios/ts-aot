@@ -4,7 +4,7 @@ for (let i = 0; i < 3; i++) {
 }
 
 // CHECK: alloca
-// CHECK: icmp slt
+// CHECK: fcmp {{.*}} olt
 // CHECK: br i1
 // CHECK: add i64
 

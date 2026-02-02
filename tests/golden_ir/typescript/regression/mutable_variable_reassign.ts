@@ -24,4 +24,5 @@ console.log(result);
 
 // OUTPUT: 20
 // CHECK: define
-// CHECK: switch i64
+// CHECK: fcmp {{.*}} oeq
+// CHECK: switch.end

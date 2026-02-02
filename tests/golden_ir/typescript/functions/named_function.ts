@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define {{.*}} @add
-// CHECK: add i64
+// CHECK: fadd
 // OUTPUT: 7
 
 function add(a: number, b: number): number {
