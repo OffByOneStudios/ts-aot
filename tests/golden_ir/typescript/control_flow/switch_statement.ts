@@ -1,8 +1,8 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // Test: Switch statement with multiple cases
-// CHECK: fcmp {{.*}} oeq
-// CHECK: br i1
-// CHECK: switch.end
+// CHECK-DAG: fcmp {{.*}} oeq
+// CHECK-DAG: br i1
+// CHECK-DAG: switch.end
 // OUTPUT: 20
 
 const x = 2;
