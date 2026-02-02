@@ -136,6 +136,8 @@ void TsServer::GetConnections(void* callback) {
     }
 }
 
+// Moved to extensions/node/net/src/net.cpp - now a separate library (ts_net)
+#if 0
 extern "C" {
     void* ts_net_create_server(void* callback) {
         void* mem = ts_alloc(sizeof(TsServer));
@@ -195,3 +197,4 @@ extern "C" {
         }
     }
 }
+#endif // Moved to ts_net extension

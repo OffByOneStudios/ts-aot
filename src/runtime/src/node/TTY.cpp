@@ -303,6 +303,9 @@ bool TsTTYWriteStream::HasColors(int count) const {
 // C API Implementation
 // =============================================================================
 
+// Moved to extensions/node/tty/src/tty.cpp - now a separate library (ts_tty)
+#if 0
+
 extern "C" {
 
 bool ts_tty_isatty(int64_t fd) {
@@ -408,3 +411,5 @@ bool ts_tty_write_stream_write(void* stream, void* data) {
 }
 
 } // extern "C"
+
+#endif // Moved to ts_tty extension
