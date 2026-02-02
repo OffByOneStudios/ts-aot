@@ -86,6 +86,24 @@ public:
     // Get all loaded contracts
     const std::vector<ExtensionContract>& getContracts() const { return contracts_; }
 
+    // Find object that provides a given module specifier (e.g., "path")
+    const ObjectDefinition* findObjectByModule(const std::string& moduleName) const;
+
+    // Find a method on an object (for module namespaces like path.join)
+    const MethodDefinition* findObjectMethod(const std::string& objectName, const std::string& methodName) const;
+
+    // Find a property on an object (for module namespaces like path.sep)
+    const PropertyDefinition* findObjectProperty(const std::string& objectName, const std::string& propName) const;
+
+    // Find a nested object within an object (for path.win32, path.posix)
+    const ObjectDefinition* findNestedObject(const std::string& objectName, const std::string& nestedName) const;
+
+    // Find a method on a nested object (for path.win32.join)
+    const MethodDefinition* findNestedObjectMethod(const std::string& objectName, const std::string& nestedName, const std::string& methodName) const;
+
+    // Find a property on a nested object (for path.win32.sep)
+    const PropertyDefinition* findNestedObjectProperty(const std::string& objectName, const std::string& nestedName, const std::string& propName) const;
+
 private:
     ExtensionRegistry() = default;
     std::vector<ExtensionContract> contracts_;
@@ -96,6 +114,7 @@ private:
     std::unordered_map<std::string, const ObjectDefinition*> objectCache_;
     std::unordered_map<std::string, const GlobalDefinition*> globalCache_;
     std::unordered_map<std::string, std::string> globalTypeCache_;  // globalName -> typeName
+    std::unordered_map<std::string, const ObjectDefinition*> moduleCache_;  // moduleName -> object
 
     void rebuildCaches();
 };

@@ -235,7 +235,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     SPDLOG_DEBUG("tryGenerateBuiltinCall: {}", prop->name);
 
     if (tryGenerateFSCall(node, prop)) return true;
-    if (tryGeneratePathCall(node, prop)) return true;
+    if (tryGenerateExtensionCall(node, prop)) return true;  // Extension-based dispatch (path, etc.)
     if (tryGenerateEventsCall(node, prop)) return true;
     if (tryGeneratePromiseCall(node, prop)) return true;
     // StringDecoder before Stream - it has write/end methods that override generic stream handling
@@ -1460,7 +1460,7 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
     }
 
     if (tryGenerateFSCall(node, prop)) return true;
-    if (tryGeneratePathCall(node, prop)) return true;
+    if (tryGenerateExtensionCall(node, prop)) return true;  // Extension-based dispatch (path, etc.)
 
     if (false) {
         // Handle both fs.readFileSync and const fs = require('fs'); fs.readFileSync

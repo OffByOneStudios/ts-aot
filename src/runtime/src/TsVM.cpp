@@ -12,6 +12,8 @@ static void vm_not_supported_error(const char* method) {
     exit(1);
 }
 
+// Moved to extensions/node/vm/src/vm.cpp - now a separate library (ts_vm)
+#if 0
 extern "C" {
 
 // All vm module methods call this stub which throws an error
@@ -48,3 +50,4 @@ void* Script_createCachedData(void* self) {
 }
 
 } // extern "C"
+#endif // Moved to ts_vm extension

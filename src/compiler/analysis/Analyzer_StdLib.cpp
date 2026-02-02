@@ -1661,6 +1661,24 @@ void Analyzer::registerTypesFromExtensions() {
                 objType->fields[methodName] = convertExtMethod(methodDef);
             }
 
+            // Register nested objects (e.g., path.win32, path.posix)
+            for (const auto& [nestedName, nestedObj] : objDef.nestedObjects) {
+                auto nestedObjType = std::make_shared<ObjectType>();
+
+                // Register nested properties
+                for (const auto& [propName, propDef] : nestedObj->properties) {
+                    nestedObjType->fields[propName] = convertExtTypeRef(propDef.type);
+                }
+
+                // Register nested methods
+                for (const auto& [methodName, methodDef] : nestedObj->methods) {
+                    nestedObjType->fields[methodName] = convertExtMethod(methodDef);
+                }
+
+                objType->fields[nestedName] = nestedObjType;
+                SPDLOG_DEBUG("    Registered nested object: {}.{}", objName, nestedName);
+            }
+
             symbols.define(objName, objType);
         }
     }

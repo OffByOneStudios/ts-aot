@@ -1,3 +1,8 @@
+// Entire file moved to extensions/node/fs/src/fs.cpp
+// fs classes are self-contained (not inherited by other runtime classes)
+// so the entire implementation can live in the extension
+#if 0  // Moved to ts_fs extension
+
 #include "TsObject.h"
 #include "TsEventEmitter.h"
 #include "TsRuntime.h"
@@ -3459,3 +3464,5 @@ double ts_fs_writevSync(double fd, void* buffers_val, double position) {
 }
 
 } // extern "C"
+
+#endif  // Moved to ts_fs extension

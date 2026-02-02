@@ -84,6 +84,7 @@ struct MethodDefinition {
     TypeReference returns;
     std::vector<std::string> typeParams;           // Generic type parameters
     std::optional<LoweringSpec> lowering;
+    std::optional<int> platformArg;                // Platform constant for _ex variants (0=default, 1=win32, 2=posix)
 };
 
 //=============================================================================
@@ -126,9 +127,12 @@ struct TypeDefinition {
 // Object Definition (module namespace like 'fs', 'console')
 //=============================================================================
 
+struct ObjectDefinition;  // Forward declaration for nested objects
+
 struct ObjectDefinition {
     std::unordered_map<std::string, PropertyDefinition> properties;
     std::unordered_map<std::string, MethodDefinition> methods;
+    std::unordered_map<std::string, std::shared_ptr<ObjectDefinition>> nestedObjects;
 };
 
 //=============================================================================

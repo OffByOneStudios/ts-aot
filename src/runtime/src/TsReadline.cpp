@@ -355,6 +355,7 @@ void TsReadlineInterface::AddToHistory(TsString* line) {
 
 }  // namespace ts
 
+#if 0  // Migrated to extensions/node/readline
 extern "C" {
 
 void* ts_readline_create_interface(void* options) {
@@ -730,3 +731,4 @@ void ts_readline_emit_sigcont(void* rl) {
 }
 
 }  // extern "C"
+#endif  // Migrated to extensions/node/readline

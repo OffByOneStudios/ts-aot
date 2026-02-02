@@ -263,7 +263,7 @@ int Driver::run() {
 
             // Extension library paths
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
-            std::vector<std::string> extensionModules = {"path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net"};
+            std::vector<std::string> extensionModules = {"path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster"};
             for (const auto& mod : extensionModules) {
                 if (options.debugRuntime) {
                     linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
@@ -301,6 +301,18 @@ int Driver::run() {
             linkOpts.libraries.push_back("ts_fs.lib");  // File system module extension
             linkOpts.libraries.push_back("ts_tty.lib");  // TTY module extension
             linkOpts.libraries.push_back("ts_net.lib");  // Net module extension
+            linkOpts.libraries.push_back("ts_vm.lib");  // VM module extension (stubs)
+            linkOpts.libraries.push_back("ts_v8.lib");  // V8 module extension (stubs)
+            linkOpts.libraries.push_back("ts_inspector.lib");  // Inspector module extension (stubs)
+            linkOpts.libraries.push_back("ts_module.lib");  // Module module extension
+            linkOpts.libraries.push_back("ts_readline.lib");  // Readline module extension
+            linkOpts.libraries.push_back("ts_string_decoder.lib");  // StringDecoder module extension
+            linkOpts.libraries.push_back("ts_perf_hooks.lib");  // PerfHooks module extension
+            linkOpts.libraries.push_back("ts_async_hooks.lib");  // AsyncHooks module extension
+            linkOpts.libraries.push_back("ts_http.lib");  // HTTP module extension
+            linkOpts.libraries.push_back("ts_http2.lib");  // HTTP/2 module extension
+            linkOpts.libraries.push_back("ts_child_process.lib");  // Child Process module extension
+            linkOpts.libraries.push_back("ts_cluster.lib");  // Cluster module extension
             linkOpts.libraries.push_back("tommath.lib");
 
             // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.

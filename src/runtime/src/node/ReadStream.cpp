@@ -138,6 +138,8 @@ void TsReadStream::SetPath(const char* p) {
     }
 }
 
+// extern "C" wrappers moved to extensions/node/stream/src/stream.cpp
+#if 0  // Moved to ts_stream extension
 extern "C" {
     void* ts_fs_createReadStream(void* path) {
         TsString* pathStr = (TsString*)path;
@@ -877,3 +879,4 @@ extern "C" {
         return readable;
     }
 }
+#endif  // Moved to ts_stream extension

@@ -111,8 +111,8 @@ add_library(tsruntime STATIC
     src/TsReflect.cpp
     # TsOS.cpp moved to extensions/node/os/ - now a separate library (ts_os)
     src/TsTransform.cpp  # extern "C" wrappers moved to extensions/node/stream/
-    src/TsVM.cpp
-    src/TsV8.cpp
+    src/TsVM.cpp  # extern "C" wrappers moved to extensions/node/vm/
+    src/TsV8.cpp  # extern "C" wrappers moved to extensions/node/v8/
     # TsAssert.cpp moved to extensions/node/assert/ - now a separate library (ts_assert)
     src/TsStringDecoder.cpp
     src/TsPerfHooks.cpp
@@ -121,12 +121,12 @@ add_library(tsruntime STATIC
     src/TsCluster.cpp
     # TsDNS.cpp moved to extensions/node/dns/ - now a separate library (ts_dns)
     # TsUDPSocket.cpp moved to extensions/node/dgram/ - now a separate library (ts_dgram)
-    src/TsInspector.cpp
+    src/TsInspector.cpp  # extern "C" wrappers moved to extensions/node/inspector/
     src/TsReadline.cpp
     src/node/TTY.cpp  # extern "C" wrappers moved to extensions/node/tty/
     src/TsHttp2.cpp
     # TsZlib.cpp moved to extensions/node/zlib/ - now a separate library (ts_zlib)
-    src/TsModule.cpp
+    src/TsModule.cpp  # extern "C" wrappers moved to extensions/node/module/
     src/TsTestExtension.cpp
 )
 

@@ -304,6 +304,7 @@ TsAsyncHook* TsAsyncHook::disable() {
 
 } // namespace ts
 
+#if 0  // Migrated to extensions/node/async_hooks
 extern "C" {
 
 // =========================================================================
@@ -518,3 +519,4 @@ void* ts_async_hook_disable(void* hook) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/async_hooks

@@ -1,8 +1,17 @@
+// path.cpp - Node.js path module implementation for ts-aot
+//
+// This is part of the ts_path extension library, which is conditionally
+// linked when a TypeScript file imports the 'path' module.
+
+#include "TsPath.h"
+
+// Include runtime headers from the main tsruntime
 #include "TsRuntime.h"
 #include "TsString.h"
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsObject.h"
+
 #include <string>
 #include <iostream>
 #include <filesystem>
@@ -47,9 +56,9 @@ extern "C" {
 void* ts_path_join(void* path1, void* path2) {
     TsString* p1 = UnboxString(path1);
     TsString* p2 = UnboxString(path2);
-    
+
     if (!p1 || !p2) return TsString::Create("");
-    
+
     fs::path path = fs::path(p1->ToUtf8()) / fs::path(p2->ToUtf8());
     return TsString::Create(path.lexically_normal().make_preferred().string().c_str());
 }
@@ -104,7 +113,7 @@ void* ts_path_resolve_ex(void* paths_ptr, int platform_int) {
             }
         }
     }
-    
+
     std::string res_str = fs::absolute(result).lexically_normal().string();
     NormalizeSeparators(res_str, platform);
     return TsString::Create(res_str.c_str());
@@ -146,12 +155,12 @@ void* ts_path_basename_ex(void* path_ptr, void* ext_ptr, int platform_int) {
     PathPlatform platform = (PathPlatform)platform_int;
     TsString* s = UnboxString(path_ptr);
     if (!s) return TsString::Create("");
-    
+
     std::string p_str = s->ToUtf8();
     NormalizeSeparators(p_str, platform);
     fs::path p(p_str);
     std::string filename = p.filename().string();
-    
+
     TsString* ext = UnboxString(ext_ptr);
     if (ext) {
         std::string ext_str = ext->ToUtf8();
@@ -159,7 +168,7 @@ void* ts_path_basename_ex(void* path_ptr, void* ext_ptr, int platform_int) {
             filename = filename.substr(0, filename.size() - ext_str.size());
         }
     }
-    
+
     return TsString::Create(filename.c_str());
 }
 
@@ -200,12 +209,12 @@ void* ts_path_relative_ex(void* from_ptr, void* to_ptr, int platform_int) {
     TsString* from = UnboxString(from_ptr);
     TsString* to = UnboxString(to_ptr);
     if (!from || !to) return TsString::Create("");
-    
+
     std::string from_str = from->ToUtf8();
     std::string to_str = to->ToUtf8();
     NormalizeSeparators(from_str, platform);
     NormalizeSeparators(to_str, platform);
-    
+
     std::string res = fs::relative(fs::path(to_str), fs::path(from_str)).string();
     NormalizeSeparators(res, platform);
     return TsString::Create(res.c_str());
@@ -254,13 +263,13 @@ void* ts_path_parse_ex(void* p_ptr, int platform_int) {
     if (!ts_p) {
         return ts_value_make_undefined();
     }
-    
+
     std::string path_str = ts_p->ToUtf8();
     NormalizeSeparators(path_str, platform);
     fs::path path(path_str);
 
     TsMap* map = TsMap::Create();
-    
+
     auto set_prop = [&](const char* key, const std::string& val) {
         TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::Create(key);
         TsValue v; v.type = ValueType::STRING_PTR; v.ptr_val = TsString::Create(val.c_str());
@@ -334,7 +343,7 @@ void* ts_path_to_namespaced_path_ex(void* p_ptr, int platform_int) {
     TsValue* p = (TsValue*)p_ptr;
     TsString* ts_p = UnboxString(p);
     if (!ts_p) return nullptr;
-    
+
     std::string path_str = ts_p->ToUtf8();
     NormalizeSeparators(path_str, platform);
 

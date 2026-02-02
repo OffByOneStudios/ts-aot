@@ -161,6 +161,7 @@ TsString* TsStringDecoder::End(TsBuffer* buffer) {
     return result;
 }
 
+#if 0  // Migrated to extensions/node/string_decoder
 extern "C" {
 
 void* ts_string_decoder_create(void* encoding) {
@@ -230,3 +231,4 @@ void* ts_string_decoder_get_encoding(void* decoderArg) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/string_decoder

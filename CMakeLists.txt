@@ -32,6 +32,7 @@ endif()
 # Add subdirectories
 add_subdirectory(src/runtime)
 add_subdirectory(src/compiler)
+add_subdirectory(extensions)
 add_subdirectory(tests)
 
 # LTO Support: Build runtime bitcode

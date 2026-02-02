@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <cstdint>
 
+// Moved to extensions/node/v8/src/v8.cpp - now a separate library (ts_v8)
+#if 0
 extern "C" {
 
 // v8.getHeapStatistics() - returns stub heap statistics
@@ -87,3 +89,4 @@ int64_t ts_v8_cached_data_version_tag() {
 }
 
 } // extern "C"
+#endif // Moved to ts_v8 extension

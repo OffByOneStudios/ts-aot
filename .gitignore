@@ -75,11 +75,13 @@ ir_output.txt
 !src/**/*.json
 !tests/**/*.json
 !examples/**/*.json
+!extensions/**/*.json
 !vcpkg.json
 !package.json
 !src/**/*.json
 !tests/**/*.json
 !examples/**/*.json
+!extensions/**/*.json
 
 # Re-exclude .ast.json files (generated, should never be committed)
 **/*.ast.json

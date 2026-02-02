@@ -1009,6 +1009,7 @@ void TsHttpsServer::HandleConnection(int status) {
     }
 }
 
+#if 0  // Migrated to extensions/node/http
 extern "C" {
 void* ts_http_create_server(TsValue* options, void* callback) {
     return TsHttpServer::Create(options, callback);
@@ -1443,6 +1444,7 @@ void ts_http_validate_header_value(void* name, void* value) {
 }
 
 } // extern "C"
+#endif  // Migrated to extensions/node/http
 
 // ===== HTTP Agent Implementation =====
 
@@ -1570,6 +1572,7 @@ TsHttpsAgent* TsHttpsAgent::Create(TsValue* options) {
     return new (mem) TsHttpsAgent(options);
 }
 
+#if 0  // Migrated to extensions/node/http
 extern "C" {
 
 // C API for agents
@@ -2530,5 +2533,6 @@ void* ts_client_request_get_raw_header_names(void* req) {
     return r->GetRawHeaderNames();
 }
 
-}
+}  // extern "C"
+#endif  // Migrated to extensions/node/http
 

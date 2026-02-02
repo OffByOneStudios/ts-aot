@@ -48,6 +48,8 @@ static const char* BUILTIN_MODULES[] = {
 
 static const size_t BUILTIN_MODULES_COUNT = sizeof(BUILTIN_MODULES) / sizeof(BUILTIN_MODULES[0]);
 
+// Moved to extensions/node/module/src/module.cpp - now a separate library (ts_module)
+#if 0
 extern "C" {
 
 // module.builtinModules - returns array of built-in module names
@@ -221,3 +223,4 @@ TsValue* ts_dynamic_import(void* moduleSpecifier) {
 }
 
 } // extern "C"
+#endif // Moved to ts_module extension

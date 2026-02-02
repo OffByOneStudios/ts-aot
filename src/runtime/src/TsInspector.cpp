@@ -38,6 +38,9 @@ void TsInspectorSession::Post(const char* method, void* params, void* callback) 
 
 }  // namespace ts
 
+// Moved to extensions/node/inspector/src/inspector.cpp - now a separate library (ts_inspector)
+// Class implementations stay here (TsInspectorSession inherits from TsEventEmitter)
+#if 0
 extern "C" {
 
 // Open the inspector on the specified port
@@ -128,3 +131,4 @@ void ts_inspector_session_post(void* session, void* method, void* params, void* 
 }
 
 }  // extern "C"
+#endif // Moved to ts_inspector extension
