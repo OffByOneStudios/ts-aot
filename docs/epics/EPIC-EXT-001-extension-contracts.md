@@ -1,6 +1,6 @@
 # EPIC-EXT-001: Static Extension Contract System
 
-**Status:** Planning
+**Status:** In Progress (Phase 3)
 **Priority:** High
 **Estimated Effort:** Large (4-6 weeks)
 
@@ -31,7 +31,7 @@ Replace the current hardcoded Node.js API implementation with a declarative cont
 ├─────────────────────────────────────────────────────────────┤
 │  *.ext.json ──► ExtensionLoader ──► Analyzer (types)        │
 │                       │                                     │
-│                       └──────────► LoweringRegistry         │
+│                       └──────────► IRGenerator (lowering)   │
 │                                    (call signatures)        │
 └─────────────────────────────────────────────────────────────┘
 
@@ -44,296 +44,192 @@ Replace the current hardcoded Node.js API implementation with a declarative cont
 
 ---
 
-## Phase 1: Contract Schema & Loader
+## Phase 1: Contract Schema & Loader ✅ COMPLETE
 
 **Goal:** Define JSON schema and build loader infrastructure
 
-### Tasks
+### Completed Tasks
 
-#### 1.1 Define Extension Contract Schema
-```json
-{
-  "$schema": "https://ts-aot.dev/extension.schema.json",
-  "name": "fs",
-  "version": "1.0.0",
-  "modules": ["fs", "node:fs", "fs/promises"],
-
-  "types": {
-    "Stats": {
-      "kind": "class",
-      "properties": {
-        "size": { "type": "number", "get": "ts_fs_stats_size" },
-        "mtime": { "type": "Date", "get": "ts_fs_stats_mtime" }
-      },
-      "methods": {
-        "isFile": {
-          "call": "ts_fs_stats_is_file",
-          "returns": "boolean"
-        }
-      }
-    }
-  },
-
-  "functions": {
-    "readFileSync": {
-      "call": "ts_fs_read_file_sync",
-      "params": [
-        { "name": "path", "type": "string" },
-        { "name": "options", "type": "string | object", "optional": true }
-      ],
-      "returns": "string | Buffer",
-      "lowering": {
-        "args": ["ptr", "ptr"],
-        "returns": "ptr"
-      }
-    }
-  },
-
-  "objects": {
-    "fs": {
-      "readFileSync": "functions.readFileSync",
-      "writeFileSync": "functions.writeFileSync",
-      "statSync": "functions.statSync"
-    }
-  }
-}
-```
-
-#### 1.2 Create ExtensionLoader Class
-- Parse JSON contracts
-- Validate against schema
-- Build internal representation
-
-#### 1.3 Integrate with Analyzer
-- ExtensionLoader populates Analyzer's type registry
-- Types from contracts available for type checking
-
-#### 1.4 Integrate with LoweringRegistry
-- ExtensionLoader populates LoweringRegistry
-- Call signatures from `lowering` field
+- ✅ Defined extension contract JSON schema (`extension-contract.schema.json`)
+- ✅ Created C++ types matching schema (`ExtensionSchema.h`)
+- ✅ Implemented JSON parser with validation (`ExtensionLoader.cpp`)
+- ✅ Built ExtensionRegistry singleton for contract lookup
+- ✅ Integrated with Driver to load contracts at startup
 
 ### Deliverables
-- [ ] `src/compiler/extensions/ExtensionSchema.h` - C++ types for contract
-- [ ] `src/compiler/extensions/ExtensionLoader.cpp` - JSON parser
-- [ ] `src/compiler/extensions/ExtensionRegistry.cpp` - Global registry
-- [ ] Unit tests for loader
+
+- ✅ `src/compiler/extensions/ExtensionSchema.h` - C++ types for contract
+- ✅ `src/compiler/extensions/ExtensionLoader.cpp` - JSON parser
+- ✅ `src/compiler/extensions/ExtensionLoader.h` - Registry singleton
+- ✅ `extensions/extension-contract.schema.json` - JSON schema
+- ✅ `extensions/test/test.ext.json` - Test extension for verification
 
 ---
 
-## Phase 2: Core Runtime Contract
+## Phase 2: Analyzer Integration ✅ COMPLETE
 
-**Goal:** Convert core runtime types (Array, String, Object) to contracts
+**Goal:** Register extension-defined types in the Analyzer's symbol table
 
-### Tasks
+### Completed Tasks
 
-#### 2.1 Array Contract
-```json
-{
-  "name": "core",
-  "types": {
-    "Array<T>": {
-      "kind": "generic-class",
-      "typeParams": ["T"],
-      "properties": {
-        "length": { "type": "number", "get": "ts_array_length" }
-      },
-      "methods": {
-        "push": {
-          "call": "ts_array_push",
-          "params": [{ "name": "items", "type": "T", "rest": true }],
-          "returns": "number"
-        },
-        "map": {
-          "call": "ts_array_map",
-          "params": [{ "name": "fn", "type": "(T, number) => U" }],
-          "returns": "Array<U>"
-        }
-      }
-    }
-  }
-}
+- ✅ Added `registerTypesFromExtensions()` to Analyzer
+- ✅ Implemented `convertExtTypeRef()` for type conversion (string→TypeKind)
+- ✅ Register extension classes with methods and properties
+- ✅ Register extension globals referencing existing types
+- ✅ Skip already-registered types to prevent conflicts with builtins
+- ✅ Verified type inference works correctly
+
+### Type Inference Verification
+
+```
+testInstance.getValue()   → () => double  → double
+testInstance.add(10, 20)  → (double, double) => double → double
+testInstance.getName()    → () => string  → string
+testInstance.count        → double
+testInstance.label        → string
 ```
 
-#### 2.2 String Contract
-- String methods (substring, indexOf, etc.)
-- String static methods (fromCharCode, etc.)
-
-#### 2.3 Object Contract
-- Object.keys, Object.values, Object.entries
-- Object.assign, Object.freeze
-
-#### 2.4 Remove Hardcoded Implementations
-- Delete corresponding Analyzer_StdLib_*.cpp code
-- Delete corresponding IRGenerator_*_Builtin_*.cpp code
-- Verify tests still pass
-
 ### Deliverables
-- [ ] `extensions/core/core.ext.json`
-- [ ] Migrate Array (30+ methods)
-- [ ] Migrate String (20+ methods)
-- [ ] Migrate Object (15+ methods)
-- [ ] All existing tests pass
+
+- ✅ `Analyzer::registerTypesFromExtensions()` implementation
+- ✅ `convertExtTypeRef()` type conversion helper
+- ✅ Test extension with verified type inference
+- ✅ Console still works (builtin handling takes precedence)
+
+### Known Issues
+
+- Console extension disabled (conflicts with hardcoded builtin handling)
+- Will be re-enabled after Phase 3 provides proper codegen integration
 
 ---
 
-## Phase 3: Node.js Module Contracts
+## Phase 3: Codegen Integration 🔄 IN PROGRESS
 
-**Goal:** Convert Node.js modules to contracts
+**Goal:** Generate LLVM IR calls using extension lowering specifications
+
+### Problem Statement
+
+Currently, even with extension types correctly inferred, the codegen falls back to:
+1. VTable dispatch for ClassType methods (generates undefined symbols like `TestClass_getValue`)
+2. No initialization of extension-defined globals (runtime null dereference)
+
+### Tasks
+
+#### 3.1 Extension-Aware Method Call Generation
+
+When generating a call to an extension-defined method:
+1. Look up the method in ExtensionRegistry
+2. Use the `lowering.call` field for the runtime function name
+3. Use `lowering.args` and `lowering.returns` for LLVM types
+4. Generate direct call instead of VTable dispatch
+
+```cpp
+// In IRGenerator_Expressions_Calls.cpp
+if (auto* extMethod = ExtensionRegistry::get().lookupMethod(className, methodName)) {
+    // Generate: call ts_test_get_value(%self)
+    // Instead of: load VTable, call @TestClass_getValue
+}
+```
+
+#### 3.2 Extension Global Initialization
+
+Generate initialization code for extension-defined globals:
+1. At module startup, call factory functions for each global
+2. Store results in global variables accessible by user code
+
+```cpp
+// Generated initialization:
+void __ts_init_extensions() {
+    testInstance = ts_test_create_instance();
+}
+```
+
+#### 3.3 Property Access Lowering
+
+For extension-defined properties:
+1. Look up property in ExtensionRegistry
+2. Generate call to getter function from `lowering.get`
+3. Box/unbox based on `lowering.returns` type
+
+#### 3.4 Skip VTable Generation for Extension Types
+
+Prevent VTable_Global generation for extension-defined classes:
+- These are "external" types implemented by the runtime
+- No need to generate method stubs that reference undefined symbols
+
+### Deliverables
+
+- [ ] `ExtensionRegistry::lookupMethod()` - Find method lowering info
+- [ ] `ExtensionRegistry::lookupProperty()` - Find property lowering info
+- [ ] `IRGenerator` integration for extension method calls
+- [ ] Extension global initialization in module startup
+- [ ] Skip VTable generation for extension-defined types
+- [ ] Test extension compiles and runs correctly
+- [ ] Console extension re-enabled with proper codegen
+
+### Acceptance Criteria
+
+```typescript
+// This should compile AND run correctly:
+function user_main(): number {
+    console.log(testInstance.getValue());  // Output: 42
+    console.log(testInstance.add(10, 20)); // Output: 30
+    console.log(testInstance.getName());   // Output: TestInstance
+    return 0;
+}
+```
+
+---
+
+## Phase 4: Node.js Module Migration
+
+**Goal:** Convert Node.js modules from hardcoded to contract-based
 
 ### Priority Order (by usage)
 
-| Priority | Module | Functions | Types |
-|----------|--------|-----------|-------|
-| P0 | fs | 40+ | Stats, Dirent, Dir |
-| P0 | path | 15 | ParsedPath |
-| P0 | buffer | 30+ | Buffer |
-| P1 | http | 20+ | Server, Request, Response |
-| P1 | url | 10+ | URL, URLSearchParams |
-| P1 | process | 30+ | - |
-| P2 | events | 10+ | EventEmitter |
-| P2 | stream | 20+ | Readable, Writable, Duplex |
-| P2 | crypto | 30+ | Hash, Hmac, Cipher |
-| P3 | net | 15+ | Socket, Server |
-| P3 | dns | 15+ | - |
-| P3 | os | 20+ | - |
-| P3 | util | 15+ | - |
-| P4 | child_process | 10+ | ChildProcess |
-| P4 | cluster | 10+ | Worker |
-| P4 | zlib | 15+ | - |
+| Priority | Module | Functions | Status |
+|----------|--------|-----------|--------|
+| P0 | console | 19 | Pending (after Phase 3) |
+| P0 | fs | 40+ | Not started |
+| P0 | path | 15 | Not started |
+| P0 | buffer | 30+ | Not started |
+| P1 | http | 20+ | Not started |
+| P1 | url | 10+ | Not started |
+| P1 | process | 30+ | Not started |
 
 ### Tasks per Module
 
 For each module:
 1. Create `extensions/<module>/<module>.ext.json`
 2. Verify runtime functions match contract
-3. Remove Analyzer_StdLib_<Module>.cpp
-4. Remove IRGenerator_*_Builtin_<Module>.cpp
-5. Update LoweringRegistry (or auto-generate)
+3. Test with contract-based codegen
+4. Remove Analyzer_StdLib_<Module>.cpp (gradual)
+5. Remove IRGenerator_*_Builtin_<Module>.cpp (gradual)
 6. Run module's tests
-
-### Deliverables
-- [ ] 16 extension contract files
-- [ ] ~500 functions migrated
-- [ ] ~50 types migrated
-- [ ] All Node.js tests pass
 
 ---
 
-## Phase 4: Tooling & Documentation
+## Phase 5: Tooling & Documentation
 
 **Goal:** Make extensions easy to create and debug
 
 ### Tasks
 
-#### 4.1 Extension Validator CLI
-```bash
-ts-aot validate-extension my-extension.ext.json
-# Checks:
-# - JSON schema validity
-# - All referenced types exist
-# - All runtime functions declared in header
-```
-
-#### 4.2 Extension Generator
-```bash
-ts-aot generate-extension my-module.d.ts
-# Generates skeleton .ext.json from TypeScript declarations
-```
-
-#### 4.3 Documentation
-- Extension authoring guide
-- Contract schema reference
-- Examples for common patterns
-
-#### 4.4 Header Generator
-```bash
-ts-aot generate-header my-extension.ext.json > my_extension.h
-# Generates C header with all function declarations
-```
-
-### Deliverables
 - [ ] `ts-aot validate-extension` command
-- [ ] `ts-aot generate-extension` command
-- [ ] `ts-aot generate-header` command
+- [ ] `ts-aot generate-extension` command (from .d.ts)
+- [ ] `ts-aot generate-header` command (C header from contract)
 - [ ] Extension authoring documentation
 
 ---
 
-## Phase 5: Advanced Features
+## Phase 6: Advanced Features
 
 **Goal:** Support complex patterns
 
-### Tasks
-
-#### 5.1 Overloaded Functions
-```json
-{
-  "readFileSync": {
-    "overloads": [
-      {
-        "params": [{ "name": "path", "type": "string" }],
-        "returns": "Buffer",
-        "call": "ts_fs_read_file_sync_buffer"
-      },
-      {
-        "params": [
-          { "name": "path", "type": "string" },
-          { "name": "encoding", "type": "string" }
-        ],
-        "returns": "string",
-        "call": "ts_fs_read_file_sync_string"
-      }
-    ]
-  }
-}
-```
-
-#### 5.2 Generic Methods
-```json
-{
-  "Array<T>": {
-    "methods": {
-      "map<U>": {
-        "typeParams": ["U"],
-        "params": [{ "name": "fn", "type": "(T) => U" }],
-        "returns": "Array<U>"
-      }
-    }
-  }
-}
-```
-
-#### 5.3 Async Functions
-```json
-{
-  "readFile": {
-    "async": true,
-    "call": "ts_fs_read_file_async",
-    "returns": "Promise<Buffer>"
-  }
-}
-```
-
-#### 5.4 Static vs Instance
-```json
-{
-  "Buffer": {
-    "static": {
-      "alloc": { "call": "ts_buffer_alloc", "returns": "Buffer" },
-      "from": { "call": "ts_buffer_from", "returns": "Buffer" }
-    },
-    "instance": {
-      "toString": { "call": "ts_buffer_to_string", "returns": "string" }
-    }
-  }
-}
-```
-
-### Deliverables
-- [ ] Overload resolution
-- [ ] Generic method instantiation
-- [ ] Async function handling
-- [ ] Static/instance distinction
+- [ ] Overloaded functions (multiple signatures)
+- [ ] Generic methods with type parameters
+- [ ] Async functions returning Promise
+- [ ] Static vs instance method distinction
 
 ---
 
@@ -344,8 +240,8 @@ ts-aot generate-header my-extension.ext.json > my_extension.h
 1. **Write contract** - Create .ext.json
 2. **Validate** - Run validator, fix issues
 3. **Test in parallel** - Load contract alongside existing code
-4. **Remove old code** - Delete Analyzer/IRGenerator implementations
-5. **Verify** - Run all tests for that module
+4. **Verify codegen** - Extension calls work correctly
+5. **Remove old code** - Delete Analyzer/IRGenerator implementations
 6. **Commit** - One module per commit
 
 ### Rollback Plan
@@ -367,26 +263,16 @@ ts-aot --legacy-builtins  # Uses old hardcoded implementation
 
 ---
 
-## Risks & Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Performance regression from accessor calls | Inline small accessors in LLVM pass |
-| Contract schema too limiting | Start minimal, extend as needed |
-| Migration breaks existing code | Parallel implementation, extensive testing |
-| Generic types too complex | Monomorphize at contract load time |
-
----
-
 ## Timeline
 
-| Phase | Duration | Dependencies |
-|-------|----------|--------------|
-| Phase 1: Schema & Loader | 1 week | None |
-| Phase 2: Core Runtime | 1 week | Phase 1 |
-| Phase 3: Node.js Modules | 2 weeks | Phase 2 |
-| Phase 4: Tooling | 1 week | Phase 3 |
-| Phase 5: Advanced | 1 week | Phase 3 |
+| Phase | Duration | Status |
+|-------|----------|--------|
+| Phase 1: Schema & Loader | 1 week | ✅ Complete |
+| Phase 2: Analyzer Integration | 1 week | ✅ Complete |
+| Phase 3: Codegen Integration | 1 week | 🔄 In Progress |
+| Phase 4: Node.js Modules | 2 weeks | Not started |
+| Phase 5: Tooling | 1 week | Not started |
+| Phase 6: Advanced | 1 week | Not started |
 
 **Total: 6 weeks**
 
@@ -396,4 +282,5 @@ ts-aot --legacy-builtins  # Uses old hardcoded implementation
 
 - [DEVELOPMENT.md](../../.github/DEVELOPMENT.md) - Current architecture
 - [adding-nodejs-api.instructions.md](../../.github/instructions/adding-nodejs-api.instructions.md) - Current process (to be deprecated)
-- [LoweringRegistry.cpp](../../src/compiler/hir/LoweringRegistry.cpp) - Current lowering specs
+- [ExtensionLoader.h](../../src/compiler/extensions/ExtensionLoader.h) - Extension registry
+- [test.ext.json](../../extensions/test/test.ext.json) - Test extension contract
