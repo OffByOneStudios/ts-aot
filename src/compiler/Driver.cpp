@@ -260,6 +260,19 @@ int Driver::run() {
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
             }
+
+            // Extension library paths
+            std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
+            std::vector<std::string> extensionModules = {"path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net"};
+            for (const auto& mod : extensionModules) {
+                if (options.debugRuntime) {
+                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Release").string());
+                } else {
+                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Release").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
+                }
+            }
             
             // vcpkg paths (relative to root) - debug vs release
             std::filesystem::path rootPath = compilerPath / ".." / ".." / ".." / "..";
@@ -274,6 +287,20 @@ int Driver::run() {
             }
 
             linkOpts.libraries.push_back("tsruntime.lib");
+            linkOpts.libraries.push_back("ts_path.lib");  // Path module extension
+            linkOpts.libraries.push_back("ts_os.lib");    // OS module extension
+            linkOpts.libraries.push_back("ts_util.lib");  // Util module extension
+            linkOpts.libraries.push_back("ts_assert.lib");  // Assert module extension
+            linkOpts.libraries.push_back("ts_url.lib");  // URL module extension
+            linkOpts.libraries.push_back("ts_dns.lib");  // DNS module extension
+            linkOpts.libraries.push_back("ts_dgram.lib");  // Dgram module extension
+            linkOpts.libraries.push_back("ts_zlib.lib");  // Zlib module extension
+            linkOpts.libraries.push_back("ts_crypto.lib");  // Crypto module extension
+            linkOpts.libraries.push_back("ts_events.lib");  // Events module extension
+            linkOpts.libraries.push_back("ts_stream.lib");  // Stream module extension
+            linkOpts.libraries.push_back("ts_fs.lib");  // File system module extension
+            linkOpts.libraries.push_back("ts_tty.lib");  // TTY module extension
+            linkOpts.libraries.push_back("ts_net.lib");  // Net module extension
             linkOpts.libraries.push_back("tommath.lib");
 
             // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.
