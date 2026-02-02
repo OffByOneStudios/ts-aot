@@ -1,0 +1,58 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "test",
+  "version": "1.0.0",
+  "modules": [],
+
+  "globals": {
+    "testInstance": {
+      "type": "TestClass"
+    }
+  },
+
+  "types": {
+    "TestClass": {
+      "kind": "class",
+      "methods": {
+        "getValue": {
+          "call": "ts_test_get_value",
+          "params": [],
+          "returns": "number",
+          "lowering": {
+            "args": [],
+            "returns": "i64"
+          }
+        },
+        "getName": {
+          "call": "ts_test_get_name",
+          "params": [],
+          "returns": "string",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "add": {
+          "call": "ts_test_add",
+          "params": [
+            { "name": "a", "type": "number" },
+            { "name": "b", "type": "number" }
+          ],
+          "returns": "number",
+          "lowering": {
+            "args": ["i64", "i64"],
+            "returns": "i64"
+          }
+        }
+      },
+      "properties": {
+        "count": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

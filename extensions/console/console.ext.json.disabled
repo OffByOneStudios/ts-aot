@@ -1,0 +1,217 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "console",
+  "version": "1.0.0",
+  "modules": [],
+
+  "globals": {
+    "console": {
+      "type": "Console"
+    }
+  },
+
+  "types": {
+    "Console": {
+      "kind": "class",
+      "methods": {
+        "log": {
+          "call": "ts_console_log",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "error": {
+          "call": "ts_console_error",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "warn": {
+          "call": "ts_console_warn",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "info": {
+          "call": "ts_console_info",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "debug": {
+          "call": "ts_console_debug",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "dir": {
+          "call": "ts_console_dir",
+          "params": [
+            { "name": "obj", "type": "any" },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "table": {
+          "call": "ts_console_table",
+          "params": [
+            { "name": "data", "type": "any" },
+            { "name": "columns", "type": "string[]", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "ptr"],
+            "returns": "void"
+          }
+        },
+        "time": {
+          "call": "ts_console_time",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "timeEnd": {
+          "call": "ts_console_time_end",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "timeLog": {
+          "call": "ts_console_time_log",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "count": {
+          "call": "ts_console_count",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "countReset": {
+          "call": "ts_console_count_reset",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "group": {
+          "call": "ts_console_group",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "groupCollapsed": {
+          "call": "ts_console_group_collapsed",
+          "params": [
+            { "name": "label", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "groupEnd": {
+          "call": "ts_console_group_end",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": [],
+            "returns": "void"
+          }
+        },
+        "clear": {
+          "call": "ts_console_clear",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": [],
+            "returns": "void"
+          }
+        },
+        "assert": {
+          "call": "ts_console_assert",
+          "params": [
+            { "name": "condition", "type": "boolean" },
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["i1", "boxed"],
+            "returns": "void"
+          }
+        },
+        "trace": {
+          "call": "ts_console_trace",
+          "params": [
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        }
+      }
+    }
+  }
+}
