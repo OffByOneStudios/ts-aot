@@ -1,6 +1,7 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
 #include "../ast/AstNodes.h"
+#include "../extensions/ExtensionLoader.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <unordered_set>
@@ -259,6 +260,16 @@ void IRGenerator::generateCall(ast::CallExpression* node) {
             lastValue = res;
             // DO NOT unbox here - let the consumer unbox if needed
             return;
+        }
+    }
+
+    // Check for extension-defined method calls first (highest priority)
+    // Extensions define types in JSON contracts with lowering specifications
+    if (auto prop = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get())) {
+        if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Class) {
+            if (tryGenerateExtensionMethodCall(node, prop)) {
+                return;
+            }
         }
     }
 

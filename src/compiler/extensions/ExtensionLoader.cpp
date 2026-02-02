@@ -305,6 +305,11 @@ GlobalDefinition ExtensionLoader::parseGlobal(const json& j) {
         global.property = parseProperty(j);
     }
 
+    // Parse factory function if specified (for property globals)
+    if (j.contains("factory") && !j["factory"].is_null()) {
+        global.factory = j["factory"].get<std::string>();
+    }
+
     return global;
 }
 
@@ -437,6 +442,18 @@ const PropertyDefinition* ExtensionRegistry::findProperty(const std::string& typ
     const TypeDefinition* type = typeIt->second;
     auto propIt = type->properties.find(propName);
     return propIt != type->properties.end() ? &propIt->second : nullptr;
+}
+
+bool ExtensionRegistry::isExtensionType(const std::string& typeName) const {
+    return typeCache_.find(typeName) != typeCache_.end();
+}
+
+std::vector<std::pair<std::string, const GlobalDefinition*>> ExtensionRegistry::getGlobals() const {
+    std::vector<std::pair<std::string, const GlobalDefinition*>> result;
+    for (const auto& [name, global] : globalCache_) {
+        result.emplace_back(name, global);
+    }
+    return result;
 }
 
 } // namespace ext

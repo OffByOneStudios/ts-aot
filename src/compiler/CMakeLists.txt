@@ -141,6 +141,7 @@ add_library(tscompiler_lib STATIC
     codegen/IRGenerator_Expressions_Calls_Builtin_Zlib.cpp
     codegen/IRGenerator_Expressions_Calls_Builtin_Module.cpp
     codegen/IRGenerator_Expressions_Calls_Member.cpp
+    codegen/IRGenerator_Extensions.cpp
     codegen/IRGenerator_Expressions_Literals.cpp
     codegen/IRGenerator_Expressions_Access.cpp
     codegen/IRGenerator_Expressions_Async.cpp

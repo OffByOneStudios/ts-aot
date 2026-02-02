@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include "../extensions/ExtensionLoader.h"
 #include <iostream>
 #include <filesystem>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -973,6 +974,9 @@ void IRGenerator::generatePropertyAccess(ast::PropertyAccessExpression* node) {
     if (tryGenerateZlibPropertyAccess(node)) return;
     if (tryGenerateZlibConstantsAccess(node)) return;
     if (tryGenerateModulePropertyAccess(node)) return;
+
+    // Check for extension-defined property access
+    if (tryGenerateExtensionPropertyAccess(node)) return;
 
     // Handle enum member access: MyEnum.Member -> constant integer or string
     if (node->expression->inferredType && node->expression->inferredType->kind == TypeKind::Enum) {

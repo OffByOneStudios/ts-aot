@@ -1,6 +1,6 @@
 # EPIC-EXT-001: Static Extension Contract System
 
-**Status:** In Progress (Phase 3)
+**Status:** In Progress (Phase 4 - Node.js Module Migration)
 **Priority:** High
 **Estimated Effort:** Large (4-6 weeks)
 
@@ -103,74 +103,64 @@ testInstance.label        → string
 
 ---
 
-## Phase 3: Codegen Integration 🔄 IN PROGRESS
+## Phase 3: Codegen Integration ✅ COMPLETE
 
 **Goal:** Generate LLVM IR calls using extension lowering specifications
 
-### Problem Statement
+### Completed Tasks
 
-Currently, even with extension types correctly inferred, the codegen falls back to:
-1. VTable dispatch for ClassType methods (generates undefined symbols like `TestClass_getValue`)
-2. No initialization of extension-defined globals (runtime null dereference)
+- ✅ Extension-aware method call generation (`tryGenerateExtensionMethodCall`)
+- ✅ Property access lowering with getter functions (`tryGenerateExtensionPropertyAccess`)
+- ✅ Skip VTable generation for extension-defined types
+- ✅ Extension global initialization via factory functions
+- ✅ Added `factory` field to GlobalDefinition schema
+- ✅ Test extension compiles and runs correctly
 
-### Tasks
+### Implementation Details
 
-#### 3.1 Extension-Aware Method Call Generation
+#### Method Call Generation
+- Implemented in `IRGenerator_Extensions.cpp:tryGenerateExtensionMethodCall()`
+- Checks if receiver type is an extension-defined ClassType
+- Looks up method in ExtensionRegistry and generates direct runtime call
+- Uses lowering spec for LLVM type conversions
 
-When generating a call to an extension-defined method:
-1. Look up the method in ExtensionRegistry
-2. Use the `lowering.call` field for the runtime function name
-3. Use `lowering.args` and `lowering.returns` for LLVM types
-4. Generate direct call instead of VTable dispatch
+#### Property Access Lowering
+- Implemented in `IRGenerator_Extensions.cpp:tryGenerateExtensionPropertyAccess()`
+- Properties can define `getter` field pointing to runtime function
+- Uses lowering spec for return type conversion
 
-```cpp
-// In IRGenerator_Expressions_Calls.cpp
-if (auto* extMethod = ExtensionRegistry::get().lookupMethod(className, methodName)) {
-    // Generate: call ts_test_get_value(%self)
-    // Instead of: load VTable, call @TestClass_getValue
-}
-```
+#### Global Initialization
+- Factory functions specified in extension JSON via `factory` field
+- Called at module startup in `generateEntryPoint()` after CommonJS init
+- Results stored in LLVM global variables
 
-#### 3.2 Extension Global Initialization
-
-Generate initialization code for extension-defined globals:
-1. At module startup, call factory functions for each global
-2. Store results in global variables accessible by user code
-
-```cpp
-// Generated initialization:
-void __ts_init_extensions() {
-    testInstance = ts_test_create_instance();
-}
-```
-
-#### 3.3 Property Access Lowering
-
-For extension-defined properties:
-1. Look up property in ExtensionRegistry
-2. Generate call to getter function from `lowering.get`
-3. Box/unbox based on `lowering.returns` type
-
-#### 3.4 Skip VTable Generation for Extension Types
-
-Prevent VTable_Global generation for extension-defined classes:
-- These are "external" types implemented by the runtime
-- No need to generate method stubs that reference undefined symbols
+#### VTable Skip
+- Extension types excluded from class collection in `IRGenerator_Classes.cpp`
+- Prevents undefined symbol generation for runtime-implemented types
 
 ### Deliverables
 
-- [ ] `ExtensionRegistry::lookupMethod()` - Find method lowering info
-- [ ] `ExtensionRegistry::lookupProperty()` - Find property lowering info
-- [ ] `IRGenerator` integration for extension method calls
-- [ ] Extension global initialization in module startup
-- [ ] Skip VTable generation for extension-defined types
-- [ ] Test extension compiles and runs correctly
-- [ ] Console extension re-enabled with proper codegen
+- ✅ `ExtensionRegistry::findMethod()` - Find method lowering info
+- ✅ `ExtensionRegistry::findProperty()` - Find property lowering info
+- ✅ `IRGenerator` integration for extension method calls
+- ✅ Extension global initialization in module startup
+- ✅ Skip VTable generation for extension-defined types
+- ✅ Test extension compiles and runs correctly
 
-### Acceptance Criteria
+### Test Results
+
+```
+getValue: 42
+add(10, 20): 30
+getName: TestInstance
+count: 100
+label: test-label
+```
+
+### Acceptance Criteria ✅ MET
 
 ```typescript
-// This should compile AND run correctly:
+// This compiles AND runs correctly:
 function user_main(): number {
     console.log(testInstance.getValue());  // Output: 42
     console.log(testInstance.add(10, 20)); // Output: 30
@@ -185,27 +175,43 @@ function user_main(): number {
 
 **Goal:** Convert Node.js modules from hardcoded to contract-based
 
+### Scope Clarification
+
+**Stay in Core (NOT extension contracts):**
+- TypeScript language features (classes, generics, decorators, etc.)
+- ECMAScript features (Array methods, Object methods, Promise, etc.)
+- `console` module (fundamental debugging, stays hardcoded)
+
+**Move to Extension Contracts:**
+- Node.js APIs (fs, http, net, crypto, etc.)
+- Third-party integrations
+- Platform-specific APIs
+
 ### Priority Order (by usage)
 
 | Priority | Module | Functions | Status |
 |----------|--------|-----------|--------|
-| P0 | console | 19 | Pending (after Phase 3) |
 | P0 | fs | 40+ | Not started |
 | P0 | path | 15 | Not started |
 | P0 | buffer | 30+ | Not started |
 | P1 | http | 20+ | Not started |
 | P1 | url | 10+ | Not started |
 | P1 | process | 30+ | Not started |
+| P1 | net | 15+ | Not started |
+| P2 | crypto | 30+ | Not started |
+| P2 | stream | 20+ | Not started |
+| P2 | events | 10+ | Not started |
 
 ### Tasks per Module
 
 For each module:
 1. Create `extensions/<module>/<module>.ext.json`
-2. Verify runtime functions match contract
-3. Test with contract-based codegen
-4. Remove Analyzer_StdLib_<Module>.cpp (gradual)
-5. Remove IRGenerator_*_Builtin_<Module>.cpp (gradual)
-6. Run module's tests
+2. Define types, methods, and lowering specs
+3. Verify runtime functions match contract
+4. Test with contract-based codegen
+5. Remove Analyzer_StdLib_<Module>.cpp (gradual)
+6. Remove IRGenerator_*_Builtin_<Module>.cpp (gradual)
+7. Run module's tests
 
 ---
 
@@ -269,7 +275,7 @@ ts-aot --legacy-builtins  # Uses old hardcoded implementation
 |-------|----------|--------|
 | Phase 1: Schema & Loader | 1 week | ✅ Complete |
 | Phase 2: Analyzer Integration | 1 week | ✅ Complete |
-| Phase 3: Codegen Integration | 1 week | 🔄 In Progress |
+| Phase 3: Codegen Integration | 1 week | ✅ Complete |
 | Phase 4: Node.js Modules | 2 weeks | Not started |
 | Phase 5: Tooling | 1 week | Not started |
 | Phase 6: Advanced | 1 week | Not started |

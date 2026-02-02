@@ -3,8 +3,26 @@
 
 #include "../include/TsString.h"
 #include "../include/TsObject.h"
+#include "../include/GC.h"
+
+// Simple stub class for TestClass
+// In a real extension, this would be a proper class with state
+struct TestClassStub {
+    int64_t count = 100;
+    TsString* label = nullptr;
+
+    TestClassStub() {
+        label = TsString::Create("test-label");
+    }
+};
 
 extern "C" {
+
+// Factory function to create TestClass instance
+void* ts_test_create_instance() {
+    void* mem = ts_alloc(sizeof(TestClassStub));
+    return new (mem) TestClassStub();
+}
 
 // Runtime function implementations (called by lowering)
 int64_t ts_test_get_value(void* self) {
@@ -20,6 +38,19 @@ void* ts_test_get_name(void* self) {
 int64_t ts_test_add(void* self, int64_t a, int64_t b) {
     (void)self;
     return a + b;
+}
+
+// Property getters (called by lowering)
+int64_t ts_test_get_count(void* self) {
+    if (!self) return 0;
+    TestClassStub* instance = (TestClassStub*)self;
+    return instance->count;
+}
+
+void* ts_test_get_label(void* self) {
+    if (!self) return TsString::Create("");
+    TestClassStub* instance = (TestClassStub*)self;
+    return instance->label ? instance->label : TsString::Create("");
 }
 
 // VTable method implementations (wrapper format expected by codegen)

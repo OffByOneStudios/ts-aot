@@ -243,6 +243,11 @@ private:
     bool tryGenerateModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
     bool tryGenerateModulePropertyAccess(ast::PropertyAccessExpression* node);
     bool tryGenerateModuleSourceMapNew(ast::NewExpression* node);
+
+    // Extension contract method calls
+    bool tryGenerateExtensionMethodCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop);
+    bool tryGenerateExtensionPropertyAccess(ast::PropertyAccessExpression* prop);
+
     void visitNewExpression(ast::NewExpression* node);
     void visitArrayLiteralExpression(ast::ArrayLiteralExpression* node);
     void visitElementAccessExpression(ast::ElementAccessExpression* node);

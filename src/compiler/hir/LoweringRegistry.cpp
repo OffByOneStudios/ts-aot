@@ -1,8 +1,11 @@
 #include "LoweringRegistry.h"
+#include "../extensions/ExtensionLoader.h"
+#include <spdlog/spdlog.h>
 
 namespace hir {
 
 bool LoweringRegistry::builtinsRegistered_ = false;
+bool LoweringRegistry::extensionsRegistered_ = false;
 
 LoweringRegistry& LoweringRegistry::instance() {
     static LoweringRegistry instance;
@@ -32,6 +35,7 @@ bool LoweringRegistry::hasLowering(const std::string& hirFuncName) const {
 void LoweringRegistry::clear() {
     registry_.clear();
     builtinsRegistered_ = false;  // Allow re-registration after clear
+    extensionsRegistered_ = false;
 }
 
 void LoweringRegistry::registerBuiltins() {
@@ -1147,6 +1151,156 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .ptrArg()      // constructor
             .build());
+}
+
+void LoweringRegistry::registerFromExtensions() {
+    if (extensionsRegistered_) return;
+    extensionsRegistered_ = true;
+
+    const auto& extRegistry = ext::ExtensionRegistry::instance();
+    const auto& contracts = extRegistry.getContracts();
+
+    int registeredCount = 0;
+
+    for (const auto& contract : contracts) {
+        // Register lowerings from type methods
+        for (const auto& [typeName, typeDef] : contract.types) {
+            for (const auto& [methodName, method] : typeDef.methods) {
+                if (!method.lowering || method.call.empty()) continue;
+
+                // Skip if already registered (builtins take precedence)
+                if (hasLowering(method.call)) continue;
+
+                LoweringSpecBuilder builder(method.call);
+
+                // Set return type
+                switch (method.lowering->returns) {
+                    case ext::LoweringType::Void:
+                        builder.returnsVoid();
+                        break;
+                    case ext::LoweringType::Ptr:
+                        builder.returnsPtr();
+                        break;
+                    case ext::LoweringType::I64:
+                        builder.returnsI64();
+                        break;
+                    case ext::LoweringType::I32:
+                        builder.returns([](llvm::LLVMContext& ctx) {
+                            return llvm::Type::getInt32Ty(ctx);
+                        });
+                        break;
+                    case ext::LoweringType::F64:
+                        builder.returnsF64();
+                        break;
+                    case ext::LoweringType::I1:
+                        builder.returnsBool();
+                        break;
+                    case ext::LoweringType::Boxed:
+                        builder.returnsBoxed();
+                        break;
+                }
+
+                // Set argument types
+                for (const auto& argType : method.lowering->args) {
+                    switch (argType) {
+                        case ext::LoweringType::Ptr:
+                            builder.ptrArg();
+                            break;
+                        case ext::LoweringType::I64:
+                            builder.i64Arg();
+                            break;
+                        case ext::LoweringType::I32:
+                            builder.i32Arg();
+                            break;
+                        case ext::LoweringType::F64:
+                            builder.f64Arg();
+                            break;
+                        case ext::LoweringType::I1:
+                            builder.boolArg();
+                            break;
+                        case ext::LoweringType::Boxed:
+                            builder.boxedArg();
+                            break;
+                        case ext::LoweringType::Void:
+                            // Void doesn't make sense for args, ignore
+                            break;
+                    }
+                }
+
+                registerLowering(method.call, builder.build());
+                registeredCount++;
+                SPDLOG_DEBUG("Registered lowering from extension: {} -> {}", method.call, typeName + "." + methodName);
+            }
+        }
+
+        // Register lowerings from standalone functions
+        for (const auto& [funcName, func] : contract.functions) {
+            if (!func.lowering || func.call.empty()) continue;
+
+            if (hasLowering(func.call)) continue;
+
+            LoweringSpecBuilder builder(func.call);
+
+            switch (func.lowering->returns) {
+                case ext::LoweringType::Void:
+                    builder.returnsVoid();
+                    break;
+                case ext::LoweringType::Ptr:
+                    builder.returnsPtr();
+                    break;
+                case ext::LoweringType::I64:
+                    builder.returnsI64();
+                    break;
+                case ext::LoweringType::I32:
+                    builder.returns([](llvm::LLVMContext& ctx) {
+                        return llvm::Type::getInt32Ty(ctx);
+                    });
+                    break;
+                case ext::LoweringType::F64:
+                    builder.returnsF64();
+                    break;
+                case ext::LoweringType::I1:
+                    builder.returnsBool();
+                    break;
+                case ext::LoweringType::Boxed:
+                    builder.returnsBoxed();
+                    break;
+            }
+
+            for (const auto& argType : func.lowering->args) {
+                switch (argType) {
+                    case ext::LoweringType::Ptr:
+                        builder.ptrArg();
+                        break;
+                    case ext::LoweringType::I64:
+                        builder.i64Arg();
+                        break;
+                    case ext::LoweringType::I32:
+                        builder.i32Arg();
+                        break;
+                    case ext::LoweringType::F64:
+                        builder.f64Arg();
+                        break;
+                    case ext::LoweringType::I1:
+                        builder.boolArg();
+                        break;
+                    case ext::LoweringType::Boxed:
+                        builder.boxedArg();
+                        break;
+                    case ext::LoweringType::Void:
+                        break;
+                }
+            }
+
+            registerLowering(func.call, builder.build());
+            registeredCount++;
+            SPDLOG_DEBUG("Registered lowering from extension: {} (function {})", func.call, funcName);
+        }
+    }
+
+    if (registeredCount > 0) {
+        SPDLOG_INFO("Registered {} lowerings from extension contracts", registeredCount);
+    }
 }
 
 } // namespace hir
