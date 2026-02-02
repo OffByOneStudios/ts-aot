@@ -1,6 +1,7 @@
 #include "IRGenerator.h"
 #include "BoxingPolicy.h"
 #include "../analysis/Monomorphizer.h"
+#include "../extensions/ExtensionLoader.h"
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <iostream>
@@ -157,7 +158,11 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     std::vector<std::shared_ptr<ClassType>> allClassTypes;
     
     // Add global classes
+    auto& extRegistry = ext::ExtensionRegistry::instance();
     for (const auto& [name, type] : analyzer.getSymbolTable().getGlobalTypes()) {
+        // Skip extension-defined types - they're implemented by the runtime, not codegen
+        if (extRegistry.isExtensionType(name)) continue;
+
         if (name == "Date" || name == "RegExp" || name == "Promise" || name == "Map" || name == "Error" ||
             name == "EventEmitter" || name == "Stream" || name == "Readable" || name == "Writable" ||
             name == "Duplex" || name == "Transform" || name == "ReadStream" || name == "WriteStream" ||
@@ -321,6 +326,8 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
     // 3. Third pass: Create VTables
     for (const auto& classType : allClassTypes) {
         std::string name = classType->name;
+        // Skip extension-defined types - they're implemented by the runtime
+        if (extRegistry.isExtensionType(name)) continue;
         if (name == "Date" || name == "RegExp" || name == "Error" || name.find("Promise_") == 0 || name == "Promise" || name == "Map" || name == "Set" || name == "TextEncoder" || name == "TextDecoder" || name == "AsyncLocalStorage" || name == "AsyncResource" || name == "AsyncHook" || name == "ChildProcess" || name == "Worker" || name == "UDPSocket" || name == "InspectorSession" || name == "Interface" || name == "ReadlineInterface" || name == "TTYReadStream" || name == "TTYWriteStream") continue;
         
         auto& layout = classLayouts[name];

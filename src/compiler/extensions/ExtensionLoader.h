@@ -77,6 +77,12 @@ public:
     const MethodDefinition* findMethod(const std::string& typeName, const std::string& methodName) const;
     const PropertyDefinition* findProperty(const std::string& typeName, const std::string& propName) const;
 
+    // Check if a type is defined by an extension (for codegen to skip VTable)
+    bool isExtensionType(const std::string& typeName) const;
+
+    // Get all globals that need initialization (for codegen)
+    std::vector<std::pair<std::string, const GlobalDefinition*>> getGlobals() const;
+
     // Get all loaded contracts
     const std::vector<ExtensionContract>& getContracts() const { return contracts_; }
 

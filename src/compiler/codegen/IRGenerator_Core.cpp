@@ -1,4 +1,5 @@
 #include "IRGenerator.h"
+#include "../extensions/ExtensionLoader.h"
 #include <fmt/core.h>
 #include <filesystem>
 #include <set>
@@ -413,6 +414,19 @@ void IRGenerator::generateGlobals(const Analyzer& analyzer) {
         new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
             llvm::Constant::getNullValue(type), mangledName);
     }
+
+    // Generate global variables for extension-defined globals
+    auto& extRegistry = ext::ExtensionRegistry::instance();
+    for (const auto& [name, global] : extRegistry.getGlobals()) {
+        // Skip if already defined
+        if (module->getGlobalVariable(name)) continue;
+
+        // Extension globals are always pointers (object instances)
+        llvm::Type* type = builder->getPtrTy();
+        new llvm::GlobalVariable(*module, type, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::Constant::getNullValue(type), name);
+        SPDLOG_DEBUG("Generated extension global variable: {}", name);
+    }
 }
 
 void IRGenerator::addStackProtection(llvm::Function* func) {
@@ -597,6 +611,32 @@ void IRGenerator::generateEntryPoint() {
         llvm::GlobalVariable* moduleGlobal = module->getNamedGlobal("__ts_module");
         if (moduleGlobal) {
             builder->CreateStore(moduleObj, moduleGlobal);
+        }
+    }
+
+    // Initialize extension-defined globals by calling their factory functions
+    {
+        auto& extRegistry = ext::ExtensionRegistry::instance();
+        for (const auto& [name, global] : extRegistry.getGlobals()) {
+            // Only initialize property globals with a factory function
+            if (global->kind != ext::GlobalDefinition::Kind::Property) continue;
+            if (!global->factory) continue;
+
+            // Get or create the global variable
+            llvm::GlobalVariable* globalVar = module->getNamedGlobal(name);
+            if (!globalVar) {
+                SPDLOG_WARN("Extension global {} not found in module", name);
+                continue;
+            }
+
+            // Declare the factory function: ptr factory(void)
+            llvm::FunctionType* factoryFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+            llvm::FunctionCallee factoryFn = module->getOrInsertFunction(*global->factory, factoryFt);
+
+            // Call factory and store result in global
+            llvm::Value* instance = builder->CreateCall(factoryFt, factoryFn.getCallee(), {});
+            builder->CreateStore(instance, globalVar);
+            SPDLOG_DEBUG("Initialized extension global {} via factory {}", name, *global->factory);
         }
     }
 

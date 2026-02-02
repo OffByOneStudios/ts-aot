@@ -6,7 +6,8 @@
 
   "globals": {
     "testInstance": {
-      "type": "TestClass"
+      "type": "TestClass",
+      "factory": "ts_test_create_instance"
     }
   },
 
@@ -47,10 +48,18 @@
       },
       "properties": {
         "count": {
-          "type": "number"
+          "type": "number",
+          "getter": "ts_test_get_count",
+          "lowering": {
+            "returns": "i64"
+          }
         },
         "label": {
-          "type": "string"
+          "type": "string",
+          "getter": "ts_test_get_label",
+          "lowering": {
+            "returns": "ptr"
+          }
         }
       }
     }

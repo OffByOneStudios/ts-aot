@@ -142,6 +142,9 @@ struct GlobalDefinition {
     // One of these will be populated based on kind
     std::optional<PropertyDefinition> property;
     std::optional<FunctionDefinition> function;
+
+    // Factory function to call at initialization (for property globals)
+    std::optional<std::string> factory;
 };
 
 //=============================================================================

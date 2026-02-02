@@ -133,6 +133,12 @@ public:
         }, conv);
     }
 
+    LoweringSpecBuilder& i32Arg(ArgConversion conv = ArgConversion::None) {
+        return arg([](llvm::LLVMContext& ctx) {
+            return llvm::Type::getInt32Ty(ctx);
+        }, conv);
+    }
+
     LoweringSpecBuilder& f64Arg(ArgConversion conv = ArgConversion::None) {
         return arg([](llvm::LLVMContext& ctx) {
             return llvm::Type::getDoubleTy(ctx);
@@ -179,6 +185,9 @@ public:
     /// Initialize with all builtin lowerings
     static void registerBuiltins();
 
+    /// Register lowerings from extension contracts
+    void registerFromExtensions();
+
     /// Clear all registrations (for testing)
     void clear();
 
@@ -187,6 +196,7 @@ private:
     void registerBuiltinsImpl();  // Internal implementation to avoid recursion
     std::unordered_map<std::string, LoweringSpec> registry_;
     static bool builtinsRegistered_;
+    static bool extensionsRegistered_;
 };
 
 } // namespace hir
